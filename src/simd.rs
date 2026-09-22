@@ -11,6 +11,9 @@ cfg_if::cfg_if! {
     if #[cfg(docsrs)] {
         mod unimplemented;
         pub(crate) use unimplemented::*;
+    } else if #[cfg(feature = "force-generic")] {
+        mod generic;
+        pub(crate) use generic::*;
     } else if #[cfg(target_arch = "aarch64")] {
         mod aarch64;
         pub(crate) use aarch64::*;

@@ -55,6 +55,9 @@ jobs:
       - name: Test (--no-default-features)
         run: cargo test --release --no-default-features --lib --tests
 
+      - name: Test (--features force-generic)
+        run: cargo test --release --features force-generic
+
       - name: Clippy
         run: cargo clippy --all-targets
 

@@ -29,6 +29,8 @@ rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "src/_docs/header.html"]
 [features]
 default = ["gmp"]
 gmp = ["gmp-mpfr-sys", "nom", "rug"]
+# Use the portable backend (src/simd/generic.rs) on every architecture.
+force-generic = []
 
 [dependencies]
 cfg-if = "1.0"

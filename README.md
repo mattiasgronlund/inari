@@ -28,6 +28,7 @@ When using the Cargo feature `gmp` (see below), target platforms are limited to 
 ## Cargo Features
 
 - `gmp` (enabled by default) - Enables [operations](https://docs.rs/inari/latest/inari/_docs/conformance/) that depend on GMP and MPFR. You can opt out of the feature to reduce dependencies. Even in that case, you still have access to all operations required by certain kinds of tasks, such as making fast robust predicates for computational geometry.
+- `force-generic` - Uses the portable backend (see above) on x86-64 and AArch64 too. It is slower, but does not change the rounding mode, and does not require a Haswell-based or newer processor.
 
 ## [Changelog](CHANGELOG.md)
 
