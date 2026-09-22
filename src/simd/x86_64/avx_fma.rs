@@ -31,8 +31,26 @@ macro_rules! impl_op_round {
     };
 }
 
-impl_op_round!(f64, sqrt1_rd(x), "vsqrtsd {x}, {x}, {x}", rd);
-impl_op_round!(f64, sqrt1_ru(x), "vsqrtsd {x}, {x}, {x}", ru);
+// Correcting the square root rounded to nearest, as the generic backend does, is
+// faster than switching the rounding mode around `vsqrtsd` (see BENCHMARKS.md).
+// FMA is always available here.
+
+/// `sqrt1_rd(x) = √x` rounded toward -∞.
+pub(crate) fn sqrt1_rd(x: f64) -> f64 {
+    crate::simd::generic::sqrt1_rd_impl::<true>(x)
+}
+
+/// `sqrt1_ru(x) = √x` rounded toward +∞.
+pub(crate) fn sqrt1_ru(x: f64) -> f64 {
+    crate::simd::generic::sqrt1_ru_impl::<true>(x)
+}
+
+// The square root with the rounding mode switched, as an independent reference
+// for `sqrt1_rd` and `sqrt1_ru` in the differential tests.
+#[cfg(test)]
+impl_op_round!(f64, sqrt1_rd_mxcsr(x), "vsqrtsd {x}, {x}, {x}", rd);
+#[cfg(test)]
+impl_op_round!(f64, sqrt1_ru_mxcsr(x), "vsqrtsd {x}, {x}, {x}", ru);
 impl_op_round!(f64, sub1_ru(x, y), "vsubsd {x}, {x}, {y}", ru);
 impl_op_round!(super::F64X2, add_ru(x, y), "vaddpd {x}, {x}, {y}", ru);
 impl_op_round!(super::F64X2, sub_ru(x, y), "vsubpd {x}, {x}, {y}", ru);

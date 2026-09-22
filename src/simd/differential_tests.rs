@@ -10,6 +10,16 @@
 use super::generic;
 use std::fmt::Write;
 
+cfg_if::cfg_if! {
+    // `avx_fma` takes its square root from the generic backend, so it is compared
+    // with the one that switches the rounding mode instead.
+    if #[cfg(target_feature = "avx512f")] {
+        use super::{sqrt1_rd as hw_sqrt1_rd, sqrt1_ru as hw_sqrt1_ru};
+    } else {
+        use super::{sqrt1_rd_mxcsr as hw_sqrt1_rd, sqrt1_ru_mxcsr as hw_sqrt1_ru};
+    }
+}
+
 struct Rng(u64);
 
 impl Rng {
@@ -193,24 +203,16 @@ fn ternary_ops() -> Vec<(&'static str, HwTernary, Ternary)> {
 
 fn unary_ops() -> Vec<(&'static str, Unary1, Unary1)> {
     vec![
-        (
-            "sqrt1_ru/fma",
-            super::sqrt1_ru,
-            generic::sqrt1_ru_impl::<true>,
-        ),
+        ("sqrt1_ru/fma", hw_sqrt1_ru, generic::sqrt1_ru_impl::<true>),
         (
             "sqrt1_ru/dekker",
-            super::sqrt1_ru,
+            hw_sqrt1_ru,
             generic::sqrt1_ru_impl::<false>,
         ),
-        (
-            "sqrt1_rd/fma",
-            super::sqrt1_rd,
-            generic::sqrt1_rd_impl::<true>,
-        ),
+        ("sqrt1_rd/fma", hw_sqrt1_rd, generic::sqrt1_rd_impl::<true>),
         (
             "sqrt1_rd/dekker",
-            super::sqrt1_rd,
+            hw_sqrt1_rd,
             generic::sqrt1_rd_impl::<false>,
         ),
     ]

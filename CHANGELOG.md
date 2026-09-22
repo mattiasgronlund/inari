@@ -9,6 +9,10 @@ Items marked with ⚠️ are breaking changes.
 - Added support for architectures other than x86-64 and AArch64, such as wasm32 and riscv64, with a portable backend that does not change the rounding mode.
 - Added the Cargo feature `force-generic`, which uses the portable backend on x86-64 and AArch64 too.
 
+### Changed
+
+- Made `(Dec)Interval::sqrt` about 2.5 times faster on x86-64 processors without AVX-512F, by computing the square root without changing the rounding mode.
+
 ## v2.0.0 - 2024-08-07
 
 ### Added

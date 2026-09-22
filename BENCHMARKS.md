@@ -112,6 +112,24 @@ where changing MXCSR is undesirable, or on x86-64 processors without AVX,
 which `avx_fma` does not support. Measurements on an idle machine, and on a
 processor with a cheaper `vldmxcsr`, could change the picture.
 
+## Square root in `avx_fma`
+
+Following these results, `avx_fma` now takes `sqrt1_rd` and `sqrt1_ru` from
+`generic` (the FMA variant) instead of switching the rounding mode. The tables
+above show the old `avx_fma`. The square root benchmarks were then run again,
+three times interleaved (load average 1 to 6), with the same method:
+
+| Benchmark | old avx_fma (ns) | new avx_fma (ns) | ratio | generic, FMA (ns) | spread |
+|---|--:|--:|--:|--:|--:|
+| sqrt1_ru/throughput | 8.65 | 2.35 | 0.27× | 2.15 | 60% |
+| sqrt1_ru/latency | 8.32 | 7.44 | 0.89× | 7.39 | 7% |
+| sqrt/P | 17.72 | 6.80 | 0.38× | 6.83 | 60% |
+
+Ratios are new over old `avx_fma`. The large spreads come from one run each
+(new `avx_fma` throughput, `generic` `sqrt/P`); the other runs are within 7%.
+The new `avx_fma` and `generic` run the same code, and their difference is
+within the noise.
+
 ## Running the benchmarks
 
 The benchmarks are in `bench/`, a separate package, so that criterion does not

@@ -21,9 +21,9 @@ cfg_if::cfg_if! {
         mod x86_64;
         pub(crate) use x86_64::*;
 
-        // The generic backend is also built for testing it against the hardware one.
-        #[cfg(test)]
-        #[allow(dead_code)] // Only the rounding functions are compared.
+        // The generic backend provides the square root of `avx_fma`, and is tested
+        // against the hardware backend.
+        #[allow(dead_code)] // Only the square root and, in tests, the rounding functions are used.
         mod generic;
         #[cfg(test)]
         mod differential_tests;
