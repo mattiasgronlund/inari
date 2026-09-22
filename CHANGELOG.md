@@ -8,6 +8,7 @@ Items marked with ⚠️ are breaking changes.
 
 - Added support for architectures other than x86-64 and AArch64, such as wasm32 and riscv64, with a portable backend that does not change the rounding mode.
 - Added the Cargo feature `force-generic`, which uses the portable backend on x86-64 and AArch64 too.
+- Added a backend for WebAssembly that uses 128-bit SIMD instructions, enabled by the target feature `simd128`. It makes interval operations about twice as fast as the portable backend.
 
 ### Changed
 

@@ -21,14 +21,14 @@ The following CPUs are supported and continuously tested:
 
 - **AArch64 (ARM64)**
 
-Other architectures, such as WebAssembly (`wasm32`) and RISC-V (`riscv64`), are supported by a portable backend (experimental). It only relies on floating-point arithmetic in the default rounding mode, and requires no target features, but it is slower than the backends for x86-64 and AArch64. It uses fused multiply-add instructions where the target has them.
+Other architectures, such as WebAssembly (`wasm32`) and RISC-V (`riscv64`), are supported by a portable backend (experimental). It only relies on floating-point arithmetic in the default rounding mode, and requires no target features, but it is slower than the backends for x86-64 and AArch64. It uses fused multiply-add instructions where the target has them. On WebAssembly, building with `RUSTFLAGS='-Ctarget-feature=+simd128'` selects a faster variant that uses 128-bit SIMD instructions.
 
 When using the Cargo feature `gmp` (see below), target platforms are limited to those that are supported by the [`gmp-mpfr-sys`](https://crates.io/crates/gmp-mpfr-sys) crate. For example, MSVC is not supported.
 
 ## Cargo Features
 
 - `gmp` (enabled by default) - Enables [operations](https://docs.rs/inari/latest/inari/_docs/conformance/) that depend on GMP and MPFR. You can opt out of the feature to reduce dependencies. Even in that case, you still have access to all operations required by certain kinds of tasks, such as making fast robust predicates for computational geometry.
-- `force-generic` - Uses the portable backend (see above) on x86-64 and AArch64 too. It is slower, but does not change the rounding mode, and does not require a Haswell-based or newer processor.
+- `force-generic` - Uses the portable backend (see above) on x86-64, AArch64 and WebAssembly with `simd128` too. It is slower, but does not change the rounding mode, and does not require a Haswell-based or newer processor.
 
 ## [Changelog](CHANGELOG.md)
 

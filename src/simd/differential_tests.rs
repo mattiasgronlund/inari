@@ -1,6 +1,9 @@
 // Compares the rounding functions of the generic backend bit for bit with the
-// hardware backend (`avx_fma` or `avx512f`), which switches the rounding mode.
+// backend of the target: on x86-64, the hardware backend (`avx_fma` or
+// `avx512f`), which switches the rounding mode; on wasm32, the `wasm32` backend,
+// which vectorizes the fast paths of the generic one, and is compared with it.
 // Both the FMA and the Dekker (no FMA) variants of the generic backend are tested.
+// On wasm32, `f64::mul_add` is a software routine, but still correctly rounded.
 // NaNs compare equal regardless of their sign and payload, which inari does not
 // depend on (x86 returns a negative default NaN, the generic backend does not).
 //
@@ -15,7 +18,7 @@ cfg_if::cfg_if! {
     // with the one that switches the rounding mode instead.
     if #[cfg(target_feature = "avx512f")] {
         use super::{sqrt1_rd as hw_sqrt1_rd, sqrt1_ru as hw_sqrt1_ru};
-    } else {
+    } else if #[cfg(target_arch = "x86_64")] {
         use super::{sqrt1_rd_mxcsr as hw_sqrt1_rd, sqrt1_ru_mxcsr as hw_sqrt1_ru};
     }
 }
@@ -201,6 +204,14 @@ fn ternary_ops() -> Vec<(&'static str, HwTernary, Ternary)> {
     ]
 }
 
+// `wasm32` takes its square root from the generic backend, so there is nothing to
+// compare it with.
+#[cfg(target_arch = "wasm32")]
+fn unary_ops() -> Vec<(&'static str, Unary1, Unary1)> {
+    vec![]
+}
+
+#[cfg(target_arch = "x86_64")]
 fn unary_ops() -> Vec<(&'static str, Unary1, Unary1)> {
     vec![
         ("sqrt1_ru/fma", hw_sqrt1_ru, generic::sqrt1_ru_impl::<true>),

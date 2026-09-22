@@ -46,3 +46,14 @@ jobs:
 
       - name: Test (wasm32-wasip1)
         run: cargo test --release --no-default-features --lib --tests --target wasm32-wasip1
+
+      # The `wasm32` backend, which needs the `simd128` target feature.
+      - name: Clippy (wasm32-unknown-unknown, simd128)
+        run: cargo clippy --no-default-features --target wasm32-unknown-unknown
+        env:
+          RUSTFLAGS: -Dwarnings -Ctarget-feature=+simd128
+
+      - name: Test (wasm32-wasip1, simd128)
+        run: cargo test --release --no-default-features --lib --tests --target wasm32-wasip1
+        env:
+          RUSTFLAGS: -Dwarnings -Ctarget-feature=+simd128

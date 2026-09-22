@@ -27,6 +27,16 @@ cfg_if::cfg_if! {
         mod generic;
         #[cfg(test)]
         mod differential_tests;
+    } else if #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))] {
+        mod wasm32;
+        pub(crate) use wasm32::*;
+
+        // The generic backend provides the slow paths and the scalar operations of
+        // `wasm32`, and is tested against it.
+        #[allow(dead_code)] // Only the rounding functions are used.
+        mod generic;
+        #[cfg(test)]
+        mod differential_tests;
     } else {
         mod generic;
         pub(crate) use generic::*;
