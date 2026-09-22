@@ -259,7 +259,33 @@ pub(crate) fn splat(x: f64) -> F64X2 {
     f64x2_splat(x)
 }
 
+/// `sqrt_rd_ru([x0, x1]) = [√x0, √x1]`, the first rounded toward -∞ and the
+/// second toward +∞.
+pub(crate) fn sqrt_rd_ru(x: F64X2) -> F64X2 {
+    // The lane-wise form of `generic::sqrt1_fast`, Dekker's variant, correcting
+    // the two lanes in opposite directions.
+    let s = f64x2_sqrt(x);
+    let p = f64x2_mul(s, s);
+    // x - p is exact by Sterbenz's lemma, and so is the last subtraction.
+    let r = f64x2_sub(f64x2_sub(x, p), two_prod_err(s, s, p));
+    // The remainder is representable if 2^-966 <= x < 2^1022, which also excludes
+    // ±0, +∞ and NaN, but not negative numbers: for those, s and r are NaN, the
+    // comparisons below are false, and NaN is returned.
+    let ok = exponent_in(x, -966, 1021);
+    // √x < s ⟺ x - s² < 0, and then the result is the predecessor of s. Lane 0
+    // rounds toward -∞, lane 1 toward +∞. Where a lane is corrected, s >= 2^-483,
+    // so stepping is incrementing or decrementing its bits.
+    let down = and(f64x2_lt(r, ZERO), LANE0);
+    let up = v128_andnot(f64x2_gt(r, ZERO), LANE0);
+    let stepped = i64x2_sub(i64x2_add(s, down), up);
+    or_generic(ok, stepped, || generic::sqrt_rd_ru(extract(x)))
+}
+
 /// `sqrt1_rd(x) = √x` rounded toward -∞.
+// Part of the backend interface, but nothing calls it here: `Interval::sqrt`
+// needs a lone square root only for an interval containing zero, which rounds
+// up, and `sqrt_rd_ru` falls back to `generic` as a pair.
+#[allow(dead_code)]
 pub(crate) fn sqrt1_rd(x: f64) -> f64 {
     generic::sqrt1_rd(x)
 }
@@ -297,6 +323,9 @@ pub(crate) fn trunc(x: F64X2) -> F64X2 {
 // of a lane set for true, and none for false.
 
 const ZERO: F64X2 = f64x2(0.0, 0.0);
+
+/// The mask of lane 0 alone.
+const LANE0: F64X2 = i64x2(-1, 0);
 
 /// `select(m, x, y)` takes the lanes of x where m is set, and those of y elsewhere.
 fn select(m: F64X2, x: F64X2, y: F64X2) -> F64X2 {

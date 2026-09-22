@@ -13,6 +13,7 @@ Items marked with ⚠️ are breaking changes.
 ### Changed
 
 - Made `(Dec)Interval::sqrt` about 2.5 times faster on x86-64 processors without AVX-512F, by computing the square root without changing the rounding mode.
+- Made `(Dec)Interval::sqrt` compute both endpoints in a single vector square root when the interval does not contain zero: about 1.8 times faster on x86-64 processors without AVX-512F, and about 1.5 times faster on WebAssembly with `simd128`.
 
 ## v2.0.0 - 2024-08-07
 

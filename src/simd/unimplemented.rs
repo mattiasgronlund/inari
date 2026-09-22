@@ -142,6 +142,10 @@ pub(crate) fn splat(_: f64) -> F64X2 {
     unimplemented!()
 }
 
+pub(crate) fn sqrt_rd_ru(_: F64X2) -> F64X2 {
+    unimplemented!()
+}
+
 pub(crate) fn sqrt1_rd(_: f64) -> f64 {
     unimplemented!()
 }

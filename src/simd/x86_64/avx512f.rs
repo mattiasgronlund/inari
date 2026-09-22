@@ -27,6 +27,13 @@ macro_rules! impl_op_round {
 impl_op_round!(f64, xmm_reg, sqrt1_rd(x), "vsqrtsd {x}, {x}, {x}", rd);
 impl_op_round!(f64, xmm_reg, sqrt1_ru(x), "vsqrtsd {x}, {x}, {x}", ru);
 impl_op_round!(f64, xmm_reg, sub1_ru(x, y), "vsubsd {x}, {x}, {y}", ru);
+
+/// `sqrt_rd_ru([x0, x1]) = [√x0, √x1]`, the first rounded toward -∞ and the
+/// second toward +∞. Embedded rounding applies to a whole instruction, so the
+/// two lanes are done separately.
+pub(crate) fn sqrt_rd_ru(x: super::F64X2) -> super::F64X2 {
+    super::constant(sqrt1_rd(super::extract0(x)), sqrt1_ru(super::extract1(x)))
+}
 impl_op_round!(
     super::F64X2,
     zmm_reg,

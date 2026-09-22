@@ -580,9 +580,15 @@ impl Interval {
         if b < 0.0 {
             Self::EMPTY
         } else if a <= 0.0 {
+            // Only one square root is needed, so `sqrt_rd_ru` would be wasted: a
+            // lower lane of zero fails its fast-path check (see BENCHMARKS.md).
             Self::with_infsup_raw(0.0, sqrt1_ru(b))
         } else {
-            Self::with_infsup_raw(sqrt1_rd(a), sqrt1_ru(b))
+            // Both endpoints in one vector square root. `neg0` turns the
+            // representation [-a; b] into [a; b], and back afterward.
+            Self {
+                rep: neg0(sqrt_rd_ru(neg0(self.rep))),
+            }
         }
     }
 }

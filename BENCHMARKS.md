@@ -34,18 +34,26 @@ without an FMA, which WebAssembly does not have:
 ## Variance
 
 Every configuration was run twice, interleaved. The tables show the lower of the
-two medians, and "spread" is the largest difference between the two runs of any
-one configuration in that row, relative to the lower one. All spreads are at or
-below 3%; treat differences below about 5% as not significant.
+two medians, and "spread" is the largest difference between the runs of any one
+configuration in that row, relative to the lower one. Treat differences below
+about 5% as not significant.
+
+All spreads are at or below 3%, except the `sqrt` rows on x86-64, which were
+measured over five rounds instead of two. There the two `generic` columns land
+in one of two clusters about 15% apart, depending on the process, while
+`sqrt1_ru` in the same process stays within 1%; `avx_fma` and the WebAssembly
+columns do not show it. The same two clusters appear before the change that
+vectorized `sqrt`, so the `generic` numbers below should be read as unchanged
+from the previous measurement rather than as an improvement.
 
 ## Results
 
 Times are the median per operation: per `F64X2` operation (two lanes) for the
 primitives, except `sqrt1_ru`, which is scalar and is timed per square root,
-and per interval operation otherwise. Note that an interval `sqrt` performs two
-square roots, and that everything around them (the empty test, taking the two
-endpoints apart and building the result) goes through `F64X2`, which is why it
-does not follow `sqrt1_ru` from one backend to the next.
+and per interval operation otherwise. Note that an interval `sqrt` needs the
+square roots of both endpoints, and that everything around them (the empty test,
+taking the two endpoints apart and building the result) goes through `F64X2`,
+which is why it does not follow `sqrt1_ru` from one backend to the next.
 
 Ratios are relative to the first column; below 1 means faster than it.
 
@@ -76,7 +84,8 @@ M: containing zero):
 | div/MP | 10.19 | 26.98 | 2.65× | 25.39 | 2.49× | 0% |
 | div/NN | 10.18 | 26.29 | 2.58× | 25.49 | 2.50× | 1% |
 | div/PM (= ℝ) | 3.76 | 4.90 | 1.30× | 4.93 | 1.31× | 0% |
-| sqrt/P | 6.85 | 8.25 | 1.20× | 11.83 | 1.73× | 3% |
+| sqrt/P | 3.70 | 7.21 | 1.95× | 11.27 | 3.05× | 17% |
+| sqrt/M | 7.88 | 7.80 | 0.99× | 9.20 | 1.17× | 10% |
 | Horner, degree 8, P | 308.30 | 169.24 | 0.55× | 226.63 | 0.74× | 2% |
 | Horner, degree 8, M | 355.61 | 272.37 | 0.77× | 375.36 | 1.06× | 2% |
 | 3×3 determinant | 236.04 | 255.37 | 1.08× | 321.71 | 1.36× | 1% |
@@ -126,7 +135,8 @@ around `vsqrtsd`, `sqrt1_ru/throughput` was 8.65 ns and interval `sqrt/P` was
 | div/MP | 30.35 | 30.49 | 1.00× | 16.31 | 0.54× | 0% |
 | div/NN | 30.99 | 31.63 | 1.02× | 16.18 | 0.52× | 1% |
 | div/PM (= ℝ) | 9.89 | 9.21 | 0.93× | 7.88 | 0.80× | 0% |
-| sqrt/P | 15.96 | 15.57 | 0.98× | 15.71 | 0.98× | 1% |
+| sqrt/P | 15.84 | 15.19 | 0.96× | 10.20 | 0.64× | 1% |
+| sqrt/M | 13.55 | 14.92 | 1.10× | 13.58 | 1.00× | 0% |
 | Horner, degree 8, P | 310.73 | 309.73 | 1.00× | 160.74 | 0.52× | 2% |
 | Horner, degree 8, M | 465.52 | 461.92 | 0.99× | 240.37 | 0.52× | 1% |
 | 3×3 determinant | 378.60 | 376.21 | 0.99× | 136.88 | 0.36× | 0% |
@@ -164,8 +174,21 @@ around `vsqrtsd`, `sqrt1_ru/throughput` was 8.65 ns and interval `sqrt/P` was
   primitives 1.4× worse. Writing the fast paths against `v128` explicitly, as
   the `wasm32` backend does, is what pays: interval operations take 0.4–0.6× the
   time, and the 3×3 determinant 0.36×.
-- `sqrt` is the same in all three WebAssembly configurations, because `wasm32`
-  takes it from `generic`: it is a scalar operation with nothing to vectorize.
+- `sqrt/P` is where the vectorized square root pays: `avx_fma` takes 0.51× the
+  time of `generic` with an FMA, and `wasm32` 0.64× that of the scalar
+  configuration. Both do the two endpoints in one vector square root, correcting
+  the lanes in opposite directions. The scalar `sqrt1_ru` is unchanged, so the
+  two WebAssembly `generic` columns are unchanged too.
+- `sqrt/M` does not benefit: an interval containing zero has the square root of
+  only one endpoint to compute, so `Interval::sqrt` keeps a scalar branch for it
+  rather than feeding a zero lane to a fast path that would reject it. The
+  vectorized backends are then on par with the portable one, as the table shows.
+  Going through the vector path instead cost 1.9× on `sqrt/M`, which is what
+  that branch avoids.
+- The fallback of `avx_fma::sqrt_rd_ru`, for the rare arguments its fast path
+  rejects, is kept out of line. Inlined, it brings two whole scalar square roots
+  with it, which makes `Interval::sqrt` too large for its callers to inline: that
+  alone cost 1.6× on `sqrt/M`, which never reaches the fallback.
 
 ## Conclusion
 

@@ -142,6 +142,12 @@ pub(crate) fn splat(x: f64) -> F64X2 {
     unsafe { transmute([x, x]) }
 }
 
+/// `sqrt_rd_ru([x0, x1]) = [√x0, √x1]`, the first rounded toward -∞ and the
+/// second toward +∞.
+pub(crate) fn sqrt_rd_ru(x: F64X2) -> F64X2 {
+    constant(sqrt1_rd(extract0(x)), sqrt1_ru(extract1(x)))
+}
+
 pub(crate) fn sub_rn(x: F64X2, y: F64X2) -> F64X2 {
     unsafe { vsubq_f64(x, y) }
 }

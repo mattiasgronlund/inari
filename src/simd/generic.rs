@@ -216,6 +216,12 @@ pub(crate) fn splat(x: f64) -> F64X2 {
     [x, x]
 }
 
+/// `sqrt_rd_ru([x0, x1]) = [√x0, √x1]`, the first rounded toward -∞ and the
+/// second toward +∞.
+pub(crate) fn sqrt_rd_ru(x: F64X2) -> F64X2 {
+    [sqrt1_rd(x[0]), sqrt1_ru(x[1])]
+}
+
 /// `sqrt1_rd(x) = √x` rounded toward -∞.
 pub(crate) fn sqrt1_rd(x: f64) -> f64 {
     sqrt1_rd_impl::<HAS_FMA>(x)

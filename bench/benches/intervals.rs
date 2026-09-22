@@ -89,8 +89,11 @@ fn intervals_bench(c: &mut Criterion) {
     let p = intervals('P', 3);
     let m = intervals('M', 4);
     type Unary = fn(Interval) -> Interval;
-    let unary: [(&str, Unary, &[Interval]); 3] = [
+    // sqrt/M is the case that does not use the vector square root: an interval
+    // containing zero needs the square root of one endpoint only.
+    let unary: [(&str, Unary, &[Interval]); 4] = [
         ("sqrt/P", Interval::sqrt, &p),
+        ("sqrt/M", Interval::sqrt, &m),
         ("horner8/P", horner, &p),
         ("horner8/M", horner, &m),
     ];

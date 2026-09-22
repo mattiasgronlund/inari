@@ -1,4 +1,4 @@
-use std::arch::asm;
+use std::arch::{asm, x86_64::*};
 
 macro_rules! impl_op_round {
     ($t:ty, $f:ident ($x:ident $(,$y:ident)*), $inst:literal, rd) => {
@@ -43,6 +43,55 @@ pub(crate) fn sqrt1_rd(x: f64) -> f64 {
 /// `sqrt1_ru(x) = √x` rounded toward +∞.
 pub(crate) fn sqrt1_ru(x: f64) -> f64 {
     crate::simd::generic::sqrt1_ru_impl::<true>(x)
+}
+
+/// `sqrt_rd_ru([x0, x1]) = [√x0, √x1]`, the first rounded toward -∞ and the
+/// second toward +∞.
+pub(crate) fn sqrt_rd_ru(x: super::F64X2) -> super::F64X2 {
+    // The lane-wise form of `generic::sqrt1_fast` with an FMA, correcting the
+    // two lanes in opposite directions.
+    unsafe {
+        let s = _mm_sqrt_pd(x);
+        // x - s² is representable, so the FMA computes it exactly.
+        let r = _mm_fnmadd_pd(s, s, x);
+        // The remainder is representable if 2^-966 <= x < 2^1024, which also
+        // excludes ±0, +∞ and NaN, but not negative numbers: for those, s and r
+        // are NaN, the comparisons below are false, and NaN is returned.
+        let e = _mm_sub_epi64(
+            _mm_and_si128(
+                _mm_srli_epi64(_mm_castpd_si128(x), 52),
+                _mm_set1_epi64x(0x7ff),
+            ),
+            _mm_set1_epi64x(1023),
+        );
+        let ok = _mm_and_si128(
+            _mm_cmpgt_epi64(e, _mm_set1_epi64x(-967)),
+            _mm_cmpgt_epi64(_mm_set1_epi64x(1024), e),
+        );
+        if _mm_movemask_pd(_mm_castsi128_pd(ok)) != 3 {
+            return sqrt_rd_ru_slow(x);
+        }
+        // √x < s ⟺ x - s² < 0, and then the result is the predecessor of s.
+        // Lane 0 rounds toward -∞, lane 1 toward +∞. Where a lane is corrected,
+        // s >= 2^-483, so stepping is incrementing or decrementing its bits.
+        let zero = _mm_setzero_pd();
+        let lane0 = _mm_castsi128_pd(_mm_set_epi64x(0, -1));
+        let down = _mm_and_pd(_mm_cmplt_pd(r, zero), lane0);
+        let up = _mm_andnot_pd(lane0, _mm_cmpgt_pd(r, zero));
+        let b = _mm_castpd_si128(s);
+        _mm_castsi128_pd(_mm_sub_epi64(
+            _mm_add_epi64(b, _mm_castpd_si128(down)),
+            _mm_castpd_si128(up),
+        ))
+    }
+}
+
+// Kept out of line: inlining two scalar square roots into `sqrt_rd_ru` makes it
+// too large to inline into its callers (see BENCHMARKS.md).
+#[cold]
+fn sqrt_rd_ru_slow(x: super::F64X2) -> super::F64X2 {
+    let [x0, x1] = super::extract(x);
+    super::constant(sqrt1_rd(x0), sqrt1_ru(x1))
 }
 
 // The square root with the rounding mode switched, as an independent reference

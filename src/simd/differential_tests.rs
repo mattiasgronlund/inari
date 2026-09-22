@@ -153,8 +153,10 @@ impl Report {
     }
 }
 
+type HwUnary = fn(super::F64X2) -> super::F64X2;
 type HwBinary = fn(super::F64X2, super::F64X2) -> super::F64X2;
 type HwTernary = fn(super::F64X2, super::F64X2, super::F64X2) -> super::F64X2;
+type Unary = fn(generic::F64X2) -> generic::F64X2;
 type Binary = fn(generic::F64X2, generic::F64X2) -> generic::F64X2;
 type Ternary = fn(generic::F64X2, generic::F64X2, generic::F64X2) -> generic::F64X2;
 type Unary1 = fn(f64) -> f64;
@@ -204,15 +206,32 @@ fn ternary_ops() -> Vec<(&'static str, HwTernary, Ternary)> {
     ]
 }
 
-// `wasm32` takes its square root from the generic backend, so there is nothing to
-// compare it with.
+fn unary_ops() -> Vec<(&'static str, HwUnary, Unary)> {
+    vec![("sqrt_rd_ru", super::sqrt_rd_ru, sqrt_rd_ru_reference)]
+}
+
+// An independent reference for `sqrt_rd_ru`: on x86-64, the square root with the
+// rounding mode switched; on wasm32, the generic backend, whose fast paths the
+// `wasm32` one vectorizes.
+#[cfg(target_arch = "x86_64")]
+fn sqrt_rd_ru_reference(x: generic::F64X2) -> generic::F64X2 {
+    [hw_sqrt1_rd(x[0]), hw_sqrt1_ru(x[1])]
+}
+
 #[cfg(target_arch = "wasm32")]
-fn unary_ops() -> Vec<(&'static str, Unary1, Unary1)> {
+fn sqrt_rd_ru_reference(x: generic::F64X2) -> generic::F64X2 {
+    generic::sqrt_rd_ru(x)
+}
+
+// `wasm32` takes its scalar square root from the generic backend, so there is
+// nothing to compare it with.
+#[cfg(target_arch = "wasm32")]
+fn unary1_ops() -> Vec<(&'static str, Unary1, Unary1)> {
     vec![]
 }
 
 #[cfg(target_arch = "x86_64")]
-fn unary_ops() -> Vec<(&'static str, Unary1, Unary1)> {
+fn unary1_ops() -> Vec<(&'static str, Unary1, Unary1)> {
     vec![
         ("sqrt1_ru/fma", hw_sqrt1_ru, generic::sqrt1_ru_impl::<true>),
         (
@@ -227,6 +246,16 @@ fn unary_ops() -> Vec<(&'static str, Unary1, Unary1)> {
             generic::sqrt1_rd_impl::<false>,
         ),
     ]
+}
+
+fn check_unary(r: &mut Report, name: &str, hw: HwUnary, f: Unary, a: [f64; 2]) {
+    let expected = super::extract(hw(super::constant(a[0], a[1])));
+    let actual = f(a);
+    for i in 0..2 {
+        // Both lanes of the argument are reported: the lanes are rounded in
+        // opposite directions, so a mismatch depends on which one this is.
+        r.check(name, &a, expected[i], actual[i]);
+    }
 }
 
 fn check_binary(r: &mut Report, name: &str, hw: HwBinary, f: Binary, a: [f64; 2], b: [f64; 2]) {
@@ -319,6 +348,19 @@ fn random_pair(rng: &mut Rng, name: &str) -> (f64, f64) {
         }
     };
     (x, y)
+}
+
+// An argument for the square root: anything, or an exact square and its
+// neighbors, where the correction by the sign of the remainder is decided by a
+// single ulp.
+fn random_sqrt_arg(rng: &mut Rng) -> f64 {
+    match rng.below(2) {
+        0 => rng.any(),
+        _ => {
+            let s = rng.any().abs();
+            rng.nudge(s * s)
+        }
+    }
 }
 
 fn random_triple(rng: &mut Rng) -> (f64, f64, f64) {
@@ -514,18 +556,36 @@ fn differential() {
 
     for (name, hw, gen) in unary_ops() {
         let mut r = Report::default();
+        let v = adversarial(true);
+        // Every ordered pair, so that each value is seen in both lanes, and the
+        // fallback taken by one lane alone is exercised.
+        for &x in &v {
+            for &y in &v {
+                check_unary(&mut r, name, hw, gen, [x, y]);
+            }
+        }
+        for _ in 0..n {
+            let x0 = random_sqrt_arg(&mut rng);
+            let x1 = random_sqrt_arg(&mut rng);
+            check_unary(&mut r, name, hw, gen, [x0, x1]);
+        }
+        writeln!(
+            summary,
+            "{:18} {:>10} cases, {} mismatches",
+            name, r.cases, r.mismatches
+        )
+        .unwrap();
+        summary += &r.examples;
+        total_mismatches += r.mismatches;
+    }
+
+    for (name, hw, gen) in unary1_ops() {
+        let mut r = Report::default();
         for &x in &adversarial(true) {
             r.check(name, &[x], hw(x), gen(x));
         }
         for _ in 0..n {
-            let x = match rng.below(2) {
-                0 => rng.any(),
-                _ => {
-                    // Exact squares and their neighbors.
-                    let s = rng.any().abs();
-                    rng.nudge(s * s)
-                }
-            };
+            let x = random_sqrt_arg(&mut rng);
             r.check(name, &[x], hw(x), gen(x));
         }
         writeln!(
