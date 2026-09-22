@@ -1,18 +1,20 @@
 # Benchmarks
 
-A comparison of the hardware backend for x86-64 (`avx_fma`) with the portable
-backend (`generic`, see `src/simd/generic.rs`), measured on 2026-09-22.
+A comparison of the backends of inari: the hardware backend for x86-64
+(`avx_fma`), the portable backend (`generic`, see `src/simd/generic.rs`) and the
+WebAssembly backend (`wasm32`, see `src/simd/wasm32.rs`), measured on 2026-09-22.
 
 ## Setup
 
 - CPU: AMD Ryzen 9 3900X (Zen 2, 12 cores). It has no AVX-512, so the `avx512f`
   backend could not be measured.
-- Linux 7.0, `schedutil` governor, rustc 1.96.0, criterion 0.7.0.
+- Linux 7.0, `schedutil` governor, rustc 1.96.0, criterion 0.7.0, wasmtime 49.0.
 - `lto = "fat"` and `codegen-units = 1`, so that the primitives are inlined into
   the benchmarks as they are within inari.
-- Each run was pinned to one core with `taskset -c 11`.
+- Each run was pinned to one core with `taskset -c 11`, on an otherwise idle
+  machine (load average 1 to 3).
 
-Three configurations:
+Native configurations:
 
 | Column | Backend | Flags |
 |---|---|---|
@@ -20,115 +22,159 @@ Three configurations:
 | generic, FMA | `generic` with FMA | `RUSTFLAGS=-Ctarget-cpu=haswell`, `--features force-generic` |
 | generic, no FMA | `generic` with Dekker's algorithm | `RUSTFLAGS=-Ctarget-cpu=x86-64`, `--features force-generic` |
 
-The last one stands in for targets without FMA, such as wasm32.
+WebAssembly configurations, all on `wasm32-wasip1` under wasmtime, and all
+without an FMA, which WebAssembly does not have:
+
+| Column | Backend | Flags |
+|---|---|---|
+| scalar | `generic` | none |
+| simd128 | `generic`, which the compiler may auto-vectorize | `RUSTFLAGS=-Ctarget-feature=+simd128`, `--features force-generic` |
+| wasm32 | `wasm32` (`F64X2` in a `v128`) | `RUSTFLAGS=-Ctarget-feature=+simd128` |
 
 ## Variance
 
-The machine was shared with other jobs (load average 3 to 14 during the runs),
-so the numbers are noisy. Every configuration was run twice, interleaved. The
-table shows the lower of the two medians, and "spread" is the largest
-difference between the two runs of any one configuration, relative to the lower
-one. Most spreads are below 15%. Treat rows with a larger spread as only
-indicative, and differences below about 15% as not significant.
+Every configuration was run twice, interleaved. The tables show the lower of the
+two medians, and "spread" is the largest difference between the two runs of any
+one configuration in that row, relative to the lower one. All spreads are at or
+below 3%; treat differences below about 5% as not significant.
 
 ## Results
 
 Times are the median per operation: per `F64X2` operation (two lanes) for the
-primitives, and per interval operation otherwise. Ratios are relative to
-`avx_fma`; below 1 means `generic` is faster.
+primitives, and per interval operation otherwise. Ratios are relative to the
+first column; below 1 means faster than it.
 
-Primitives (`throughput`: 1024 independent operations; `latency`: a chain of
-1024 dependent operations):
-
-| Benchmark | avx_fma (ns) | generic, FMA (ns) | ratio | generic, no FMA (ns) | ratio | spread |
-|---|--:|--:|--:|--:|--:|--:|
-| add_ru/throughput | 9.29 | 11.07 | 1.19× | 8.48 | 0.91× | 2% |
-| add_ru/latency | 8.75 | 13.22 | 1.51× | 13.18 | 1.51× | 11% |
-| mul_ru/throughput | 9.32 | 9.23 | 0.99× | 11.04 | 1.19× | 51% |
-| mul_ru/latency | 8.76 | 13.10 | 1.50× | 16.38 | 1.87× | 10% |
-| div_ru/throughput | 9.34 | 10.03 | 1.07× | 32.09 | 3.44× | 56% |
-| div_ru/latency | 8.77 | 15.51 | 1.77× | 35.34 | 4.03× | 8% |
-| mul_add_ru/throughput | 9.08 | 19.81 | 2.18× | 38.01 | 4.19× | 33% |
-| mul_add_ru/latency | 8.56 | 11.23 | 1.31× | 23.65 | 2.76× | 64% |
-| sqrt1_ru/throughput | 8.65 | 2.12 | 0.25× | 4.08 | 0.47× | 3% |
-| sqrt1_ru/latency | 8.32 | 7.32 | 0.88× | 7.75 | 0.93× | 7% |
+### x86-64
 
 Interval operations (1024 independent operations; P: positive, N: negative,
 M: containing zero):
 
 | Benchmark | avx_fma (ns) | generic, FMA (ns) | ratio | generic, no FMA (ns) | ratio | spread |
 |---|--:|--:|--:|--:|--:|--:|
-| add/PP | 9.30 | 7.42 | 0.80× | 12.06 | 1.30× | 25% |
-| add/PM | 9.25 | 8.67 | 0.94× | 10.74 | 1.16× | 14% |
-| add/MM | 9.25 | 8.20 | 0.89× | 12.35 | 1.34× | 18% |
-| sub/PP | 9.27 | 6.06 | 0.65× | 8.90 | 0.96× | 43% |
-| sub/PM | 9.38 | 8.53 | 0.91× | 10.36 | 1.10× | 35% |
-| sub/MM | 9.32 | 8.18 | 0.88× | 11.94 | 1.28× | 32% |
-| mul/PP | 10.42 | 13.21 | 1.27× | 16.01 | 1.54× | 2% |
-| mul/PN | 10.54 | 13.09 | 1.24× | 15.98 | 1.52× | 2% |
-| mul/PM | 10.48 | 13.10 | 1.25× | 16.22 | 1.55× | 3% |
-| mul/NP | 10.49 | 13.13 | 1.25× | 15.48 | 1.48× | 3% |
-| mul/NN | 10.42 | 13.14 | 1.26× | 15.81 | 1.52× | 48% |
-| mul/NM | 10.41 | 13.06 | 1.25× | 15.88 | 1.52× | 48% |
-| mul/MP | 10.43 | 13.04 | 1.25× | 16.24 | 1.56× | 10% |
-| mul/MN | 10.41 | 13.02 | 1.25× | 15.74 | 1.51× | 3% |
-| mul/MM | 18.87 | 23.17 | 1.23× | 30.77 | 1.63× | 2% |
-| div/PP | 10.17 | 25.97 | 2.55× | 25.25 | 2.48× | 2% |
-| div/PN | 10.21 | 16.41 | 1.61× | 26.03 | 2.55× | 5% |
-| div/MP | 10.17 | 26.38 | 2.59× | 27.26 | 2.68× | 33% |
-| div/NN | 10.19 | 26.08 | 2.56× | 25.72 | 2.52× | 18% |
-| div/PM (= ℝ) | 3.78 | 4.94 | 1.31× | 4.99 | 1.32× | 83% |
-| sqrt/P | 17.72 | 7.22 | 0.41× | 11.37 | 0.64× | 15% |
-| Horner, degree 8, P | 252.98 | 170.89 | 0.68× | 231.03 | 0.91× | 43% |
-| Horner, degree 8, M | 319.61 | 367.73 | 1.15× | 383.56 | 1.20× | 38% |
-| 3×3 determinant | 281.84 | 324.16 | 1.15× | 323.66 | 1.15× | 13% |
+| add/PP | 9.25 | 9.22 | 1.00× | 12.35 | 1.33× | 0% |
+| add/PM | 9.25 | 9.89 | 1.07× | 10.68 | 1.15× | 0% |
+| add/MM | 9.25 | 9.70 | 1.05× | 12.32 | 1.33× | 0% |
+| sub/PP | 9.26 | 8.64 | 0.93× | 8.86 | 0.96× | 0% |
+| sub/PM | 9.25 | 9.79 | 1.06× | 10.11 | 1.09× | 0% |
+| sub/MM | 9.25 | 9.64 | 1.04× | 11.83 | 1.28× | 0% |
+| mul/PP | 10.42 | 13.10 | 1.26× | 15.82 | 1.52× | 0% |
+| mul/PN | 10.43 | 12.96 | 1.24× | 15.51 | 1.49× | 1% |
+| mul/PM | 10.41 | 12.89 | 1.24× | 15.82 | 1.52× | 0% |
+| mul/NP | 10.41 | 13.15 | 1.26× | 15.73 | 1.51× | 0% |
+| mul/NN | 10.43 | 13.17 | 1.26× | 15.82 | 1.52× | 0% |
+| mul/NM | 10.42 | 12.96 | 1.24× | 15.67 | 1.50× | 2% |
+| mul/MP | 10.41 | 13.00 | 1.25× | 15.51 | 1.49× | 2% |
+| mul/MN | 10.42 | 12.88 | 1.24× | 15.86 | 1.52× | 0% |
+| mul/MM | 18.91 | 22.28 | 1.18× | 30.16 | 1.60× | 3% |
+| div/PP | 10.18 | 26.16 | 2.57× | 25.94 | 2.55× | 0% |
+| div/PN | 10.20 | 18.31 | 1.80× | 26.64 | 2.61× | 0% |
+| div/MP | 10.19 | 26.98 | 2.65× | 25.39 | 2.49× | 0% |
+| div/NN | 10.18 | 26.29 | 2.58× | 25.49 | 2.50× | 1% |
+| div/PM (= ℝ) | 3.76 | 4.90 | 1.30× | 4.93 | 1.31× | 0% |
+| sqrt/P | 6.85 | 8.25 | 1.20× | 11.83 | 1.73× | 3% |
+| Horner, degree 8, P | 308.30 | 169.24 | 0.55× | 226.63 | 0.74× | 2% |
+| Horner, degree 8, M | 355.61 | 272.37 | 0.77× | 375.36 | 1.06× | 2% |
+| 3×3 determinant | 236.04 | 255.37 | 1.08× | 321.71 | 1.36× | 1% |
+
+Primitives (`throughput`: 1024 independent operations; `latency`: a chain of
+1024 dependent operations):
+
+| Benchmark | avx_fma (ns) | generic, FMA (ns) | ratio | generic, no FMA (ns) | ratio | spread |
+|---|--:|--:|--:|--:|--:|--:|
+| add_ru/throughput | 9.28 | 8.15 | 0.88× | 8.37 | 0.90× | 0% |
+| add_ru/latency | 8.76 | 13.01 | 1.49× | 13.07 | 1.49× | 0% |
+| mul_ru/throughput | 9.26 | 9.16 | 0.99× | 11.01 | 1.19× | 1% |
+| mul_ru/latency | 8.75 | 13.11 | 1.50× | 16.24 | 1.86× | 0% |
+| div_ru/throughput | 9.28 | 9.84 | 1.06× | 31.99 | 3.45× | 0% |
+| div_ru/latency | 8.76 | 15.34 | 1.75× | 35.01 | 4.00× | 0% |
+| mul_add_ru/throughput | 9.00 | 19.40 | 2.16× | 37.60 | 4.18× | 1% |
+| mul_add_ru/latency | 8.52 | 11.25 | 1.32× | 23.60 | 2.77× | 0% |
+| sqrt1_ru/throughput | 2.32 | 2.13 | 0.92× | 4.07 | 1.76× | 1% |
+| sqrt1_ru/latency | 7.33 | 7.33 | 1.00× | 7.75 | 1.06× | 0% |
+
+`avx_fma` takes `sqrt1_rd` and `sqrt1_ru` from `generic`, which is why its
+square roots match it. Before that change, with the rounding mode switched
+around `vsqrtsd`, `sqrt1_ru/throughput` was 8.65 ns and interval `sqrt/P` was
+17.72 ns (measured on a loaded machine, spread 15%).
+
+### WebAssembly
+
+| Benchmark | scalar (ns) | simd128 (ns) | ratio | wasm32 (ns) | ratio | spread |
+|---|--:|--:|--:|--:|--:|--:|
+| add/PP | 15.48 | 15.33 | 0.99× | 9.02 | 0.58× | 0% |
+| add/PM | 14.60 | 14.51 | 0.99× | 9.01 | 0.62× | 0% |
+| add/MM | 15.53 | 15.19 | 0.98× | 9.01 | 0.58× | 0% |
+| sub/PP | 10.96 | 11.15 | 1.02× | 8.84 | 0.81× | 1% |
+| sub/PM | 13.91 | 13.95 | 1.00× | 8.83 | 0.63× | 0% |
+| sub/MM | 15.26 | 15.38 | 1.01× | 8.83 | 0.58× | 1% |
+| mul/PP | 30.54 | 31.21 | 1.02× | 14.56 | 0.48× | 0% |
+| mul/PN | 35.31 | 32.76 | 0.93× | 14.61 | 0.41× | 0% |
+| mul/PM | 30.61 | 31.22 | 1.02× | 14.60 | 0.48× | 0% |
+| mul/NP | 33.58 | 31.92 | 0.95× | 14.58 | 0.43× | 0% |
+| mul/NN | 32.07 | 32.35 | 1.01× | 14.63 | 0.46× | 0% |
+| mul/NM | 30.67 | 31.05 | 1.01× | 14.60 | 0.48× | 0% |
+| mul/MP | 30.73 | 30.96 | 1.01× | 14.56 | 0.47× | 0% |
+| mul/MN | 30.30 | 30.50 | 1.01× | 14.64 | 0.48× | 1% |
+| mul/MM | 55.13 | 55.28 | 1.00× | 25.08 | 0.46× | 1% |
+| div/PP | 30.92 | 31.44 | 1.02× | 16.35 | 0.53× | 0% |
+| div/PN | 31.53 | 31.53 | 1.00× | 16.53 | 0.52× | 0% |
+| div/MP | 30.35 | 30.49 | 1.00× | 16.31 | 0.54× | 0% |
+| div/NN | 30.99 | 31.63 | 1.02× | 16.18 | 0.52× | 1% |
+| div/PM (= ℝ) | 9.89 | 9.21 | 0.93× | 7.88 | 0.80× | 0% |
+| sqrt/P | 15.96 | 15.57 | 0.98× | 15.71 | 0.98× | 1% |
+| Horner, degree 8, P | 310.73 | 309.73 | 1.00× | 160.74 | 0.52× | 2% |
+| Horner, degree 8, M | 465.52 | 461.92 | 0.99× | 240.37 | 0.52× | 1% |
+| 3×3 determinant | 378.60 | 376.21 | 0.99× | 136.88 | 0.36× | 0% |
+
+| Benchmark | scalar (ns) | simd128 (ns) | ratio | wasm32 (ns) | ratio | spread |
+|---|--:|--:|--:|--:|--:|--:|
+| add_ru/throughput | 10.56 | 11.18 | 1.06× | 7.88 | 0.75× | 0% |
+| add_ru/latency | 10.30 | 15.05 | 1.46× | 9.08 | 0.88× | 0% |
+| mul_ru/throughput | 23.67 | 23.70 | 1.00× | 10.96 | 0.46× | 1% |
+| mul_ru/latency | 17.46 | 24.11 | 1.38× | 11.52 | 0.66× | 0% |
+| div_ru/throughput | 24.89 | 26.75 | 1.07× | 13.57 | 0.55× | 0% |
+| div_ru/latency | 20.66 | 29.50 | 1.43× | 16.02 | 0.78× | 0% |
+| mul_add_ru/throughput | 28.85 | 29.64 | 1.03× | 18.59 | 0.64× | 0% |
+| mul_add_ru/latency | 22.56 | 24.42 | 1.08× | 21.00 | 0.93× | 0% |
+| sqrt1_ru/throughput | 4.55 | 4.54 | 1.00× | 4.54 | 1.00× | 2% |
+| sqrt1_ru/latency | 7.22 | 7.21 | 1.00× | 7.22 | 1.00× | 0% |
 
 ## Observations
 
-- Every `avx_fma` primitive costs about 9 ns, both in throughput and in latency,
-  whatever the operation (even `sqrt`). The backend saves, sets and restores
-  MXCSR (`vstmxcsr`/`vldmxcsr`) around each instruction. As throughput equals
-  latency, this apparently serializes the operations on Zen 2, and dominates
-  the cost.
+- Every `avx_fma` primitive but the square root costs about 9 ns, both in
+  throughput and in latency, whatever the operation. The backend saves, sets and
+  restores MXCSR (`vstmxcsr`/`vldmxcsr`) around each instruction. As throughput
+  equals latency, this apparently serializes the operations on Zen 2, and
+  dominates the cost. The square root, which no longer switches the rounding
+  mode, is the exception: 2.32 ns in throughput.
 - `generic` has no such fixed cost, but needs more instructions per operation.
-  It is faster for square roots (2.4× in interval `sqrt`) and roughly on par
-  for addition and subtraction. It is about 1.25× slower for interval
-  multiplication and 1.6–2.6× slower for division.
-- On the composite benchmarks, the two are within about 15% of each other
-  (Horner with M: 1.15× slower, Horner with P: 0.68×, determinant: 1.15× slower).
-- Without FMA, multiplication and especially division and `mul_add` get
+  On x86-64 it is on par for addition and subtraction, about 1.25× slower for
+  interval multiplication, and 1.8–2.7× slower for division. It wins on
+  polynomial evaluation (Horner with P: 0.55×), where the MXCSR switches of
+  `avx_fma` cannot overlap.
+- Without an FMA, multiplication and especially division and `mul_add` get
   slower, as Dekker's TwoProduct replaces a single FMA.
-- Not explained: interval division is about as slow with FMA as without it
-  (except P/N), although the `div_ru` primitive is 3× slower without FMA.
+- On WebAssembly, `+simd128` alone changes almost nothing: the compiler does not
+  usefully auto-vectorize the scalar code, and it makes the latency of the
+  primitives 1.4× worse. Writing the fast paths against `v128` explicitly, as
+  the `wasm32` backend does, is what pays: interval operations take 0.4–0.6× the
+  time, and the 3×3 determinant 0.36×.
+- `sqrt` is the same in all three WebAssembly configurations, because `wasm32`
+  takes it from `generic`: it is a scalar operation with nothing to vectorize.
 
 ## Conclusion
 
 On x86-64 processors without AVX-512, `generic` should not replace `avx_fma` as
-the default. It is not uniformly faster: it wins clearly only on square roots,
-and it loses on multiplication and division, which dominate typical interval
-code such as the determinant. The differences are small enough, though (mostly
-within 1.3×, except division), that `force-generic` is a reasonable choice
-where changing MXCSR is undesirable, or on x86-64 processors without AVX,
-which `avx_fma` does not support. Measurements on an idle machine, and on a
-processor with a cheaper `vldmxcsr`, could change the picture.
+the default. It is not uniformly faster: it wins on polynomial evaluation and
+loses on multiplication and division, which dominate typical interval code such
+as the determinant. The differences are mostly within 1.3×, except division, so
+`force-generic` is a reasonable choice where changing MXCSR is undesirable, or
+on x86-64 processors without AVX, which `avx_fma` does not support.
+Measurements on a processor with a cheaper `vldmxcsr` could change the picture.
 
-## Square root in `avx_fma`
-
-Following these results, `avx_fma` now takes `sqrt1_rd` and `sqrt1_ru` from
-`generic` (the FMA variant) instead of switching the rounding mode. The tables
-above show the old `avx_fma`. The square root benchmarks were then run again,
-three times interleaved (load average 1 to 6), with the same method:
-
-| Benchmark | old avx_fma (ns) | new avx_fma (ns) | ratio | generic, FMA (ns) | spread |
-|---|--:|--:|--:|--:|--:|
-| sqrt1_ru/throughput | 8.65 | 2.35 | 0.27× | 2.15 | 60% |
-| sqrt1_ru/latency | 8.32 | 7.44 | 0.89× | 7.39 | 7% |
-| sqrt/P | 17.72 | 6.80 | 0.38× | 6.83 | 60% |
-
-Ratios are new over old `avx_fma`. The large spreads come from one run each
-(new `avx_fma` throughput, `generic` `sqrt/P`); the other runs are within 7%.
-The new `avx_fma` and `generic` run the same code, and their difference is
-within the noise.
+On WebAssembly, build with `-Ctarget-feature=+simd128` where the runtime
+supports it: the `wasm32` backend is roughly twice as fast as the portable one
+on interval operations.
 
 ## Running the benchmarks
 
@@ -141,4 +187,12 @@ feature, which is not public API.
 cd bench
 RUSTFLAGS=-Ctarget-cpu=haswell cargo bench -- --save-baseline avx_fma
 RUSTFLAGS=-Ctarget-cpu=haswell cargo bench --features force-generic -- --baseline avx_fma
+```
+
+For WebAssembly, with wasmtime on the path:
+
+```bash
+cd bench
+export CARGO_TARGET_WASM32_WASIP1_RUNNER=wasmtime
+RUSTFLAGS=-Ctarget-feature=+simd128 cargo bench --target wasm32-wasip1
 ```
