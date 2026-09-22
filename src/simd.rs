@@ -18,6 +18,7 @@ cfg_if::cfg_if! {
         mod x86_64;
         pub(crate) use x86_64::*;
     } else {
-        unreachable!();
+        mod generic;
+        pub(crate) use generic::*;
     }
 }

@@ -21,6 +21,8 @@ The following CPUs are supported and continuously tested:
 
 - **AArch64 (ARM64)**
 
+Other architectures, such as WebAssembly (`wasm32`) and RISC-V (`riscv64`), are supported by a portable backend (experimental). It only relies on floating-point arithmetic in the default rounding mode, and requires no target features, but it is slower than the backends for x86-64 and AArch64. It uses fused multiply-add instructions where the target has them.
+
 When using the Cargo feature `gmp` (see below), target platforms are limited to those that are supported by the [`gmp-mpfr-sys`](https://crates.io/crates/gmp-mpfr-sys) crate. For example, MSVC is not supported.
 
 ## Cargo Features

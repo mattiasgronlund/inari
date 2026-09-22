@@ -2,6 +2,12 @@
 
 Items marked with ⚠️ are breaking changes.
 
+## Unreleased
+
+### Added
+
+- Added support for architectures other than x86-64 and AArch64, such as wasm32 and riscv64, with a portable backend that does not change the rounding mode.
+
 ## v2.0.0 - 2024-08-07
 
 ### Added
