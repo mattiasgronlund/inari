@@ -22,6 +22,10 @@ pub use self::{
 
 pub mod _docs;
 
+#[cfg(feature = "__bench")]
+#[doc(hidden)]
+pub mod __bench;
+
 // List the constructors first in the documentation.
 mod interval;
 
