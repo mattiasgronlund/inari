@@ -41,8 +41,13 @@ below 3%; treat differences below about 5% as not significant.
 ## Results
 
 Times are the median per operation: per `F64X2` operation (two lanes) for the
-primitives, and per interval operation otherwise. Ratios are relative to the
-first column; below 1 means faster than it.
+primitives, except `sqrt1_ru`, which is scalar and is timed per square root,
+and per interval operation otherwise. Note that an interval `sqrt` performs two
+square roots, and that everything around them (the empty test, taking the two
+endpoints apart and building the result) goes through `F64X2`, which is why it
+does not follow `sqrt1_ru` from one backend to the next.
+
+Ratios are relative to the first column; below 1 means faster than it.
 
 ### x86-64
 
