@@ -20,6 +20,13 @@ cfg_if::cfg_if! {
     } else if #[cfg(target_arch = "x86_64")] {
         mod x86_64;
         pub(crate) use x86_64::*;
+
+        // The generic backend is also built for testing it against the hardware one.
+        #[cfg(test)]
+        #[allow(dead_code)] // Only the rounding functions are compared.
+        mod generic;
+        #[cfg(test)]
+        mod differential_tests;
     } else {
         mod generic;
         pub(crate) use generic::*;

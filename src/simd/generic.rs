@@ -618,6 +618,11 @@ fn mul_add1_ru_fast<const FMA: bool>(a: f64, b: f64, c: f64) -> (f64, bool) {
 
     // Cases where a or b is ±0, or any input is ±∞ or NaN (see `mul_add1_special`).
     let special = !(is_finite(a) && is_finite(b) && is_finite(c)) || a == 0.0 || b == 0.0;
+    // The `not_tiny` checks are the underflow hypotheses of [BM11, Theorem 2].
+    // `differential_tests` reaches each of them, and dropping them causes no
+    // mismatch there. A likely reason is that if TwoProduct is exact, all values
+    // are multiples of 2^-1074, and so a sum of them below 2^-1021 is exact. That
+    // is not a proof, so they are kept.
     let not_tiny = |x: f64, e_min: i32| x == 0.0 || exponent(x) >= e_min;
     // No overflow: if |u1|, |c| < 2^1022, then |α1|, |β1| < 2^1023 and each TwoSum
     // is exact (see `two_sum_err`). If r1 overflows, the slow path decides between
