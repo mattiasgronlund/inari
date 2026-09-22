@@ -1,0 +1,48 @@
+name: ci-cross
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+  CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          profile: minimal
+          components: clippy
+
+      - name: Add targets
+        run: rustup target add wasm32-unknown-unknown wasm32-wasip1 riscv64gc-unknown-linux-gnu
+
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+
+      - uses: Swatinem/rust-cache@v2
+
+      # GMP and MPFR are not available for these targets.
+      - name: Build (wasm32-unknown-unknown)
+        run: cargo build --release --no-default-features --target wasm32-unknown-unknown
+
+      - name: Build (riscv64gc-unknown-linux-gnu)
+        run: cargo build --release --no-default-features --target riscv64gc-unknown-linux-gnu
+
+      - name: Clippy (wasm32-unknown-unknown)
+        run: cargo clippy --no-default-features --target wasm32-unknown-unknown
+
+      - name: Test (wasm32-wasip1)
+        run: cargo test --release --no-default-features --lib --tests --target wasm32-wasip1
