@@ -52,6 +52,12 @@ jobs:
           RUSTFLAGS: ${{ env.RUSTFLAGS }} -Ctarget-feature=+avx512f
           RUSTDOCFLAGS: ${{ env.RUSTDOCFLAGS }} -Ctarget-feature=+avx512f
 
+      - name: Test (target Nehalem)
+        run: cargo test --release
+        env:
+          RUSTFLAGS: -Ctarget-cpu=nehalem -Dwarnings
+          RUSTDOCFLAGS: -Ctarget-cpu=nehalem -Dwarnings
+
       - name: Test (--no-default-features)
         run: cargo test --release --no-default-features --lib --tests
 
@@ -67,6 +73,12 @@ jobs:
         env:
           RUSTFLAGS: ${{ env.RUSTFLAGS }} -Ctarget-feature=+avx512f
           RUSTDOCFLAGS: ${{ env.RUSTDOCFLAGS }} -Ctarget-feature=+avx512f
+
+      - name: Clippy (target Nehalem)
+        run: cargo clippy --all-targets
+        env:
+          RUSTFLAGS: -Ctarget-cpu=nehalem -Dwarnings
+          RUSTDOCFLAGS: -Ctarget-cpu=nehalem -Dwarnings
 
       - name: Check format
         run: cargo fmt -- --check
@@ -148,6 +160,12 @@ jobs:
         env:
           RUSTFLAGS: ${{ env.RUSTFLAGS }} -Ctarget-feature=+avx512f
           RUSTDOCFLAGS: ${{ env.RUSTDOCFLAGS }} -Ctarget-feature=+avx512f
+
+      - name: Check (target Nehalem)
+        run: cargo check --all-targets
+        env:
+          RUSTFLAGS: -Ctarget-cpu=nehalem -Dwarnings
+          RUSTDOCFLAGS: -Ctarget-cpu=nehalem -Dwarnings
 
       - name: Check (--no-default-features)
         run: cargo check --no-default-features --all-targets

@@ -170,7 +170,10 @@ cfg_if::cfg_if! {
     } else if #[cfg(all(target_feature = "avx", target_feature = "fma"))] {
         mod avx_fma;
         pub(crate) use avx_fma::*;
+    } else if #[cfg(target_feature = "sse4.2")] {
+        mod sse42;
+        pub(crate) use sse42::*;
     } else {
-        compile_error!("RUSTFLAGS='-Ctarget-cpu=haswell' or later is required. See https://doc.rust-lang.org/rustc/codegen-options/#target-cpu");
+        compile_error!("RUSTFLAGS='-Ctarget-cpu=nehalem' or later is required. See https://doc.rust-lang.org/rustc/codegen-options/#target-cpu");
     }
 }

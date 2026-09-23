@@ -15,9 +15,9 @@ The following CPUs are supported and continuously tested:
 
 - **x86-64**
 
-  Haswell-based and newer processors are supported.
+  Haswell-based and newer processors are supported. Nehalem-based and newer ones are supported by a separate backend that uses only SSE instructions, which is selected automatically when AVX and FMA are not available. It does not change the rounding mode, and is slower only for `sqrt`, `mul_add` and division (see [BENCHMARKS.md](BENCHMARKS.md)).
 
-  You need to specify the target CPU when building a crate that depends on inari. One way to do that is by using a [configuration file](https://doc.rust-lang.org/cargo/reference/config.html) in your project (see [example](https://github.com/unageek/graphest/blob/main/.cargo/config.toml); you may want to change `native` to `haswell` for the best compatibility if you are going to distribute binaries).
+  You need to specify the target CPU when building a crate that depends on inari. One way to do that is by using a [configuration file](https://doc.rust-lang.org/cargo/reference/config.html) in your project (see [example](https://github.com/unageek/graphest/blob/main/.cargo/config.toml); you may want to change `native` to `haswell`, or to `nehalem` for even wider compatibility, if you are going to distribute binaries).
 
 - **AArch64 (ARM64)**
 
