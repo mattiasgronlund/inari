@@ -67,7 +67,6 @@ pub(crate) fn mul_add_ru(a: F64X2, b: F64X2, c: F64X2) -> F64X2 {
     let gamma = add_rn(sub_rn(beta1, r1), beta2);
     let err = add_rn(gamma, alpha2);
 
-    let finite_ab = and(is_finite(a), is_finite(b));
     let special = or(not(is_finite(c)), is_special(a, b));
     let not_tiny = |x: F64X2, e_min: i64| or(eq(x, zero()), exponent_gt(x, e_min - 1));
     let ok = or(
@@ -83,11 +82,15 @@ pub(crate) fn mul_add_ru(a: F64X2, b: F64X2, c: F64X2) -> F64X2 {
             ),
         ),
     );
-    // `generic::mul_add1_special`: a * b is finite (though RN(a * b) may
-    // overflow) and c is not, or else a * b is exact and adding c is exact too.
-    let special_r = select(andnot(finite_ab, is_finite(c)), c, add_rn(mul_rn(a, b), c));
+    // No counterpart to `generic::mul_add1_special` is needed: in every special
+    // case a * b + c is exactly representable, so the FMA returns it and `r1` is
+    // already the answer in both rounding directions. That covers a * b whose
+    // rounded value overflows while c is the opposite infinity, where the
+    // generic backend must return c rather than RN(a * b) + c = NaN — the FMA
+    // adds the exact product, so it gives ∓∞ directly.
     // If err > 0, then r1 is inexact and thus nonzero.
-    let r = select(special, special_r, select(gt(err, zero()), step_up(r1), r1));
+    let up = andnot(gt(err, zero()), special);
+    let r = select(up, step_up(r1), r1);
     or_generic(ok, r, || {
         generic::mul_add_ru(extract(a), extract(b), extract(c))
     })
