@@ -1,10 +1,22 @@
 # Benchmarks
 
-A comparison of the backends of inari: the hardware backend for x86-64
-(`avx_fma`), the portable backend (`generic`, see `src/simd/generic.rs`) and the
-WebAssembly backend (`wasm32`, see `src/simd/wasm32.rs`), measured on 2026-09-22.
-The backend for x86-64 without AVX (`sse42`, see `src/simd/x86_64/sse42.rs`) was
-added later and measured on 2026-09-23; it has a section of its own below.
+A comparison of the backends of inari, in three sittings:
+
+- 2026-09-22: `avx_fma`, then the default for x86-64, which set MXCSR around
+  every instruction to make the hardware round, against the portable backend
+  (`generic`, see `src/simd/generic.rs`) and the WebAssembly backend (`wasm32`,
+  see `src/simd/wasm32.rs`).
+- 2026-09-23: `sse42` (see `src/simd/x86_64/sse42.rs`), for x86-64 without AVX,
+  which computes the directed roundings explicitly instead of switching MXCSR.
+- 2026-09-23, later: `fma` (see `src/simd/x86_64/fma.rs`), the same method where
+  an FMA is available. It is now the default on x86-64 with AVX and FMA, and
+  `avx_fma` has been removed from the crate.
+
+`avx_fma` is the base column of all three x86-64 sections, so that the two
+explicit backends are measured against what they replaced, and against each
+other. No backend for x86-64 changes the rounding mode any more: `avx512f` uses
+per-instruction embedded rounding, and the other two round by correcting a
+round-to-nearest result.
 
 ## Setup
 
@@ -14,17 +26,24 @@ added later and measured on 2026-09-23; it has a section of its own below.
 - `lto = "fat"` and `codegen-units = 1`, so that the primitives are inlined into
   the benchmarks as they are within inari.
 - Each run was pinned to one core with `taskset -c 11`, on an otherwise idle
-  machine (load average 1 to 3).
+  machine (load average 1 to 3). Rounds measured on a loaded machine were
+  discarded; see "Variance".
 
 Native configurations:
 
 | Column | Backend | Flags |
 |---|---|---|
-| avx_fma | `avx_fma` (default) | `RUSTFLAGS=-Ctarget-cpu=haswell` |
+| avx_fma | `avx_fma`, since removed (MXCSR switched around every instruction) | `RUSTFLAGS=-Ctarget-cpu=haswell` |
+| fma | `fma` (default; `F64X2` in an `__m128d`, no MXCSR switching) | `RUSTFLAGS=-Ctarget-cpu=haswell` |
 | generic, FMA | `generic` with FMA | `RUSTFLAGS=-Ctarget-cpu=haswell`, `--features force-generic` |
 | generic, no FMA | `generic` with Dekker's algorithm | `RUSTFLAGS=-Ctarget-cpu=x86-64`, `--features force-generic` |
 | sse42 | `sse42` (`F64X2` in an `__m128d`, no MXCSR switching) | `RUSTFLAGS=-Ctarget-cpu=nehalem` |
 | generic, Nehalem | `generic` with Dekker's algorithm | `RUSTFLAGS=-Ctarget-cpu=nehalem`, `--features force-generic` |
+
+`avx_fma` and `fma` take the same flags because the target features are what
+selects a backend. They were measured against each other from a snapshot of the
+tree that still had both, with a temporary Cargo feature choosing between them;
+that snapshot is the code the `fma` section below reports.
 
 WebAssembly configurations, all on `wasm32-wasip1` under wasmtime, and all
 without an FMA, which WebAssembly does not have:
@@ -62,6 +81,23 @@ widest of the three configurations in that row, which is why rows dominated by a
 bimodal `generic` or `avx_fma` cell show 40–51%. The `sse42` column itself is
 within about 1% in every row, and the `sse42` ratios are the same to two decimal
 places whether the lowest or the median is used.
+
+The `fma` section was also run over twelve rounds, but peer builds on the
+machine pushed the load average to between 20 and 70 during rounds 1–4 and
+9–12, so only rounds 5–8, which ran at a load average of 1 to 2, are reported.
+Those four rounds are unusually quiet: `avx_fma` and `fma` each repeat every
+primitive to within 0.5% across them, and the two rows where both backends run
+identical code — `sqrt1_ru`, which both take from `generic`, and `div/PM`,
+which returns ℝ without arithmetic — come out at 1.00×. The `fma` ratios are
+again the same to two decimal places whether the lowest or the median is used;
+the medians are reported, as above. The wide spreads in that section come from
+the bimodal `generic, FMA` column, except on the determinant, where `avx_fma`
+runs at 226 ns in round 5 and at 192.5 ns in the other three.
+
+Composite benchmarks drift between sittings in a way the primitives do not: the
+`avx_fma` 3×3 determinant is 236 ns in the first section, 211 ns in the `sse42`
+section and 193 ns in the `fma` section, while its `add/PP` is 9.25, 9.24 and
+9.25 ns. Compare ratios within a section, not times across sections.
 
 ## Results
 
@@ -128,12 +164,68 @@ square roots match it. Before that change, with the rounding mode switched
 around `vsqrtsd`, `sqrt1_ru/throughput` was 8.65 ns and interval `sqrt/P` was
 17.72 ns (measured on a loaded machine, spread 15%).
 
+### x86-64 with AVX and FMA
+
+The `fma` backend applies the method of `sse42` — the fast paths of `generic`
+computed on both lanes at once, with the few inputs whose checks fail in either
+lane recomputed by `generic` — to a target that has an FMA. The FMA makes
+TwoProduct and the remainders of division and of the square root one instruction
+each instead of Dekker's algorithm, and widens their exactness hypotheses enough
+that some of the exponent checks drop out. It is compared with `avx_fma`, which
+it replaced as the default, and with `generic` at the same feature level.
+Medians over the four idle rounds; see "Variance" above.
+
+| Benchmark | avx_fma (ns) | fma (ns) | ratio | generic, FMA (ns) | ratio | spread |
+|---|--:|--:|--:|--:|--:|--:|
+| add/PP | 9.25 | 4.32 | 0.47× | 9.22 | 1.00× | 23% |
+| add/PM | 9.25 | 4.32 | 0.47× | 9.93 | 1.07× | 15% |
+| add/MM | 9.25 | 4.32 | 0.47× | 9.70 | 1.05× | 18% |
+| sub/PP | 9.26 | 4.43 | 0.48× | 8.63 | 0.93× | 42% |
+| sub/PM | 9.25 | 4.43 | 0.48× | 9.81 | 1.06× | 15% |
+| sub/MM | 9.26 | 4.42 | 0.48× | 9.72 | 1.05× | 19% |
+| mul/PP | 10.41 | 6.23 | 0.60× | 13.22 | 1.27× | 1% |
+| mul/PN | 10.42 | 6.35 | 0.61× | 13.13 | 1.26× | 2% |
+| mul/PM | 10.40 | 6.24 | 0.60× | 13.25 | 1.27× | 1% |
+| mul/NP | 10.42 | 6.35 | 0.61× | 13.27 | 1.27× | 1% |
+| mul/NN | 10.42 | 6.46 | 0.62× | 13.43 | 1.29× | 2% |
+| mul/NM | 10.41 | 6.46 | 0.62× | 13.05 | 1.25× | 0% |
+| mul/MP | 10.41 | 6.23 | 0.60× | 12.91 | 1.24× | 1% |
+| mul/MN | 10.41 | 6.23 | 0.60× | 13.14 | 1.26× | 1% |
+| mul/MM | 18.91 | 9.24 | 0.49× | 22.57 | 1.19× | 2% |
+| div/PP | 10.17 | 6.84 | 0.67× | 26.15 | 2.57× | 1% |
+| div/PN | 10.18 | 6.84 | 0.67× | 18.37 | 1.80× | 5% |
+| div/MP | 10.18 | 7.05 | 0.69× | 26.97 | 2.65× | 0% |
+| div/NN | 10.18 | 7.05 | 0.69× | 26.27 | 2.58× | 0% |
+| div/PM (= ℝ) | 4.22 | 4.22 | 1.00× | 4.91 | 1.16× | 1% |
+| sqrt/P | 3.70 | 3.81 | 1.03× | 8.20 | 2.22× | 20% |
+| sqrt/M | 8.22 | 6.82 | 0.83× | 8.27 | 1.01× | 8% |
+| Horner, degree 8, P | 249.13 | 112.83 | 0.45× | 168.96 | 0.68× | 1% |
+| Horner, degree 8, M | 321.84 | 132.68 | 0.41× | 273.12 | 0.85× | 4% |
+| 3×3 determinant | 192.51 | 64.00 | 0.33× | 252.91 | 1.31× | 17% |
+
+| Benchmark | avx_fma (ns) | fma (ns) | ratio | generic, FMA (ns) | ratio | spread |
+|---|--:|--:|--:|--:|--:|--:|
+| add_ru/throughput | 9.31 | 5.01 | 0.54× | 8.13 | 0.87× | 48% |
+| add_ru/latency | 8.76 | 8.99 | 1.03× | 12.99 | 1.48× | 0% |
+| mul_ru/throughput | 9.25 | 3.99 | 0.43× | 9.16 | 0.99× | 17% |
+| mul_ru/latency | 8.75 | 7.06 | 0.81× | 13.09 | 1.50× | 0% |
+| div_ru/throughput | 9.25 | 5.43 | 0.59× | 9.83 | 1.06× | 8% |
+| div_ru/latency | 8.76 | 9.82 | 1.12× | 15.33 | 1.75× | 1% |
+| mul_add_ru/throughput | 9.01 | 7.54 | 0.84× | 19.34 | 2.15× | 1% |
+| mul_add_ru/latency | 8.53 | 9.44 | 1.11× | 11.23 | 1.32× | 1% |
+| sqrt1_ru/throughput | 2.32 | 2.32 | 1.00× | 2.32 | 1.00× | 2% |
+| sqrt1_ru/latency | 7.33 | 7.33 | 1.00× | 7.33 | 1.00× | 1% |
+
+`fma` takes `sqrt1_rd` and `sqrt1_ru` from `generic`, as `avx_fma` did, which is
+why all three columns agree on `sqrt1_ru`.
+
 ### x86-64 without AVX
 
 The `sse42` backend applies the method of `wasm32` to `__m128d`: it computes the
 round-toward-+∞ fast paths explicitly and never touches MXCSR. It is compared
-with `avx_fma`, the default where AVX and FMA are available, and with `generic`
-at the same feature level, which is the alternative on a processor without them.
+with `avx_fma`, then the default where AVX and FMA are available, and with
+`generic` at the same feature level, which is the alternative on a processor
+without them.
 Medians over twelve rounds; see "Variance" above.
 
 | Benchmark | avx_fma (ns) | sse42 (ns) | ratio | generic, Nehalem (ns) | ratio | spread |
@@ -254,10 +346,11 @@ its scalar square root matches the `generic, Nehalem` column exactly.
   vectorized backends are then on par with the portable one, as the table shows.
   Going through the vector path instead cost 1.9× on `sqrt/M`, which is what
   that branch avoids.
-- The fallback of `avx_fma::sqrt_rd_ru`, for the rare arguments its fast path
-  rejects, is kept out of line. Inlined, it brings two whole scalar square roots
-  with it, which makes `Interval::sqrt` too large for its callers to inline: that
-  alone cost 1.6× on `sqrt/M`, which never reaches the fallback.
+- `sqrt_rd_ru` in the removed `avx_fma` backend kept its fallback, for the rare
+  arguments the fast path rejects, out of line. Inlined, it brings two whole
+  scalar square roots with it, which makes `Interval::sqrt` too large for its
+  callers to inline: that alone cost 1.6× on `sqrt/M`, which never reaches the
+  fallback.
 - `sse42` beats `avx_fma` on most of what interval code does, despite having
   neither AVX nor FMA: 0.54× on addition, 0.55× on subtraction, 0.74× on
   multiplication, 0.46× on the determinant and 0.43–0.54× on Horner. The reason
@@ -268,9 +361,9 @@ its scalar square root matches the `generic, Nehalem` column exactly.
 - Where `sse42` loses, it loses to the FMA rather than to the rounding mode.
   `mul_add_ru` is 1.67× slower and the scalar `sqrt1_ru` 2.51×, because both fall
   back to Dekker's TwoProduct: seven multiplications where an FMA would do one.
-  `sqrt/P` is 1.80× slower for the same reason. This suggests that the same
+  `sqrt/P` is 1.80× slower for the same reason. This suggested that the same
   method with FMA enabled, rather than SSE-only, would beat `avx_fma` across the
-  board; that has not been measured.
+  board, which the `fma` section confirms.
 - Division is the one place where `avx_fma`'s serialization is nearly hidden:
   `div_ru/throughput` is 0.99× and the interval divisions 0.96–0.97×, because a
   `vdivpd` is slow enough on Zen 2 to cover the MXCSR switches around it.
@@ -279,25 +372,64 @@ its scalar square root matches the `generic, Nehalem` column exactly.
   in throughput. The fast paths are long dependency chains, so `sse42` wins only
   where independent operations can overlap — which is the common case in
   interval code, and is why the composite benchmarks favour it so strongly.
+- `fma` extends that win and removes the losses. Against `avx_fma` it is 0.47×
+  on addition and subtraction, 0.49–0.62× on multiplication, 0.67–0.69× on
+  division, 0.41–0.45× on Horner and 0.33× on the determinant. The three rows
+  where `sse42` lost to the missing FMA come back to par or better:
+  `mul_add_ru/throughput` from 1.67× to 0.84×, `sqrt/P` from 1.80× to 1.03× and
+  the scalar `sqrt1_ru` from 2.51× to 1.00×.
+- With an FMA the multiplication fast path is shorter than the addition's, which
+  still needs a TwoSum: `mul_ru/throughput` is 0.43×, the largest gain of any
+  primitive, against 0.54× for `add_ru/throughput`. Without an FMA the order is
+  the other way round (`sse42`: 0.73× and 0.56×).
+- Division gains where `sse42` could not: 0.59× in the primitive and 0.67–0.69×
+  on intervals, against 0.99× and 0.96–0.97×. A `vdivpd` is slow enough on Zen 2
+  to hide `avx_fma`'s MXCSR switches, but not slow enough to hide Dekker's
+  TwoProduct in the remainder, which the FMA replaces with one instruction.
+- The latency rows are where `fma` loses, and the losses are real rather than
+  noise: `add_ru/latency` 1.03×, `mul_add_ru/latency` 1.11× and `div_ru/latency`
+  1.12×, while the two rows that run identical code in both backends sit at
+  1.00×. Correcting a round-to-nearest result adds to the dependency chain, and
+  `avx_fma`'s MXCSR switches, being fixed overhead, do not. It is not uniform,
+  though: `mul_ru/latency` is 0.81×, because there the FMA removes more of the
+  chain than the correction adds. No composite benchmark is latency-bound, which
+  is why they all favour `fma` by 2 to 3 times.
+- `sqrt/M` is 0.83×, which the square root itself does not explain: both
+  backends take `sqrt1_rd` and `sqrt1_ru` from `generic` and neither reaches the
+  vector path for an interval containing zero. The remaining difference is in
+  the code around it, and has not been traced further.
 
 ## Conclusion
 
-On x86-64 processors without AVX-512, `generic` should not replace `avx_fma` as
-the default. It is not uniformly faster: it wins on polynomial evaluation and
-loses on multiplication and division, which dominate typical interval code such
-as the determinant. The differences are mostly within 1.3×, except division, so
-`force-generic` is a reasonable choice where changing MXCSR is undesirable.
+Letting the hardware round was the wrong default on x86-64. `avx_fma` spent
+about 9 ns per operation saving, setting and restoring MXCSR, which is more than
+the arithmetic costs and more than correcting a round-to-nearest result costs.
+`fma` does the latter and is faster on every interval operation but `sqrt/P`,
+where it is 1.03×: 0.47× on addition, 0.60× on multiplication, 0.67× on
+division, 0.41–0.45× on Horner and 0.33× on a 3×3 determinant. It pays for this
+with 3 to 12% on the latency of three primitives, where the correction lengthens
+a dependency chain — a trade worth making, since interval code has independent
+operations to overlap far more often than it has serial ones. `fma` is therefore
+the default, and `avx_fma` has been removed.
 
-`sse42` is a different matter. On processors without AVX it is the only backend
-besides `force-generic`, and it is 1.2–2.1× faster than `generic` at the same
-feature level on everything but subtraction and Horner. But it is also faster
-than `avx_fma` on a processor that could run `avx_fma`: 0.54× on addition and
-0.46× on the determinant, losing only on `sqrt`, `mul_add` and division latency,
-all of which trace to the missing FMA rather than to the method. Whether the
-method should therefore replace `avx_fma` as the default — as an FMA-enabled
-variant, which would remove exactly those losses — is an open question that
-these measurements do not settle, because no such backend exists yet.
-Measurements on a processor with a cheaper `vldmxcsr` could change the picture.
+`generic` is not a replacement for either. It has no fixed rounding-mode cost
+but needs many more instructions: against `avx_fma` it was within about 1.3×
+either way except on division, but against `fma` it is slower on every row of
+both tables except `sqrt1_ru`, which the two share, by 1.2× on the rows that do
+almost no arithmetic and by 1.5–4× on the rest. `force-generic` remains the
+portable fallback rather than a faster one.
+
+`sse42` is the same method as `fma` without an FMA, and is 1.2–2.1× faster than
+`generic` at the same feature level on everything but subtraction and Horner.
+Where it loses to `fma` it loses to the missing FMA — `sqrt`, `mul_add` and the
+remainder in division — not to the method.
+
+All of this is one microarchitecture. `fma`'s advantage is bounded by what
+`vldmxcsr` costs — it trades a fixed per-operation overhead for more
+instructions that pipeline — so a processor on which switching the rounding
+mode is cheap could reverse the comparison entirely. That has not been measured.
+The comparison with `generic`, which switches nothing either, does not depend on
+this.
 
 On WebAssembly, build with `-Ctarget-feature=+simd128` where the runtime
 supports it: the `wasm32` backend is roughly twice as fast as the portable one
@@ -312,8 +444,8 @@ feature, which is not public API.
 
 ```bash
 cd bench
-RUSTFLAGS=-Ctarget-cpu=haswell cargo bench -- --save-baseline avx_fma
-RUSTFLAGS=-Ctarget-cpu=haswell cargo bench --features force-generic -- --baseline avx_fma
+RUSTFLAGS=-Ctarget-cpu=haswell cargo bench -- --save-baseline fma
+RUSTFLAGS=-Ctarget-cpu=haswell cargo bench --features force-generic -- --baseline fma
 ```
 
 For WebAssembly, with wasmtime on the path:

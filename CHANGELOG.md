@@ -9,10 +9,11 @@ Items marked with ⚠️ are breaking changes.
 - Added support for architectures other than x86-64 and AArch64, such as wasm32 and riscv64, with a portable backend that does not change the rounding mode.
 - Added the Cargo feature `force-generic`, which uses the portable backend on x86-64 and AArch64 too.
 - Added a backend for WebAssembly that uses 128-bit SIMD instructions, enabled by the target feature `simd128`. It makes interval operations about twice as fast as the portable backend.
-- Added a backend for x86-64 processors that have SSE4.2 but neither AVX nor FMA, which lowers the lowest supported processor from Haswell to Nehalem. Like the WebAssembly backend, it does not change the rounding mode. It is 1.2 to 2.1 times faster than the portable backend on such a processor, and, because it avoids the cost of switching the rounding mode, it is also faster than the default backend on processors that have AVX and FMA for everything but `sqrt`, `mul_add` and division.
+- Added a backend for x86-64 processors that have SSE4.2 but neither AVX nor FMA, which lowers the lowest supported processor from Haswell to Nehalem. Like the WebAssembly backend, it does not change the rounding mode. It is 1.2 to 2.1 times faster than the portable backend on such a processor.
 
 ### Changed
 
+- Made the default backend for x86-64 processors with AVX and FMA compute the directed roundings explicitly, instead of switching the rounding mode around every instruction. No backend for x86-64 changes the rounding mode any more. On a Zen 2 processor, interval addition and subtraction take 0.47 times as long as before, multiplication 0.49 to 0.62, division 0.67 to 0.69, evaluating a degree-8 polynomial 0.41 to 0.45, and a 3×3 determinant 0.33. Only the latency of a chain of dependent `add_ru`, `div_ru` and `mul_add_ru` operations became slightly worse, by 3 to 12 percent.
 - Made `(Dec)Interval::sqrt` about 2.5 times faster on x86-64 processors without AVX-512F, by computing the square root without changing the rounding mode.
 - Made `(Dec)Interval::sqrt` compute both endpoints in a single vector square root when the interval does not contain zero: about 1.8 times faster on x86-64 processors without AVX-512F, and about 1.5 times faster on WebAssembly with `simd128`.
 

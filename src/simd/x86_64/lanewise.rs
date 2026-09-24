@@ -1,12 +1,12 @@
 // The lane-wise port of the generic backend (see `generic.rs`) to `__m128d`,
-// used by `sse42`, which computes the rounding toward +∞ explicitly instead of
-// switching MXCSR.
+// shared by the backends that compute the rounding toward +∞ explicitly instead
+// of switching MXCSR: `sse42` and `fma`.
 //
-// What is here does not depend on how TwoProduct is computed: the fast paths
-// that involve no product, and the helpers they are built from. Those that do
-// involve one stay in `sse42.rs`, because Dekker's algorithm and an FMA need
-// different hypotheses. A backend for a target that has an FMA can therefore
-// share this module unchanged.
+// The fast paths that do not involve a product are the same in both, and are
+// defined here together with the helpers they are built from. Those that do
+// involve one differ in TwoProduct — Dekker's algorithm without an FMA, a single
+// instruction with one — and in the hypotheses it needs, so each backend defines
+// its own.
 //
 // Masks have all bits of a lane set for true, and none for false.
 

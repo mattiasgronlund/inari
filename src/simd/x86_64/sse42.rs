@@ -12,8 +12,9 @@
 //
 // This is a port of the `wasm32` backend, which is the same method on a
 // different instruction set. The parts that do not depend on having an FMA are
-// in `lanewise.rs`, and the operations that do not depend on the rounding mode
-// are in the parent module, which every x86-64 backend shares.
+// in `lanewise.rs`, which the `fma` backend shares, and the operations that do
+// not depend on the rounding mode are in the parent module, which every x86-64
+// backend shares.
 
 use super::lanewise::{
     add_i64, andnot, div_rn, exponent_gt, exponent_in, exponent_le, is_finite, is_special, lane0,

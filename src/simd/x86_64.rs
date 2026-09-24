@@ -168,8 +168,9 @@ cfg_if::cfg_if! {
         mod avx512f;
         pub(crate) use avx512f::*;
     } else if #[cfg(all(target_feature = "avx", target_feature = "fma"))] {
-        mod avx_fma;
-        pub(crate) use avx_fma::*;
+        mod lanewise;
+        mod fma;
+        pub(crate) use fma::*;
     } else if #[cfg(target_feature = "sse4.2")] {
         mod lanewise;
         mod sse42;

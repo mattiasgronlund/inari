@@ -1,8 +1,8 @@
 // Compares the rounding functions of the generic backend bit for bit with the
-// backend of the target: on x86-64 with AVX, the hardware backend (`avx_fma` or
-// `avx512f`), which switches the rounding mode; on x86-64 without it (`sse42`)
-// and on wasm32, the backend that vectorizes the fast paths of the generic one,
-// and is compared with it.
+// backend of the target: on x86-64 with AVX-512F, the hardware backend
+// (`avx512f`), which rounds with embedded rounding; otherwise (`fma`, `sse42`
+// and, on wasm32, `wasm32`), the backend that vectorizes the fast paths of the
+// generic one, and is compared with it.
 // Both the FMA and the Dekker (no FMA) variants of the generic backend are tested.
 // On wasm32, `f64::mul_add` is a software routine, but still correctly rounded.
 // NaNs compare equal regardless of their sign and payload, which inari does not
@@ -15,8 +15,8 @@ use super::generic;
 use std::fmt::Write;
 
 cfg_if::cfg_if! {
-    // `avx_fma` and `sse42` take their square root from the generic backend, so
-    // it is compared with the one that switches the rounding mode instead.
+    // `fma` and `sse42` take their square root from the generic backend, so it
+    // is compared with the one that switches the rounding mode instead.
     if #[cfg(target_feature = "avx512f")] {
         use super::{sqrt1_rd as hw_sqrt1_rd, sqrt1_ru as hw_sqrt1_ru};
     } else if #[cfg(target_arch = "x86_64")] {
