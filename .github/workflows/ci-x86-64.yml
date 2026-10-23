@@ -144,6 +144,11 @@ jobs:
           override: true
           profile: minimal
 
+      # The newest versions of some dependencies need a newer Rust. Pick the newest
+      # versions that support the `rust-version` in Cargo.toml.
+      - name: Generate lockfile
+        run: cargo +stable --config 'resolver.incompatible-rust-versions="fallback"' generate-lockfile
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Is AVX-512F available?
