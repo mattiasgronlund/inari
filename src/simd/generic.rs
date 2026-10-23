@@ -838,7 +838,8 @@ fn sum_round_up(sx: bool, mx: u128, ex: i32, sy: bool, my: u128, ey: i32) -> f64
 }
 
 // Returns (-1)^neg * (m + δ) * 2^e rounded toward +∞, where m > 0, and
-// 0 < δ < 1 if sticky, otherwise δ = 0.
+// 0 < δ < 1 if sticky, otherwise δ = 0. If sticky, m must be at least 2^52, so
+// that δ * 2^e is below the last bit of the result.
 fn round_up_exact(neg: bool, m: u128, e: i32, sticky: bool) -> f64 {
     let top = 127 - m.leading_zeros() as i32;
     // The exponent of the leading bit of the result, and that of its last bit,
@@ -848,8 +849,8 @@ fn round_up_exact(neg: bool, m: u128, e: i32, sticky: bool) -> f64 {
     let shift = lsb - e;
     // The magnitude is (kept + f) * 2^lsb with 0 <= f < 1, f > 0 iff lost.
     let (mut kept, lost) = if shift <= 0 {
-        // m has at most 53 significant bits (above 2^lsb). δ, if any, is below
-        // 2^e <= 2^lsb, so it is still lost.
+        // m has at most 53 significant bits (above 2^lsb). If sticky, m >= 2^52
+        // makes shift = 0, so δ * 2^e is below 2^e = 2^lsb and still lost.
         (m << -shift, sticky)
     } else if shift >= 128 {
         (0, true)
