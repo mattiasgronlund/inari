@@ -174,7 +174,14 @@ impl Interval {
     /// See also: [`Interval::mid`].
     pub fn rad(self) -> f64 {
         let m = self.mid();
-        f64::max(sub1_ru(m, self.inf_raw()), sub1_ru(self.sup_raw(), m))
+        let rad = f64::max(sub1_ru(m, self.inf_raw()), sub1_ru(self.sup_raw(), m));
+        // `sub1_ru(-0.0, 0.0)` is `-0.0`, and `f64::max` may return either zero
+        // when given `0.0` and `-0.0`.
+        if rad == 0.0 {
+            0.0
+        } else {
+            rad
+        }
     }
 
     /// Returns the upper bound of `self`.

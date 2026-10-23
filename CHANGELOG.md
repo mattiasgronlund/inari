@@ -18,6 +18,10 @@ Items marked with ⚠️ are breaking changes.
 - Made `(Dec)Interval::sqrt` about 2.5 times faster on x86-64 processors without AVX-512F, by computing the square root without changing the rounding mode.
 - Made `(Dec)Interval::sqrt` compute both endpoints in a single vector square root when the interval does not contain zero: about 1.8 times faster on x86-64 processors without AVX-512F, and about 1.5 times faster on WebAssembly with `simd128`.
 
+### Fixed
+
+- Fixed `(Dec)Interval::rad` to return `0.0` instead of `-0.0` for the interval [0, 0] when its upper bound is `-0.0`, as in `const_interval!(0.0, -0.0)`. It returned `-0.0` with Rust 1.96 on x86-64, because `f64::max` may return either zero when given `0.0` and `-0.0`.
+
 ## v2.0.0 - 2024-08-07
 
 ### Added
