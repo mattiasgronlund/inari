@@ -1,0 +1,25 @@
+name: ci-rocq
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  proofs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The container runs as a user that does not own the checkout, and has
+      # to write the compiled proofs next to the sources.
+      - name: Make the proofs writable by the container
+        run: chmod -R a+w rocq
+
+      - name: Check the proofs
+        run: >
+          docker run --rm -v "$PWD/rocq:/w" -w /w rocq/rocq-prover:9.1
+          bash -c 'opam install -y coq-flocq.4.2.2 && make'
