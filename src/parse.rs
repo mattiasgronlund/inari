@@ -212,7 +212,7 @@ fn positive_natural(s: &str) -> IResult<&str, &str> {
     )))(s)
 }
 
-fn unsigned_number(s: &str) -> IResult<&str, UnsignedNumberLiteral> {
+fn unsigned_number(s: &str) -> IResult<&str, UnsignedNumberLiteral<'_>> {
     alt((
         // rational
         map(
@@ -239,11 +239,11 @@ fn unsigned_number(s: &str) -> IResult<&str, UnsignedNumberLiteral> {
     ))(s)
 }
 
-fn number(s: &str) -> IResult<&str, NumberLiteral> {
+fn number(s: &str) -> IResult<&str, NumberLiteral<'_>> {
     map(pair(sign, unsigned_number), |(s, n)| NumberLiteral(s, n))(s)
 }
 
-fn uncertain_radius(s: &str) -> IResult<&str, UncertainRadius> {
+fn uncertain_radius(s: &str) -> IResult<&str, UncertainRadius<'_>> {
     map(
         opt(alt((
             map(digit1, UncertainRadius::MultipleOfUlp),
