@@ -102,27 +102,17 @@ jobs:
 
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: stable
           override: true
           profile: minimal
+          components: llvm-tools-preview
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Coverage
-        env:
-          RUSTFLAGS: ${{ env.RUSTFLAGS }} -Zprofile -Ccodegen-units=1 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests
-          RUSTDOCFLAGS: ${{ env.RUSTDOCFLAGS }} -Zprofile -Ccodegen-units=1 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests
-        run: cargo test
-
-      - name: Gather coverage data
-        id: coverage
-        uses: actions-rs/grcov@v0.1
-
-      - name: Upload to Coveralls
-        uses: coverallsapp/github-action@master
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: ${{ steps.coverage.outputs.report }}
+        run: cargo llvm-cov
 
   msrv:
     runs-on: ubuntu-latest
