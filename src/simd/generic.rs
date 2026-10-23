@@ -532,6 +532,8 @@ pub(super) fn mul_add1_rn_emulated(u1: f64, u2: f64, c: f64) -> f64 {
 
 // Fast paths. Each returns the result and whether it is valid.
 
+// Proved correct in `rocq/theories/AddRu.v`. `rocq/theories/Model.v` transcribes this
+// function and the ones it calls, so it has to be updated along with them.
 fn add1_ru_fast(x: f64, y: f64) -> (f64, bool) {
     let s = x + y;
     let e = two_sum_err(x, y, s);

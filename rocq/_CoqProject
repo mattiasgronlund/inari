@@ -1,0 +1,6 @@
+-R theories Inari
+
+theories/Model.v
+theories/Encoding.v
+theories/TwoSum.v
+theories/AddRu.v

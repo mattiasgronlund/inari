@@ -1,0 +1,12 @@
+# Build outputs of Rocq and of `rocq makefile`.
+*.vo
+*.vok
+*.vos
+*.glob
+.*.aux
+.lia.cache
+.nia.cache
+RocqMakefile
+RocqMakefile.conf
+.RocqMakefile.d
+Assumptions.out
