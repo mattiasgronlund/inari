@@ -325,6 +325,7 @@ pub(super) fn sqrt1_ru_impl<const FMA: bool>(x: f64) -> f64 {
 
 // Applies `fast` to each lane, and falls back to `slow` for the lanes where the
 // fast path is not valid. The common case is a single, well-predicted branch.
+// `rocq/theories/Model.v` transcribes this function for the proof of `add_ru`.
 fn lanewise2(
     x: F64X2,
     y: F64X2,
@@ -679,6 +680,9 @@ fn sqrt1_fast<const FMA: bool>(x: f64) -> (f64, f64, bool) {
 
 // Slow paths.
 
+// Proved correct in `rocq/theories/AddRu.v`, as is `add_ru`. `rocq/theories/Model.v`
+// transcribes this function and the ones it calls, `lanewise2` and `add_ru`, so it
+// has to be updated along with them.
 #[cold]
 fn add1_ru_slow(x: f64, y: f64) -> f64 {
     if !(is_finite(x) && is_finite(y)) || x == 0.0 || y == 0.0 {

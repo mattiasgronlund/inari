@@ -4,4 +4,5 @@
 From Inari Require Import Encoding AddRu.
 
 Print Assumptions add1_ru_fast_correct.
+Print Assumptions add_ru_correct.
 Print Assumptions step_up_no_wrap.

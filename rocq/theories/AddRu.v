@@ -1,22 +1,21 @@
-(** * [add1_ru_fast] rounds toward +inf
+(** * [add_ru] rounds toward +inf
 
-    When [add1_ru_fast x y] reports that its result is valid, the result is
-    IEEE 754 addition rounded toward +inf, i.e. Flocq's [Bplus mode_UP],
-    including the sign of a zero, overflow, the infinities and NaN.
+    [add_ru] is IEEE 754 addition rounded toward +inf on both lanes, i.e.
+    Flocq's [Bplus mode_UP], including the sign of a zero, overflow, the
+    infinities and NaN. It never panics.
 
-    The fast path computes [s = RN(x + y)] and its exact error
-    [e = (x + y) - s] with [two_sum_err], and steps [s] up to the next float
-    if [e > 0]. If [x] or [y] is not finite, the sum does not depend on the
-    rounding mode. *)
+    The fast path, [add1_ru_fast], computes [s = RN(x + y)] and its exact
+    error [e = (x + y) - s] with [two_sum_err], and steps [s] up to the next
+    float if [e > 0]. If [x] or [y] is not finite, the sum does not depend
+    on the rounding mode. The slow path, [add1_ru_slow], adds the
+    significands as integers and rounds the sum itself. *)
 
 From Stdlib Require Import ZArith Reals Lia Lra.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN Plus_error.
-From Inari Require Import Model Encoding TwoSum.
+From Inari Require Import Model Encoding Spec TwoSum Decompose RoundUpExact
+  SumRoundUp.
 
 Open Scope R_scope.
-
-(** Rounding toward +inf in binary64 without overflow. *)
-Notation RU := (round radix2 fexp64 Zceil).
 
 (** ** Rounding up from rounding to nearest *)
 
@@ -151,4 +150,87 @@ destruct (Rlt_bool_spec 0 (B2R x + B2R y - B2R s)) as [Hpos|Hnpos].
   intros (HRu & HFu & HSu).
   apply B2R_Bsign_inj; [exact Fs | exact HFu | rewrite HRu, HU; reflexivity |].
   rewrite HsS, HSu. reflexivity.
+Qed.
+
+(** ** The slow path *)
+
+Theorem add1_ru_slow_correct :
+  forall x y, Generic.add1_ru_slow x y = Some (Bplus mode_UP x y).
+Proof.
+intros x y.
+unfold Generic.add1_ru_slow.
+rewrite !is_finite_eq.
+destruct (negb (is_finite x && is_finite y) || eq x zero || eq y zero) eqn:Hsp.
+{ f_equal. now apply add_special. }
+apply Bool.orb_false_elim in Hsp as [Hsp Hy0].
+apply Bool.orb_false_elim in Hsp as [Hf Hx0].
+apply Bool.negb_false_iff, andb_prop in Hf as [Fx Fy].
+generalize (decompose_correct x Fx Hx0) (decompose_correct y Fy Hy0).
+destruct (Generic.decompose x) as ((sx, mx), ex).
+destruct (Generic.decompose y) as ((sy, my), ey).
+intros (-> & Hmx & Hex & Hx) (-> & Hmy & Hey & Hy).
+assert (HX : 0 < F2R (Float radix2 mx ex)) by (apply F2R_gt_0; simpl; lia).
+assert (HY : 0 < F2R (Float radix2 my ey)) by (apply F2R_gt_0; simpl; lia).
+generalize (sum_round_up_reduce (Bsign x) mx ex (Bsign y) my ey
+  ltac:(lia) ltac:(lia) ltac:(lia) ltac:(lia)).
+cbv zeta. rewrite <- Hx, <- Hy.
+generalize (@Bplus_correct 53 1024 _ _ mode_UP x y Fx Fy).
+change (round radix2 (SpecFloat.fexp 53 1024) (round_mode mode_UP)) with RU.
+intros HB [(H0 & ->) | (neg & m & e & sticky & Hpre & ->)].
+- (* An exact cancellation gives +0, as [x] and [y] have opposite signs. *)
+  rewrite H0, round_0, Rabs_R0, Rlt_bool_true, Rcompare_Eq in HB
+    by first [reflexivity | apply bpow_gt_0 | typeclasses eauto].
+  destruct HB as (HR & HF & HS).
+  f_equal. apply B2R_Bsign_inj; [reflexivity | exact HF | now rewrite HR |].
+  rewrite HS.
+  revert H0. rewrite Hx, Hy.
+  destruct (Bsign x), (Bsign y); unfold cond_Ropp; try reflexivity; lra.
+- destruct (round_up_exact_correct neg m e sticky _ Hpre) as (r & -> & Hr).
+  assert (Hv : B2R x + B2R y <> 0).
+  { destruct Hpre as (Hm & _ & _ & _ & Hloc).
+    assert (0 < F2R (Float radix2 m e)) by (apply F2R_gt_0; simpl; lia).
+    intros H0. rewrite H0, Rabs_R0 in Hloc.
+    destruct sticky; lra. }
+  f_equal. unfold rounds_up_to in Hr.
+  destruct Rlt_bool.
+  + destruct Hr as (HR & HF & HS). destruct HB as (HR' & HF' & HS').
+    apply B2R_Bsign_inj; [exact HF | exact HF' | congruence |].
+    rewrite HS, HS'.
+    destruct (Rcompare_spec (B2R x + B2R y) 0) as [H|H|H].
+    * now apply Rlt_bool_true.
+    * contradiction.
+    * apply Rlt_bool_false. lra.
+  + (* Overflow: [x] and [y] have the same sign, which the sum has too. *)
+    destruct HB as (HO & Hsxy).
+    apply B2SF_inj. rewrite Hr, HO. f_equal.
+    rewrite Hx, Hy, <- Hsxy.
+    destruct (Bsign x); unfold cond_Ropp.
+    * apply Rlt_bool_true. lra.
+    * apply Rlt_bool_false. lra.
+Qed.
+
+(** ** Both lanes *)
+
+Theorem add_ru_correct :
+  forall x y,
+  Generic.add_ru x y =
+    Some (Bplus mode_UP (fst x) (fst y), Bplus mode_UP (snd x) (snd y)).
+Proof.
+intros [x0 x1] [y0 y1].
+(* Each lane is the fast path if it is valid, and the slow path if not. *)
+assert (L : forall a b,
+  (if snd (Generic.add1_ru_fast a b) then Some (fst (Generic.add1_ru_fast a b))
+   else Generic.add1_ru_slow a b) = Some (Bplus mode_UP a b)).
+{ intros a b.
+  destruct (snd (Generic.add1_ru_fast a b)) eqn:Hok.
+  - f_equal. now apply add1_ru_fast_correct.
+  - apply add1_ru_slow_correct. }
+generalize (L x0 y0) (L x1 y1).
+unfold Generic.add_ru, Generic.lanewise2. cbn [fst snd].
+destruct (Generic.add1_ru_fast x0 y0) as (r0, ok0).
+destruct (Generic.add1_ru_fast x1 y1) as (r1, ok1).
+cbn [fst snd].
+intros H0 H1.
+destruct ok0, ok1; cbn [andb];
+  rewrite ?H0, ?H1; try injection H0 as ->; try injection H1 as ->; reflexivity.
 Qed.
