@@ -9,9 +9,11 @@
     Flocq's [Bplus] and [Bminus] rounded to nearest, ties to even, which is
     the default rounding mode that [generic.rs] relies on.
 
-    NaN payloads are not modelled: all NaNs are the same value. [generic.rs]
-    never looks at a payload, only at the exponent field, which is all ones
-    for every NaN, so [to_bits] can give every NaN the bits of one of them.
+    NaN payloads and signs are not modelled: all NaNs are the same value, so
+    [opp] keeps a NaN as it is where Rust's unary [-] flips its sign bit.
+    The functions modelled here never look at the payload or the sign of a
+    NaN, only at the exponent field, which is all ones for every NaN, so
+    [to_bits] can give every NaN the bits of one of them.
 
     Integers are [Z]. In the slow path, every integer operation that panics
     in a debug build when its result does not fit its type returns [None]
@@ -244,5 +246,16 @@ Definition lanewise2 (x y : F64X2) (fast : f64 -> f64 -> f64 * bool)
 (** [pub(crate) fn add_ru(x: F64X2, y: F64X2) -> F64X2] *)
 Definition add_ru (x y : F64X2) : option F64X2 :=
   lanewise2 x y add1_ru_fast add1_ru_slow.
+
+(** [pub(crate) fn neg(x: F64X2) -> F64X2] *)
+Definition neg (x : F64X2) : F64X2 := (opp (fst x), opp (snd x)).
+
+(** [pub(crate) fn sub_ru(x: F64X2, y: F64X2) -> F64X2] *)
+Definition sub_ru (x y : F64X2) : option F64X2 := add_ru x (neg y).
+
+(** [pub(crate) fn sub1_ru(x: f64, y: f64) -> f64] *)
+Definition sub1_ru (x y : f64) : option f64 :=
+  let '(r, ok) := add1_ru_fast x (opp y) in
+  if ok then Some r else add1_ru_slow x (opp y).
 
 End Generic.

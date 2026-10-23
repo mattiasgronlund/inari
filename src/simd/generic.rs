@@ -173,6 +173,7 @@ pub(crate) fn mul_ru(x: F64X2, y: F64X2) -> F64X2 {
     mul_ru_impl::<HAS_FMA>(x, y)
 }
 
+// `rocq/theories/Model.v` transcribes this function for the proof of `sub_ru`.
 pub(crate) fn neg(x: F64X2) -> F64X2 {
     [-x[0], -x[1]]
 }
@@ -240,11 +241,15 @@ pub(crate) fn sub_rn(x: F64X2, y: F64X2) -> F64X2 {
 /// `sub_ru([x0, x1], [y0, y1]) = [x0 - y0, x1 - y1]` rounded toward +∞.
 pub(crate) fn sub_ru(x: F64X2, y: F64X2) -> F64X2 {
     // x - y is defined as x + (-y) by IEEE 754, including the signs of zeros.
+    // Proved correct in `rocq/theories/SubRu.v`. `rocq/theories/Model.v` transcribes
+    // this function, so it has to be updated along with it.
     add_ru(x, neg(y))
 }
 
 /// `sub1_ru(x, y) = x - y` rounded toward +∞.
 pub(crate) fn sub1_ru(x: f64, y: f64) -> f64 {
+    // Proved correct in `rocq/theories/SubRu.v`. `rocq/theories/Model.v` transcribes
+    // this function, so it has to be updated along with it.
     let (r, ok) = add1_ru_fast(x, -y);
     if ok {
         r

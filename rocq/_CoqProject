@@ -8,3 +8,4 @@ theories/TwoSum.v
 theories/RoundUpExact.v
 theories/SumRoundUp.v
 theories/AddRu.v
+theories/SubRu.v
