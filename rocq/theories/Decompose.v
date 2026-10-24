@@ -18,7 +18,8 @@ intros x. split.
 Qed.
 
 (** The operands that [add1_ru_slow] adds in the default rounding mode
-    are +-inf, NaN or zeros, and then the rounding mode does not matter. *)
+    are +-inf, NaN or zeros, and then rounding to nearest gives the same
+    result as toward +inf. *)
 Lemma add_special :
   forall x y,
   negb (is_finite x && is_finite y) || eq x zero || eq y zero = true ->
