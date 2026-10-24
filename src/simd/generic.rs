@@ -713,8 +713,8 @@ fn sqrt1_fast<const FMA: bool>(x: f64) -> (f64, f64, bool) {
 // Slow paths.
 
 // Proved correct in `rocq/theories/AddRu.v`, as is `add_ru`. `rocq/theories/Model.v`
-// transcribes this function and the ones it calls, `lanewise2` and `add_ru`, so it
-// has to be updated along with them.
+// transcribes this function and the ones it calls, as well as `lanewise2` and
+// `add_ru`, so it has to be updated along with them.
 #[cold]
 fn add1_ru_slow(x: f64, y: f64) -> f64 {
     if !(is_finite(x) && is_finite(y)) || x == 0.0 || y == 0.0 {
@@ -727,8 +727,8 @@ fn add1_ru_slow(x: f64, y: f64) -> f64 {
 }
 
 // Proved correct in `rocq/theories/MulRu.v`, as is `mul_ru`. `rocq/theories/Model.v`
-// transcribes this function and the ones it calls, `mul_ru_impl` and `mul_ru`, so it
-// has to be updated along with them.
+// transcribes this function and the ones it calls, as well as `mul_ru_impl` and
+// `mul_ru`, so it has to be updated along with them.
 #[cold]
 fn mul1_ru_slow(x: f64, y: f64) -> f64 {
     if !(is_finite(x) && is_finite(y)) || x == 0.0 || y == 0.0 {
@@ -740,8 +740,8 @@ fn mul1_ru_slow(x: f64, y: f64) -> f64 {
 }
 
 // Proved correct in `rocq/theories/DivRu.v`, as is `div_ru`. `rocq/theories/Model.v`
-// transcribes this function and the ones it calls, `div_ru_impl` and `div_ru`, so it
-// has to be updated along with them.
+// transcribes this function and the ones it calls, as well as `div_ru_impl` and
+// `div_ru`, so it has to be updated along with them.
 #[cold]
 fn div1_ru_slow(x: f64, y: f64) -> f64 {
     if !(is_finite(x) && is_finite(y)) || x == 0.0 || y == 0.0 {
