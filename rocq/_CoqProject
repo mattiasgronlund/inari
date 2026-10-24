@@ -25,3 +25,5 @@ theories/EmulatedFma.v
 theories/MulAddRuFast.v
 theories/MulAddRuSlow.v
 theories/MulAddRu.v
+theories/Ieee1788.v
+theories/Integer.v

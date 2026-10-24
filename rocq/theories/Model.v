@@ -1,16 +1,21 @@
-(** * A model of the parts of [src/simd/generic.rs] that are proved here
+(** * A model of the parts of the Rust code that are proved here
 
-    Each definition in [Generic] transcribes the Rust function of the same
-    name, line by line, so that the two can be compared side by side. This
-    file is the only one that has to be checked against the Rust code; the
-    other files prove properties of the definitions here.
+    Each definition in [Generic] transcribes the function of the same name
+    in [src/simd/generic.rs], line by line, so that the two can be compared
+    side by side. The section on intervals at the end does the same for the
+    parts of [src/interval.rs], [src/boolean.rs] and [src/integer.rs] that
+    [floor] and [ceil] of intervals use. This file is the only one that has
+    to be checked against the Rust code, and [Ieee1788.v] the only one that
+    has to be checked against IEEE 1788; the other files prove properties
+    of the definitions here.
 
     Rust's [f64] is Flocq's IEEE 754 binary64 type, and its [+], [-], [*]
     and [/] are Flocq's [Bplus], [Bminus], [Bmult] and [Bdiv] rounded to
     nearest, ties to even, which is the default rounding mode that
     [generic.rs] relies on. [f64::mul_add] and [f64::sqrt] are Flocq's
-    [Bfma] and [Bsqrt] in the same mode. A const generic parameter, such as
-    [FMA], is an ordinary argument.
+    [Bfma] and [Bsqrt] in the same mode, and [f64::floor] and [f64::ceil]
+    are Flocq's [Bnearbyint] toward -inf and +inf. A const generic
+    parameter, such as [FMA], is an ordinary argument.
 
     NaN payloads and signs are not modelled: all NaNs are the same value, so
     [opp] keeps a NaN as it is where Rust's unary [-] flips its sign bit,
@@ -36,7 +41,7 @@
     it may make, and returns [None] if it would make more. If it returns
     [Some r] for any number, the Rust function returns [r]. *)
 
-From Stdlib Require Import ZArith.
+From Stdlib Require Import ZArith Rdefinitions.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Flocq Require IEEE754.Binary IEEE754.Bits.
 
@@ -74,6 +79,12 @@ Definition div (x y : f64) : f64 := Bdiv mode_NE x y.
 
 (** [x.sqrt()]. Not [sqrt], which is the square root of a real in Stdlib. *)
 Definition fsqrt (x : f64) : f64 := Bsqrt mode_NE x.
+
+(** [x.floor()] and [x.ceil()]: [x] rounded to an integer toward -inf and
+    toward +inf, IEEE 754's roundToIntegralTowardNegative and
+    roundToIntegralTowardPositive. A zero result has the sign of [x]. *)
+Definition ffloor (x : f64) : f64 := Bnearbyint mode_DN x.
+Definition fceil (x : f64) : f64 := Bnearbyint mode_UP x.
 
 (** [0.0]. *)
 Definition zero : f64 := B754_zero false.
@@ -482,6 +493,15 @@ Definition mul_ru (has_fma : bool) (x y : F64X2) : option F64X2 :=
 (** [pub(crate) fn neg(x: F64X2) -> F64X2] *)
 Definition neg (x : F64X2) : F64X2 := (opp (fst x), opp (snd x)).
 
+(** [pub(crate) fn neg0(x: F64X2) -> F64X2] *)
+Definition neg0 (x : F64X2) : F64X2 := (opp (fst x), snd x).
+
+(** [pub(crate) fn ceil(x: F64X2) -> F64X2] *)
+Definition ceil (x : F64X2) : F64X2 := (fceil (fst x), fceil (snd x)).
+
+(** [pub(crate) fn floor(x: F64X2) -> F64X2] *)
+Definition floor (x : F64X2) : F64X2 := (ffloor (fst x), ffloor (snd x)).
+
 (** [pub(crate) fn sub_ru(x: F64X2, y: F64X2) -> F64X2] *)
 Definition sub_ru (x y : F64X2) : option F64X2 := add_ru x (neg y).
 
@@ -552,3 +572,147 @@ Definition sqrt_rd_ru (has_fma : bool) (x : F64X2) : option F64X2 :=
   Some (a, b).
 
 End Generic.
+
+(** ** Intervals
+
+    The parts of [src/interval.rs], [src/boolean.rs] and [src/integer.rs]
+    that [Interval::floor], [Interval::ceil] and their decorated versions
+    use. Those call the backend's [floor], [ceil] and [neg0], which are the
+    ones in [Generic] here. *)
+
+(** [pub struct Interval], whose only field is [rep: F64X2]. *)
+Record Interval : Type := { rep : Generic.F64X2 }.
+
+(** The intervals that [rep] can hold, from the comment on
+    [struct Interval]: a nonempty interval [[a, b]] is stored as [[-a; b]],
+    and an empty one as [[NaN; NaN]]. The bounds are the ones that
+    [TryFrom<(f64, f64)>] accepts,
+    [a <= b && a != f64::INFINITY && b != f64::NEG_INFINITY], where [<=] is
+    Flocq's [Bleb]. So [a] may be -inf, [b] may be +inf, and a zero bound
+    may have either sign. *)
+Definition valid (x : Interval) : Prop :=
+  let '(x0, x1) := rep x in
+  (is_nan x0 = true /\ is_nan x1 = true) \/
+  (Bleb (opp x0) x1 = true /\ opp x0 <> B754_infinity false /\
+   x1 <> B754_infinity true).
+
+(** The real [r] is in [x]: [a <= r <= b], where [a = -inf] and [b = +inf]
+    bound no real. A NaN bound excludes every real, so no real is in an
+    empty interval. *)
+Definition mem (r : R) (x : Interval) : Prop :=
+  match opp (fst (rep x)) with
+  | B754_infinity s => s = true
+  | B754_nan => False
+  | a => (B2R a <= r)%R
+  end /\
+  match snd (rep x) with
+  | B754_infinity s => s = false
+  | B754_nan => False
+  | b => (r <= B2R b)%R
+  end.
+
+(** [pub enum Decoration], with the discriminants by which the derived
+    [Ord] compares its variants. *)
+Inductive Decoration : Type := Ill | Trv | Def | Dac | Com.
+
+Definition discriminant (d : Decoration) : Z :=
+  match d with Ill => 0 | Trv => 4 | Def => 8 | Dac => 12 | Com => 16 end.
+
+(** [d == e], and [d.min(e)], which returns [d] if [d <= e] and [e]
+    otherwise. *)
+Definition dec_eqb (d e : Decoration) : bool := discriminant d =? discriminant e.
+Definition dec_min (d e : Decoration) : Decoration :=
+  if discriminant d <=? discriminant e then d else e.
+
+(** [pub struct DecInterval], with its fields [x] and [d] as [itv] and
+    [dec]. *)
+Record DecInterval : Type := { itv : Interval; dec : Decoration }.
+
+Module Interval.
+
+(** [pub const EMPTY: Self], i.e. [[NaN; NaN]]. *)
+Definition EMPTY : Interval := {| rep := (B754_nan, B754_nan) |}.
+
+(** [pub(crate) fn inf_raw(self) -> f64] and
+    [pub(crate) fn sup_raw(self) -> f64] *)
+Definition inf_raw (self : Interval) : f64 := opp (fst (rep self)).
+Definition sup_raw (self : Interval) : f64 := snd (rep self).
+
+(** [pub fn is_common_interval(self) -> bool], which computes
+    [all(lt(self.rep, splat(f64::INFINITY)))]. [lt] sets every bit of a
+    lane where the comparison holds and clears them where it does not, and
+    [all] tests that the sign bits of both lanes are set. The model has no
+    sign bit for a NaN, so it takes the two comparisons directly. *)
+Definition is_common_interval (self : Interval) : bool :=
+  lt (fst (rep self)) infinity && lt (snd (rep self)) infinity.
+
+(** [pub fn is_empty(self) -> bool], where [f64::is_nan] is Flocq's
+    [is_nan]. *)
+Definition is_empty (self : Interval) : bool := is_nan (fst (rep self)).
+
+(** [pub fn is_singleton(self) -> bool] *)
+Definition is_singleton (self : Interval) : bool :=
+  eq (inf_raw self) (sup_raw self).
+
+(** [pub fn ceil(self) -> Self] *)
+Definition ceil (self : Interval) : Interval :=
+  let x := Generic.neg0 (rep self) in
+  let r := Generic.ceil x in
+  {| rep := Generic.neg0 r |}.
+
+(** [pub fn floor(self) -> Self] *)
+Definition floor (self : Interval) : Interval :=
+  let x := Generic.neg0 (rep self) in
+  let r := Generic.floor x in
+  {| rep := Generic.neg0 r |}.
+
+End Interval.
+
+Module DecInterval.
+
+(** [pub const EMPTY: Self] and [pub const NAI: Self] *)
+Definition EMPTY : DecInterval := {| itv := Interval.EMPTY; dec := Trv |}.
+Definition NAI : DecInterval := {| itv := Interval.EMPTY; dec := Ill |}.
+
+(** [pub fn is_nai(self) -> bool] *)
+Definition is_nai (self : DecInterval) : bool := dec_eqb (dec self) Ill.
+
+(** [pub(crate) const fn new_unchecked(x: Interval, d: Decoration) -> Self] *)
+Definition new_unchecked (x : Interval) (d : Decoration) : DecInterval :=
+  {| itv := x; dec := d |}.
+
+(** [pub fn set_dec(x: Interval, d: Decoration) -> Self] *)
+Definition set_dec (x : Interval) (d : Decoration) : DecInterval :=
+  if dec_eqb d Ill then NAI
+  else if Interval.is_empty x then EMPTY
+  else if dec_eqb d Com && negb (Interval.is_common_interval x) then
+    new_unchecked x Dac
+  else new_unchecked x d.
+
+(** The function that [impl_dec!(f, x, y, is_not_com)] in [src/integer.rs]
+    defines is [impl_dec Interval.f (fun x y => is_not_com)]. *)
+Definition impl_dec (f : Interval -> Interval)
+    (is_not_com : Interval -> Interval -> bool) (self : DecInterval) :
+    DecInterval :=
+  if is_nai self then self
+  else
+    let x := itv self in
+    let y := f x in
+    let d :=
+      if Interval.is_empty y then Trv
+      else if negb (Interval.is_singleton y) then Def
+      else if is_not_com x y then Dac
+      else Com in
+    set_dec y (dec_min d (dec self)).
+
+(** [impl_dec!(ceil, x, y, x.sup_raw() == y.sup_raw())] *)
+Definition ceil : DecInterval -> DecInterval :=
+  impl_dec Interval.ceil
+    (fun x y => eq (Interval.sup_raw x) (Interval.sup_raw y)).
+
+(** [impl_dec!(floor, x, y, x.inf_raw() == y.inf_raw())] *)
+Definition floor : DecInterval -> DecInterval :=
+  impl_dec Interval.floor
+    (fun x y => eq (Interval.inf_raw x) (Interval.inf_raw y)).
+
+End DecInterval.

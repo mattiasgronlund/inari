@@ -125,6 +125,8 @@ impl Interval {
     /// assert!(!Interval::ENTIRE.is_common_interval());
     /// ```
     pub fn is_common_interval(self) -> bool {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `DecInterval::ceil` and `DecInterval::floor`.
         // -∞ < a  ∧  b < +∞
         all(lt(self.rep, splat(f64::INFINITY)))
     }
@@ -140,6 +142,8 @@ impl Interval {
     /// assert!(!Interval::ENTIRE.is_empty());
     /// ```
     pub fn is_empty(self) -> bool {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `DecInterval::ceil` and `DecInterval::floor`.
         extract0(self.rep).is_nan()
     }
 
@@ -186,6 +190,8 @@ impl Interval {
     /// assert!(!interval!("[0.1, 0.1]").unwrap().is_singleton());
     /// ```
     pub fn is_singleton(self) -> bool {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `DecInterval::ceil` and `DecInterval::floor`.
         // a = d
         self.inf_raw() == self.sup_raw()
     }

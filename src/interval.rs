@@ -60,6 +60,10 @@ pub struct Interval {
     //
     // Representations of zeros and NaNs are arbitrary; a zero can be either +0.0 or -0.0,
     // and a NaN can be either a qNaN or a sNaN with an arbitrary payload.
+    //
+    // `rocq/theories/Model.v` states this form, with the bounds that `TryFrom<(f64, f64)>`
+    // accepts, as `valid`, for the proofs of `(Dec)Interval::ceil` and
+    // `(Dec)Interval::floor`.
     pub(crate) rep: F64X2,
 }
 
@@ -193,6 +197,8 @@ impl DecInterval {
     /// | Unbounded            | [`Decoration::Dac`], [`Decoration::Def`], [`Decoration::Trv`], [`Decoration::Ill`]                      |
     /// | Empty                | [`Decoration::Trv`], [`Decoration::Ill`]                                                                |
     pub fn set_dec(x: Interval, d: Decoration) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `DecInterval::ceil` and `DecInterval::floor`.
         use Decoration::*;
 
         if d == Ill {

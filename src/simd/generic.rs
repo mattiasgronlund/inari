@@ -69,6 +69,8 @@ pub(crate) fn add_ru(x: F64X2, y: F64X2) -> F64X2 {
     lanewise2(x, y, add1_ru_fast, add1_ru_slow)
 }
 
+// `rocq/theories/Model.v` assumes this function, and `lt`, in `is_common_interval`
+// for the proofs of `DecInterval::ceil` and `DecInterval::floor`.
 pub(crate) fn all(x: F64X2) -> bool {
     bitmask(x) == 3
 }
@@ -88,6 +90,8 @@ pub(crate) fn bitmask(x: F64X2) -> u32 {
     (x[0].to_bits() >> 63) as u32 | ((x[1].to_bits() >> 63) as u32) << 1
 }
 
+// `rocq/theories/Model.v` transcribes this function for the proofs of
+// `(Dec)Interval::ceil`.
 pub(crate) fn ceil(x: F64X2) -> F64X2 {
     [x[0].ceil(), x[1].ceil()]
 }
@@ -117,6 +121,8 @@ pub(crate) fn extract1(x: F64X2) -> f64 {
     x[1]
 }
 
+// `rocq/theories/Model.v` transcribes this function for the proofs of
+// `(Dec)Interval::floor`.
 pub(crate) fn floor(x: F64X2) -> F64X2 {
     [x[0].floor(), x[1].floor()]
 }
@@ -138,6 +144,8 @@ pub(crate) fn le(x: F64X2, y: F64X2) -> F64X2 {
     [mask(x[0] <= y[0]), mask(x[1] <= y[1])]
 }
 
+// `rocq/theories/Model.v` assumes this function, and `all`, in `is_common_interval`
+// for the proofs of `DecInterval::ceil` and `DecInterval::floor`.
 pub(crate) fn lt(x: F64X2, y: F64X2) -> F64X2 {
     [mask(x[0] < y[0]), mask(x[1] < y[1])]
 }
@@ -179,6 +187,9 @@ pub(crate) fn neg(x: F64X2) -> F64X2 {
 }
 
 /// `neg0([x0, x1]) = [-x0, x1]`
+///
+/// `rocq/theories/Model.v` transcribes this function for the proofs of
+/// `(Dec)Interval::ceil` and `(Dec)Interval::floor`.
 pub(crate) fn neg0(x: F64X2) -> F64X2 {
     [-x[0], x[1]]
 }

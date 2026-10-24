@@ -24,6 +24,9 @@ impl Interval {
     /// See also: [`Interval::floor`], [`Interval::trunc`].
     #[must_use]
     pub fn ceil(self) -> Self {
+        // Proved correct in `rocq/theories/Integer.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         // _mm_ceil_pd/_mm_floor_pd are slow, better to avoid shuffling them.
         // ceil([a, b]) = [-ceil(a); ceil(b)]
         let x = neg0(self.rep); // [a; b]
@@ -54,6 +57,9 @@ impl Interval {
     /// See also: [`Interval::ceil`], [`Interval::trunc`].
     #[must_use]
     pub fn floor(self) -> Self {
+        // Proved correct in `rocq/theories/Integer.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         // floor([a, b]) = [-floor(a); floor(b)]
         let x = neg0(self.rep); // [a; b]
         let r = floor(x); // [floor(a); floor(b)]
@@ -196,6 +202,8 @@ macro_rules! impl_dec {
     // The boundedness of x and y are checked by the last statement.
     // In rounding functions, you can effectively check if an endpoint of x
     // is an integer by x.inf == y.inf or x.sup == y.sup.
+    // `rocq/theories/Model.v` transcribes this macro for the proofs of
+    // `DecInterval::ceil` and `DecInterval::floor`.
     ($f:ident, $x:ident, $y:ident, $is_not_com:expr) => {
         #[doc = concat!("The decorated version of [`Interval::", stringify!($f), "`].")]
         ///
@@ -225,6 +233,9 @@ macro_rules! impl_dec {
 // https://www.ocf.berkeley.edu/~horie/rounding.html
 impl DecInterval {
     // Discontinuities: ℤ.
+    // Proved correct in `rocq/theories/Integer.v` for the portable backend.
+    // `rocq/theories/Model.v` transcribes these two lines, so it has to be updated along
+    // with them.
     impl_dec!(ceil, x, y, x.sup_raw() == y.sup_raw()); // No need to check inf.
     impl_dec!(floor, x, y, x.inf_raw() == y.inf_raw()); // No need to check sup.
 

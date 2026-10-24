@@ -2,7 +2,7 @@
     any axiom that is not listed in [AXIOMS] in the [Makefile]. *)
 
 From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
-  AddOdd EmulatedFma MulAddRuSlow MulAddRu.
+  AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -29,3 +29,7 @@ Print Assumptions mul_add1_ru_slow_correct.
 Print Assumptions mul_add_ru_impl_correct.
 Print Assumptions mul_add_ru_correct.
 Print Assumptions step_up_no_wrap.
+Print Assumptions floor_correct.
+Print Assumptions dec_floor_correct.
+Print Assumptions ceil_correct.
+Print Assumptions dec_ceil_correct.

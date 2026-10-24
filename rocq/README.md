@@ -1,6 +1,6 @@
 # Proofs of the portable backend
 
-Machine-checked proofs, in [Rocq](https://rocq-prover.org) with the [Flocq](https://flocq.gitlabpages.inria.fr) library, that parts of [`src/simd/generic.rs`](../src/simd/generic.rs) round correctly.
+Machine-checked proofs, in [Rocq](https://rocq-prover.org) with the [Flocq](https://flocq.gitlabpages.inria.fr) library, that parts of [`src/simd/generic.rs`](../src/simd/generic.rs) round correctly, and that `floor` and `ceil` of intervals and decorated intervals, built on it, return what IEEE 1788 asks of them.
 
 ## What is proved
 
@@ -105,6 +105,24 @@ Theorem mul_add1_ru_slow_correct : forall a b c,
 
 The fast path computes `r1 = RN(a * b + c)`, with `mul_add`, or without an FMA with `mul_add1_rn_emulated`, and the sign of its error with ErrFma [BM11] (see `generic.rs`), and steps `r1` up if the error is positive. If an input is not finite, or `a` or `b` is zero, both paths return `mul_add1_special(a, b, c)`, which computes `a * b + c` rounded to nearest, the same as toward +∞ for these inputs. Otherwise, if `c` is zero, the slow path rounds `a * b` with `mul1_ru_slow`. If not, it adds the exact product of the significands to `c` and rounds the sum with `sum_round_up`, as `add1_ru_slow` does for two floats. `lanewise2` takes only two arguments, so `mul_add_ru_impl` chooses between the paths itself, in the same way. `mul_add_ru_impl_correct` states the same for `mul_add_ru_impl::<FMA>`.
 
+`floor_correct` in [`Integer.v`](theories/Integer.v) shows that `Interval::floor` returns the tightest interval that contains the image of its argument under `floor`, and `dec_floor_correct` that `DecInterval::floor` decorates it with the decoration that IEEE 1788 asks for:
+
+```coq
+Theorem floor_correct : forall x,
+  valid x -> is_hull (image Rfloor x) (Interval.floor x).
+
+Theorem dec_floor_correct : forall x, valid (itv x) ->
+  if DecInterval.is_nai x then DecInterval.floor x = x
+  else
+    is_hull (image Rfloor (itv x)) (itv (DecInterval.floor x)) /\
+    exists d, strongest d Rfloor (itv x) /\
+      dec (DecInterval.floor x) = dec_min d (dec x).
+```
+
+`ceil_correct` and `dec_ceil_correct` state the same for `ceil`, with `Rceil`. `valid x` says that `x` is empty or `[a, b]` with `a <= b`, `a != +∞` and `b != -∞`, the bounds that `TryFrom<(f64, f64)>` accepts. `is_hull s y` says that the reals in `y` are exactly those between two elements of `s`, so no interval with `f64` bounds that contains `s` is smaller. `strongest d f x` says that the property of the decoration `d` holds for `f` on `x`, and that of no stronger decoration does. The result is decorated with the minimum of `d` and the decoration of `x`. A NaI is returned unchanged. The properties are those of IEEE 1788, with Stdlib's `continuity_pt` and `continue_in` for continuity, so where `floor` and `ceil` are continuous is proved, not assumed.
+
+`Interval::floor` and `Interval::ceil` negate the first lane of `[-a; b]`, round both lanes in the same direction, and negate the first lane back. Section `Round` proves for any such rounding of floats that keeps ±∞ and NaN, is nondecreasing on the reals and moves a real by less than 1, that this gives the hull of the image, and that `impl_dec!` decorates it correctly if the decoration that it picks with `is_singleton` and its test `is_not_com` is the strongest one. `floor` is discontinuous exactly at the integers. If `floor(a) = floor(b)` for a bounded `[a, b]`, the restriction of `floor` to `[a, b]` is constant, and `floor` is continuous at each point of `[a, b]` unless `a` is an integer, which is the test `x.inf_raw() == y.inf_raw()`. For `ceil`, the test is on `b` instead.
+
 On the way, the other files prove:
 
 - [`Encoding.v`](theories/Encoding.v): `is_finite_eq`, i.e. `is_finite` agrees with Flocq's, `abs_B2R_lt_exponent`, i.e. `|x| < 2^(exponent(x) + 1)`, and `bpow_exponent_le_abs_B2R`, i.e. `2^exponent(x) <= |x|` if `x` is normal. `step_up_Bsucc` shows that `step_up` is Flocq's `Bsucc` (IEEE 754 `nextUp`) on finite floats.
@@ -127,7 +145,7 @@ On the way, the other files prove:
 
 ## What is assumed
 
-[`Model.v`](theories/Model.v) transcribes the Rust functions line by line. It is the only file that has to be checked against `generic.rs` by reading, and it has to be updated whenever those functions change. Its modelling choices:
+[`Model.v`](theories/Model.v) transcribes the Rust functions line by line. It is the only file that has to be checked against the Rust code by reading, and it has to be updated whenever those functions change. Its modelling choices:
 
 - `f64` is Flocq's binary64, and Rust's `+`, `-` and `/` are Flocq's `Bplus`, `Bminus` and `Bdiv` rounded to nearest, ties to even. `generic.rs` relies on this default rounding mode. `f64::mul_add` is Flocq's `Bfma` in the same mode, with a single rounding, as Rust specifies it whether or not the target has an FMA instruction. `f64::sqrt` is Flocq's `Bsqrt`, also rounded to nearest, ties to even.
 - NaN payloads and signs are not modelled: all NaNs are the same value, so `Bopp` keeps a NaN as it is where Rust's unary `-` flips its sign bit. The functions modelled here only read the exponent field of a NaN, which is all ones for every NaN, except `add_odd`. It reads the lowest bit of `s`, which for a NaN is part of the payload, but returns a NaN for a NaN `s` either way.
@@ -138,13 +156,20 @@ On the way, the other files prove:
 - `F64X2` is a pair, and `lanewise2` takes the two paths as functions. `sqrt1_slow` takes `f` as a function too, one that returns an `option` like the models passed for it.
 - `sqrt1_rd_impl` and `sqrt1_ru_impl` call themselves through `sqrt1_slow`. Rocq functions must terminate, so the models take the number of nested calls they may make and return `None` if they would make more. `sqrt1_rd` and `sqrt1_ru` allow one. A result `Some r` means that the Rust function returns `r`.
 - A const generic parameter, such as `FMA`, is an ordinary argument. So is `HAS_FMA`, which `mul_ru`, `div_ru`, `mul_add_ru`, `sqrt1_rd` and `sqrt1_ru` pass for it, as its value depends on the target.
+- `f64::floor` and `f64::ceil` are Flocq's `Bnearbyint` toward -∞ and toward +∞, IEEE 754's roundToIntegralTowardNegative and roundToIntegralTowardPositive.
+- `Interval` is a record of its `rep`, and `DecInterval` of an `Interval` and a `Decoration`, whose variants compare by their discriminants, as the derived `Ord` does. `valid` states the form of `rep` from the comment on `struct Interval`, with the bounds that `TryFrom<(f64, f64)>` accepts. The theorems assume that their argument is `valid`.
+- `is_common_interval` computes `all(lt(self.rep, splat(f64::INFINITY)))`, and `all` tests the sign bits of the two masks that `lt` returns. A mask for true has all bits set, so it is a NaN, which has no sign in the model. The model takes the two comparisons directly instead.
+
+[`Ieee1788.v`](theories/Ieee1788.v) states what IEEE Std 1788-2015 asks of an interval version of a function: the hull of the image, and the properties of the decorations. It is the only file that has to be checked against the standard by reading. For `com`, the standard asks for the computed interval to be bounded, and `Ieee1788.v` for the image. `is_hull_bounded` in `Integer.v` shows that the two are the same for a hull, as the result is.
 
 The theorems depend on four axioms. Three come from Stdlib's real numbers: `sig_forall_dec`, `sig_not_dec` and `functional_extensionality_dep`. The fourth is excluded middle (`classic`), which Flocq uses. `make` fails if [`Assumptions.v`](Assumptions.v) finds any other axiom, e.g. a proof left `Admitted`.
 
 ## What is not proved yet
 
 - The SIMD backends that vectorize the same algorithm, such as `src/simd/x86_64/lanewise.rs` and `src/simd/wasm32.rs`.
-- Every other operation.
+- The other backends' versions of the functions that `floor` and `ceil` of intervals call: `floor`, `ceil` and `neg0`, such as `_mm_floor_pd` on x86-64, and `lt`, `all`, `splat`, `extract0` and `extract1` in `is_empty`, `is_singleton` and `is_common_interval`. `floor` and `ceil` are meant to be the same IEEE 754 operations in every backend, but the theorems are proved only for the portable backend's.
+- That every `Interval` that the library makes is `valid`.
+- Every other operation, such as `round`, `round_ties_even`, `trunc` and `sign` of intervals.
 
 ## Building
 
