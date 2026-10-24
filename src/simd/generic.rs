@@ -330,7 +330,8 @@ pub(super) fn sqrt1_ru_impl<const FMA: bool>(x: f64) -> f64 {
 
 // Applies `fast` to each lane, and falls back to `slow` for the lanes where the
 // fast path is not valid. The common case is a single, well-predicted branch.
-// `rocq/theories/Model.v` transcribes this function for the proof of `add_ru`.
+// `rocq/theories/Model.v` transcribes this function for the proofs of `add_ru` and
+// `mul_ru`.
 fn lanewise2(
     x: F64X2,
     y: F64X2,
@@ -555,6 +556,9 @@ fn add1_ru_fast(x: f64, y: f64) -> (f64, bool) {
     (r, ok)
 }
 
+// Proved correct in `rocq/theories/MulRu.v` for both values of `FMA`.
+// `rocq/theories/Model.v` transcribes this function and the ones it calls, so it has to
+// be updated along with them.
 fn mul1_ru_fast<const FMA: bool>(x: f64, y: f64) -> (f64, bool) {
     let p = x * y;
     let e = two_prod_err::<FMA>(x, y, p);
@@ -699,6 +703,9 @@ fn add1_ru_slow(x: f64, y: f64) -> f64 {
     sum_round_up(sx, mx as u128, ex, sy, my as u128, ey)
 }
 
+// Proved correct in `rocq/theories/MulRu.v`, as is `mul_ru`. `rocq/theories/Model.v`
+// transcribes this function and the ones it calls, `mul_ru_impl` and `mul_ru`, so it
+// has to be updated along with them.
 #[cold]
 fn mul1_ru_slow(x: f64, y: f64) -> f64 {
     if !(is_finite(x) && is_finite(y)) || x == 0.0 || y == 0.0 {

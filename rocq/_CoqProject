@@ -9,3 +9,6 @@ theories/RoundUpExact.v
 theories/SumRoundUp.v
 theories/AddRu.v
 theories/SubRu.v
+theories/StepUp.v
+theories/TwoProduct.v
+theories/MulRu.v

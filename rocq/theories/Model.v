@@ -7,7 +7,9 @@
 
     Rust's [f64] is Flocq's IEEE 754 binary64 type, and its [+] and [-] are
     Flocq's [Bplus] and [Bminus] rounded to nearest, ties to even, which is
-    the default rounding mode that [generic.rs] relies on.
+    the default rounding mode that [generic.rs] relies on. [f64::mul_add]
+    is Flocq's [Bfma] in the same mode. A const generic parameter, such as
+    [FMA], is an ordinary argument.
 
     NaN payloads and signs are not modelled: all NaNs are the same value, so
     [opp] keeps a NaN as it is where Rust's unary [-] flips its sign bit.
@@ -52,6 +54,10 @@ Definition eq (x y : f64) : bool := Beqb x y.
 (** [x * y] and [-x]. *)
 Definition mul (x y : f64) : f64 := Bmult mode_NE x y.
 Definition opp (x : f64) : f64 := Bopp x.
+
+(** [x.mul_add(y, z)], i.e. [x * y + z] with a single rounding to nearest,
+    ties to even. *)
+Definition mul_add (x y z : f64) : f64 := Bfma mode_NE x y z.
 
 (** [0.0]. *)
 Definition zero : f64 := B754_zero false.
@@ -112,6 +118,31 @@ Definition two_sum_err (x y s : f64) : f64 :=
   let b := sub s a in
   add (sub x a) (sub y b).
 
+(** [fn split(x: f64) -> (f64, f64)] *)
+Definition split (x : f64) : f64 * f64 :=
+  (* [const C: f64 = 134217729.0], i.e. [2^27 + 1], which [of_u64] rounds
+     to nearest as the literal is. *)
+  let c := of_u64 134217729 in
+  let t := mul c x in
+  let hi := sub t (sub t x) in
+  (hi, sub x hi).
+
+(** [fn two_prod_err<const FMA: bool>(x: f64, y: f64, p: f64) -> f64] *)
+Definition two_prod_err (fma : bool) (x y p : f64) : f64 :=
+  if fma then mul_add x y (opp p)
+  else
+    let '(xh, xl) := split x in
+    let '(yh, yl) := split y in
+    add (add (add (sub (mul xh yh) p) (mul xh yl)) (mul xl yh)) (mul xl yl).
+
+(** [fn two_prod_is_exact<const FMA: bool>(x: f64, y: f64, p: f64) -> bool] *)
+Definition two_prod_is_exact (fma : bool) (x y p : f64) : bool :=
+  let ep := exponent p in
+  if fma then (-968 <=? ep) && (ep <=? 1023)
+  else
+    (-968 <=? ep) && (ep <=? 1022)
+    && (exponent x <=? 995) && (exponent y <=? 995).
+
 (** [fn is_finite(x: f64) -> bool] *)
 Definition is_finite (x : f64) : bool := exponent x <? 1024.
 
@@ -124,6 +155,15 @@ Definition add1_ru_fast (x y : f64) : f64 * bool :=
     negb finite
     || ((exponent x <=? 1022) && (exponent y <=? 1022) && is_finite s) in
   let r := if finite && gt e zero then step_up s else s in
+  (r, ok).
+
+(** [fn mul1_ru_fast<const FMA: bool>(x: f64, y: f64) -> (f64, bool)] *)
+Definition mul1_ru_fast (fma : bool) (x y : f64) : f64 * bool :=
+  let p := mul x y in
+  let e := two_prod_err fma x y p in
+  let special := negb (is_finite x && is_finite y) || eq x zero || eq y zero in
+  let ok := special || two_prod_is_exact fma x y p in
+  let r := if negb special && gt e zero then step_up p else p in
   (r, ok).
 
 (** [fn decompose(x: f64) -> (bool, u64, i32)] *)
@@ -228,6 +268,19 @@ Definition add1_ru_slow (x y : f64) : option f64 :=
     (* [mx as u128] and [my as u128] keep the values. *)
     sum_round_up sx mx ex sy my ey.
 
+(** [fn mul1_ru_slow(x: f64, y: f64) -> f64] *)
+Definition mul1_ru_slow (x y : f64) : option f64 :=
+  if negb (is_finite x && is_finite y) || eq x zero || eq y zero then
+    Some (mul x y)
+  else
+    let '(sx, mx, ex) := decompose x in
+    let '(sy, my, ey) := decompose y in
+    (* [mx as u128] and [my as u128] keep the values. *)
+    let* m := checked_u 128 (mx * my) in
+    let* e := checked_i 32 (ex + ey) in
+    (* [sx != sy] *)
+    round_up_exact (negb (Bool.eqb sx sy)) m e false.
+
 (** [F64X2], i.e. [[f64; 2]], with [x[0]] as [fst x] and [x[1]] as [snd x]. *)
 Definition F64X2 : Type := f64 * f64.
 
@@ -246,6 +299,16 @@ Definition lanewise2 (x y : F64X2) (fast : f64 -> f64 -> f64 * bool)
 (** [pub(crate) fn add_ru(x: F64X2, y: F64X2) -> F64X2] *)
 Definition add_ru (x y : F64X2) : option F64X2 :=
   lanewise2 x y add1_ru_fast add1_ru_slow.
+
+(** [pub(super) fn mul_ru_impl<const FMA: bool>(x: F64X2, y: F64X2) -> F64X2] *)
+Definition mul_ru_impl (fma : bool) (x y : F64X2) : option F64X2 :=
+  lanewise2 x y (mul1_ru_fast fma) mul1_ru_slow.
+
+(** [pub(crate) fn mul_ru(x: F64X2, y: F64X2) -> F64X2], which calls
+    [mul_ru_impl::<HAS_FMA>]. [HAS_FMA] depends on the target, so it is an
+    argument. *)
+Definition mul_ru (has_fma : bool) (x y : F64X2) : option F64X2 :=
+  mul_ru_impl has_fma x y.
 
 (** [pub(crate) fn neg(x: F64X2) -> F64X2] *)
 Definition neg (x : F64X2) : F64X2 := (opp (fst x), opp (snd x)).

@@ -351,6 +351,23 @@ rewrite Hx.
 destruct Bsign; [rewrite Rabs_Ropp|]; now rewrite Rabs_pos_eq.
 Qed.
 
+(** [2^exponent(x) <= |x|] for finite normal [x], i.e. if
+    [exponent(x) >= -1022]. *)
+Theorem bpow_exponent_le_abs_B2R :
+  forall x, is_finite x = true -> -1022 <= Generic.exponent x ->
+  (bpow radix2 (Generic.exponent x) <= Rabs (B2R x))%R.
+Proof.
+intros x Fx He.
+destruct (to_bits_finite x Fx) as (c & Hc & Hb).
+rewrite (exponent_finite x c Hc Hb) in He |- *.
+destruct (from_bits_finite (Bsign x) c Hc) as (_ & _ & Hx).
+rewrite <- Hb, from_to_bits in Hx.
+destruct (magnitude_bounds c (proj1 Hc)) as ((H0 & _) & Hge).
+rewrite Hx.
+destruct Bsign; [rewrite Rabs_Ropp|]; rewrite Rabs_pos_eq by exact H0;
+  apply Hge; lia.
+Qed.
+
 (** ** [step_up] *)
 
 (** [step_up] is IEEE 754 [nextUp] on finite floats: it steps [MAX] to

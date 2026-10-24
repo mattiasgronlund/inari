@@ -10,7 +10,7 @@ Items marked with ⚠️ are breaking changes.
 - Added the Cargo feature `force-generic`, which uses the portable backend on x86-64 and AArch64 too.
 - Added a backend for WebAssembly that uses 128-bit SIMD instructions, enabled by the target feature `simd128`. It makes interval operations about twice as fast as the portable backend.
 - Added a backend for x86-64 processors that have SSE4.2 but neither AVX nor FMA, which lowers the lowest supported processor from Haswell to Nehalem. Like the WebAssembly backend, it does not change the rounding mode. It is 1.2 to 2.1 times faster than the portable backend on such a processor.
-- Added machine-checked proofs, in Rocq with the Flocq library, that addition and subtraction rounded toward +∞ in the portable backend (`add_ru`, `sub_ru` and `sub1_ru`) are correctly rounded for all inputs. See [rocq/README.md](rocq/README.md).
+- Added machine-checked proofs, in Rocq with the Flocq library, that addition, subtraction and multiplication rounded toward +∞ in the portable backend (`add_ru`, `sub_ru`, `sub1_ru` and `mul_ru`, with and without an FMA) are correctly rounded for all inputs. See [rocq/README.md](rocq/README.md).
 
 ### Changed
 
