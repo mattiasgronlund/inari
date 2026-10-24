@@ -5,26 +5,36 @@
     file is the only one that has to be checked against the Rust code; the
     other files prove properties of the definitions here.
 
-    Rust's [f64] is Flocq's IEEE 754 binary64 type, and its [+] and [-] are
-    Flocq's [Bplus] and [Bminus] rounded to nearest, ties to even, which is
-    the default rounding mode that [generic.rs] relies on. [f64::mul_add]
-    is Flocq's [Bfma] in the same mode. A const generic parameter, such as
+    Rust's [f64] is Flocq's IEEE 754 binary64 type, and its [+], [-], [*]
+    and [/] are Flocq's [Bplus], [Bminus], [Bmult] and [Bdiv] rounded to
+    nearest, ties to even, which is the default rounding mode that
+    [generic.rs] relies on. [f64::mul_add] and [f64::sqrt] are Flocq's
+    [Bfma] and [Bsqrt] in the same mode. A const generic parameter, such as
     [FMA], is an ordinary argument.
 
     NaN payloads and signs are not modelled: all NaNs are the same value, so
-    [opp] keeps a NaN as it is where Rust's unary [-] flips its sign bit.
-    The functions modelled here never look at the payload or the sign of a
-    NaN, only at the exponent field, which is all ones for every NaN, so
-    [to_bits] can give every NaN the bits of one of them.
+    [opp] keeps a NaN as it is where Rust's unary [-] flips its sign bit,
+    and [to_bits] gives every NaN the bits of one of them. The functions
+    modelled here only look at the exponent field of a NaN, which is all
+    ones for every NaN, except [add_odd]. It reads the lowest bit of [s],
+    which for a NaN is part of the payload, and returns a NaN for a NaN [s]
+    whatever that bit is: [e] is then NaN too, so [b + 1] is taken, and
+    adding 1 to an even pattern changes only its lowest bit.
 
     Integers are [Z]. In the slow path, every integer operation that panics
     in a debug build when its result does not fit its type returns [None]
     then, and so does a shift by a negative amount or by at least the width
     of the type. A release build would wrap around instead, so a theorem
-    that a function returns [Some] covers both kinds of build. Shifting bits
-    out to the left does not panic in Rust, so [shl] drops them. Arithmetic
-    on the fields of a bit pattern, in [exponent] and [decompose], cannot
-    overflow and is not checked. *)
+    that a function returns [Some] covers both kinds of build. A division
+    by zero, which panics in both, returns [None] too. Shifting bits out to
+    the left does not panic in Rust, so [shl] drops them. Arithmetic on the
+    fields of a bit pattern, in [exponent] and [decompose], cannot overflow
+    and is not checked.
+
+    Rocq functions must terminate, so a Rust function that calls itself,
+    [sqrt1_rd_impl] and [sqrt1_ru_impl], takes the number of nested calls
+    it may make, and returns [None] if it would make more. If it returns
+    [Some r] for any number, the Rust function returns [r]. *)
 
 From Stdlib Require Import ZArith.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -58,6 +68,12 @@ Definition opp (x : f64) : f64 := Bopp x.
 (** [x.mul_add(y, z)], i.e. [x * y + z] with a single rounding to nearest,
     ties to even. *)
 Definition mul_add (x y z : f64) : f64 := Bfma mode_NE x y z.
+
+(** [x / y]. *)
+Definition div (x y : f64) : f64 := Bdiv mode_NE x y.
+
+(** [x.sqrt()]. Not [sqrt], which is the square root of a real in Stdlib. *)
+Definition fsqrt (x : f64) : f64 := Bsqrt mode_NE x.
 
 (** [0.0]. *)
 Definition zero : f64 := B754_zero false.
@@ -101,6 +117,12 @@ Definition shr (w a s : Z) : option Z :=
 Definition leading_zeros (w a : Z) : Z :=
   if a =? 0 then w else w - 1 - Z.log2 a.
 
+(** [a / b] and [a % b] for unsigned integers [a] and [b]. The quotient
+    rounds toward zero, which for [a, b >= 0] is the floor that [Z.div]
+    computes. *)
+Definition div_u (a b : Z) : option Z := if b =? 0 then None else Some (a / b).
+Definition rem_u (a b : Z) : option Z := if b =? 0 then None else Some (a mod b).
+
 Module Generic.
 
 (** [fn exponent(x: f64) -> i32] *)
@@ -111,6 +133,9 @@ Definition exponent (x : f64) : Z :=
 Definition step_up (x : f64) : f64 :=
   let b := to_bits x in
   from_bits (if gt x zero then b + 1 else if lt x zero then b - 1 else 1).
+
+(** [fn step_down(x: f64) -> f64] *)
+Definition step_down (x : f64) : f64 := opp (step_up (opp x)).
 
 (** [fn two_sum_err(x: f64, y: f64, s: f64) -> f64] *)
 Definition two_sum_err (x y s : f64) : f64 :=
@@ -146,6 +171,24 @@ Definition two_prod_is_exact (fma : bool) (x y p : f64) : bool :=
 (** [fn is_finite(x: f64) -> bool] *)
 Definition is_finite (x : f64) : bool := exponent x <? 1024.
 
+(** [fn add_odd(x: f64, y: f64) -> f64] *)
+Definition add_odd (x y : f64) : f64 :=
+  let s := add x y in
+  let e := two_sum_err x y s in
+  (* [e != 0.0], which is true if [e] is NaN. *)
+  if negb (eq e zero) && (Z.land (to_bits s) 1 =? 0) then
+    let b := to_bits s in
+    (* [(e > 0.0) == (s > 0.0)] *)
+    let toward_larger_magnitude := Bool.eqb (gt e zero) (gt s zero) in
+    from_bits (if toward_larger_magnitude then b + 1 else b - 1)
+  else s.
+
+(** [pub(super) fn mul_add1_rn_emulated(u1: f64, u2: f64, c: f64) -> f64] *)
+Definition mul_add1_rn_emulated (u1 u2 c : f64) : f64 :=
+  let t1 := add c u1 in
+  let t2 := two_sum_err c u1 t1 in
+  add t1 (add_odd t2 u2).
+
 (** [fn add1_ru_fast(x: f64, y: f64) -> (f64, bool)] *)
 Definition add1_ru_fast (x y : f64) : f64 * bool :=
   let s := add x y in
@@ -165,6 +208,71 @@ Definition mul1_ru_fast (fma : bool) (x y : f64) : f64 * bool :=
   let ok := special || two_prod_is_exact fma x y p in
   let r := if negb special && gt e zero then step_up p else p in
   (r, ok).
+
+(** [fn div1_ru_fast<const FMA: bool>(x: f64, y: f64) -> (f64, bool)] *)
+Definition div1_ru_fast (fma : bool) (x y : f64) : f64 * bool :=
+  let q := div x y in
+  let special := negb (is_finite x && is_finite y) || eq x zero || eq y zero in
+  let exact :=
+    (-1022 <=? exponent q) && (exponent q <=? 1023) && (-967 <=? exponent x) in
+  let '(r, ok) :=
+    if fma then (mul_add (opp q) y x, special || exact)
+    else
+      let p := mul q y in
+      let dekker :=
+        (exponent q <=? 995) && (exponent y <=? 995) && (exponent x <=? 1021) in
+      (sub (sub x p) (two_prod_err false q y p), special || (exact && dekker)) in
+  (* [r != 0.0 && (r > 0.0) == (y > 0.0)] *)
+  let up := negb (eq r zero) && Bool.eqb (gt r zero) (gt y zero) in
+  let res := if negb special && up then step_up q else q in
+  (res, ok).
+
+(** [fn mul_add1_special(a: f64, b: f64, c: f64) -> f64], which comes after
+    the fast paths in [generic.rs], but has to be defined before its use in
+    [mul_add1_ru_fast] here. *)
+Definition mul_add1_special (a b c : f64) : f64 :=
+  if is_finite a && is_finite b && negb (is_finite c) then c
+  else add (mul a b) c.
+
+(** [fn mul_add1_ru_fast<const FMA: bool>(a: f64, b: f64, c: f64) -> (f64, bool)] *)
+Definition mul_add1_ru_fast (fma : bool) (a b c : f64) : f64 * bool :=
+  let u1 := mul a b in
+  let u2 := two_prod_err fma a b u1 in
+  let r1 := if fma then mul_add a b c else mul_add1_rn_emulated u1 u2 c in
+  let alpha1 := add c u2 in
+  let alpha2 := two_sum_err c u2 alpha1 in
+  let beta1 := add u1 alpha1 in
+  let beta2 := two_sum_err u1 alpha1 beta1 in
+  let gamma := add (sub beta1 r1) beta2 in
+  let err := add gamma alpha2 in
+  let special :=
+    negb (is_finite a && is_finite b && is_finite c) || eq a zero || eq b zero in
+  let not_tiny (x : f64) (e_min : Z) := eq x zero || (e_min <=? exponent x) in
+  let ok :=
+    special
+    || (two_prod_is_exact fma a b u1
+        && (exponent u1 <=? 1021)
+        && (exponent c <=? 1021)
+        && is_finite r1
+        && not_tiny r1 (-1022)
+        && not_tiny alpha1 (-1021)
+        && not_tiny beta1 (-1020)) in
+  let r :=
+    if special then mul_add1_special a b c
+    else if gt err zero then step_up r1
+    else r1 in
+  (r, ok).
+
+(** [fn sqrt1_fast<const FMA: bool>(x: f64) -> (f64, f64, bool)] *)
+Definition sqrt1_fast (fma : bool) (x : f64) : f64 * f64 * bool :=
+  let s := fsqrt x in
+  let ex := exponent x in
+  let '(r, ok) :=
+    if fma then (mul_add (opp s) s x, (-966 <=? ex) && (ex <=? 1023))
+    else
+      let p := mul s s in
+      (sub (sub x p) (two_prod_err false s s p), (-966 <=? ex) && (ex <=? 1021)) in
+  (s, r, ok).
 
 (** [fn decompose(x: f64) -> (bool, u64, i32)] *)
 Definition decompose (x : f64) : bool * Z * Z :=
@@ -281,6 +389,67 @@ Definition mul1_ru_slow (x y : f64) : option f64 :=
     (* [sx != sy] *)
     round_up_exact (negb (Bool.eqb sx sy)) m e false.
 
+(** [fn div1_ru_slow(x: f64, y: f64) -> f64] *)
+Definition div1_ru_slow (x y : f64) : option f64 :=
+  if negb (is_finite x && is_finite y) || eq x zero || eq y zero then
+    Some (div x y)
+  else
+    let '(sx, mx, ex) := decompose x in
+    let '(sy, my, ey) := decompose y in
+    (* [my.leading_zeros()] and [mx.leading_zeros()] are [u32]s. [as i32]
+       keeps them, as they are at most 64. *)
+    let* sh := checked_u 32 (leading_zeros 64 my - 11) in
+    let* ny := shl 64 my sh in
+    let* t := checked_i 32 (leading_zeros 64 my - 11) in
+    let* ey := checked_i 32 (ey - t) in
+    let* t := checked_u 32 (leading_zeros 64 mx + 64) in
+    let* sh := checked_u 32 (t - 1) in
+    (* [mx as u128] keeps the value. *)
+    let* nx := shl 128 mx sh in
+    let* t := checked_i 32 (leading_zeros 64 mx + 64) in
+    let* t := checked_i 32 (t - 1) in
+    let* ex := checked_i 32 (ex - t) in
+    (* [ny as u128] keeps the value. *)
+    let* q := div_u nx ny in
+    let* rem := rem_u nx ny in
+    let* e := checked_i 32 (ex - ey) in
+    (* [sx != sy] and [rem != 0] *)
+    round_up_exact (negb (Bool.eqb sx sy)) q e (negb (rem =? 0)).
+
+(** [fn mul_add1_ru_slow(a: f64, b: f64, c: f64) -> f64] *)
+Definition mul_add1_ru_slow (a b c : f64) : option f64 :=
+  if negb (is_finite a && is_finite b && is_finite c) || eq a zero || eq b zero then
+    Some (mul_add1_special a b c)
+  else if eq c zero then mul1_ru_slow a b
+  else
+    let '(sa, ma, ea) := decompose a in
+    let '(sb, mb, eb) := decompose b in
+    let '(sc, mc, ec) := decompose c in
+    (* [ma as u128], [mb as u128] and [mc as u128] keep the values. *)
+    let* m := checked_u 128 (ma * mb) in
+    let* e := checked_i 32 (ea + eb) in
+    (* [sa != sb] *)
+    sum_round_up (negb (Bool.eqb sa sb)) m e sc mc ec.
+
+(** [fn sqrt1_slow(x: f64, f: fn(f64) -> f64) -> f64], where [f] returns an
+    [option], as the functions passed for it do here. *)
+Definition sqrt1_slow (x : f64) (f : f64 -> option f64) : option f64 :=
+  (* The [const]s are evaluated at compile time, rounded to nearest as at
+     run time. [18446744073709551616.0] is [2^64], which a literal rounds
+     to nearest like [of_u64] does, though it is not a [u64]. *)
+  let two_pow_64 := of_u64 (2^64) in
+  let two_pow_m64 := div (of_u64 1) two_pow_64 in
+  let two_pow_128 := mul two_pow_64 two_pow_64 in
+  let two_pow_m128 := div (of_u64 1) two_pow_128 in
+  if gt x zero && is_finite x then
+    if exponent x <? 0 then
+      let* s := f (mul x two_pow_128) in
+      Some (mul s two_pow_m64)
+    else
+      let* s := f (mul x two_pow_m128) in
+      Some (mul s two_pow_64)
+  else Some (fsqrt x).
+
 (** [F64X2], i.e. [[f64; 2]], with [x[0]] as [fst x] and [x[1]] as [snd x]. *)
 Definition F64X2 : Type := f64 * f64.
 
@@ -320,5 +489,66 @@ Definition sub_ru (x y : F64X2) : option F64X2 := add_ru x (neg y).
 Definition sub1_ru (x y : f64) : option f64 :=
   let '(r, ok) := add1_ru_fast x (opp y) in
   if ok then Some r else add1_ru_slow x (opp y).
+
+(** [pub(super) fn div_ru_impl<const FMA: bool>(x: F64X2, y: F64X2) -> F64X2] *)
+Definition div_ru_impl (fma : bool) (x y : F64X2) : option F64X2 :=
+  lanewise2 x y (div1_ru_fast fma) div1_ru_slow.
+
+(** [pub(crate) fn div_ru(x: F64X2, y: F64X2) -> F64X2], which calls
+    [div_ru_impl::<HAS_FMA>]. *)
+Definition div_ru (has_fma : bool) (x y : F64X2) : option F64X2 :=
+  div_ru_impl has_fma x y.
+
+(** [pub(super) fn mul_add_ru_impl<const FMA: bool>(x: F64X2, y: F64X2, z: F64X2) -> F64X2] *)
+Definition mul_add_ru_impl (fma : bool) (x y z : F64X2) : option F64X2 :=
+  let '(r0, ok0) := mul_add1_ru_fast fma (fst x) (fst y) (fst z) in
+  let '(r1, ok1) := mul_add1_ru_fast fma (snd x) (snd y) (snd z) in
+  if ok0 && ok1 then Some (r0, r1)
+  else
+    let* a := if ok0 then Some r0 else mul_add1_ru_slow (fst x) (fst y) (fst z) in
+    let* b := if ok1 then Some r1 else mul_add1_ru_slow (snd x) (snd y) (snd z) in
+    Some (a, b).
+
+(** [pub(crate) fn mul_add_ru(x: F64X2, y: F64X2, z: F64X2) -> F64X2], which
+    calls [mul_add_ru_impl::<HAS_FMA>]. *)
+Definition mul_add_ru (has_fma : bool) (x y z : F64X2) : option F64X2 :=
+  mul_add_ru_impl has_fma x y z.
+
+(** [pub(super) fn sqrt1_rd_impl<const FMA: bool>(x: f64) -> f64], which may
+    call itself [n] times through [sqrt1_slow]. *)
+Fixpoint sqrt1_rd_impl (n : nat) (fma : bool) (x : f64) : option f64 :=
+  let '(s, r, ok) := sqrt1_fast fma x in
+  if ok then Some (if lt r zero then step_down s else s)
+  else
+    match n with
+    | O => None
+    | S n => sqrt1_slow x (sqrt1_rd_impl n fma)
+    end.
+
+(** [pub(super) fn sqrt1_ru_impl<const FMA: bool>(x: f64) -> f64], which may
+    call itself [n] times through [sqrt1_slow]. *)
+Fixpoint sqrt1_ru_impl (n : nat) (fma : bool) (x : f64) : option f64 :=
+  let '(s, r, ok) := sqrt1_fast fma x in
+  if ok then Some (if gt r zero then step_up s else s)
+  else
+    match n with
+    | O => None
+    | S n => sqrt1_slow x (sqrt1_ru_impl n fma)
+    end.
+
+(** [pub(crate) fn sqrt1_rd(x: f64) -> f64] and
+    [pub(crate) fn sqrt1_ru(x: f64) -> f64], which call [sqrt1_rd_impl::<HAS_FMA>]
+    and [sqrt1_ru_impl::<HAS_FMA>]. They allow one nested call, as
+    [sqrt1_slow] scales [x] into the range of the fast path. *)
+Definition sqrt1_rd (has_fma : bool) (x : f64) : option f64 :=
+  sqrt1_rd_impl 1 has_fma x.
+Definition sqrt1_ru (has_fma : bool) (x : f64) : option f64 :=
+  sqrt1_ru_impl 1 has_fma x.
+
+(** [pub(crate) fn sqrt_rd_ru(x: F64X2) -> F64X2] *)
+Definition sqrt_rd_ru (has_fma : bool) (x : F64X2) : option F64X2 :=
+  let* a := sqrt1_rd has_fma (fst x) in
+  let* b := sqrt1_ru has_fma (snd x) in
+  Some (a, b).
 
 End Generic.

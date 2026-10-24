@@ -4,7 +4,9 @@
     exact error [e = z - p] with an error-free transformation. Then [p] is
     [z] rounded toward +inf if [e <= 0], and the next float up if [e > 0].
     [step_up_rounds_up] proves this for a nonzero [p], including the sign
-    of the result and overflow. *)
+    of the result and overflow. The fast paths of [div_ru] and [sqrt1_ru]
+    instead tell whether [p < z] from the sign of an exact remainder, and
+    [step_up_rounds_up_iff] takes that as a hypothesis. *)
 
 From Stdlib Require Import ZArith Reals Lia Lra.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -24,15 +26,15 @@ intros [s|s| |s m e H] Fx Hx; try discriminate Fx.
   + symmetry. apply Rlt_bool_false. apply F2R_ge_0. cbn [Fnum SpecFloat.cond_Zopp]. lia.
 Qed.
 
-(** If [p = RN(z)] is nonzero and [e = z - p] exactly, then
-    [if e > 0 { step_up(p) } else { p }] is [z] rounded toward +inf. *)
-Theorem step_up_rounds_up :
-  forall z (p e : f64),
+(** If [p = RN(z)] is nonzero and [up] is whether [p < z], then
+    [if up { step_up(p) } else { p }] is [z] rounded toward +inf. *)
+Theorem step_up_rounds_up_iff :
+  forall z (p : f64) (up : bool),
   is_finite p = true -> B2R p = RN z -> B2R p <> 0 ->
-  is_finite e = true -> B2R e = z - B2R p ->
-  rounds_up_to z (if gt e zero then Generic.step_up p else p).
+  (up = true <-> B2R p < z) ->
+  rounds_up_to z (if up then Generic.step_up p else p).
 Proof.
-intros z p e Fp Hp Hp0 Fe He.
+intros z p up Fp Hp Hp0 Hup.
 (* [p] has the sign of [z], as rounding is monotone and [RN 0 = 0]. *)
 assert (Hsp : Bsign p = Rlt_bool z 0).
 { rewrite (Bsign_B2R p Fp Hp0).
@@ -43,13 +45,10 @@ assert (Hsp : Bsign p = Rlt_bool z 0).
   - apply Rlt_le, (round_le radix2 fexp64 ZnearestE) in Hz;
       [|typeclasses eauto ..].
     rewrite round_0, <- Hp in Hz by typeclasses eauto. apply Hp0. lra. }
-unfold gt.
-rewrite Bltb_correct by first [exact Fe | reflexivity].
-change (B2R zero) with 0.
-rewrite He.
 unfold rounds_up_to.
-destruct (Rlt_bool_spec 0 (z - B2R p)) as [Hpos|Hnpos].
-- (* [e > 0]: [p] is below [z], so rounding up gives [succ p]. *)
+destruct up.
+- (* [p] is below [z], so rounding up gives [succ p]. *)
+  assert (Hpos : B2R p < z) by now apply Hup.
   rewrite step_up_Bsucc by exact Fp.
   assert (HU : RU z = succ radix2 fexp64 (B2R p)).
   { rewrite Hp. apply RU_RN_below. rewrite <- Hp. lra. }
@@ -79,9 +78,29 @@ destruct (Rlt_bool_spec 0 (z - B2R p)) as [Hpos|Hnpos].
       rewrite round_0, HU in Hle by typeclasses eauto.
       pose proof (bpow_gt_0 radix2 1024). lra. }
     rewrite HB, Rlt_bool_false by lra. reflexivity.
-- (* [e <= 0]: [p] is [z] rounded up. *)
+- (* [z <= p], so [p] is [z] rounded up. *)
+  assert (Hnpos : z <= B2R p).
+  { apply Rnot_lt_le. intros Hlt. apply Hup in Hlt. discriminate Hlt. }
   assert (HU : RU z = B2R p).
   { rewrite Hp. apply RU_RN_above. rewrite <- Hp. lra. }
   rewrite HU, Rlt_bool_true by apply abs_B2R_lt_emax.
   split; [reflexivity|]. split; [exact Fp | exact Hsp].
+Qed.
+
+(** If [p = RN(z)] is nonzero and [e = z - p] exactly, then
+    [if e > 0 { step_up(p) } else { p }] is [z] rounded toward +inf. *)
+Theorem step_up_rounds_up :
+  forall z (p e : f64),
+  is_finite p = true -> B2R p = RN z -> B2R p <> 0 ->
+  is_finite e = true -> B2R e = z - B2R p ->
+  rounds_up_to z (if gt e zero then Generic.step_up p else p).
+Proof.
+intros z p e Fp Hp Hp0 Fe He.
+apply step_up_rounds_up_iff; [exact Fp | exact Hp | exact Hp0 |].
+unfold gt.
+rewrite Bltb_correct by first [exact Fe | reflexivity].
+change (B2R zero) with 0.
+rewrite He.
+destruct (Rlt_bool_spec 0 (z - B2R p)) as [H|H]; split; intros H';
+  first [reflexivity | lra | discriminate H'].
 Qed.
