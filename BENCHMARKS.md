@@ -1,6 +1,6 @@
 # Benchmarks
 
-A comparison of the backends of inari, in three sittings:
+A comparison of the backends of inari, in four sittings:
 
 - 2026-09-22: `avx_fma`, then the default for x86-64, which set MXCSR around
   every instruction to make the hardware round, against the portable backend
@@ -11,12 +11,16 @@ A comparison of the backends of inari, in three sittings:
 - 2026-09-23, later: `fma` (see `src/simd/x86_64/fma.rs`), the same method where
   an FMA is available. It is now the default on x86-64 with AVX and FMA, and
   `avx_fma` has been removed from the crate.
+- 2026-10-24: `fma` on multiplications whose products are below 2^-968, before
+  and after the change that keeps them on its fast path, against inari 2.0.0.
 
-`avx_fma` is the base column of all three x86-64 sections, so that the two
-explicit backends are measured against what they replaced, and against each
-other. No backend for x86-64 changes the rounding mode any more: `avx512f` uses
-per-instruction embedded rounding, and the other two round by correcting a
-round-to-nearest result.
+`avx_fma` is the base column of the first three x86-64 sections, so that the
+two explicit backends are measured against what they replaced, and against each
+other. The fourth uses inari 2.0.0 instead, as `avx_fma` had been removed by
+then. The x86-64 backend of 2.0.0 is `avx_fma` as it was before its square root
+changed, so its multiplication is `avx_fma`'s. No backend for x86-64 changes the
+rounding mode any more: `avx512f` uses per-instruction embedded rounding, and
+the other two round by correcting a round-to-nearest result.
 
 ## Setup
 
@@ -93,6 +97,19 @@ again the same to two decimal places whether the lowest or the median is used;
 the medians are reported, as above. The wide spreads in that section come from
 the bimodal `generic, FMA` column, except on the determinant, where `avx_fma`
 runs at 226 ns in round 5 and at 192.5 ns in the other three.
+
+The tiny-products section was measured over eight rounds, with the load average
+and the idle time of the pinned core's SMT sibling recorded for every run. Peer
+jobs pushed the load average up to 22 and the sibling's idle time down to 23%
+during rounds 1 and 2, which are discarded. Rounds 3–8 ran at a load average
+below 3 with the sibling at least 99.4% idle, but not all of them ran the same
+configurations: rounds 3 and 4 ran 2.0.0, `fma` before the change and a first
+version of the change, rounds 5 and 6 the code before the change and both
+versions of it, and only rounds 7 and 8 ran the three configurations of the
+table, interleaved. Those two are reported, as the mean of their two medians,
+which is within 0.4% of the lower one since the spread is at most 0.7% in every
+row. Rounds 3–6 agree with them to within 1% on every configuration they share.
+The first version of the change is the subject of an observation below.
 
 Composite benchmarks drift between sittings in a way the primitives do not: the
 `avx_fma` 3×3 determinant is 236 ns in the first section, 211 ns in the `sse42`
@@ -218,6 +235,70 @@ Medians over the four idle rounds; see "Variance" above.
 
 `fma` takes `sqrt1_rd` and `sqrt1_ru` from `generic`, as `avx_fma` did, which is
 why all three columns agree on `sqrt1_ru`.
+
+### x86-64 with AVX and FMA, tiny products
+
+`fma`'s `mul_ru` rounds a product upward by computing its rounding error with an
+FMA, and relies on that error being exact only where the product's exponent is
+at least -968. It used to hand every pair with a lane below that to `generic`,
+whose slow path rounds the exact product in 128-bit integer arithmetic. It now
+scales one factor of such a lane by 2^128, rounds the scaled product on the fast
+path and scales the result back (`mul_ru_tiny` in `src/simd/x86_64/fma.rs`), so
+that only products that overflow still go to `generic`. The `mul_tiny`
+benchmark multiplies the same intervals as `mul`, with the first factor scaled
+by 2^-1010, so that every product lies between 2^-1010 and 2^-1006: normal, but
+below 2^-968. Operations recorded from rcad, a CAD kernel, had most of their
+products that small.
+
+The columns are the same benchmark built against inari 2.0.0 from crates.io,
+and `fma` before and after that change. 2.0.0 lets the hardware round, so its
+products cost the same at any size. Means of rounds 7 and 8; see "Variance"
+above.
+
+| Benchmark | 2.0.0 (ns) | fma before (ns) | ratio | fma after (ns) | ratio | spread |
+|---|--:|--:|--:|--:|--:|--:|
+| mul/PP | 10.48 | 6.39 | 0.61× | 6.40 | 0.61× | 0% |
+| mul/PN | 10.50 | 6.39 | 0.61× | 6.42 | 0.61× | 1% |
+| mul/PM | 10.46 | 6.38 | 0.61× | 6.41 | 0.61× | 0% |
+| mul/NP | 10.48 | 6.62 | 0.63× | 6.64 | 0.63× | 0% |
+| mul/NN | 10.48 | 6.40 | 0.61× | 6.41 | 0.61× | 0% |
+| mul/NM | 10.50 | 6.38 | 0.61× | 6.40 | 0.61× | 0% |
+| mul/MP | 10.50 | 6.42 | 0.61× | 6.40 | 0.61× | 1% |
+| mul/MN | 10.49 | 6.41 | 0.61× | 6.43 | 0.61× | 0% |
+| mul/MM | 19.03 | 9.75 | 0.51× | 9.55 | 0.50× | 1% |
+| mul_tiny/PP | 10.48 | 49.75 | 4.75× | 8.57 | 0.82× | 0% |
+| mul_tiny/PN | 10.51 | 49.41 | 4.70× | 8.62 | 0.82× | 1% |
+| mul_tiny/PM | 10.53 | 49.37 | 4.69× | 8.59 | 0.82× | 1% |
+| mul_tiny/NP | 10.53 | 49.60 | 4.71× | 8.78 | 0.83× | 1% |
+| mul_tiny/NN | 10.53 | 50.06 | 4.75× | 8.66 | 0.82× | 0% |
+| mul_tiny/NM | 10.51 | 49.46 | 4.71× | 8.59 | 0.82× | 0% |
+| mul_tiny/MP | 10.53 | 49.08 | 4.66× | 8.57 | 0.81× | 1% |
+| mul_tiny/MN | 10.52 | 49.43 | 4.70× | 8.57 | 0.81× | 1% |
+| mul_tiny/MM | 19.02 | 95.64 | 5.03× | 15.32 | 0.81× | 0% |
+
+The operations recorded from rcad are not part of this repository. rcad's own
+benchmark replays four streams of them, timing this crate and 2.0.0 in the same
+process and reporting the best of three passes. For `a * b`, in ns per interval
+multiplication, `fma` / 2.0.0:
+
+| Stream | before (ns) | ratio | after (ns) | ratio |
+|---|--:|--:|--:|--:|
+| 0228ef21 | 33.79 / 10.93 | 3.09× | 12.51 / 12.64 | 0.99× |
+| 150ecee9 | 32.65 / 10.89 | 3.00× | 12.70 / 12.15 | 1.05× |
+| 347a8978 | 33.42 / 10.88 | 3.07× | 12.64 / 12.42 | 1.02× |
+| 481232f8 | 15.57 / 9.04 | 1.72× | 13.12 / 9.12 | 1.44× |
+
+Over all the operations of a stream, timed one kind at a time, the total went
+from 1.96, 1.90, 1.94 and 1.16 times 2.0.0's to 0.84, 0.86, 0.84 and 1.02. Both
+versions give results bit-identical to 2.0.0's on every operation. Two things
+are unexplained. 2.0.0's own `a * b` takes 12.2–12.6 ns on the first three
+streams in the benchmark rebuilt for "after", but 10.9 ns in the one that
+measured "before", although both build 2.0.0 from the same source; the two
+builds differ only in how they depend on this crate and in some extra counters,
+and on 481232f8 they agree. Against 10.9 ns, the 12.5–12.7 ns of `fma` would be
+1.14–1.17×. And 481232f8's `a * b` is 1.23 times 2.0.0's even with the exponent
+of every operand set to 0, so most of its remaining 1.44× is not caused by tiny
+products.
 
 ### x86-64 without AVX
 
@@ -398,6 +479,23 @@ its scalar square root matches the `generic, Nehalem` column exactly.
   backends take `sqrt1_rd` and `sqrt1_ru` from `generic` and neither reaches the
   vector path for an interval containing zero. The remaining difference is in
   the code around it, and has not been traced further.
+- Products below 2^-968 used to cost `fma` 4.7–5.0 times what they cost 2.0.0,
+  which lets the hardware round and so has no such boundary: 49–50 ns per
+  interval multiplication, and 96 ns on `mul/MM`, against 10.5 and 19.0 ns.
+  Rounding them on the fast path brings this down to 0.81–0.83× of 2.0.0, and to
+  0.16–0.18× of what it was. They still cost 1.32–1.35 times as much as ordinary
+  products, and 1.60 times on `mul/MM`, for the scaling and the second
+  correction.
+- Ordinary products do not pay for it: on `mul`, `fma` after the change takes
+  0.997–1.004 times as long as before, except on `mul/MM`, where it takes 0.98
+  times as long (0.975 in rounds 5 and 6). That has not been traced.
+- The first version of the change handed the lanes it had already rounded to
+  `mul_ru_tiny`. LLVM then computed that rounding before the branch to the tiny
+  path rather than after it, which made `mul` 3–4% slower than before on every
+  class but `mul/MM` (1.00×), with no tiny product in the input. Having each
+  branch round by itself removed the cost. As with `sqrt_rd_ru` above, the rare
+  path cost the common one through the code the compiler generated around it,
+  not through being taken.
 
 ## Conclusion
 
@@ -409,8 +507,11 @@ where it is 1.03×: 0.47× on addition, 0.60× on multiplication, 0.67× on
 division, 0.41–0.45× on Horner and 0.33× on a 3×3 determinant. It pays for this
 with 3 to 12% on the latency of three primitives, where the correction lengthens
 a dependency chain — a trade worth making, since interval code has independent
-operations to overlap far more often than it has serial ones. `fma` is therefore
-the default, and `avx_fma` has been removed.
+operations to overlap far more often than it has serial ones. The operands of
+all these benchmarks are of ordinary size: products below 2^-968 made `fma`'s
+multiplication 4.7–5.0 times slower than 2.0.0's until it rounded them on its
+fast path too, and it now takes 0.81–0.83 times as long on them. `fma` is
+therefore the default, and `avx_fma` has been removed.
 
 `generic` is not a replacement for either. It has no fixed rounding-mode cost
 but needs many more instructions: against `avx_fma` it was within about 1.3×
@@ -447,6 +548,10 @@ cd bench
 RUSTFLAGS=-Ctarget-cpu=haswell cargo bench -- --save-baseline fma
 RUSTFLAGS=-Ctarget-cpu=haswell cargo bench --features force-generic -- --baseline fma
 ```
+
+The 2.0.0 column of the tiny-products section comes from `benches/intervals.rs`
+copied into a package of its own that depends on `inari = "=2.0.0"` with
+`default-features = false`, with the same `[profile.bench]`.
 
 For WebAssembly, with wasmtime on the path:
 

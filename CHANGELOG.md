@@ -14,7 +14,7 @@ Items marked with ⚠️ are breaking changes.
 
 ### Changed
 
-- Made the default backend for x86-64 processors with AVX and FMA compute the directed roundings explicitly, instead of switching the rounding mode around every instruction. No backend for x86-64 changes the rounding mode any more. On a Zen 2 processor, interval addition and subtraction take 0.47 times as long as before, multiplication 0.49 to 0.62, division 0.67 to 0.69, evaluating a degree-8 polynomial 0.41 to 0.45, and a 3×3 determinant 0.33. Only the latency of a chain of dependent `add_ru`, `div_ru` and `mul_add_ru` operations became slightly worse, by 3 to 12 percent.
+- Made the default backend for x86-64 processors with AVX and FMA compute the directed roundings explicitly, instead of switching the rounding mode around every instruction. No backend for x86-64 changes the rounding mode any more. On a Zen 2 processor, interval addition and subtraction take 0.47 times as long as before, multiplication 0.49 to 0.62 (0.81 to 0.83 where the products are below 2^-968), division 0.67 to 0.69, evaluating a degree-8 polynomial 0.41 to 0.45, and a 3×3 determinant 0.33. Only the latency of a chain of dependent `add_ru`, `div_ru` and `mul_add_ru` operations became slightly worse, by 3 to 12 percent.
 - Made `(Dec)Interval::sqrt` about 2.5 times faster on x86-64 processors without AVX-512F, by computing the square root without changing the rounding mode.
 - Made `(Dec)Interval::sqrt` compute both endpoints in a single vector square root when the interval does not contain zero: about 1.8 times faster on x86-64 processors without AVX-512F, and about 1.5 times faster on WebAssembly with `simd128`.
 
