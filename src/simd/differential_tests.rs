@@ -111,9 +111,10 @@ const SPECIAL: [f64; 9] = [
     1.3407807929942596e154, // 2^512
 ];
 
-// Exponents around the thresholds of the fast paths and of the format.
-const BOUNDARY_EXPONENTS: [i32; 14] = [
-    -1074, -1022, -1021, -1020, -970, -968, -967, -966, 0, 995, 996, 1021, 1022, 1023,
+// Exponents around the thresholds of the fast paths and of the format. Below
+// 2^-1075, a product rounds to ±0, which `fma::mul_ru_tiny` handles separately.
+const BOUNDARY_EXPONENTS: [i32; 15] = [
+    -1075, -1074, -1022, -1021, -1020, -970, -968, -967, -966, 0, 995, 996, 1021, 1022, 1023,
 ];
 
 // The unbiased exponent of x (-1023 for zero and subnormal numbers).

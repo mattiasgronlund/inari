@@ -19,10 +19,11 @@
 // here as well.
 
 use super::lanewise::{
-    add_i64, andnot, div_rn, exponent_gt, exponent_in, exponent_le, is_finite, is_special, lane0,
-    mul_rn, not, or_generic, select, sqrt_rn, step_up, sub_i64, two_sum_err, zero,
+    add_i64, andnot, div_rn, exponent_gt, exponent_in, exponent_le, gt_i64, is_finite, is_special,
+    lane0, mul_rn, not, or_generic, select, splat_i64, sqrt_rn, step_up, sub_i64, two_sum_err,
+    zero,
 };
-use super::{add_rn, and, eq, extract, gt, lt, or, sub_rn, F64X2};
+use super::{add_rn, all, and, eq, extract, gt, lt, or, splat, sub_rn, F64X2};
 use crate::simd::generic;
 use std::arch::x86_64::*;
 
@@ -100,13 +101,66 @@ pub(crate) fn mul_add_ru(a: F64X2, b: F64X2, c: F64X2) -> F64X2 {
 pub(crate) fn mul_ru(x: F64X2, y: F64X2) -> F64X2 {
     // See `generic::mul1_ru_fast`.
     let p = mul_rn(x, y);
-    let e = two_prod_err(x, y, p);
     let special = is_special(x, y);
     let ok = or(special, two_prod_is_exact(p));
+    // Each branch rounds by itself: if `mul_ru_tiny` took the rounded lanes from
+    // here, LLVM would round before the branch, which makes multiplying
+    // intervals of ordinary numbers 3 to 4% slower.
+    if all(ok) {
+        mul_ru_fast(x, y, p, special)
+    } else {
+        mul_ru_tiny(x, y, p, ok, special)
+    }
+}
+
+/// Returns RU(x * y) from p = RN(x * y), in the lanes that are `special` or
+/// where `two_prod_is_exact(p)`.
+fn mul_ru_fast(x: F64X2, y: F64X2, p: F64X2, special: F64X2) -> F64X2 {
+    let e = two_prod_err(x, y, p);
     let up = andnot(gt(e, zero()), special);
-    or_generic(ok, select(up, step_up(p), p), || {
-        generic::mul_ru(extract(x), extract(y))
-    })
+    select(up, step_up(p), p)
+}
+
+/// `mul_ru` where some lane fails `ok`: there, x and y are finite and nonzero,
+/// and p = RN(x * y) is below 2^-968 or ±∞.
+///
+/// Products below 2^-968 are rounded here rather than by the generic backend's
+/// slow path, which takes several times as long: in operations recorded from
+/// rcad, a CAD kernel, most products were that small.
+fn mul_ru_tiny(x: F64X2, y: F64X2, p: F64X2, ok: F64X2, special: F64X2) -> F64X2 {
+    // Powers of two, so that scaling by them is exact unless it overflows or
+    // underflows.
+    const TWO_POW_64: f64 = 18446744073709551616.0;
+    const TWO_POW_128: f64 = TWO_POW_64 * TWO_POW_64;
+    const TWO_POW_M128: f64 = 1.0 / TWO_POW_128;
+    // Let z = x * y exactly, and S = 2^128. If |p| < 2^-968, then |z| < 2^-968,
+    // and as |y| >= 2^-1074, |x| < 2^106, so x * S is exact. If p = ±∞, so is
+    // ps, and the lane fails the check at the end.
+    let xs = mul_rn(x, splat(TWO_POW_128));
+    let ps = mul_rn(xs, y);
+    // rs = RU(z * S) where `two_prod_is_exact(ps)`, as in `mul_ru`.
+    let rs = mul_ru_fast(xs, y, ps, special);
+    // Then RU(z) = RU(rs / S). As rs / S >= z, RU(rs / S) >= RU(z). Conversely,
+    // g = RU(z) is a float with |g| <= 2^-968, so g * S is a float, and since
+    // g * S >= z * S, g * S >= rs: g is a float >= rs / S, so g >= RU(rs / S).
+    // This holds whether RU(z) is normal or not.
+    //
+    // RU(rs / S) is q = RN(rs / S) if q >= rs / S, and the successor of q
+    // otherwise: no float lies strictly between q and rs / S. q * S is exact, as
+    // |q| <= 2^-968, so comparing it with rs compares q with rs / S.
+    let q = mul_rn(rs, splat(TWO_POW_M128));
+    let q = select(lt(mul_rn(q, splat(TWO_POW_128)), rs), step_up(q), q);
+    // If p = ±0, then |z| <= 2^-1075, and RU(z) is 2^-1074 for z > 0 and -0 for
+    // z < 0. p has the sign of z, and as integers, -0 < 0 and 2^-1074 = 1.
+    // Otherwise |z| > 2^-1075, so |z * S| > 2^-947, and `two_prod_is_exact(ps)`
+    // holds: every product below 2^-968 is computed here, and only those that
+    // overflow go to the generic backend.
+    let p_zero = eq(p, zero());
+    let zero_rule = select(gt_i64(zero(), p), p, splat_i64(1));
+    let r = mul_ru_fast(x, y, p, special);
+    let res = select(ok, r, select(p_zero, zero_rule, q));
+    let ok = or(ok, or(p_zero, two_prod_is_exact(ps)));
+    or_generic(ok, res, || generic::mul_ru(extract(x), extract(y)))
 }
 
 /// `sqrt_rd_ru([x0, x1]) = [√x0, √x1]`, the first rounded toward -∞ and the
