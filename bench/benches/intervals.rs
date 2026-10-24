@@ -7,6 +7,11 @@ use std::hint::black_box;
 
 const N: usize = 1024;
 
+// 2^-1010 (biased exponent 1023 - 1010 = 13). The product of an interval scaled by
+// it and one in [1, 3) lies below 2^-968, where the FMA backend's multiplication
+// leaves its fast path, but is still normal.
+const TINY: f64 = f64::from_bits(13 << 52);
+
 // Deterministic values in [1, 2).
 fn values(seed: u64, n: usize) -> Vec<f64> {
     let mut s = seed;
@@ -20,11 +25,14 @@ fn values(seed: u64, n: usize) -> Vec<f64> {
         .collect()
 }
 
-fn intervals(class: char, seed: u64) -> Vec<Interval> {
+// Intervals with endpoints in [1, 3) times `scale`, a power of two, so that the
+// scaling is exact.
+fn intervals(class: char, seed: u64, scale: f64) -> Vec<Interval> {
     values(seed, 2 * N)
         .chunks(2)
         .map(|c| {
             let (a, b) = (c[0].min(c[1]), c[0].max(c[1]) + 1.0);
+            let (a, b) = (a * scale, b * scale);
             let (a, b) = match class {
                 'P' => (a, b),
                 'N' => (-b, -a),
@@ -36,18 +44,20 @@ fn intervals(class: char, seed: u64) -> Vec<Interval> {
         .collect()
 }
 
+// The first operand of each pair is scaled by `x_scale`, the second is not.
 fn bench_binary(
     c: &mut Criterion,
     name: &str,
     f: fn(Interval, Interval) -> Interval,
     classes: &[&str],
+    x_scale: f64,
 ) {
     let mut g = c.benchmark_group(name);
     g.throughput(Throughput::Elements(N as u64));
     for cl in classes {
         let mut it = cl.chars();
-        let x = intervals(it.next().unwrap(), 1);
-        let y = intervals(it.next().unwrap(), 2);
+        let x = intervals(it.next().unwrap(), 1, x_scale);
+        let y = intervals(it.next().unwrap(), 2, 1.0);
         g.bench_function(BenchmarkId::from_parameter(cl), |b| {
             let mut out = vec![Interval::EMPTY; N];
             b.iter(|| {
@@ -78,16 +88,19 @@ fn det3(m: &[Interval; 9]) -> Interval {
 
 fn intervals_bench(c: &mut Criterion) {
     let all = ["PP", "PN", "PM", "NP", "NN", "NM", "MP", "MN", "MM"];
-    bench_binary(c, "add", |x, y| x + y, &["PP", "PM", "MM"]);
-    bench_binary(c, "sub", |x, y| x - y, &["PP", "PM", "MM"]);
-    bench_binary(c, "mul", |x, y| x * y, &all);
+    bench_binary(c, "add", |x, y| x + y, &["PP", "PM", "MM"], 1.0);
+    bench_binary(c, "sub", |x, y| x - y, &["PP", "PM", "MM"], 1.0);
+    bench_binary(c, "mul", |x, y| x * y, &all, 1.0);
+    // Products between 2^-1010 and 2^-1006 (see `TINY`). Most of the products in
+    // operations recorded from rcad, a CAD kernel, were below 2^-968 too.
+    bench_binary(c, "mul_tiny", |x, y| x * y, &all, TINY);
     // x / y for y ∌ 0; division by an interval containing zero is also included.
-    bench_binary(c, "div", |x, y| x / y, &["PP", "PN", "MP", "NN", "PM"]);
+    bench_binary(c, "div", |x, y| x / y, &["PP", "PN", "MP", "NN", "PM"], 1.0);
 
     let mut g = c.benchmark_group("unary");
     g.throughput(Throughput::Elements(N as u64));
-    let p = intervals('P', 3);
-    let m = intervals('M', 4);
+    let p = intervals('P', 3, 1.0);
+    let m = intervals('M', 4, 1.0);
     type Unary = fn(Interval) -> Interval;
     // sqrt/M is the case that does not use the vector square root: an interval
     // containing zero needs the square root of one endpoint only.
