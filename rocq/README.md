@@ -87,6 +87,24 @@ Theorem sqrt1_ru_correct : forall has_fma x,
 
 `sqrt1_fast` computes `s = RN(√x)` and the remainder `r = x - s * s`. `sqrt1_rd_impl` steps `s` down if `r < 0`, and `sqrt1_ru_impl` steps it up if `r > 0`. `sqrt1_fast` accepts `x` if `-966 <= exponent(x) <= 1023`, or `<= 1021` without an FMA. For a positive `x`, `r` is then a float, and the code computes it exactly, as for division. For a negative `x`, `s`, `r` and the result are NaN. `sqrt1_slow` scales any other positive finite `x` into that range by `2^128` or `2^-128`, and the rounded square root of the scaled input back by `2^-64` or `2^64`, all exactly. For ±0, ±∞, NaN and the other negative numbers, it returns `x.sqrt()`, which does not depend on the rounding mode. `sqrt1_rd_impl_correct` and `sqrt1_ru_impl_correct` state the same for `sqrt1_rd_impl::<FMA>` and `sqrt1_ru_impl::<FMA>` whenever their models may make a nested call through `sqrt1_slow`: one is always enough.
 
+`mul_add_ru_correct` in [`MulAddRu.v`](theories/MulAddRu.v) does the same for the fused multiply-add rounded toward +∞, Flocq's `Bfma mode_UP`, both with an FMA and without one:
+
+```coq
+Theorem mul_add_ru_correct : forall has_fma x y z,
+  Generic.mul_add_ru has_fma x y z =
+    Some (Bfma mode_UP (fst x) (fst y) (fst z),
+          Bfma mode_UP (snd x) (snd y) (snd z)).
+
+Theorem mul_add1_ru_fast_correct : forall fma a b c,
+  snd (Generic.mul_add1_ru_fast fma a b c) = true ->
+  fst (Generic.mul_add1_ru_fast fma a b c) = Bfma mode_UP a b c.
+
+Theorem mul_add1_ru_slow_correct : forall a b c,
+  Generic.mul_add1_ru_slow a b c = Some (Bfma mode_UP a b c).
+```
+
+The fast path computes `r1 = RN(a * b + c)`, with `mul_add`, or without an FMA with `mul_add1_rn_emulated`, and the sign of its error with ErrFma [BM11] (see `generic.rs`), and steps `r1` up if the error is positive. If an input is not finite, or `a` or `b` is zero, both paths return `mul_add1_special(a, b, c)`, which computes `a * b + c` rounded to nearest, the same as toward +∞ for these inputs. Otherwise, if `c` is zero, the slow path rounds `a * b` with `mul1_ru_slow`. If not, it adds the exact product of the significands to `c` and rounds the sum with `sum_round_up`, as `add1_ru_slow` does for two floats. `lanewise2` takes only two arguments, so `mul_add_ru_impl` chooses between the paths itself, in the same way. `mul_add_ru_impl_correct` states the same for `mul_add_ru_impl::<FMA>`.
+
 On the way, the other files prove:
 
 - [`Encoding.v`](theories/Encoding.v): `is_finite_eq`, i.e. `is_finite` agrees with Flocq's, `abs_B2R_lt_exponent`, i.e. `|x| < 2^(exponent(x) + 1)`, and `bpow_exponent_le_abs_B2R`, i.e. `2^exponent(x) <= |x|` if `x` is normal. `step_up_Bsucc` shows that `step_up` is Flocq's `Bsucc` (IEEE 754 `nextUp`) on finite floats.
@@ -102,6 +120,10 @@ On the way, the other files prove:
 - [`SqrtRem.v`](theories/SqrtRem.v): `sqrt_rem_format`. If `x >= 2^-966`, the remainder `x - RN(√x)^2` is a float. This is a case of [BD03] for the square root, with subnormals. Flocq proves it only without them (`sqrt_error_FLX_N`). `sqrt_rem_sign`: the sign of `x - s * s` tells whether `s` is below or above `√x`.
 - [`SqrtFast.v`](theories/SqrtFast.v): `sqrt1_fast_rem`. If `sqrt1_fast` accepts a positive `x` and the remainder is a float, then `s = RN(√x)` is positive, and `r` is `x - s * s` exactly, computed without overflowing.
 - [`SqrtSlow.v`](theories/SqrtSlow.v): `sqrt1_slow_correct`. If `f` returns `Bsqrt m y` for every `y` that `sqrt1_fast` accepts, `sqrt1_slow x f` returns `Bsqrt m x`, for any rounding mode `m`. `round_scale`: rounding a normal number commutes with a scaling by a power of two that keeps it normal.
+- [`AddOdd.v`](theories/AddOdd.v): `add_odd_correct`. If `|x|, |y| < 2^1023` and `RN(x + y)` is finite, `add_odd(x, y)` is `x + y` rounded to odd [BM08] (see `generic.rs`).
+- [`EmulatedFma.v`](theories/EmulatedFma.v): `mul_add1_rn_emulated_correct`. Where the fast path of `mul_add_ru` is valid without an FMA and does not return `mul_add1_special(a, b, c)`, `mul_add1_rn_emulated` returns `Bfma mode_NE a b c`, the FMA rounded to nearest, including the sign of a zero. The algorithm is [BM08, Algorithm 1], and the proof follows that of [BM08, Theorem 4], using Flocq's `round_N_odd`. Of the checks in `mul_add1_ru_fast`, the proof uses only `two_prod_is_exact` and the bounds on `exponent(u1)` and `exponent(c)`. The `not_tiny` checks are ErrFma's.
+- [`MulAddRuFast.v`](theories/MulAddRuFast.v): `mul_add1_ru_fast_rounds_up`. If `r1 = Bfma mode_NE a b c`, and the fast path is valid and does not return `mul_add1_special(a, b, c)`, its result is `a * b + c` rounded toward +∞. It uses Flocq's proof of ErrFma (`Pff2Flocq.ErrFMA_correct`), whose underflow hypotheses `two_prod_is_exact` and the `not_tiny` checks ensure.
+- [`MulAddRuSlow.v`](theories/MulAddRuSlow.v): `mul_add1_ru_slow_correct` above. `mul_add1_special_correct`: where the fast and slow paths return `mul_add1_special(a, b, c)`, rounding to nearest gives the same result as toward +∞.
 
 ## What is assumed
 

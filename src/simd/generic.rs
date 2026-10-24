@@ -275,6 +275,9 @@ pub(super) fn div_ru_impl<const FMA: bool>(x: F64X2, y: F64X2) -> F64X2 {
     lanewise2(x, y, div1_ru_fast::<FMA>, div1_ru_slow)
 }
 
+// Proved correct in `rocq/theories/MulAddRu.v` for both values of `FMA`, as is
+// `mul_add_ru`. `rocq/theories/Model.v` transcribes these functions and the ones they
+// call, so it has to be updated along with them.
 pub(super) fn mul_add_ru_impl<const FMA: bool>(x: F64X2, y: F64X2, z: F64X2) -> F64X2 {
     let (r0, ok0) = mul_add1_ru_fast::<FMA>(x[0], y[0], z[0]);
     let (r1, ok1) = mul_add1_ru_fast::<FMA>(x[1], y[1], z[1]);
@@ -509,6 +512,9 @@ fn is_finite(x: f64) -> bool {
 
 // Returns RN(x + y) rounded to odd instead: if x + y is not representable, the
 // neighbor of it whose integral significand is odd. [BM08, Section III]
+// Proved correct in `rocq/theories/AddOdd.v` if |x|, |y| < 2^1023 and RN(x + y) is
+// finite. `rocq/theories/Model.v` transcribes this function, so it has to be updated
+// along with it.
 fn add_odd(x: f64, y: f64) -> f64 {
     let s = x + y;
     let e = two_sum_err(x, y, s);
@@ -537,6 +543,11 @@ fn add_odd(x: f64, y: f64) -> f64 {
 ///
 /// gives r = RN(a * b + c), provided that u2 is the exact error of u1 and nothing
 /// overflows. RO is rounding to odd; with RN instead, r would be double rounded.
+///
+/// Proved correct in `rocq/theories/EmulatedFma.v` for the calls from
+/// `mul_add1_ru_fast::<false>` whose result it uses, i.e. where it does not fall back
+/// to `mul_add1_special` or the slow path. `rocq/theories/Model.v` transcribes this
+/// function and the ones it calls, so it has to be updated along with them.
 pub(super) fn mul_add1_rn_emulated(u1: f64, u2: f64, c: f64) -> f64 {
     let t1 = c + u1;
     let t2 = two_sum_err(c, u1, t1);
@@ -610,6 +621,9 @@ fn div1_ru_fast<const FMA: bool>(x: f64, y: f64) -> (f64, bool) {
     (res, ok)
 }
 
+// Proved correct in `rocq/theories/MulAddRu.v` for both values of `FMA`.
+// `rocq/theories/Model.v` transcribes this function and the ones it calls, so it has to
+// be updated along with them.
 fn mul_add1_ru_fast<const FMA: bool>(a: f64, b: f64, c: f64) -> (f64, bool) {
     // Algorithm ErrFma [BM11, Algorithm 4 and Theorem 2]:
     //
@@ -760,6 +774,8 @@ fn mul_add1_special(a: f64, b: f64, c: f64) -> f64 {
     }
 }
 
+// Proved correct in `rocq/theories/MulAddRuSlow.v`. `rocq/theories/Model.v` transcribes
+// this function and the ones it calls, so it has to be updated along with them.
 #[cold]
 fn mul_add1_ru_slow(a: f64, b: f64, c: f64) -> f64 {
     if !(is_finite(a) && is_finite(b) && is_finite(c)) || a == 0.0 || b == 0.0 {

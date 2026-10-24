@@ -20,3 +20,8 @@ theories/SqrtRem.v
 theories/SqrtFast.v
 theories/SqrtSlow.v
 theories/SqrtRdRu.v
+theories/AddOdd.v
+theories/EmulatedFma.v
+theories/MulAddRuFast.v
+theories/MulAddRuSlow.v
+theories/MulAddRu.v
