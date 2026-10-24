@@ -16,3 +16,7 @@ theories/DivRemainder.v
 theories/DivRuFast.v
 theories/DivRuSlow.v
 theories/DivRu.v
+theories/SqrtRem.v
+theories/SqrtFast.v
+theories/SqrtSlow.v
+theories/SqrtRdRu.v

@@ -300,6 +300,9 @@ pub(super) fn mul_ru_impl<const FMA: bool>(x: F64X2, y: F64X2) -> F64X2 {
     lanewise2(x, y, mul1_ru_fast::<FMA>, mul1_ru_slow)
 }
 
+// Proved correct in `rocq/theories/SqrtRdRu.v` for both values of `FMA`, as are
+// `sqrt1_rd` and `sqrt_rd_ru`. `rocq/theories/Model.v` transcribes these functions and
+// the ones they call, so it has to be updated along with them.
 pub(super) fn sqrt1_rd_impl<const FMA: bool>(x: f64) -> f64 {
     let (s, r, ok) = sqrt1_fast::<FMA>(x);
     if ok {
@@ -314,6 +317,9 @@ pub(super) fn sqrt1_rd_impl<const FMA: bool>(x: f64) -> f64 {
     }
 }
 
+// Proved correct in `rocq/theories/SqrtRdRu.v` for both values of `FMA`, as are
+// `sqrt1_ru` and `sqrt_rd_ru`. `rocq/theories/Model.v` transcribes these functions and
+// the ones they call, so it has to be updated along with them.
 pub(super) fn sqrt1_ru_impl<const FMA: bool>(x: f64) -> f64 {
     let (s, r, ok) = sqrt1_fast::<FMA>(x);
     if ok {
@@ -778,6 +784,10 @@ fn mul_add1_ru_slow(a: f64, b: f64, c: f64) -> f64 {
 
 // Computes √x for x that `sqrt1_fast` rejects, using `f` for positive numbers,
 // which are scaled into the range of the fast path.
+// Proved correct in `rocq/theories/SqrtSlow.v`: if `f` returns √y rounded in some mode
+// for every y that `sqrt1_fast` accepts, this returns √x rounded in that mode.
+// `rocq/theories/Model.v` transcribes this function, so it has to be updated along
+// with it.
 #[cold]
 fn sqrt1_slow(x: f64, f: fn(f64) -> f64) -> f64 {
     // Powers of two, so the divisions are exact.

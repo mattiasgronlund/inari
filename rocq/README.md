@@ -72,6 +72,21 @@ Theorem div1_ru_slow_correct : forall x y,
 
 The fast path computes `q = RN(x / y)` and the remainder `r = x - q * y`, and steps `q` up if `r` is nonzero and has the sign of `y`, which is exactly when `q < x / y`. If `x` or `y` is zero or not finite, `q` is already the result. Otherwise the fast path is valid only if `q` is normal and `|x| >= 2^-967`, so that `r` is a float. Where it is valid, the code computes `r` exactly, with `mul_add`, or without an FMA with Dekker's TwoProduct and Sterbenz's lemma. The slow path divides the significands as integers and rounds the quotient with `round_up_exact`, with a nonzero remainder as the sticky bit. `div_ru_impl_correct` states the same for `div_ru_impl::<FMA>`.
 
+`sqrt_rd_ru_correct` in [`SqrtRdRu.v`](theories/SqrtRdRu.v) does the same for the square root, rounded toward -∞ in the first lane and toward +∞ in the second, Flocq's `Bsqrt mode_DN` and `Bsqrt mode_UP`, both with an FMA and without one:
+
+```coq
+Theorem sqrt_rd_ru_correct : forall has_fma x,
+  Generic.sqrt_rd_ru has_fma x = Some (Bsqrt mode_DN (fst x), Bsqrt mode_UP (snd x)).
+
+Theorem sqrt1_rd_correct : forall has_fma x,
+  Generic.sqrt1_rd has_fma x = Some (Bsqrt mode_DN x).
+
+Theorem sqrt1_ru_correct : forall has_fma x,
+  Generic.sqrt1_ru has_fma x = Some (Bsqrt mode_UP x).
+```
+
+`sqrt1_fast` computes `s = RN(√x)` and the remainder `r = x - s * s`. `sqrt1_rd_impl` steps `s` down if `r < 0`, and `sqrt1_ru_impl` steps it up if `r > 0`. `sqrt1_fast` accepts `x` if `-966 <= exponent(x) <= 1023`, or `<= 1021` without an FMA. For a positive `x`, `r` is then a float, and the code computes it exactly, as for division. For a negative `x`, `s`, `r` and the result are NaN. `sqrt1_slow` scales any other positive finite `x` into that range by `2^128` or `2^-128`, and the rounded square root of the scaled input back by `2^-64` or `2^64`, all exactly. For ±0, ±∞, NaN and the other negative numbers, it returns `x.sqrt()`, which does not depend on the rounding mode. `sqrt1_rd_impl_correct` and `sqrt1_ru_impl_correct` state the same for `sqrt1_rd_impl::<FMA>` and `sqrt1_ru_impl::<FMA>` whenever their models may make a nested call through `sqrt1_slow`: one is always enough.
+
 On the way, the other files prove:
 
 - [`Encoding.v`](theories/Encoding.v): `is_finite_eq`, i.e. `is_finite` agrees with Flocq's, `abs_B2R_lt_exponent`, i.e. `|x| < 2^(exponent(x) + 1)`, and `bpow_exponent_le_abs_B2R`, i.e. `2^exponent(x) <= |x|` if `x` is normal. `step_up_Bsucc` shows that `step_up` is Flocq's `Bsucc` (IEEE 754 `nextUp`) on finite floats.
@@ -84,6 +99,9 @@ On the way, the other files prove:
 - [`DivRemainder.v`](theories/DivRemainder.v): `div_remainder`. If `q = RN(x / y)`, `|q| >= 2^-1022` and `|x| >= 2^-967`, the remainder `x - q * y` is a float, and `|x - q * y| <= 2^-52 |x|`. This is a case of [BD03] (see `generic.rs`) for binary64, with subnormals. Flocq proves it only without them (`div_error_FLX`).
 - [`DivRuFast.v`](theories/DivRuFast.v): `div_exact`, i.e. the exponent checks in `div1_ru_fast` imply the hypotheses of `div_remainder`. Given its conclusions, `div_fma_remainder` and `div_dekker_remainder` show that `(-q).mul_add(y, x)`, and `(x - p) - two_prod_err(q, y, p)` with `p = q * y`, compute `x - q * y` exactly without overflowing, the latter if `div1_ru_fast`'s checks for Dekker's TwoProduct hold.
 - [`DivRuSlow.v`](theories/DivRuSlow.v): `div1_ru_slow_rounds_up`. If `x` and `y` are finite and nonzero, `div1_ru_slow` does not panic and returns `x / y` rounded toward +∞, as it calls `round_up_exact` with arguments that meet its precondition. `div_special`: where `div1_ru_slow` returns `x / y`, the rounding mode does not matter.
+- [`SqrtRem.v`](theories/SqrtRem.v): `sqrt_rem_format`. If `x >= 2^-966`, the remainder `x - RN(√x)^2` is a float. This is a case of [BD03] for the square root, with subnormals. Flocq proves it only without them (`sqrt_error_FLX_N`). `sqrt_rem_sign`: the sign of `x - s * s` tells whether `s` is below or above `√x`.
+- [`SqrtFast.v`](theories/SqrtFast.v): `sqrt1_fast_rem`. If `sqrt1_fast` accepts a positive `x` and the remainder is a float, then `s = RN(√x)` is positive, and `r` is `x - s * s` exactly, computed without overflowing.
+- [`SqrtSlow.v`](theories/SqrtSlow.v): `sqrt1_slow_correct`. If `f` returns `Bsqrt m y` for every `y` that `sqrt1_fast` accepts, `sqrt1_slow x f` returns `Bsqrt m x`, for any rounding mode `m`. `round_scale`: rounding a normal number commutes with a scaling by a power of two that keeps it normal.
 
 ## What is assumed
 
