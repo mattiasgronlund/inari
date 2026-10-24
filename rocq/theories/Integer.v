@@ -11,7 +11,8 @@
     lane back. As [floor] and [ceil] are nondecreasing, this gives
     [[floor a, floor b]] and [[ceil a, ceil b]], which hold exactly the
     integers in the image, and every real between them. Section [Round]
-    proves this once for both.
+    proves this once for both, and [Round.v] and [Trunc.v] use it for
+    [round], [round_ties_even] and [trunc].
 
     [floor] is continuous except at the integers, where it jumps from
     below. If [floor a = floor b = n], the restriction of [floor] to
@@ -323,7 +324,7 @@ split.
 - intros r. rewrite mem_bounds by assumption. now destruct E as [-> ->].
 Qed.
 
-Theorem round_correct :
+Theorem round_is_hull :
   forall x, valid x -> is_hull (image G x) (f x).
 Proof.
 intros x Hx.
@@ -498,7 +499,7 @@ destruct (is_nan (fst (rep (itv x)))) eqn:Hn.
   assert (Hd : d <> Ill).
   { unfold d. destruct (Interval.is_singleton _), (is_not_com _ _); discriminate. }
   rewrite set_dec_nonempty.
-  + split; [now apply round_correct|].
+  + split; [now apply round_is_hull|].
     exists d. split; [|reflexivity].
     unfold d. rewrite D_test by assumption. now apply D_strongest.
   + now apply round_not_empty.
@@ -750,7 +751,7 @@ Qed.
 Theorem floor_correct :
   forall x, valid x -> is_hull (image Rfloor x) (Interval.floor x).
 Proof.
-exact (round_correct ffloor Rfloor Interval.floor ffloor_finite ffloor_inf
+exact (round_is_hull ffloor Rfloor Interval.floor ffloor_finite ffloor_inf
   ffloor_nan ffloor_B2R Rfloor_le Rfloor_near floor_rep).
 Qed.
 
@@ -993,7 +994,7 @@ Qed.
 Theorem ceil_correct :
   forall x, valid x -> is_hull (image Rceil x) (Interval.ceil x).
 Proof.
-exact (round_correct fceil Rceil Interval.ceil fceil_finite fceil_inf
+exact (round_is_hull fceil Rceil Interval.ceil fceil_finite fceil_inf
   fceil_nan fceil_B2R Rceil_le Rceil_near ceil_rep).
 Qed.
 

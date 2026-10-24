@@ -1,13 +1,13 @@
 (** * What IEEE 1788 asks of an interval version of a function
 
-    The theorems in [Integer.v] are stated with the definitions here and
-    the ones in [Model.v]. Like [Model.v], this file has to be checked by
-    reading: against the standard, IEEE Std 1788-2015, rather than against
-    the Rust code. Continuity is that of Stdlib's [continuity_pt] and
-    [continue_in]. *)
+    The theorems in [Integer.v], [Round.v] and [Trunc.v] are stated with
+    the definitions here and the ones in [Model.v]. Like [Model.v], this
+    file has to be checked by reading: against the standard, IEEE Std
+    1788-2015, rather than against the Rust code. Continuity is that of
+    Stdlib's [continuity_pt] and [continue_in]. *)
 
 From Stdlib Require Import Reals.
-From Flocq Require Import Core.Raux.
+From Flocq Require Import Core.Raux Core.Generic_fmt Core.Round_NE.
 From Inari Require Import Model.
 
 Open Scope R_scope.
@@ -15,6 +15,16 @@ Open Scope R_scope.
 (** The point functions [floor] and [ceil], from R to R. *)
 Definition Rfloor (r : R) : R := IZR (Zfloor r).
 Definition Rceil (r : R) : R := IZR (Zceil r).
+
+(** The point functions [roundTiesToAway], [roundTiesToEven] and [trunc].
+    Flocq's [Znearest choice r] is the integer nearest to [r], and for a
+    tie between [Zfloor r] and [Zfloor r + 1], the latter if
+    [choice (Zfloor r)]. [ZnearestA] chooses it if [0 <= Zfloor r], which
+    is away from zero, and [ZnearestE] if [Zfloor r] is odd, which gives the
+    even one. [Ztrunc] rounds toward zero. *)
+Definition Rround (r : R) : R := IZR (ZnearestA r).
+Definition Rround_ties_even (r : R) : R := IZR (ZnearestE r).
+Definition Rtrunc (r : R) : R := IZR (Ztrunc r).
 
 (** The image of the interval [x] under [f], as a set of reals. *)
 Definition image (f : R -> R) (x : Interval) : R -> Prop :=

@@ -70,7 +70,8 @@ pub(crate) fn add_ru(x: F64X2, y: F64X2) -> F64X2 {
 }
 
 // `rocq/theories/Model.v` assumes this function, and `lt`, in `is_common_interval`
-// for the proofs of `DecInterval::ceil` and `DecInterval::floor`.
+// for the proofs of `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
+// `DecInterval::round_ties_even` and `DecInterval::trunc`.
 pub(crate) fn all(x: F64X2) -> bool {
     bitmask(x) == 3
 }
@@ -145,7 +146,8 @@ pub(crate) fn le(x: F64X2, y: F64X2) -> F64X2 {
 }
 
 // `rocq/theories/Model.v` assumes this function, and `all`, in `is_common_interval`
-// for the proofs of `DecInterval::ceil` and `DecInterval::floor`.
+// for the proofs of `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
+// `DecInterval::round_ties_even` and `DecInterval::trunc`.
 pub(crate) fn lt(x: F64X2, y: F64X2) -> F64X2 {
     [mask(x[0] < y[0]), mask(x[1] < y[1])]
 }
@@ -201,10 +203,14 @@ pub(crate) fn or(x: F64X2, y: F64X2) -> F64X2 {
     ]
 }
 
+// `rocq/theories/Model.v` transcribes this function for the proofs of
+// `(Dec)Interval::round`.
 pub(crate) fn round(x: F64X2) -> F64X2 {
     [x[0].round(), x[1].round()]
 }
 
+// `rocq/theories/Model.v` transcribes this function for the proofs of
+// `(Dec)Interval::round_ties_even`.
 pub(crate) fn round_ties_even(x: F64X2) -> F64X2 {
     [round_ties_even1(x[0]), round_ties_even1(x[1])]
 }
@@ -273,6 +279,8 @@ pub(crate) fn swap(x: F64X2) -> F64X2 {
     [x[1], x[0]]
 }
 
+// `rocq/theories/Model.v` transcribes this function for the proofs of
+// `(Dec)Interval::trunc`.
 pub(crate) fn trunc(x: F64X2) -> F64X2 {
     [x[0].trunc(), x[1].trunc()]
 }
@@ -420,6 +428,8 @@ fn minimum1(x: f64, y: f64) -> f64 {
     }
 }
 
+// Proved correct in `rocq/theories/RoundTiesEven.v`. `rocq/theories/Model.v` transcribes
+// this function, so it has to be updated along with it.
 fn round_ties_even1(x: f64) -> f64 {
     // 2^52: every f64 of magnitude >= 2^52 is an integer.
     const TWO_POW_52: f64 = 4503599627370496.0;

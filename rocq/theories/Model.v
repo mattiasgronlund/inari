@@ -4,7 +4,8 @@
     in [src/simd/generic.rs], line by line, so that the two can be compared
     side by side. The section on intervals at the end does the same for the
     parts of [src/interval.rs], [src/boolean.rs] and [src/integer.rs] that
-    [floor] and [ceil] of intervals use. This file is the only one that has
+    [floor], [ceil], [round], [round_ties_even] and [trunc] of intervals
+    use. This file is the only one that has
     to be checked against the Rust code, and [Ieee1788.v] the only one that
     has to be checked against IEEE 1788; the other files prove properties
     of the definitions here.
@@ -13,9 +14,11 @@
     and [/] are Flocq's [Bplus], [Bminus], [Bmult] and [Bdiv] rounded to
     nearest, ties to even, which is the default rounding mode that
     [generic.rs] relies on. [f64::mul_add] and [f64::sqrt] are Flocq's
-    [Bfma] and [Bsqrt] in the same mode, and [f64::floor] and [f64::ceil]
-    are Flocq's [Bnearbyint] toward -inf and +inf. A const generic
-    parameter, such as [FMA], is an ordinary argument.
+    [Bfma] and [Bsqrt] in the same mode, [f64::floor], [f64::ceil],
+    [f64::round] and [f64::trunc] are Flocq's [Bnearbyint] toward -inf,
+    toward +inf, to nearest with ties away from zero, and toward zero, and
+    [f64::abs] is Flocq's [Babs]. A const generic parameter, such as [FMA],
+    is an ordinary argument.
 
     NaN payloads and signs are not modelled: all NaNs are the same value, so
     [opp] keeps a NaN as it is where Rust's unary [-] flips its sign bit,
@@ -86,6 +89,22 @@ Definition fsqrt (x : f64) : f64 := Bsqrt mode_NE x.
 Definition ffloor (x : f64) : f64 := Bnearbyint mode_DN x.
 Definition fceil (x : f64) : f64 := Bnearbyint mode_UP x.
 
+(** [x.round()] and [x.trunc()]: [x] rounded to the nearest integer with
+    ties away from zero, and toward zero, IEEE 754's
+    roundToIntegralTiesToAway and roundToIntegralTowardZero. A zero result
+    has the sign of [x]. *)
+Definition fround (x : f64) : f64 := Bnearbyint mode_NA x.
+Definition ftrunc (x : f64) : f64 := Bnearbyint mode_ZR x.
+
+(** [x.abs()], which clears the sign bit. *)
+Definition fabs (x : f64) : f64 := Babs x.
+
+(** [x.copysign(y)]: [x] with the sign bit of [y]. The model has no sign
+    for a NaN [y] and takes it as positive, which is right only for some
+    NaNs; [round_ties_even1], the only caller, never passes a NaN [y]. *)
+Definition copysign (x y : f64) : f64 :=
+  if Bool.eqb (Bsign x) (Bsign y) then x else opp x.
+
 (** [0.0]. *)
 Definition zero : f64 := B754_zero false.
 
@@ -104,6 +123,9 @@ Definition from_bits (b : Z) : f64 := Binary.B2BSN 53 1024 (Bits.b64_of_bits b).
 (** [f64::INFINITY] and [f64::MIN], i.e. [-MAX]. *)
 Definition infinity : f64 := from_bits 0x7ff0000000000000.
 Definition min_f64 : f64 := from_bits 0xffefffffffffffff.
+
+(** [0.5]. *)
+Definition half : f64 := from_bits 0x3fe0000000000000.
 
 (** ** Integers *)
 
@@ -461,6 +483,14 @@ Definition sqrt1_slow (x : f64) (f : f64 -> option f64) : option f64 :=
       Some (mul s two_pow_64)
   else Some (fsqrt x).
 
+(** [fn round_ties_even1(x: f64) -> f64] *)
+Definition round_ties_even1 (x : f64) : f64 :=
+  (* [4503599627370496.0] is [2^52]. *)
+  let two_pow_52 := of_u64 (2^52) in
+  if lt (fabs x) two_pow_52 then
+    copysign (sub (add (fabs x) two_pow_52) two_pow_52) x
+  else x.
+
 (** [F64X2], i.e. [[f64; 2]], with [x[0]] as [fst x] and [x[1]] as [snd x]. *)
 Definition F64X2 : Type := f64 * f64.
 
@@ -501,6 +531,16 @@ Definition ceil (x : F64X2) : F64X2 := (fceil (fst x), fceil (snd x)).
 
 (** [pub(crate) fn floor(x: F64X2) -> F64X2] *)
 Definition floor (x : F64X2) : F64X2 := (ffloor (fst x), ffloor (snd x)).
+
+(** [pub(crate) fn round(x: F64X2) -> F64X2] *)
+Definition round (x : F64X2) : F64X2 := (fround (fst x), fround (snd x)).
+
+(** [pub(crate) fn round_ties_even(x: F64X2) -> F64X2] *)
+Definition round_ties_even (x : F64X2) : F64X2 :=
+  (round_ties_even1 (fst x), round_ties_even1 (snd x)).
+
+(** [pub(crate) fn trunc(x: F64X2) -> F64X2] *)
+Definition trunc (x : F64X2) : F64X2 := (ftrunc (fst x), ftrunc (snd x)).
 
 (** [pub(crate) fn sub_ru(x: F64X2, y: F64X2) -> F64X2] *)
 Definition sub_ru (x y : F64X2) : option F64X2 := add_ru x (neg y).
@@ -576,9 +616,11 @@ End Generic.
 (** ** Intervals
 
     The parts of [src/interval.rs], [src/boolean.rs] and [src/integer.rs]
-    that [Interval::floor], [Interval::ceil] and their decorated versions
-    use. Those call the backend's [floor], [ceil] and [neg0], which are the
-    ones in [Generic] here. *)
+    that [Interval::floor], [Interval::ceil], [Interval::round],
+    [Interval::round_ties_even], [Interval::trunc] and their decorated
+    versions use. Those call the backend's [floor], [ceil], [round],
+    [round_ties_even], [trunc] and [neg0], which are the ones in [Generic]
+    here. *)
 
 (** [pub struct Interval], whose only field is [rep: F64X2]. *)
 Record Interval : Type := { rep : Generic.F64X2 }.
@@ -666,6 +708,18 @@ Definition floor (self : Interval) : Interval :=
   let r := Generic.floor x in
   {| rep := Generic.neg0 r |}.
 
+(** [pub fn round(self) -> Self] *)
+Definition round (self : Interval) : Interval :=
+  {| rep := Generic.round (rep self) |}.
+
+(** [pub fn round_ties_even(self) -> Self] *)
+Definition round_ties_even (self : Interval) : Interval :=
+  {| rep := Generic.round_ties_even (rep self) |}.
+
+(** [pub fn trunc(self) -> Self] *)
+Definition trunc (self : Interval) : Interval :=
+  {| rep := Generic.trunc (rep self) |}.
+
 End Interval.
 
 Module DecInterval.
@@ -714,5 +768,35 @@ Definition ceil : DecInterval -> DecInterval :=
 Definition floor : DecInterval -> DecInterval :=
   impl_dec Interval.floor
     (fun x y => eq (Interval.inf_raw x) (Interval.inf_raw y)).
+
+(** [impl_dec!(round, x, y, { ... })], whose block is
+    [let abs_a = x.inf_raw().abs(); let abs_b = x.sup_raw().abs();
+    (abs_a - abs_a.trunc() == 0.5) || (abs_b - abs_b.trunc() == 0.5)] *)
+Definition round : DecInterval -> DecInterval :=
+  impl_dec Interval.round
+    (fun x y =>
+       let abs_a := fabs (Interval.inf_raw x) in
+       let abs_b := fabs (Interval.sup_raw x) in
+       eq (sub abs_a (ftrunc abs_a)) half || eq (sub abs_b (ftrunc abs_b)) half).
+
+(** [impl_dec!(round_ties_even, x, y, { ... })], with the same block as
+    [round] *)
+Definition round_ties_even : DecInterval -> DecInterval :=
+  impl_dec Interval.round_ties_even
+    (fun x y =>
+       let abs_a := fabs (Interval.inf_raw x) in
+       let abs_b := fabs (Interval.sup_raw x) in
+       eq (sub abs_a (ftrunc abs_a)) half || eq (sub abs_b (ftrunc abs_b)) half).
+
+(** [impl_dec!(trunc, x, y, (x.inf_raw() != 0.0 && x.inf_raw() == y.inf_raw())
+    || (x.sup_raw() != 0.0 && x.sup_raw() == y.sup_raw()))], where [a != b]
+    is [!(a == b)] *)
+Definition trunc : DecInterval -> DecInterval :=
+  impl_dec Interval.trunc
+    (fun x y =>
+       (negb (eq (Interval.inf_raw x) zero) &&
+        eq (Interval.inf_raw x) (Interval.inf_raw y)) ||
+       (negb (eq (Interval.sup_raw x) zero) &&
+        eq (Interval.sup_raw x) (Interval.sup_raw y))).
 
 End DecInterval.

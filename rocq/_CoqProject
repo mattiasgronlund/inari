@@ -27,3 +27,7 @@ theories/MulAddRuSlow.v
 theories/MulAddRu.v
 theories/Ieee1788.v
 theories/Integer.v
+theories/RoundTiesEven.v
+theories/Nearest.v
+theories/Trunc.v
+theories/Round.v

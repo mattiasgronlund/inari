@@ -91,6 +91,9 @@ impl Interval {
     /// See also: [`Interval::round_ties_even`].
     #[must_use]
     pub fn round(self) -> Self {
+        // Proved correct in `rocq/theories/Round.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         Self {
             rep: round(self.rep),
         }
@@ -121,6 +124,9 @@ impl Interval {
     /// See also: [`Interval::round`].
     #[must_use]
     pub fn round_ties_even(self) -> Self {
+        // Proved correct in `rocq/theories/Round.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         Self {
             rep: round_ties_even(self.rep),
         }
@@ -189,6 +195,9 @@ impl Interval {
     /// See also: [`Interval::ceil`], [`Interval::floor`].
     #[must_use]
     pub fn trunc(self) -> Self {
+        // Proved correct in `rocq/theories/Trunc.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         Self {
             rep: trunc(self.rep),
         }
@@ -203,7 +212,8 @@ macro_rules! impl_dec {
     // In rounding functions, you can effectively check if an endpoint of x
     // is an integer by x.inf == y.inf or x.sup == y.sup.
     // `rocq/theories/Model.v` transcribes this macro for the proofs of
-    // `DecInterval::ceil` and `DecInterval::floor`.
+    // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
+    // `DecInterval::round_ties_even` and `DecInterval::trunc`.
     ($f:ident, $x:ident, $y:ident, $is_not_com:expr) => {
         #[doc = concat!("The decorated version of [`Interval::", stringify!($f), "`].")]
         ///
@@ -240,6 +250,9 @@ impl DecInterval {
     impl_dec!(floor, x, y, x.inf_raw() == y.inf_raw()); // No need to check sup.
 
     // Discontinuities: {x + 0.5 ∣ x ∈ ℤ}.
+    // Proved correct in `rocq/theories/Round.v` for the portable backend.
+    // `rocq/theories/Model.v` transcribes these two calls, so it has to be updated along
+    // with them.
     impl_dec!(round, x, y, {
         let abs_a = x.inf_raw().abs();
         let abs_b = x.sup_raw().abs();
@@ -255,6 +268,9 @@ impl DecInterval {
     impl_dec!(sign, x, y, x.inf_raw() == 0.0); // No need to check sup.
 
     // Discontinuities: ℤ ∖ {0}.
+    // Proved correct in `rocq/theories/Trunc.v` for the portable backend.
+    // `rocq/theories/Model.v` transcribes this call, so it has to be updated along
+    // with it.
     impl_dec!(
         trunc,
         x,
