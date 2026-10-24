@@ -55,6 +55,23 @@ Theorem mul1_ru_slow_correct : forall x y,
 
 `has_fma` is `HAS_FMA`, which depends on the target. With an FMA, `two_prod_err` computes the error of the product with `mul_add`, and without one with Dekker's TwoProduct. `mul_ru_impl_correct` states the same for `mul_ru_impl::<FMA>`, which the differential tests call with both values of `FMA`.
 
+`div_ru_correct` in [`DivRu.v`](theories/DivRu.v) does the same for division rounded toward +∞, Flocq's `Bdiv mode_UP`, including division by zero, both with an FMA and without one:
+
+```coq
+Theorem div_ru_correct : forall has_fma x y,
+  Generic.div_ru has_fma x y =
+    Some (Bdiv mode_UP (fst x) (fst y), Bdiv mode_UP (snd x) (snd y)).
+
+Theorem div1_ru_fast_correct : forall fma x y,
+  snd (Generic.div1_ru_fast fma x y) = true ->
+  fst (Generic.div1_ru_fast fma x y) = Bdiv mode_UP x y.
+
+Theorem div1_ru_slow_correct : forall x y,
+  Generic.div1_ru_slow x y = Some (Bdiv mode_UP x y).
+```
+
+The fast path computes `q = RN(x / y)` and the remainder `r = x - q * y`, and steps `q` up if `r` is nonzero and has the sign of `y`, which is exactly when `q < x / y`. If `x` or `y` is zero or not finite, `q` is already the result. Otherwise the fast path is valid only if `q` is normal and `|x| >= 2^-967`, so that `r` is a float. Where it is valid, the code computes `r` exactly, with `mul_add`, or without an FMA with Dekker's TwoProduct and Sterbenz's lemma. The slow path divides the significands as integers and rounds the quotient with `round_up_exact`, with a nonzero remainder as the sticky bit. `div_ru_impl_correct` states the same for `div_ru_impl::<FMA>`.
+
 On the way, the other files prove:
 
 - [`Encoding.v`](theories/Encoding.v): `is_finite_eq`, i.e. `is_finite` agrees with Flocq's, `abs_B2R_lt_exponent`, i.e. `|x| < 2^(exponent(x) + 1)`, and `bpow_exponent_le_abs_B2R`, i.e. `2^exponent(x) <= |x|` if `x` is normal. `step_up_Bsucc` shows that `step_up` is Flocq's `Bsucc` (IEEE 754 `nextUp`) on finite floats.
@@ -64,6 +81,9 @@ On the way, the other files prove:
 - [`Decompose.v`](theories/Decompose.v): `decompose_correct`, i.e. `decompose` gives the sign, the integral significand and the exponent of a finite nonzero float. `pow2_correct`, i.e. `pow2(e)` is `2^e` for `e ∈ [-1074, 1023]`. `of_u64_exact`, i.e. `k as f64` is exact for `k <= 2^53`. `add_special`: where `add1_ru_slow` returns `x + y`, the rounding mode does not matter.
 - [`RoundUpExact.v`](theories/RoundUpExact.v): `round_up_exact_correct`. `round_up_exact(neg, m, e, sticky)` rounds `(-1)^neg * (m + δ) * 2^e` toward +∞, under the precondition `round_up_exact_pre` in [`Spec.v`](theories/Spec.v), which bounds `m` and `e` and requires `m >= 2^52` if `sticky`.
 - [`SumRoundUp.v`](theories/SumRoundUp.v): `sum_round_up_reduce`. For significands in `(0, 2^106)` and exponents in `[-2^19, 2^19]`, `sum_round_up` returns +0 if the sum is zero, and otherwise calls `round_up_exact` with arguments that meet its precondition.
+- [`DivRemainder.v`](theories/DivRemainder.v): `div_remainder`. If `q = RN(x / y)`, `|q| >= 2^-1022` and `|x| >= 2^-967`, the remainder `x - q * y` is a float, and `|x - q * y| <= 2^-52 |x|`. This is a case of [BD03] (see `generic.rs`) for binary64, with subnormals. Flocq proves it only without them (`div_error_FLX`).
+- [`DivRuFast.v`](theories/DivRuFast.v): `div_exact`, i.e. the exponent checks in `div1_ru_fast` imply the hypotheses of `div_remainder`. Given its conclusions, `div_fma_remainder` and `div_dekker_remainder` show that `(-q).mul_add(y, x)`, and `(x - p) - two_prod_err(q, y, p)` with `p = q * y`, compute `x - q * y` exactly without overflowing, the latter if `div1_ru_fast`'s checks for Dekker's TwoProduct hold.
+- [`DivRuSlow.v`](theories/DivRuSlow.v): `div1_ru_slow_rounds_up`. If `x` and `y` are finite and nonzero, `div1_ru_slow` does not panic and returns `x / y` rounded toward +∞, as it calls `round_up_exact` with arguments that meet its precondition. `div_special`: where `div1_ru_slow` returns `x / y`, the rounding mode does not matter.
 
 ## What is assumed
 
@@ -84,7 +104,7 @@ The theorems depend on four axioms. Three come from Stdlib's real numbers: `sig_
 ## What is not proved yet
 
 - The SIMD backends that vectorize the same algorithm, such as `src/simd/x86_64/lanewise.rs` and `src/simd/wasm32.rs`.
-- Every other operation. `round_up_exact_correct` already covers the last step of `div1_ru_slow`, given that it meets its precondition.
+- Every other operation.
 
 ## Building
 
