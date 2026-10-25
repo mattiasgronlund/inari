@@ -62,7 +62,8 @@ pub struct Interval {
     // and a NaN can be either a qNaN or a sNaN with an arbitrary payload.
     //
     // `rocq/theories/Model.v` states this form, with the bounds that `TryFrom<(f64, f64)>`
-    // accepts, as `valid`, for the proofs of `(Dec)Interval::ceil`, `(Dec)Interval::floor`,
+    // accepts, as `valid`, for the proofs of `(Dec)Interval::abs`, `(Dec)Interval::ceil`,
+    // `(Dec)Interval::floor`, `(Dec)Interval::max`, `(Dec)Interval::min`,
     // `(Dec)Interval::round`, `(Dec)Interval::round_ties_even`, `(Dec)Interval::sign` and
     // `(Dec)Interval::trunc`.
     pub(crate) rep: F64X2,
@@ -199,8 +200,9 @@ impl DecInterval {
     /// | Empty                | [`Decoration::Trv`], [`Decoration::Ill`]                                                                |
     pub fn set_dec(x: Interval, d: Decoration) -> Self {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
-        // `DecInterval::round_ties_even`, `DecInterval::sign` and `DecInterval::trunc`.
+        // `DecInterval::abs`, `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::max`,
+        // `DecInterval::min`, `DecInterval::round`, `DecInterval::round_ties_even`,
+        // `DecInterval::sign` and `DecInterval::trunc`.
         use Decoration::*;
 
         if d == Ill {

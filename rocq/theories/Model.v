@@ -3,8 +3,9 @@
     Each definition in [Generic] transcribes the function of the same name
     in [src/simd/generic.rs], line by line, so that the two can be compared
     side by side. The section on intervals at the end does the same for the
-    parts of [src/interval.rs], [src/boolean.rs] and [src/integer.rs] that
-    [floor], [ceil], [round], [round_ties_even], [sign] and [trunc] of
+    parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
+    [src/integer.rs] and [src/absmax.rs] that [abs], [ceil], [floor],
+    [max], [min], [round], [round_ties_even], [sign] and [trunc] of
     intervals use. This file is the only one that has
     to be checked against the Rust code, and [Ieee1788.v] the only one that
     has to be checked against IEEE 1788; the other files prove properties
@@ -65,6 +66,11 @@ Definition sub (x y : f64) : f64 := Bminus mode_NE x y.
 (** [x > y] and [x < y], which are false if either is NaN. *)
 Definition gt (x y : f64) : bool := Bltb y x.
 Definition lt (x y : f64) : bool := Bltb x y.
+
+(** [x >= y] and [x <= y], which are false if either is NaN, and true for
+    [0.0 >= -0.0] and [0.0 <= -0.0]. *)
+Definition ge (x y : f64) : bool := Bleb y x.
+Definition le (x y : f64) : bool := Bleb x y.
 
 (** [x == y], which is false if either is NaN, and true for [0.0 == -0.0]. *)
 Definition eq (x y : f64) : bool := Beqb x y.
@@ -483,6 +489,32 @@ Definition sqrt1_slow (x : f64) (f : f64 -> option f64) : option f64 :=
       Some (mul s two_pow_64)
   else Some (fsqrt x).
 
+(** [fn max1(x: f64, y: f64) -> f64] and [fn min1(x: f64, y: f64) -> f64],
+    where [f64::is_nan] is Flocq's [is_nan]. [to_bits] gives the bit
+    patterns of [x] and [y] where they are zeros. *)
+Definition max1 (x y : f64) : f64 :=
+  if is_nan x then y
+  else if is_nan y then x
+  else if eq x zero && eq y zero then from_bits (Z.land (to_bits x) (to_bits y))
+  else if gt x y then x
+  else y.
+
+(** [fn maximum1(x: f64, y: f64) -> f64], where [f64::NAN] is the NaN of
+    the model. *)
+Definition maximum1 (x y : f64) : f64 :=
+  if is_nan x || is_nan y then B754_nan else max1 x y.
+
+Definition min1 (x y : f64) : f64 :=
+  if is_nan x then y
+  else if is_nan y then x
+  else if eq x zero && eq y zero then from_bits (Z.lor (to_bits x) (to_bits y))
+  else if lt x y then x
+  else y.
+
+(** [fn minimum1(x: f64, y: f64) -> f64] *)
+Definition minimum1 (x y : f64) : f64 :=
+  if is_nan x || is_nan y then B754_nan else min1 x y.
+
 (** [fn round_ties_even1(x: f64) -> f64] *)
 Definition round_ties_even1 (x : f64) : f64 :=
   (* [4503599627370496.0] is [2^52]. *)
@@ -541,6 +573,29 @@ Definition round_ties_even (x : F64X2) : F64X2 :=
 
 (** [pub(crate) fn trunc(x: F64X2) -> F64X2] *)
 Definition trunc (x : F64X2) : F64X2 := (ftrunc (fst x), ftrunc (snd x)).
+
+(** [pub(crate) const HAS_MAXIMUM: bool = true] *)
+Definition HAS_MAXIMUM : bool := true.
+
+(** [pub(crate) fn max(x: F64X2, y: F64X2) -> F64X2],
+    [pub(crate) fn maximum(x: F64X2, y: F64X2) -> F64X2],
+    [pub(crate) fn min(x: F64X2, y: F64X2) -> F64X2] and
+    [pub(crate) fn minimum(x: F64X2, y: F64X2) -> F64X2] *)
+Definition max (x y : F64X2) : F64X2 :=
+  (max1 (fst x) (fst y), max1 (snd x) (snd y)).
+Definition maximum (x y : F64X2) : F64X2 :=
+  (maximum1 (fst x) (fst y), maximum1 (snd x) (snd y)).
+Definition min (x y : F64X2) : F64X2 :=
+  (min1 (fst x) (fst y), min1 (snd x) (snd y)).
+Definition minimum (x y : F64X2) : F64X2 :=
+  (minimum1 (fst x) (fst y), minimum1 (snd x) (snd y)).
+
+(** [pub(crate) fn shuffle02(x: F64X2, y: F64X2) -> F64X2],
+    [pub(crate) fn shuffle03(x: F64X2, y: F64X2) -> F64X2] and
+    [pub(crate) fn swap(x: F64X2) -> F64X2] *)
+Definition shuffle02 (x y : F64X2) : F64X2 := (fst x, fst y).
+Definition shuffle03 (x y : F64X2) : F64X2 := (fst x, snd y).
+Definition swap (x : F64X2) : F64X2 := (snd x, fst x).
 
 (** [pub(crate) fn sub_ru(x: F64X2, y: F64X2) -> F64X2] *)
 Definition sub_ru (x y : F64X2) : option F64X2 := add_ru x (neg y).
@@ -625,12 +680,19 @@ Definition mask (b : bool) : Z := if b then 2^64 - 1 else 0.
 (** [pub(crate) fn splat(x: f64) -> F64X2] *)
 Definition splat (x : f64) : F64X2 := (x, x).
 
-(** [pub(crate) fn gt(x: F64X2, y: F64X2) -> F64X2] and
+(** [pub(crate) fn ge(x: F64X2, y: F64X2) -> F64X2],
+    [pub(crate) fn gt(x: F64X2, y: F64X2) -> F64X2],
+    [pub(crate) fn le(x: F64X2, y: F64X2) -> F64X2] and
     [pub(crate) fn lt(x: F64X2, y: F64X2) -> F64X2], whose results are
-    masks. [gt] and [lt] in the bodies are the comparisons of floats at the
-    top of this file, as a [Definition] cannot call itself. *)
+    masks. [ge], [gt], [le] and [lt] in the bodies are the comparisons of
+    floats at the top of this file, as a [Definition] cannot call
+    itself. *)
+Definition ge (x y : F64X2) : Z * Z :=
+  (mask (ge (fst x) (fst y)), mask (ge (snd x) (snd y))).
 Definition gt (x y : F64X2) : Z * Z :=
   (mask (gt (fst x) (fst y)), mask (gt (snd x) (snd y))).
+Definition le (x y : F64X2) : Z * Z :=
+  (mask (le (fst x) (fst y)), mask (le (snd x) (snd y))).
 Definition lt (x y : F64X2) : Z * Z :=
   (mask (lt (fst x) (fst y)), mask (lt (snd x) (snd y))).
 
@@ -658,12 +720,15 @@ End Generic.
 
 (** ** Intervals
 
-    The parts of [src/interval.rs], [src/boolean.rs] and [src/integer.rs]
-    that [Interval::floor], [Interval::ceil], [Interval::round],
-    [Interval::round_ties_even], [Interval::sign], [Interval::trunc] and
-    their decorated versions use. Those call the backend's [floor], [ceil],
-    [round], [round_ties_even], [trunc], [neg0], [splat], [gt], [lt],
-    [all], [and] and [or], which are the ones in [Generic] here. *)
+    The parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
+    [src/integer.rs] and [src/absmax.rs] that [Interval::abs],
+    [Interval::ceil], [Interval::floor], [Interval::max], [Interval::min],
+    [Interval::round], [Interval::round_ties_even], [Interval::sign],
+    [Interval::trunc] and their decorated versions use. Those call the
+    backend's [floor], [ceil], [round], [round_ties_even], [trunc], [neg0],
+    [splat], [ge], [gt], [le], [lt], [all], [bitmask], [and], [or],
+    [max], [maximum], [min], [minimum], [shuffle02], [shuffle03], [swap]
+    and [HAS_MAXIMUM], which are the ones in [Generic] here. *)
 
 (** [pub struct Interval], whose only field is [rep: F64X2]. *)
 Record Interval : Type := { rep : Generic.F64X2 }.
@@ -713,6 +778,25 @@ Definition dec_min (d e : Decoration) : Decoration :=
     [dec]. *)
 Record DecInterval : Type := { itv : Interval; dec : Decoration }.
 
+(** [pub(crate) enum IntervalClass], with the variants [E], [M], [N0],
+    [N1], [P0], [P1] and [Z] as [CE], [CM], [CN0], [CN1], [CP0], [CP1] and
+    [CZ], as [Z] is the type of integers here. *)
+Inductive IntervalClass : Type := CE | CM | CN0 | CN1 | CP0 | CP1 | CZ.
+
+(** [unsafe { transmute(c) }] for a [u8] [c] and the result type
+    [IntervalClass], whose behaviour is undefined unless [c] is the
+    discriminant of a variant. The model returns [None] then, so a theorem
+    that a function returns [Some] shows that it is defined. *)
+Definition transmute_class (c : Z) : option IntervalClass :=
+  if c =? 0 then Some CE
+  else if c =? 3 then Some CM
+  else if c =? 11 then Some CN0
+  else if c =? 9 then Some CN1
+  else if c =? 7 then Some CP0
+  else if c =? 6 then Some CP1
+  else if c =? 15 then Some CZ
+  else None.
+
 Module Interval.
 
 (** [pub const EMPTY: Self], i.e. [[NaN; NaN]]. *)
@@ -735,6 +819,33 @@ Definition is_empty (self : Interval) : bool := is_nan (fst (rep self)).
 Definition is_singleton (self : Interval) : bool :=
   eq (inf_raw self) (sup_raw self).
 
+(** [pub(crate) fn either_empty(self, rhs: Self) -> bool], whose [|] on
+    [bool]s gives the same value as [||]. *)
+Definition either_empty (self rhs : Interval) : bool :=
+  is_empty self || is_empty rhs.
+
+(** [pub(crate) fn classify(self) -> IntervalClass]. The casts
+    [bitmask(...) as u8] keep the value, which is below 4, and are left
+    out. *)
+Definition classify (self : Interval) : option IntervalClass :=
+  let zero := Generic.splat zero in
+  let ge_zero := Generic.bitmask (Generic.ge (rep self) zero) in
+  let le_zero := Generic.bitmask (Generic.le (rep self) zero) in
+  let* l := shl 8 le_zero 2 in
+  transmute_class (Z.lor l ge_zero).
+
+(** [pub fn abs(self) -> Self] *)
+Definition abs (self : Interval) : option Interval :=
+  let* c := classify self in
+  match c with
+  | CE | CP0 | CP1 | CZ => Some self
+  | CM =>
+      let x := rep self in
+      let r := Generic.max x (Generic.swap x) in
+      Some {| rep := Generic.shuffle02 (Generic.splat zero) r |}
+  | CN0 | CN1 => Some {| rep := Generic.swap (rep self) |}
+  end.
+
 (** [pub fn ceil(self) -> Self] *)
 Definition ceil (self : Interval) : Interval :=
   let x := Generic.neg0 (rep self) in
@@ -746,6 +857,30 @@ Definition floor (self : Interval) : Interval :=
   let x := Generic.neg0 (rep self) in
   let r := Generic.floor x in
   {| rep := Generic.neg0 r |}.
+
+(** [pub fn max(self, rhs: Self) -> Self] *)
+Definition max (self rhs : Interval) : Interval :=
+  if Generic.HAS_MAXIMUM then
+    let min := Generic.minimum (rep self) (rep rhs) in
+    let max := Generic.maximum (rep self) (rep rhs) in
+    {| rep := Generic.shuffle03 min max |}
+  else if either_empty self rhs then EMPTY
+  else
+    let min := Generic.min (rep self) (rep rhs) in
+    let max := Generic.max (rep self) (rep rhs) in
+    {| rep := Generic.shuffle03 min max |}.
+
+(** [pub fn min(self, rhs: Self) -> Self] *)
+Definition min (self rhs : Interval) : Interval :=
+  if Generic.HAS_MAXIMUM then
+    let max := Generic.maximum (rep self) (rep rhs) in
+    let min := Generic.minimum (rep self) (rep rhs) in
+    {| rep := Generic.shuffle03 max min |}
+  else if either_empty self rhs then EMPTY
+  else
+    let max := Generic.max (rep self) (rep rhs) in
+    let min := Generic.min (rep self) (rep rhs) in
+    {| rep := Generic.shuffle03 max min |}.
 
 (** [pub fn round(self) -> Self] *)
 Definition round (self : Interval) : Interval :=
@@ -796,6 +931,23 @@ Definition set_dec (x : Interval) (d : Decoration) : DecInterval :=
   else if dec_eqb d Com && negb (Interval.is_common_interval x) then
     new_unchecked x Dac
   else new_unchecked x d.
+
+(** [pub fn abs(self) -> Self] *)
+Definition abs (self : DecInterval) : option DecInterval :=
+  if is_nai self then Some self
+  else
+    let* x := Interval.abs (itv self) in
+    Some (set_dec x (dec self)).
+
+(** [pub fn max(self, rhs: Self) -> Self] and
+    [pub fn min(self, rhs: Self) -> Self], where [self.d.min(rhs.d)] is
+    [dec_min (dec self) (dec rhs)] *)
+Definition max (self rhs : DecInterval) : DecInterval :=
+  if is_nai self then self
+  else set_dec (Interval.max (itv self) (itv rhs)) (dec_min (dec self) (dec rhs)).
+Definition min (self rhs : DecInterval) : DecInterval :=
+  if is_nai self then self
+  else set_dec (Interval.min (itv self) (itv rhs)) (dec_min (dec self) (dec rhs)).
 
 (** The function that [impl_dec!(f, x, y, is_not_com)] in [src/integer.rs]
     defines is [impl_dec Interval.f (fun x y => is_not_com)]. *)

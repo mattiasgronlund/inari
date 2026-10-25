@@ -32,3 +32,6 @@ theories/Nearest.v
 theories/Trunc.v
 theories/Round.v
 theories/Sign.v
+theories/Abs.v
+theories/MaxMin.v
+theories/DecMaxMin.v

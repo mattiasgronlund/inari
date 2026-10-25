@@ -1,10 +1,13 @@
 (** * What IEEE 1788 asks of an interval version of a function
 
-    The theorems in [Integer.v], [Round.v], [Sign.v] and [Trunc.v] are
-    stated with the definitions here and the ones in [Model.v]. Like
-    [Model.v], this file has to be checked by reading: against the
-    standard, IEEE Std 1788-2015, rather than against the Rust code.
-    Continuity is that of Stdlib's [continuity_pt] and [continue_in]. *)
+    The theorems in [Abs.v], [Integer.v], [MaxMin.v], [DecMaxMin.v],
+    [Round.v], [Sign.v] and [Trunc.v] are stated with the definitions here
+    and the ones in [Model.v]. Like [Model.v], this file has to be checked
+    by reading: against the standard, IEEE Std 1788-2015, rather than
+    against the Rust code. Continuity of a function of one real is that of
+    Stdlib's [continuity_pt] and [continue_in], and of two reals that of
+    [continuity2_pt] and [continue_in2] below. The point functions [abs],
+    [max] and [min] are Stdlib's [Rabs], [Rmax] and [Rmin]. *)
 
 From Stdlib Require Import Reals.
 From Flocq Require Import Core.Raux Core.Generic_fmt Core.Round_NE.
@@ -75,3 +78,46 @@ Definition p (d : Decoration) (f : R -> R) (x : Interval) : Prop :=
     returns the minimum of this decoration and that of its argument. *)
 Definition strongest (d : Decoration) (f : R -> R) (x : Interval) : Prop :=
   p d f x /\ forall e, p e f x -> (discriminant e <= discriminant d)%Z.
+
+(** ** Functions of two reals *)
+
+(** The image of the box [x × y] under [f], as a set of reals. *)
+Definition image2 (f : R -> R -> R) (x y : Interval) : R -> Prop :=
+  fun s => exists r t, mem r x /\ mem t y /\ s = f r t.
+
+(** The restriction of [f] to [X × Y] is continuous at [(r, t)], in the
+    topology of R², which is that of the norm [max(|r|, |t|)]. This is
+    Stdlib's [continue_in] with a pair of reals in place of a real. *)
+Definition continue_in2 (f : R -> R -> R) (X Y : R -> Prop) (r t : R) : Prop :=
+  forall eps, 0 < eps -> exists delta, 0 < delta /\
+    forall r' t', X r' -> Y t' -> Rabs (r' - r) < delta -> Rabs (t' - t) < delta ->
+    Rabs (f r' t' - f r t) < eps.
+
+(** [f] is continuous at [(r, t)], like Stdlib's [continuity_pt]. *)
+Definition continuity2_pt (f : R -> R -> R) (r t : R) : Prop :=
+  continue_in2 f (fun _ => True) (fun _ => True) r t.
+
+(** [p d f x] for a function [f] of two reals, defined on all of R², and
+    the box [x × y] in place of [x]: the box is nonempty if [x] and [y]
+    are, and bounded if they are. *)
+Definition p2 (d : Decoration) (f : R -> R -> R) (x y : Interval) : Prop :=
+  let X := fun r => mem r x in
+  let Y := fun t => mem t y in
+  match d with
+  | Ill => False
+  | Trv => True
+  | Def => (exists r, X r) /\ (exists t, Y t)
+  | Dac =>
+      (exists r, X r) /\ (exists t, Y t) /\
+      forall r t, X r -> Y t -> continue_in2 f X Y r t
+  | Com =>
+      (exists r, X r) /\ (exists t, Y t) /\ bounded X /\ bounded Y /\
+      (forall r t, X r -> Y t -> continuity2_pt f r t) /\
+      bounded (image2 f x y)
+  end.
+
+(** [strongest d f x] for a function [f] of two reals and the box
+    [x × y]. An operation on two decorated intervals returns the minimum of
+    this decoration and those of its arguments. *)
+Definition strongest2 (d : Decoration) (f : R -> R -> R) (x y : Interval) : Prop :=
+  p2 d f x y /\ forall e, p2 e f x y -> (discriminant e <= discriminant d)%Z.

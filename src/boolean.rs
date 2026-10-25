@@ -126,8 +126,9 @@ impl Interval {
     /// ```
     pub fn is_common_interval(self) -> bool {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
-        // `DecInterval::round_ties_even`, `DecInterval::sign` and `DecInterval::trunc`.
+        // `DecInterval::abs`, `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::max`,
+        // `DecInterval::min`, `DecInterval::round`, `DecInterval::round_ties_even`,
+        // `DecInterval::sign` and `DecInterval::trunc`.
         // -∞ < a  ∧  b < +∞
         all(lt(self.rep, splat(f64::INFINITY)))
     }
@@ -144,8 +145,9 @@ impl Interval {
     /// ```
     pub fn is_empty(self) -> bool {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
-        // `DecInterval::round_ties_even`, `(Dec)Interval::sign` and `DecInterval::trunc`.
+        // `DecInterval::abs`, `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::max`,
+        // `DecInterval::min`, `DecInterval::round`, `DecInterval::round_ties_even`,
+        // `(Dec)Interval::sign` and `DecInterval::trunc`.
         extract0(self.rep).is_nan()
     }
 
@@ -364,6 +366,8 @@ impl Interval {
         self.is_empty() & rhs.is_empty()
     }
 
+    // `rocq/theories/Model.v` transcribes this function, which `Interval::max` and
+    // `Interval::min` call only if `HAS_MAXIMUM` is false, so their proofs do not use it.
     pub(crate) fn either_empty(self, rhs: Self) -> bool {
         self.is_empty() | rhs.is_empty()
     }

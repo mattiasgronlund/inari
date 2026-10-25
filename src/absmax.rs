@@ -10,6 +10,9 @@ impl Interval {
     /// | $\R$   | $\[0, ∞)$ |
     #[must_use]
     pub fn abs(self) -> Self {
+        // Proved correct in `rocq/theories/Abs.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         use IntervalClass::*;
         match self.classify() {
             E | P0 | P1 | Z => self,
@@ -39,6 +42,9 @@ impl Interval {
     /// | $\R^2$ | $\R$  |
     #[must_use]
     pub fn max(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/MaxMin.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if HAS_MAXIMUM {
             // [max(a, c), max(b, d)] = [-max(a, c); max(b, d)] = [min(-a, -c); max(b, d)]
             let min = minimum(self.rep, rhs.rep); // [min(-a, -c); min(b, d)]
@@ -68,6 +74,9 @@ impl Interval {
     /// | $\R^2$ | $\R$  |
     #[must_use]
     pub fn min(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/MaxMin.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if HAS_MAXIMUM {
             // [min(a, c), min(b, d)] = [-min(a, c); min(b, d)] = [max(-a, -c); min(b, d)]
             let max = maximum(self.rep, rhs.rep); // [max(-a, -c); max(b, d)]
@@ -95,6 +104,9 @@ impl DecInterval {
     /// A NaI is returned if `self` is NaI.
     #[must_use]
     pub fn abs(self) -> Self {
+        // Proved correct in `rocq/theories/Abs.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() {
             return self;
         }
@@ -107,6 +119,11 @@ impl DecInterval {
     /// A NaI is returned if `self` or `rhs` is NaI.
     #[must_use]
     pub fn max(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/DecMaxMin.v` for the portable backend if `self`
+        // and `rhs` are `com` only when `self.x` and `rhs.x` are common, as
+        // `DecInterval::new`, `set_dec` and the other constructors make sure.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() {
             return self;
         }
@@ -119,6 +136,11 @@ impl DecInterval {
     /// A NaI is returned if `self` or `rhs` is NaI.
     #[must_use]
     pub fn min(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/DecMaxMin.v` for the portable backend if `self`
+        // and `rhs` are `com` only when `self.x` and `rhs.x` are common, as
+        // `DecInterval::new`, `set_dec` and the other constructors make sure.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() {
             return self;
         }
