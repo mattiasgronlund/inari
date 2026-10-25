@@ -611,6 +611,34 @@ Definition sqrt_rd_ru (has_fma : bool) (x : F64X2) : option F64X2 :=
   let* b := sqrt1_ru has_fma (snd x) in
   Some (a, b).
 
+(** ** Masks
+
+    A comparison of two [F64X2]s returns a mask, an [F64X2] with every bit
+    of a lane set where the comparison holds and clear where it does not.
+    A lane with every bit set is a NaN, which [to_bits] gives the bits of
+    another NaN, so the model keeps the bit patterns of the lanes of a mask
+    instead. *)
+
+(** [fn mask(b: bool) -> f64], as its bit pattern. *)
+Definition mask (b : bool) : Z := if b then 2^64 - 1 else 0.
+
+(** [pub(crate) fn splat(x: f64) -> F64X2] *)
+Definition splat (x : f64) : F64X2 := (x, x).
+
+(** [pub(crate) fn lt(x: F64X2, y: F64X2) -> F64X2], whose result is a
+    mask. [lt] in the body is the comparison of floats at the top of this
+    file, as a [Definition] cannot call itself. *)
+Definition lt (x y : F64X2) : Z * Z :=
+  (mask (lt (fst x) (fst y)), mask (lt (snd x) (snd y))).
+
+(** [pub(crate) fn bitmask(x: F64X2) -> u32] for a mask [x]: the sign bits
+    of its lanes. *)
+Definition bitmask (x : Z * Z) : Z :=
+  Z.lor (Z.shiftr (fst x) 63) (Z.shiftl (Z.shiftr (snd x) 63) 1).
+
+(** [pub(crate) fn all(x: F64X2) -> bool] for a mask [x] *)
+Definition all (x : Z * Z) : bool := bitmask x =? 3.
+
 End Generic.
 
 (** ** Intervals
@@ -680,13 +708,9 @@ Definition EMPTY : Interval := {| rep := (B754_nan, B754_nan) |}.
 Definition inf_raw (self : Interval) : f64 := opp (fst (rep self)).
 Definition sup_raw (self : Interval) : f64 := snd (rep self).
 
-(** [pub fn is_common_interval(self) -> bool], which computes
-    [all(lt(self.rep, splat(f64::INFINITY)))]. [lt] sets every bit of a
-    lane where the comparison holds and clears them where it does not, and
-    [all] tests that the sign bits of both lanes are set. The model has no
-    sign bit for a NaN, so it takes the two comparisons directly. *)
+(** [pub fn is_common_interval(self) -> bool] *)
 Definition is_common_interval (self : Interval) : bool :=
-  lt (fst (rep self)) infinity && lt (snd (rep self)) infinity.
+  Generic.all (Generic.lt (rep self) (Generic.splat infinity)).
 
 (** [pub fn is_empty(self) -> bool], where [f64::is_nan] is Flocq's
     [is_nan]. *)

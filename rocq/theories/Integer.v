@@ -184,6 +184,35 @@ Proof.
 exact from_bits_2047.
 Qed.
 
+(** [all] of the mask from [lt] is true exactly when both comparisons
+    hold. *)
+Lemma is_common_interval_lt :
+  forall x,
+  Interval.is_common_interval x =
+    lt (fst (rep x)) infinity && lt (snd (rep x)) infinity.
+Proof.
+intros x.
+unfold Interval.is_common_interval, Generic.all, Generic.bitmask, Generic.lt,
+  Generic.splat.
+cbn [fst snd].
+destruct (lt (fst (rep x)) infinity), (lt (snd (rep x)) infinity); reflexivity.
+Qed.
+
+(** An interval with finite bounds is a common interval. *)
+Lemma finite_common :
+  forall y,
+  is_finite (opp (fst (rep y))) = true -> is_finite (snd (rep y)) = true ->
+  Interval.is_common_interval y = true.
+Proof.
+intros y Ha Hb.
+rewrite is_common_interval_lt, infinity_eq. unfold lt.
+assert (Fa : is_finite (fst (rep y)) = true).
+{ unfold opp in Ha. now rewrite is_finite_Bopp in Ha. }
+destruct (fst (rep y)) as [s|s| |s m e H]; try discriminate; destruct s;
+  (destruct (snd (rep y)) as [s'|s'| |s' m' e' H'];
+   try discriminate; destruct s'; reflexivity).
+Qed.
+
 (** ** Rounding an interval in one direction *)
 
 (** [round radix2 (FIX_exp 0) rnd] rounds to an integer. *)
@@ -379,15 +408,9 @@ Lemma round_common :
   is_finite (opp (fst (rep x))) = true -> is_finite (snd (rep x)) = true ->
   Interval.is_common_interval (f x) = true.
 Proof.
-intros x Ha Hb.
-unfold Interval.is_common_interval, lt. rewrite f_rep, infinity_eq. cbn [fst snd].
-assert (Fa : is_finite (opp (g (opp (fst (rep x))))) = true).
-{ unfold opp. now rewrite is_finite_Bopp, g_finite. }
-rewrite <- g_finite in Hb. clear Ha.
-destruct (opp (g (opp (fst (rep x))))) as [s|s| |s m e H];
-  try discriminate; destruct s;
-  (destruct (g (snd (rep x))) as [s'|s'| |s' m' e' H'];
-   try discriminate; destruct s'; reflexivity).
+intros x Ha Hb. apply finite_common.
+- rewrite lower_f. now rewrite g_finite.
+- rewrite upper_f. now rewrite g_finite.
 Qed.
 
 (** ** The decorated version *)
