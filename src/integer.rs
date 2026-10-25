@@ -156,6 +156,9 @@ impl Interval {
     /// ```
     #[must_use]
     pub fn sign(self) -> Self {
+        // Proved correct in `rocq/theories/Sign.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_empty() {
             return Self::EMPTY;
         }
@@ -213,7 +216,7 @@ macro_rules! impl_dec {
     // is an integer by x.inf == y.inf or x.sup == y.sup.
     // `rocq/theories/Model.v` transcribes this macro for the proofs of
     // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
-    // `DecInterval::round_ties_even` and `DecInterval::trunc`.
+    // `DecInterval::round_ties_even`, `DecInterval::sign` and `DecInterval::trunc`.
     ($f:ident, $x:ident, $y:ident, $is_not_com:expr) => {
         #[doc = concat!("The decorated version of [`Interval::", stringify!($f), "`].")]
         ///
@@ -265,6 +268,11 @@ impl DecInterval {
     });
 
     // Discontinuities: {0}.
+    // Proved correct in `rocq/theories/Sign.v` for the portable backend if `self` is `com`
+    // only when `self.x` is common, as `DecInterval::new`, `set_dec` and the other
+    // constructors make sure.
+    // `rocq/theories/Model.v` transcribes this call, so it has to be updated along
+    // with it.
     impl_dec!(sign, x, y, x.inf_raw() == 0.0); // No need to check sup.
 
     // Discontinuities: ℤ ∖ {0}.

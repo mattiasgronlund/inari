@@ -1,10 +1,10 @@
 (** * What IEEE 1788 asks of an interval version of a function
 
-    The theorems in [Integer.v], [Round.v] and [Trunc.v] are stated with
-    the definitions here and the ones in [Model.v]. Like [Model.v], this
-    file has to be checked by reading: against the standard, IEEE Std
-    1788-2015, rather than against the Rust code. Continuity is that of
-    Stdlib's [continuity_pt] and [continue_in]. *)
+    The theorems in [Integer.v], [Round.v], [Sign.v] and [Trunc.v] are
+    stated with the definitions here and the ones in [Model.v]. Like
+    [Model.v], this file has to be checked by reading: against the
+    standard, IEEE Std 1788-2015, rather than against the Rust code.
+    Continuity is that of Stdlib's [continuity_pt] and [continue_in]. *)
 
 From Stdlib Require Import Reals.
 From Flocq Require Import Core.Raux Core.Generic_fmt Core.Round_NE.
@@ -25,6 +25,10 @@ Definition Rceil (r : R) : R := IZR (Zceil r).
 Definition Rround (r : R) : R := IZR (ZnearestA r).
 Definition Rround_ties_even (r : R) : R := IZR (ZnearestE r).
 Definition Rtrunc (r : R) : R := IZR (Ztrunc r).
+
+(** The point function [sign]: [-1] below 0, [0] at 0, and [1] above. *)
+Definition Rsign (r : R) : R :=
+  match Rcompare r 0 with Lt => -1 | Eq => 0 | Gt => 1 end.
 
 (** The image of the interval [x] under [f], as a set of reals. *)
 Definition image (f : R -> R) (x : Interval) : R -> Prop :=

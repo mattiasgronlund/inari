@@ -4,8 +4,8 @@
     in [src/simd/generic.rs], line by line, so that the two can be compared
     side by side. The section on intervals at the end does the same for the
     parts of [src/interval.rs], [src/boolean.rs] and [src/integer.rs] that
-    [floor], [ceil], [round], [round_ties_even] and [trunc] of intervals
-    use. This file is the only one that has
+    [floor], [ceil], [round], [round_ties_even], [sign] and [trunc] of
+    intervals use. This file is the only one that has
     to be checked against the Rust code, and [Ieee1788.v] the only one that
     has to be checked against IEEE 1788; the other files prove properties
     of the definitions here.
@@ -625,9 +625,12 @@ Definition mask (b : bool) : Z := if b then 2^64 - 1 else 0.
 (** [pub(crate) fn splat(x: f64) -> F64X2] *)
 Definition splat (x : f64) : F64X2 := (x, x).
 
-(** [pub(crate) fn lt(x: F64X2, y: F64X2) -> F64X2], whose result is a
-    mask. [lt] in the body is the comparison of floats at the top of this
-    file, as a [Definition] cannot call itself. *)
+(** [pub(crate) fn gt(x: F64X2, y: F64X2) -> F64X2] and
+    [pub(crate) fn lt(x: F64X2, y: F64X2) -> F64X2], whose results are
+    masks. [gt] and [lt] in the bodies are the comparisons of floats at the
+    top of this file, as a [Definition] cannot call itself. *)
+Definition gt (x y : F64X2) : Z * Z :=
+  (mask (gt (fst x) (fst y)), mask (gt (snd x) (snd y))).
 Definition lt (x y : F64X2) : Z * Z :=
   (mask (lt (fst x) (fst y)), mask (lt (snd x) (snd y))).
 
@@ -639,16 +642,28 @@ Definition bitmask (x : Z * Z) : Z :=
 (** [pub(crate) fn all(x: F64X2) -> bool] for a mask [x] *)
 Definition all (x : Z * Z) : bool := bitmask x =? 3.
 
+(** [pub(crate) fn and(x: F64X2, y: F64X2) -> F64X2] for a mask [y], and
+    [pub(crate) fn or(x: F64X2, y: F64X2) -> F64X2]. [to_bits] gives the bit
+    pattern of a lane of [x] or [y] only if it is not NaN. [Interval::sign],
+    their only caller, passes no NaN: it calls [and] on [1.0] and [-1.0],
+    and [or] on the results, whose lanes are [1.0], [-1.0] or [0.0]. *)
+Definition and (x : F64X2) (y : Z * Z) : F64X2 :=
+  (from_bits (Z.land (to_bits (fst x)) (fst y)),
+   from_bits (Z.land (to_bits (snd x)) (snd y))).
+Definition or (x y : F64X2) : F64X2 :=
+  (from_bits (Z.lor (to_bits (fst x)) (to_bits (fst y))),
+   from_bits (Z.lor (to_bits (snd x)) (to_bits (snd y)))).
+
 End Generic.
 
 (** ** Intervals
 
     The parts of [src/interval.rs], [src/boolean.rs] and [src/integer.rs]
     that [Interval::floor], [Interval::ceil], [Interval::round],
-    [Interval::round_ties_even], [Interval::trunc] and their decorated
-    versions use. Those call the backend's [floor], [ceil], [round],
-    [round_ties_even], [trunc] and [neg0], which are the ones in [Generic]
-    here. *)
+    [Interval::round_ties_even], [Interval::sign], [Interval::trunc] and
+    their decorated versions use. Those call the backend's [floor], [ceil],
+    [round], [round_ties_even], [trunc], [neg0], [splat], [gt], [lt],
+    [all], [and] and [or], which are the ones in [Generic] here. *)
 
 (** [pub struct Interval], whose only field is [rep: F64X2]. *)
 Record Interval : Type := { rep : Generic.F64X2 }.
@@ -740,6 +755,21 @@ Definition round (self : Interval) : Interval :=
 Definition round_ties_even (self : Interval) : Interval :=
   {| rep := Generic.round_ties_even (rep self) |}.
 
+(** [pub fn sign(self) -> Self], where [1.0] is [of_u64 1], as in
+    [sqrt1_slow], and [-1.0] is [opp] of it, as Rust's [-1.0] negates the
+    literal [1.0]. *)
+Definition sign (self : Interval) : Interval :=
+  if is_empty self then EMPTY
+  else
+    let zero := Generic.splat zero in
+    let gt_zero_mask := Generic.gt (rep self) zero in
+    let lt_zero_mask := Generic.lt (rep self) zero in
+    let one_or_zero := Generic.and (Generic.splat (of_u64 1)) gt_zero_mask in
+    let m_one_or_zero :=
+      Generic.and (Generic.splat (opp (of_u64 1))) lt_zero_mask in
+    let r := Generic.or one_or_zero m_one_or_zero in
+    {| rep := r |}.
+
 (** [pub fn trunc(self) -> Self] *)
 Definition trunc (self : Interval) : Interval :=
   {| rep := Generic.trunc (rep self) |}.
@@ -811,6 +841,10 @@ Definition round_ties_even : DecInterval -> DecInterval :=
        let abs_a := fabs (Interval.inf_raw x) in
        let abs_b := fabs (Interval.sup_raw x) in
        eq (sub abs_a (ftrunc abs_a)) half || eq (sub abs_b (ftrunc abs_b)) half).
+
+(** [impl_dec!(sign, x, y, x.inf_raw() == 0.0)] *)
+Definition sign : DecInterval -> DecInterval :=
+  impl_dec Interval.sign (fun x y => eq (Interval.inf_raw x) zero).
 
 (** [impl_dec!(trunc, x, y, (x.inf_raw() != 0.0 && x.inf_raw() == y.inf_raw())
     || (x.sup_raw() != 0.0 && x.sup_raw() == y.sup_raw()))], where [a != b]

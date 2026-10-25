@@ -2,7 +2,7 @@
     any axiom that is not listed in [AXIOMS] in the [Makefile]. *)
 
 From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
-  AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round.
+  AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -40,3 +40,5 @@ Print Assumptions round_ties_even_correct.
 Print Assumptions dec_round_ties_even_correct.
 Print Assumptions trunc_correct.
 Print Assumptions dec_trunc_correct.
+Print Assumptions sign_correct.
+Print Assumptions dec_sign_correct.

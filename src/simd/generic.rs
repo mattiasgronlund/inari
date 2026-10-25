@@ -71,11 +71,14 @@ pub(crate) fn add_ru(x: F64X2, y: F64X2) -> F64X2 {
 
 // `rocq/theories/Model.v` transcribes this function for the proofs of
 // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
-// `DecInterval::round_ties_even` and `DecInterval::trunc`.
+// `DecInterval::round_ties_even`, `DecInterval::sign` and `DecInterval::trunc`.
 pub(crate) fn all(x: F64X2) -> bool {
     bitmask(x) == 3
 }
 
+// `rocq/theories/Model.v` transcribes this function for the proofs of
+// `(Dec)Interval::sign`. The transcription is right only for a mask `y` and for
+// lanes of `x` that are not NaN, which is how `Interval::sign` calls it.
 pub(crate) fn and(x: F64X2, y: F64X2) -> F64X2 {
     [
         f64::from_bits(x[0].to_bits() & y[0].to_bits()),
@@ -89,7 +92,7 @@ pub(crate) fn any(x: F64X2) -> bool {
 
 // `rocq/theories/Model.v` transcribes this function for the proofs of
 // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
-// `DecInterval::round_ties_even` and `DecInterval::trunc`.
+// `DecInterval::round_ties_even`, `DecInterval::sign` and `DecInterval::trunc`.
 pub(crate) fn bitmask(x: F64X2) -> u32 {
     (x[0].to_bits() >> 63) as u32 | ((x[1].to_bits() >> 63) as u32) << 1
 }
@@ -135,6 +138,8 @@ pub(crate) fn ge(x: F64X2, y: F64X2) -> F64X2 {
     [mask(x[0] >= y[0]), mask(x[1] >= y[1])]
 }
 
+// `rocq/theories/Model.v` transcribes this function for the proofs of
+// `(Dec)Interval::sign`.
 pub(crate) fn gt(x: F64X2, y: F64X2) -> F64X2 {
     [mask(x[0] > y[0]), mask(x[1] > y[1])]
 }
@@ -150,7 +155,7 @@ pub(crate) fn le(x: F64X2, y: F64X2) -> F64X2 {
 
 // `rocq/theories/Model.v` transcribes this function for the proofs of
 // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
-// `DecInterval::round_ties_even` and `DecInterval::trunc`.
+// `DecInterval::round_ties_even`, `(Dec)Interval::sign` and `DecInterval::trunc`.
 pub(crate) fn lt(x: F64X2, y: F64X2) -> F64X2 {
     [mask(x[0] < y[0]), mask(x[1] < y[1])]
 }
@@ -199,6 +204,9 @@ pub(crate) fn neg0(x: F64X2) -> F64X2 {
     [-x[0], x[1]]
 }
 
+// `rocq/theories/Model.v` transcribes this function for the proofs of
+// `(Dec)Interval::sign`. The transcription is right only for lanes of `x` and `y`
+// that are not NaN, which is how `Interval::sign` calls it.
 pub(crate) fn or(x: F64X2, y: F64X2) -> F64X2 {
     [
         f64::from_bits(x[0].to_bits() | y[0].to_bits()),
@@ -235,7 +243,7 @@ pub(crate) fn shuffle13(x: F64X2, y: F64X2) -> F64X2 {
 
 // `rocq/theories/Model.v` transcribes this function for the proofs of
 // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
-// `DecInterval::round_ties_even` and `DecInterval::trunc`.
+// `DecInterval::round_ties_even`, `(Dec)Interval::sign` and `DecInterval::trunc`.
 pub(crate) fn splat(x: f64) -> F64X2 {
     [x, x]
 }
@@ -386,7 +394,7 @@ fn lanewise2(
 
 // `rocq/theories/Model.v` transcribes this function for the proofs of
 // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
-// `DecInterval::round_ties_even` and `DecInterval::trunc`.
+// `DecInterval::round_ties_even`, `(Dec)Interval::sign` and `DecInterval::trunc`.
 fn mask(b: bool) -> f64 {
     f64::from_bits(if b { !0 } else { 0 })
 }

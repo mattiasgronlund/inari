@@ -63,7 +63,8 @@ pub struct Interval {
     //
     // `rocq/theories/Model.v` states this form, with the bounds that `TryFrom<(f64, f64)>`
     // accepts, as `valid`, for the proofs of `(Dec)Interval::ceil`, `(Dec)Interval::floor`,
-    // `(Dec)Interval::round`, `(Dec)Interval::round_ties_even` and `(Dec)Interval::trunc`.
+    // `(Dec)Interval::round`, `(Dec)Interval::round_ties_even`, `(Dec)Interval::sign` and
+    // `(Dec)Interval::trunc`.
     pub(crate) rep: F64X2,
 }
 
@@ -199,7 +200,7 @@ impl DecInterval {
     pub fn set_dec(x: Interval, d: Decoration) -> Self {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
         // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
-        // `DecInterval::round_ties_even` and `DecInterval::trunc`.
+        // `DecInterval::round_ties_even`, `DecInterval::sign` and `DecInterval::trunc`.
         use Decoration::*;
 
         if d == Ill {
