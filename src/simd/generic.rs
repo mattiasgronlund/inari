@@ -68,13 +68,17 @@ pub(crate) fn add_rn(x: F64X2, y: F64X2) -> F64X2 {
 
 /// `add_ru([x0, x1], [y0, y1]) = [x0 + y0, x1 + y1]` rounded toward +∞.
 pub(crate) fn add_ru(x: F64X2, y: F64X2) -> F64X2 {
+    // Proved correct in `rocq/theories/AddRu.v`. `rocq/theories/Model.v` transcribes
+    // this function for that proof and those of `(Dec)Interval::add` and
+    // `(Dec)Interval::sub`, so it has to be updated along with it.
     lanewise2(x, y, add1_ru_fast, add1_ru_slow)
 }
 
 // `rocq/theories/Model.v` transcribes this function for the proofs of
-// `DecInterval::abs`, `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::max`,
-// `DecInterval::min`, `DecInterval::round`, `DecInterval::round_ties_even`,
-// `DecInterval::sign` and `DecInterval::trunc`.
+// `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::floor`,
+// `DecInterval::max`, `DecInterval::min`, `DecInterval::neg`, `DecInterval::round`,
+// `DecInterval::round_ties_even`, `DecInterval::sign`, `DecInterval::sub` and
+// `DecInterval::trunc`.
 pub(crate) fn all(x: F64X2) -> bool {
     bitmask(x) == 3
 }
@@ -94,9 +98,10 @@ pub(crate) fn any(x: F64X2) -> bool {
 }
 
 // `rocq/theories/Model.v` transcribes this function for the proofs of
-// `(Dec)Interval::abs`, `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::max`,
-// `DecInterval::min`, `DecInterval::round`, `DecInterval::round_ties_even`,
-// `DecInterval::sign` and `DecInterval::trunc`.
+// `(Dec)Interval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::floor`,
+// `DecInterval::max`, `DecInterval::min`, `DecInterval::neg`, `DecInterval::round`,
+// `DecInterval::round_ties_even`, `DecInterval::sign`, `DecInterval::sub` and
+// `DecInterval::trunc`.
 pub(crate) fn bitmask(x: F64X2) -> u32 {
     (x[0].to_bits() >> 63) as u32 | ((x[1].to_bits() >> 63) as u32) << 1
 }
@@ -162,9 +167,10 @@ pub(crate) fn le(x: F64X2, y: F64X2) -> F64X2 {
 }
 
 // `rocq/theories/Model.v` transcribes this function for the proofs of
-// `DecInterval::abs`, `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::max`,
-// `DecInterval::min`, `DecInterval::round`, `DecInterval::round_ties_even`,
-// `(Dec)Interval::sign` and `DecInterval::trunc`.
+// `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::floor`,
+// `DecInterval::max`, `DecInterval::min`, `DecInterval::neg`, `DecInterval::round`,
+// `DecInterval::round_ties_even`, `(Dec)Interval::sign`, `DecInterval::sub` and
+// `DecInterval::trunc`.
 pub(crate) fn lt(x: F64X2, y: F64X2) -> F64X2 {
     [mask(x[0] < y[0]), mask(x[1] < y[1])]
 }
@@ -265,9 +271,10 @@ pub(crate) fn shuffle13(x: F64X2, y: F64X2) -> F64X2 {
 }
 
 // `rocq/theories/Model.v` transcribes this function for the proofs of
-// `(Dec)Interval::abs`, `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::max`,
-// `DecInterval::min`, `DecInterval::round`, `DecInterval::round_ties_even`,
-// `(Dec)Interval::sign` and `DecInterval::trunc`.
+// `(Dec)Interval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::floor`,
+// `DecInterval::max`, `DecInterval::min`, `DecInterval::neg`, `DecInterval::round`,
+// `DecInterval::round_ties_even`, `(Dec)Interval::sign`, `DecInterval::sub` and
+// `DecInterval::trunc`.
 pub(crate) fn splat(x: f64) -> F64X2 {
     [x, x]
 }
@@ -314,7 +321,7 @@ pub(crate) fn sub1_ru(x: f64, y: f64) -> f64 {
 }
 
 // `rocq/theories/Model.v` transcribes this function for the proofs of
-// `(Dec)Interval::abs`.
+// `(Dec)Interval::abs`, `(Dec)Interval::neg` and `(Dec)Interval::sub`.
 pub(crate) fn swap(x: F64X2) -> F64X2 {
     [x[1], x[0]]
 }

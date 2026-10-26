@@ -1,13 +1,14 @@
 (** * What IEEE 1788 asks of an interval version of a function
 
-    The theorems in [Abs.v], [Integer.v], [MaxMin.v], [DecMaxMin.v],
-    [Round.v], [Sign.v] and [Trunc.v] are stated with the definitions here
-    and the ones in [Model.v]. Like [Model.v], this file has to be checked
-    by reading: against the standard, IEEE Std 1788-2015, rather than
-    against the Rust code. Continuity of a function of one real is that of
-    Stdlib's [continuity_pt] and [continue_in], and of two reals that of
-    [continuity2_pt] and [continue_in2] below. The point functions [abs],
-    [max] and [min] are Stdlib's [Rabs], [Rmax] and [Rmin]. *)
+    The theorems in [Abs.v], [AddSub.v], [Integer.v], [MaxMin.v],
+    [DecMaxMin.v], [Neg.v], [Round.v], [Sign.v] and [Trunc.v] are stated
+    with the definitions here and the ones in [Model.v]. Like [Model.v],
+    this file has to be checked by reading: against the standard, IEEE Std
+    1788-2015, rather than against the Rust code. Continuity of a function
+    of one real is that of Stdlib's [continuity_pt] and [continue_in], and
+    of two reals that of [continuity2_pt] and [continue_in2] below. The
+    point functions [abs], [max], [min], [neg], [add] and [sub] are
+    Stdlib's [Rabs], [Rmax], [Rmin], [Ropp], [Rplus] and [Rminus]. *)
 
 From Stdlib Require Import Reals.
 From Flocq Require Import Core.Raux Core.Generic_fmt Core.Round_NE.
@@ -44,6 +45,16 @@ Definition image (f : R -> R) (x : Interval) : R -> Prop :=
 Definition is_hull (s : R -> Prop) (y : Interval) : Prop :=
   valid y /\ forall r, mem r y <-> exists u v, s u /\ s v /\ u <= r <= v.
 
+(** [y] is the smallest of the intervals that [valid] describes, whose
+    bounds are floats or infinities, that contain [s]: it contains [s], and
+    every such interval that contains [s] contains [y]. It is the result of
+    a tightest interval version of [f] if [s] is the image of its argument
+    under [f], and the image need not have a hull of this form, as the
+    bounds of a sum of floats need not be floats. *)
+Definition is_tightest (s : R -> Prop) (y : Interval) : Prop :=
+  valid y /\ (forall r, s r -> mem r y) /\
+  forall z, valid z -> (forall r, s r -> mem r z) -> forall r, mem r y -> mem r z.
+
 Definition bounded (s : R -> Prop) : Prop :=
   exists m, forall r, s r -> Rabs r <= m.
 
@@ -54,7 +65,10 @@ Definition bounded (s : R -> Prop) : Prop :=
       of [x], and the image of [x] is bounded. The standard asks this of the
       computed interval instead. For a result that is the hull of the image,
       as the theorems show, the two are the same ([is_hull_bounded] in
-      [Integer.v]).
+      [Integer.v]). [p2] below, for functions of two reals, asks it of the
+      computed interval, as the standard does, because a sum can overflow:
+      [[f64::MAX, f64::MAX] + [f64::MAX, f64::MAX]] is
+      [[f64::MAX, +inf]], though the image is bounded.
     - [dac]: [x] is nonempty, and the restriction of [f] to [x] is
       continuous.
     - [def]: [x] is nonempty.
@@ -99,8 +113,9 @@ Definition continuity2_pt (f : R -> R -> R) (r t : R) : Prop :=
 
 (** [p d f x] for a function [f] of two reals, defined on all of R², and
     the box [x × y] in place of [x]: the box is nonempty if [x] and [y]
-    are, and bounded if they are. *)
-Definition p2 (d : Decoration) (f : R -> R -> R) (x y : Interval) : Prop :=
+    are, and bounded if they are. For [com], the computed interval [z],
+    rather than the image, has to be bounded, as the standard asks. *)
+Definition p2 (d : Decoration) (f : R -> R -> R) (x y z : Interval) : Prop :=
   let X := fun r => mem r x in
   let Y := fun t => mem t y in
   match d with
@@ -113,11 +128,12 @@ Definition p2 (d : Decoration) (f : R -> R -> R) (x y : Interval) : Prop :=
   | Com =>
       (exists r, X r) /\ (exists t, Y t) /\ bounded X /\ bounded Y /\
       (forall r t, X r -> Y t -> continuity2_pt f r t) /\
-      bounded (image2 f x y)
+      bounded (fun s => mem s z)
   end.
 
-(** [strongest d f x] for a function [f] of two reals and the box
-    [x × y]. An operation on two decorated intervals returns the minimum of
-    this decoration and those of its arguments. *)
-Definition strongest2 (d : Decoration) (f : R -> R -> R) (x y : Interval) : Prop :=
-  p2 d f x y /\ forall e, p2 e f x y -> (discriminant e <= discriminant d)%Z.
+(** [strongest d f x] for a function [f] of two reals, the box [x × y]
+    and the computed interval [z]. An operation on two decorated intervals
+    returns the minimum of this decoration and those of its arguments. *)
+Definition strongest2 (d : Decoration) (f : R -> R -> R) (x y z : Interval) :
+    Prop :=
+  p2 d f x y z /\ forall e, p2 e f x y z -> (discriminant e <= discriminant d)%Z.

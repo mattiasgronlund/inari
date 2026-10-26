@@ -34,4 +34,7 @@ theories/Round.v
 theories/Sign.v
 theories/Abs.v
 theories/MaxMin.v
+theories/DecBinary.v
 theories/DecMaxMin.v
+theories/Neg.v
+theories/AddSub.v

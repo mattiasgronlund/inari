@@ -6,6 +6,9 @@ impl Neg for Interval {
     type Output = Self;
 
     fn neg(self) -> Self {
+        // Proved correct in `rocq/theories/Neg.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         // [-b, -a] = [b; -a]
         Self {
             rep: swap(self.rep),
@@ -19,6 +22,9 @@ impl Add for Interval {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/AddSub.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         // [a + c, b + d] = [-a - c; b + d] = [-a; b] .+ [-c; d]
         let x = self.rep; // [-a; b]
         let y = rhs.rep; // [-c; d]
@@ -32,6 +38,9 @@ impl Sub for Interval {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/AddSub.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         // [a - d, b - c] = [-a + d; b - c] = [-a; b] .+ [d; -c]
         let x = self.rep; // [-a; b]
         let y = swap(rhs.rep); // [d; -c]
@@ -174,6 +183,9 @@ impl Neg for DecInterval {
     type Output = Self;
 
     fn neg(self) -> Self {
+        // Proved correct in `rocq/theories/Neg.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() {
             return self;
         }
@@ -188,6 +200,9 @@ impl Add for DecInterval {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/AddSub.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() || rhs.is_nai() {
             return Self::NAI;
         }
@@ -202,6 +217,9 @@ impl Sub for DecInterval {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/AddSub.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() || rhs.is_nai() {
             return Self::NAI;
         }

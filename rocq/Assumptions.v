@@ -3,7 +3,7 @@
 
 From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign
-  Abs MaxMin DecMaxMin.
+  Abs MaxMin DecBinary DecMaxMin Neg AddSub.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -50,3 +50,10 @@ Print Assumptions max_correct.
 Print Assumptions min_correct.
 Print Assumptions dec_max_correct.
 Print Assumptions dec_min_correct.
+Print Assumptions set_dec_correct.
+Print Assumptions neg_correct.
+Print Assumptions dec_neg_correct.
+Print Assumptions add_correct.
+Print Assumptions sub_correct.
+Print Assumptions dec_add_correct.
+Print Assumptions dec_sub_correct.

@@ -1,6 +1,6 @@
 # Proofs of the portable backend
 
-Machine-checked proofs, in [Rocq](https://rocq-prover.org) with the [Flocq](https://flocq.gitlabpages.inria.fr) library, that parts of [`src/simd/generic.rs`](../src/simd/generic.rs) round correctly, and that `abs`, `floor`, `ceil`, `max`, `min`, `round`, `round_ties_even`, `sign` and `trunc` of intervals and decorated intervals, built on it, return what IEEE 1788 asks of them.
+Machine-checked proofs, in [Rocq](https://rocq-prover.org) with the [Flocq](https://flocq.gitlabpages.inria.fr) library, that parts of [`src/simd/generic.rs`](../src/simd/generic.rs) round correctly, and that `abs`, `floor`, `ceil`, `max`, `min`, `round`, `round_ties_even`, `sign`, `trunc`, `-x`, `x + y` and `x - y` of intervals and decorated intervals, built on it, return what IEEE 1788 asks of them.
 
 ## What is proved
 
@@ -180,13 +180,36 @@ Theorem dec_max_correct :
   else if DecInterval.is_nai y then DecInterval.max x y = DecInterval.NAI
   else
     is_hull (image2 Rmax (itv x) (itv y)) (itv (DecInterval.max x y)) /\
-    exists d, strongest2 d Rmax (itv x) (itv y) /\
+    exists d, strongest2 d Rmax (itv x) (itv y) (itv (DecInterval.max x y)) /\
       dec (DecInterval.max x y) = dec_min d (dec_min (dec x) (dec y)).
 ```
 
-A NaI first argument is returned unchanged, and a NaI second argument gives NaI. `strongest2` is `strongest` for a function of two reals, with the box `x × y` in place of `x` and continuity in R² in place of continuity in R, and the result is decorated with the minimum of `d` and the decorations of both arguments. `max` and `min` are continuous on R² and bounded on every bounded box, so the strongest decoration is `trv` if either argument is empty, `com` if both are nonempty and bounded, and `dac` otherwise. Section `Binary` proves the rest once, for any function of two reals with these two properties and any interval operation that returns the hull of its image: `set_dec_hull_correct` shows that `set_dec` of that hull and the minimum of the decorations of two `valid` arguments, neither of them NaI, gives the hull and the minimum of `d` and those decorations, under the same hypotheses on `com` as `dec_max_correct`, for other operations on two intervals to reuse.
+A NaI first argument is returned unchanged, and a NaI second argument gives NaI. `strongest2` is `strongest` for a function of two reals, with the box `x × y` in place of `x` and continuity in R² in place of continuity in R. Its last argument is the computed interval, which `com` asks to be bounded (see "What is assumed"). The result is decorated with the minimum of `d` and the decorations of both arguments. `max` and `min` are continuous on R² and bounded on every bounded box, so the strongest decoration is `trv` if either argument is empty, `com` if both are nonempty and bounded, and `dac` otherwise. `set_dec_correct` in [`DecBinary.v`](theories/DecBinary.v) proves the rest once, for any function of two reals that is continuous on R², and for any result that is the tightest interval that contains the image (`is_tightest` below), as a hull is. It shows that `set_dec` of that result and the minimum `e` of the decorations of two `valid` arguments, neither of them NaI, keeps the result and decorates it with the minimum of `d` and `e`, if `e` is `com` only when a nonempty box with a bounded image is bounded. Section `Binary` in `DecMaxMin.v` applies it to any interval operation that returns the hull of the image, under the hypotheses of `dec_max_correct`.
 
 The hypotheses are needed for the same reason as in `dec_sign_correct`: the hull of the image of an unbounded box can be common, as in `max([-∞, 1], [0, 2]) = [0, 2]`, and `set_dec` would keep `com` there if both arguments were `com`, where IEEE 1788 asks for `dac`.
+
+`neg_correct` and `dec_neg_correct` in [`Neg.v`](theories/Neg.v) state the same as `floor_correct` and `dec_floor_correct` for `-x`, with Stdlib's `Ropp`. `Interval::neg` swaps the lanes of `[-a; b]` into `[b; -a]`, which stores `[-b, -a]`, the image of `[a, b]`, and computes nothing. Negation is continuous, and its result is bounded exactly when its argument is, so as for `abs`, `dec_neg_correct` has no extra hypothesis.
+
+`add_correct` and `sub_correct` in [`AddSub.v`](theories/AddSub.v) show that `x + y` and `x - y` of intervals return the tightest interval that contains the image of the box `x × y` under Stdlib's `Rplus` and `Rminus`, and `dec_add_correct` and `dec_sub_correct` that the decorated versions decorate it as IEEE 1788 asks:
+
+```coq
+Theorem add_correct :
+  forall x y, valid x -> valid y ->
+  exists z, Interval.add x y = Some z /\ is_tightest (image2 Rplus x y) z.
+
+Theorem dec_add_correct :
+  forall x y, valid (itv x) -> valid (itv y) ->
+  exists z, DecInterval.add x y = Some z /\
+    if DecInterval.is_nai x || DecInterval.is_nai y then z = DecInterval.NAI
+    else
+      is_tightest (image2 Rplus (itv x) (itv y)) (itv z) /\
+      exists d, strongest2 d Rplus (itv x) (itv y) (itv z) /\
+        dec z = dec_min d (dec_min (dec x) (dec y)).
+```
+
+The image of `[a, b] × [c, d]` under `+` is `[a + c, b + d]`, whose bounds need not be floats, so the result is not its hull. `is_tightest s y` says that `y` is `valid`, contains `s`, and is contained in every `valid` interval that contains `s`. `Some` means that `add_ru` does not panic, as in `add_ru_correct`. `Interval::add` adds `[-a; b]` and `[-c; d]` with `add_ru`, which gives `[RU(-a - c); RU(b + d)]`. `add_lane` shows that `Bplus mode_UP` of two lanes that are finite or +∞ is the least float or +∞ at or above their sum: the sum rounded up if that does not overflow, +∞ if the sum overflows above, and `-f64::MAX` if it overflows below, as every float is at least `-f64::MAX`. A lane that is +∞ gives +∞. An empty argument gives NaN in both lanes, the empty interval. `Interval::sub` swaps the lanes of `y` first, so `x - y` is `x + (-y)`, and `sub_correct` follows from `add_correct` and `Neg.v`.
+
+Unlike `max` and `min`, `+` and `-` need no hypothesis on the decorations of the arguments: if a nonempty box has a bounded image under `+`, the box is bounded, as `|r| <= |r + t| + |t|` for a `t` in `y`, and the same holds for `-`. But a sum can overflow where the image is bounded: `[f64::MAX, f64::MAX] + [f64::MAX, f64::MAX]` is `[f64::MAX, +∞]`, for which the strongest decoration is `dac`, as `com` asks for a bounded computed interval. This is why `strongest2` takes the computed interval.
 
 On the way, the other files prove:
 
@@ -230,18 +253,18 @@ On the way, the other files prove:
 - `unsafe { transmute(c) }` in `classify`, from a `u8` to an `IntervalClass`, is `transmute_class`, which returns `None` unless `c` is the discriminant of a variant, as the behaviour is undefined then. The variants `E`, `M`, `N0`, `N1`, `P0`, `P1` and `Z` are `CE`, `CM` and so on, as `Z` is the type of integers. The casts `bitmask(...) as u8` keep the value, which is below 4, and are left out, and `|` of two `bool`s in `either_empty` is `||`, which gives the same value.
 - `HAS_MAXIMUM` is the constant `true`, as in `generic.rs`. `Interval::max` and `Interval::min` are transcribed with both branches, but the proofs use only the one for `true`, so nothing is proved about the other, which calls `either_empty`, `max` and `min`.
 
-[`Ieee1788.v`](theories/Ieee1788.v) states what IEEE Std 1788-2015 asks of an interval version of a function: the hull of the image, and the properties of the decorations. It is the only file that has to be checked against the standard by reading. For `com`, the standard asks for the computed interval to be bounded, and `Ieee1788.v` for the image. `is_hull_bounded` in `Integer.v` shows that the two are the same for a hull, as the result is. Stdlib's `continuity_pt` and `continue_in` are for functions of one real, so for `max` and `min`, `Ieee1788.v` defines continuity on R² itself, by ε and δ with the norm `max(|r|, |t|)` (`continue_in2`, `continuity2_pt`). It also defines the image of a box (`image2`) and the decorations of a function of two reals (`p2`, `strongest2`).
+[`Ieee1788.v`](theories/Ieee1788.v) states what IEEE Std 1788-2015 asks of an interval version of a function: the hull of the image (`is_hull`), or the tightest interval that contains it (`is_tightest`) where its bounds need not be floats, and the properties of the decorations. It is the only file that has to be checked against the standard by reading. For `com`, the standard asks for the computed interval to be bounded. `p`, for functions of one real, asks for the image instead. `is_hull_bounded` in `Integer.v` shows that the two are the same for a hull, which each of those functions returns. `p2`, for functions of two reals, asks for the computed interval, as the standard does, as `x + y` can overflow where the image is bounded. Stdlib's `continuity_pt` and `continue_in` are for functions of one real, so for functions of two, `Ieee1788.v` defines continuity on R² itself, by ε and δ with the norm `max(|r|, |t|)` (`continue_in2`, `continuity2_pt`). It also defines the image of a box (`image2`) and the decorations of a function of two reals (`p2`, `strongest2`).
 
 The theorems depend on four axioms. Three come from Stdlib's real numbers: `sig_forall_dec`, `sig_not_dec` and `functional_extensionality_dep`. The fourth is excluded middle (`classic`), which Flocq uses. `make` fails if [`Assumptions.v`](Assumptions.v) finds any other axiom, e.g. a proof left `Admitted`.
 
 ## What is not proved yet
 
 - The SIMD backends that vectorize the same algorithm, such as `src/simd/x86_64/lanewise.rs` and `src/simd/wasm32.rs`.
-- The other backends' versions of the functions that `abs`, `floor`, `ceil`, `max`, `min`, `round`, `round_ties_even`, `sign` and `trunc` of intervals call: `floor`, `ceil`, `round`, `round_ties_even`, `trunc` and `neg0`, such as `_mm_floor_pd` on x86-64, `splat`, `gt`, `lt`, `and` and `or` in `sign`, `ge`, `le`, `bitmask`, `splat`, `max`, `swap` and `shuffle02` in `abs` and `classify`, `maximum`, `minimum` and `shuffle03` in `max` and `min`, and `lt`, `all`, `splat`, `extract0` and `extract1` in `is_empty`, `is_singleton` and `is_common_interval`. The roundings are meant to be the same IEEE 754 operations in every backend, but the theorems are proved only for the portable backend's.
+- The other backends' versions of the functions that `abs`, `floor`, `ceil`, `max`, `min`, `round`, `round_ties_even`, `sign`, `trunc`, `-x`, `x + y` and `x - y` of intervals call: `floor`, `ceil`, `round`, `round_ties_even`, `trunc` and `neg0`, such as `_mm_floor_pd` on x86-64, `splat`, `gt`, `lt`, `and` and `or` in `sign`, `ge`, `le`, `bitmask`, `splat`, `max`, `swap` and `shuffle02` in `abs` and `classify`, `maximum`, `minimum` and `shuffle03` in `max` and `min`, `swap` in `-x` and `x - y`, `add_ru` in `x + y` and `x - y`, and `lt`, `all`, `splat`, `extract0` and `extract1` in `is_empty`, `is_singleton` and `is_common_interval`. The roundings are meant to be the same IEEE 754 operations in every backend, but the theorems are proved only for the portable backend's.
 - The branch of `Interval::max` and `Interval::min` for `HAS_MAXIMUM = false`, which the x86-64 backend takes.
 - That every `Interval` that the library makes is `valid`.
 - That every `DecInterval` that the library makes is `com` only if its interval is common, which `dec_sign_correct`, `dec_max_correct` and `dec_min_correct` assume.
-- Every other operation, such as `sqr` or `+` of intervals.
+- Every other operation, such as `sqr` or `*` of intervals.
 
 ## Building
 

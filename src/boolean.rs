@@ -126,9 +126,10 @@ impl Interval {
     /// ```
     pub fn is_common_interval(self) -> bool {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `DecInterval::abs`, `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::max`,
-        // `DecInterval::min`, `DecInterval::round`, `DecInterval::round_ties_even`,
-        // `DecInterval::sign` and `DecInterval::trunc`.
+        // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`,
+        // `DecInterval::floor`, `DecInterval::max`, `DecInterval::min`, `DecInterval::neg`,
+        // `DecInterval::round`, `DecInterval::round_ties_even`, `DecInterval::sign`,
+        // `DecInterval::sub` and `DecInterval::trunc`.
         // -∞ < a  ∧  b < +∞
         all(lt(self.rep, splat(f64::INFINITY)))
     }
@@ -145,9 +146,10 @@ impl Interval {
     /// ```
     pub fn is_empty(self) -> bool {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `DecInterval::abs`, `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::max`,
-        // `DecInterval::min`, `DecInterval::round`, `DecInterval::round_ties_even`,
-        // `(Dec)Interval::sign` and `DecInterval::trunc`.
+        // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`,
+        // `DecInterval::floor`, `DecInterval::max`, `DecInterval::min`, `DecInterval::neg`,
+        // `DecInterval::round`, `DecInterval::round_ties_even`, `(Dec)Interval::sign`,
+        // `DecInterval::sub` and `DecInterval::trunc`.
         extract0(self.rep).is_nan()
     }
 

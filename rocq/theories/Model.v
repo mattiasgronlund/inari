@@ -4,12 +4,12 @@
     in [src/simd/generic.rs], line by line, so that the two can be compared
     side by side. The section on intervals at the end does the same for the
     parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
-    [src/integer.rs] and [src/absmax.rs] that [abs], [ceil], [floor],
-    [max], [min], [round], [round_ties_even], [sign] and [trunc] of
-    intervals use. This file is the only one that has
-    to be checked against the Rust code, and [Ieee1788.v] the only one that
-    has to be checked against IEEE 1788; the other files prove properties
-    of the definitions here.
+    [src/integer.rs], [src/absmax.rs] and [src/arith.rs] that [abs],
+    [ceil], [floor], [max], [min], [round], [round_ties_even], [sign],
+    [trunc], [neg], [add] and [sub] of intervals use. This file is the only
+    one that has to be checked against the Rust code, and [Ieee1788.v] the
+    only one that has to be checked against IEEE 1788; the other files
+    prove properties of the definitions here.
 
     Rust's [f64] is Flocq's IEEE 754 binary64 type, and its [+], [-], [*]
     and [/] are Flocq's [Bplus], [Bminus], [Bmult] and [Bdiv] rounded to
@@ -721,14 +721,15 @@ End Generic.
 (** ** Intervals
 
     The parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
-    [src/integer.rs] and [src/absmax.rs] that [Interval::abs],
-    [Interval::ceil], [Interval::floor], [Interval::max], [Interval::min],
-    [Interval::round], [Interval::round_ties_even], [Interval::sign],
-    [Interval::trunc] and their decorated versions use. Those call the
-    backend's [floor], [ceil], [round], [round_ties_even], [trunc], [neg0],
-    [splat], [ge], [gt], [le], [lt], [all], [bitmask], [and], [or],
-    [max], [maximum], [min], [minimum], [shuffle02], [shuffle03], [swap]
-    and [HAS_MAXIMUM], which are the ones in [Generic] here. *)
+    [src/integer.rs], [src/absmax.rs] and [src/arith.rs] that
+    [Interval::abs], [Interval::ceil], [Interval::floor], [Interval::max],
+    [Interval::min], [Interval::round], [Interval::round_ties_even],
+    [Interval::sign], [Interval::trunc], [-x], [x + y] and [x - y] of
+    intervals, and their decorated versions, use. Those call the backend's
+    [floor], [ceil], [round], [round_ties_even], [trunc], [neg0], [splat],
+    [ge], [gt], [le], [lt], [all], [bitmask], [and], [or], [max],
+    [maximum], [min], [minimum], [shuffle02], [shuffle03], [swap],
+    [add_ru] and [HAS_MAXIMUM], which are the ones in [Generic] here. *)
 
 (** [pub struct Interval], whose only field is [rep: F64X2]. *)
 Record Interval : Type := { rep : Generic.F64X2 }.
@@ -909,6 +910,24 @@ Definition sign (self : Interval) : Interval :=
 Definition trunc (self : Interval) : Interval :=
   {| rep := Generic.trunc (rep self) |}.
 
+(** [fn neg(self) -> Self] of [impl Neg for Interval] *)
+Definition neg (self : Interval) : Interval :=
+  {| rep := Generic.swap (rep self) |}.
+
+(** [fn add(self, rhs: Self) -> Self] of [impl Add for Interval] *)
+Definition add (self rhs : Interval) : option Interval :=
+  let x := rep self in
+  let y := rep rhs in
+  let* r := Generic.add_ru x y in
+  Some {| rep := r |}.
+
+(** [fn sub(self, rhs: Self) -> Self] of [impl Sub for Interval] *)
+Definition sub (self rhs : Interval) : option Interval :=
+  let x := rep self in
+  let y := Generic.swap (rep rhs) in
+  let* r := Generic.add_ru x y in
+  Some {| rep := r |}.
+
 End Interval.
 
 Module DecInterval.
@@ -1008,5 +1027,26 @@ Definition trunc : DecInterval -> DecInterval :=
         eq (Interval.inf_raw x) (Interval.inf_raw y)) ||
        (negb (eq (Interval.sup_raw x) zero) &&
         eq (Interval.sup_raw x) (Interval.sup_raw y))).
+
+(** [fn neg(self) -> Self] of [impl Neg for DecInterval], where [-self.x]
+    is [Interval.neg (itv self)]. [neg], [add] and [sub] come last, so
+    that the [sub] in [round] and [round_ties_even] is still the one on
+    floats. *)
+Definition neg (self : DecInterval) : DecInterval :=
+  if is_nai self then self
+  else set_dec (Interval.neg (itv self)) (dec self).
+
+(** [fn add(self, rhs: Self) -> Self] of [impl Add for DecInterval] and
+    [fn sub(self, rhs: Self) -> Self] of [impl Sub for DecInterval] *)
+Definition add (self rhs : DecInterval) : option DecInterval :=
+  if is_nai self || is_nai rhs then Some NAI
+  else
+    let* x := Interval.add (itv self) (itv rhs) in
+    Some (set_dec x (dec_min (dec self) (dec rhs))).
+Definition sub (self rhs : DecInterval) : option DecInterval :=
+  if is_nai self || is_nai rhs then Some NAI
+  else
+    let* x := Interval.sub (itv self) (itv rhs) in
+    Some (set_dec x (dec_min (dec self) (dec rhs))).
 
 End DecInterval.
