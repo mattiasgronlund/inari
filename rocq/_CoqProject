@@ -38,3 +38,12 @@ theories/DecBinary.v
 theories/DecMaxMin.v
 theories/Neg.v
 theories/AddSub.v
+theories/Classify2.v
+theories/Classes.v
+theories/MulLane.v
+theories/MulTight.v
+theories/MulMM.v
+theories/MulMRow.v
+theories/MulNP.v
+theories/MulZero.v
+theories/Mul.v

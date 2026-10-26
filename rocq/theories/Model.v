@@ -6,10 +6,10 @@
     parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
     [src/integer.rs], [src/absmax.rs] and [src/arith.rs] that [abs],
     [ceil], [floor], [max], [min], [round], [round_ties_even], [sign],
-    [trunc], [neg], [add] and [sub] of intervals use. This file is the only
-    one that has to be checked against the Rust code, and [Ieee1788.v] the
-    only one that has to be checked against IEEE 1788; the other files
-    prove properties of the definitions here.
+    [trunc], [neg], [add], [sub] and [mul] of intervals use. This file is
+    the only one that has to be checked against the Rust code, and
+    [Ieee1788.v] the only one that has to be checked against IEEE 1788; the
+    other files prove properties of the definitions here.
 
     Rust's [f64] is Flocq's IEEE 754 binary64 type, and its [+], [-], [*]
     and [/] are Flocq's [Bplus], [Bminus], [Bmult] and [Bdiv] rounded to
@@ -591,10 +591,12 @@ Definition minimum (x y : F64X2) : F64X2 :=
   (minimum1 (fst x) (fst y), minimum1 (snd x) (snd y)).
 
 (** [pub(crate) fn shuffle02(x: F64X2, y: F64X2) -> F64X2],
-    [pub(crate) fn shuffle03(x: F64X2, y: F64X2) -> F64X2] and
+    [pub(crate) fn shuffle03(x: F64X2, y: F64X2) -> F64X2],
+    [pub(crate) fn shuffle13(x: F64X2, y: F64X2) -> F64X2] and
     [pub(crate) fn swap(x: F64X2) -> F64X2] *)
 Definition shuffle02 (x y : F64X2) : F64X2 := (fst x, fst y).
 Definition shuffle03 (x y : F64X2) : F64X2 := (fst x, snd y).
+Definition shuffle13 (x y : F64X2) : F64X2 := (snd x, snd y).
 Definition swap (x : F64X2) : F64X2 := (snd x, fst x).
 
 (** [pub(crate) fn sub_ru(x: F64X2, y: F64X2) -> F64X2] *)
@@ -724,12 +726,13 @@ End Generic.
     [src/integer.rs], [src/absmax.rs] and [src/arith.rs] that
     [Interval::abs], [Interval::ceil], [Interval::floor], [Interval::max],
     [Interval::min], [Interval::round], [Interval::round_ties_even],
-    [Interval::sign], [Interval::trunc], [-x], [x + y] and [x - y] of
-    intervals, and their decorated versions, use. Those call the backend's
-    [floor], [ceil], [round], [round_ties_even], [trunc], [neg0], [splat],
-    [ge], [gt], [le], [lt], [all], [bitmask], [and], [or], [max],
-    [maximum], [min], [minimum], [shuffle02], [shuffle03], [swap],
-    [add_ru] and [HAS_MAXIMUM], which are the ones in [Generic] here. *)
+    [Interval::sign], [Interval::trunc], [-x], [x + y], [x - y] and
+    [x * y] of intervals, and their decorated versions, use. Those call the
+    backend's [floor], [ceil], [round], [round_ties_even], [trunc], [neg0],
+    [splat], [ge], [gt], [le], [lt], [all], [bitmask], [and], [or], [max],
+    [maximum], [min], [minimum], [shuffle02], [shuffle03], [shuffle13],
+    [swap], [add_ru], [mul_ru] and [HAS_MAXIMUM], which are the ones in
+    [Generic] here. *)
 
 (** [pub struct Interval], whose only field is [rep: F64X2]. *)
 Record Interval : Type := { rep : Generic.F64X2 }.
@@ -798,6 +801,35 @@ Definition transmute_class (c : Z) : option IntervalClass :=
   else if c =? 15 then Some CZ
   else None.
 
+(** [c as u8] for an [IntervalClass] [c]: its discriminant, the one that
+    [transmute_class] maps to [c]. *)
+Definition class_discriminant (c : IntervalClass) : Z :=
+  match c with
+  | CE => 0 | CM => 3 | CN0 => 11 | CN1 => 9 | CP0 => 7 | CP1 => 6 | CZ => 15
+  end.
+
+(** [unsafe { transmute(c) }] for a [u8] [c] and the result type
+    [IntervalClass2]. [pub(crate) enum IntervalClass2] has a variant [X_Y]
+    for each pair of variants [X] and [Y] of [IntervalClass], which the
+    model writes as the pair [(X, Y)], e.g. [M_N0] as [(CM, CN0)]. The
+    discriminant of [X_Y] is
+    [discr!(X, Y) = ((IntervalClass::X as u8) << 4) | IntervalClass::Y as u8].
+    Every discriminant of [IntervalClass] is below 16, so the shift drops
+    no bits and the [|] adds, which makes it
+    [16 * class_discriminant X + class_discriminant Y], whose quotient and
+    remainder by 16 are [class_discriminant X] and [class_discriminant Y].
+    So [c] is the discriminant of a variant exactly when [c / 16] and
+    [c mod 16] are both discriminants of [IntervalClass], and then it is
+    that of [(X, Y)] for the [X] and [Y] that [transmute_class] decodes them
+    to. Otherwise the behaviour is undefined, and the model returns [None],
+    as [transmute_class] does. A [c] of 256 or more, which no [u8] is, gives
+    [None] too, as its [c / 16 >= 16] is no discriminant of
+    [IntervalClass]. *)
+Definition transmute_class2 (c : Z) : option (IntervalClass * IntervalClass) :=
+  let* x := transmute_class (c / 16) in
+  let* y := transmute_class (c mod 16) in
+  Some (x, y).
+
 Module Interval.
 
 (** [pub const EMPTY: Self], i.e. [[NaN; NaN]]. *)
@@ -834,6 +866,16 @@ Definition classify (self : Interval) : option IntervalClass :=
   let le_zero := Generic.bitmask (Generic.le (rep self) zero) in
   let* l := shl 8 le_zero 2 in
   transmute_class (Z.lor l ge_zero).
+
+(** [pub(crate) fn classify2(self, rhs: Self) -> IntervalClass2], where the
+    casts [self.classify() as u8] and [rhs.classify() as u8] are
+    [class_discriminant]. *)
+Definition classify2 (self rhs : Interval) :
+    option (IntervalClass * IntervalClass) :=
+  let* c1 := classify self in
+  let* c2 := classify rhs in
+  let* l := shl 8 (class_discriminant c1) 4 in
+  transmute_class2 (Z.lor l (class_discriminant c2)).
 
 (** [pub fn abs(self) -> Self] *)
 Definition abs (self : Interval) : option Interval :=
@@ -927,6 +969,80 @@ Definition sub (self rhs : Interval) : option Interval :=
   let y := Generic.swap (rep rhs) in
   let* r := Generic.add_ru x y in
   Some {| rep := r |}.
+
+(** [pub(crate) fn zero() -> Self]. [zero] and [mul] come last, as they
+    shadow the [zero] and [mul] on floats, and [classify], [abs] and [sign]
+    above use that [zero]. *)
+Definition zero : Interval := {| rep := Generic.splat zero |}.
+
+(** [fn mul(self, rhs: Self) -> Self] of [impl Mul for Interval]. Its
+    [mul_ru] calls [mul_ru_impl::<HAS_FMA>], and [HAS_FMA] depends on the
+    target, so it is an argument, as for [Generic.mul_ru]. The variant
+    [X_Y] of [IntervalClass2] is the pair [(X, Y)], as in
+    [transmute_class2], and [Self::zero()] is [zero]. *)
+Definition mul (has_fma : bool) (self rhs : Interval) : option Interval :=
+  let* c := classify2 self rhs in
+  match c with
+  | (CE, CE) | (CE, CM) | (CE, CN0) | (CE, CN1) | (CE, CP0) | (CE, CP1)
+  | (CE, CZ) | (CM, CE) | (CN0, CE) | (CN1, CE) | (CP0, CE) | (CP1, CE)
+  | (CZ, CE) =>
+      Some EMPTY
+  | (CM, CZ) | (CN0, CZ) | (CN1, CZ) | (CP0, CZ) | (CP1, CZ) | (CZ, CM)
+  | (CZ, CN0) | (CZ, CN1) | (CZ, CP0) | (CZ, CP1) | (CZ, CZ) =>
+      Some zero
+  | (CM, CM) =>
+      let x := Generic.shuffle02 (rep self) (rep self) in
+      let y := Generic.swap (rep rhs) in
+      let* xy := Generic.mul_ru has_fma x y in
+      let z := Generic.shuffle13 (rep self) (rep self) in
+      let w := rep rhs in
+      let* zw := Generic.mul_ru has_fma z w in
+      let r := Generic.max xy zw in
+      Some {| rep := r |}
+  | (CM, CN0) | (CM, CN1) =>
+      let x := Generic.swap (rep self) in
+      let y := Generic.shuffle02 (rep rhs) (rep rhs) in
+      let* r := Generic.mul_ru has_fma x y in
+      Some {| rep := r |}
+  | (CM, CP0) | (CM, CP1) =>
+      let x := rep self in
+      let y := Generic.shuffle13 (rep rhs) (rep rhs) in
+      let* r := Generic.mul_ru has_fma x y in
+      Some {| rep := r |}
+  | (CN0, CM) | (CN1, CM) =>
+      let x := Generic.shuffle02 (rep self) (rep self) in
+      let y := Generic.swap (rep rhs) in
+      let* r := Generic.mul_ru has_fma x y in
+      Some {| rep := r |}
+  | (CN0, CN0) | (CN0, CN1) | (CN1, CN0) | (CN1, CN1) =>
+      let x := Generic.swap (rep self) in
+      let x := Generic.neg0 x in
+      let y := Generic.swap (rep rhs) in
+      let* r := Generic.mul_ru has_fma x y in
+      Some {| rep := r |}
+  | (CN0, CP0) | (CN0, CP1) | (CN1, CP0) | (CN1, CP1) =>
+      let x := rep self in
+      let y := Generic.neg0 (rep rhs) in
+      let y := Generic.swap y in
+      let* r := Generic.mul_ru has_fma x y in
+      Some {| rep := r |}
+  | (CP0, CM) | (CP1, CM) =>
+      let x := Generic.shuffle13 (rep self) (rep self) in
+      let y := rep rhs in
+      let* r := Generic.mul_ru has_fma x y in
+      Some {| rep := r |}
+  | (CP0, CN0) | (CP0, CN1) | (CP1, CN0) | (CP1, CN1) =>
+      let x := Generic.neg0 (rep self) in
+      let x := Generic.swap x in
+      let y := rep rhs in
+      let* r := Generic.mul_ru has_fma x y in
+      Some {| rep := r |}
+  | (CP0, CP0) | (CP0, CP1) | (CP1, CP0) | (CP1, CP1) =>
+      let x := rep self in
+      let y := Generic.neg0 (rep rhs) in
+      let* r := Generic.mul_ru has_fma x y in
+      Some {| rep := r |}
+  end.
 
 End Interval.
 
@@ -1029,9 +1145,9 @@ Definition trunc : DecInterval -> DecInterval :=
         eq (Interval.sup_raw x) (Interval.sup_raw y))).
 
 (** [fn neg(self) -> Self] of [impl Neg for DecInterval], where [-self.x]
-    is [Interval.neg (itv self)]. [neg], [add] and [sub] come last, so
-    that the [sub] in [round] and [round_ties_even] is still the one on
-    floats. *)
+    is [Interval.neg (itv self)]. [neg], [add], [sub] and [mul] come last,
+    so that the [sub] in [round] and [round_ties_even] is still the one on
+    floats, and [mul] shadows the one on floats in no other definition. *)
 Definition neg (self : DecInterval) : DecInterval :=
   if is_nai self then self
   else set_dec (Interval.neg (itv self)) (dec self).
@@ -1047,6 +1163,15 @@ Definition sub (self rhs : DecInterval) : option DecInterval :=
   if is_nai self || is_nai rhs then Some NAI
   else
     let* x := Interval.sub (itv self) (itv rhs) in
+    Some (set_dec x (dec_min (dec self) (dec rhs))).
+
+(** [fn mul(self, rhs: Self) -> Self] of [impl Mul for DecInterval], where
+    [self.x * rhs.x] is [Interval.mul has_fma (itv self) (itv rhs)], with
+    the [has_fma] of [Interval.mul] as an argument here too. *)
+Definition mul (has_fma : bool) (self rhs : DecInterval) : option DecInterval :=
+  if is_nai self || is_nai rhs then Some NAI
+  else
+    let* x := Interval.mul has_fma (itv self) (itv rhs) in
     Some (set_dec x (dec_min (dec self) (dec rhs))).
 
 End DecInterval.

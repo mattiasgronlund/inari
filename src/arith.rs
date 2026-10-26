@@ -55,6 +55,9 @@ impl Mul for Interval {
 
     #[allow(clippy::many_single_char_names)]
     fn mul(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/Mul.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         // [a, b] * [c, d] =
         //
         //    |      M     |      N     |      P     |  Z
@@ -234,6 +237,11 @@ impl Mul for DecInterval {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/Mul.v` for the portable backend if `self` and
+        // `rhs` are `com` only when `self.x` and `rhs.x` are common, as
+        // `DecInterval::new`, `set_dec` and the other constructors make sure.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() || rhs.is_nai() {
             return Self::NAI;
         }

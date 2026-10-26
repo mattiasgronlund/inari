@@ -47,6 +47,10 @@ Definition ule (o1 o2 : option R) : Prop := forall s, below o1 s -> below o2 s.
 Definition uplus (o1 o2 : option R) : option R :=
   match o1, o2 with Some a, Some b => Some (a + b) | _, _ => None end.
 
+(** The product of two upper bounds above 0, for [x * y] in [Mul.v]. *)
+Definition umult (o1 o2 : option R) : option R :=
+  match o1, o2 with Some a, Some b => Some (a * b) | _, _ => None end.
+
 (** [o] is the largest element of [A], or [None] if [A] has no upper
     bound: a real is below [o] exactly when it is below an element of
     [A]. *)
@@ -111,6 +115,10 @@ Qed.
 Definition least_lane (o : option R) (w : f64) : Prop :=
   upper_ok w /\ ule o (bound w) /\
   forall z, upper_ok z -> ule o (bound z) -> ule (bound w) (bound z).
+
+(** [w] is above 0: a positive float or +inf. *)
+Definition pos_lane (w : f64) : Prop :=
+  w = B754_infinity false \/ (is_finite w = true /\ 0 < B2R w).
 
 Lemma least_lane_inf : least_lane None (B754_infinity false).
 Proof.

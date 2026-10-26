@@ -1,7 +1,8 @@
 (** * Decorations of operations on two intervals
 
-    [DecInterval::max], [DecInterval::min], [DecInterval::add] and
-    [DecInterval::sub] call [set_dec] with the result [z] of the operation
+    [DecInterval::max], [DecInterval::min], [DecInterval::add],
+    [DecInterval::sub] and [DecInterval::mul] call [set_dec] with the
+    result [z] of the operation
     on the bare intervals [x] and [y] and the minimum [e] of their
     decorations, unless an argument is NaI. [set_dec_correct] shows that
     this decorates [z] as IEEE 1788 asks, for any function [h] of two reals
@@ -28,9 +29,10 @@
     [set_dec_correct] therefore takes as a hypothesis that [e] is [com]
     only if a nonempty box whose image is bounded is bounded too. This
     holds for [+] and [-] of intervals, where [|r| <= |r + t| + |t|], but
-    not for [max] and [min]: [max([-inf, 1], [0, 2]) = [0, 2]]. For those,
-    [DecMaxMin.v] assumes that each argument is [com] only if its interval
-    is common.
+    not for [max], [min] and [*]: [max([-inf, 1], [0, 2]) = [0, 2]], and
+    [[0, 0] × [1, +inf]] has the image [{0}]. For those, [DecMaxMin.v] and
+    [Mul.v] assume that each argument is [com] only if its interval is
+    common.
 
     [p2] asks for [com] that [z] be bounded, as the standard does, rather
     than the image: [[f64::MAX, f64::MAX] + [f64::MAX, f64::MAX]] is
