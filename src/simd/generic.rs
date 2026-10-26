@@ -129,10 +129,18 @@ pub(crate) fn extract(x: F64X2) -> [f64; 2] {
     x
 }
 
+// `rocq/theories/Model.v` transcribes this function as `fst` for the proofs of
+// `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::floor`,
+// `DecInterval::max`, `DecInterval::min`, `DecInterval::neg`, `DecInterval::round`,
+// `DecInterval::round_ties_even`, `(Dec)Interval::sign`, `DecInterval::sub` and
+// `DecInterval::trunc`.
 pub(crate) fn extract0(x: F64X2) -> f64 {
     x[0]
 }
 
+// `rocq/theories/Model.v` transcribes this function as `snd` for the proofs of
+// `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
+// `DecInterval::round_ties_even`, `DecInterval::sign` and `DecInterval::trunc`.
 pub(crate) fn extract1(x: F64X2) -> f64 {
     x[1]
 }
