@@ -91,6 +91,9 @@ impl Interval {
     }
 
     pub(crate) fn with_infsup_raw(a: f64, b: f64) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proof that every
+        // `DecInterval` is `com` only if its interval is common
+        // (`rocq/theories/ComCommon.v`).
         Self {
             rep: constant(-a, b),
         }
@@ -163,6 +166,9 @@ pub enum Decoration {
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct DecInterval {
+    // `rocq/theories/ComCommon.v` proves that every `DecInterval` is `com` only if its
+    // interval is common, for each place that makes one: the callers of `new_unchecked`
+    // and `const_dec_interval!`. It relies on no code assigning to these fields.
     pub(crate) x: Interval,
     pub(crate) d: Decoration,
 }
@@ -180,6 +186,9 @@ impl DecInterval {
     /// | Unbounded            | [`Decoration::Dac`] |
     /// | Empty                | [`Decoration::Trv`] |
     pub fn new(x: Interval) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proof that every
+        // `DecInterval` is `com` only if its interval is common
+        // (`rocq/theories/ComCommon.v`), so it has to be updated along with it.
         use Decoration::*;
 
         let d = if x.is_empty() {
@@ -206,7 +215,9 @@ impl DecInterval {
         // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`,
         // `DecInterval::floor`, `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`,
         // `DecInterval::neg`, `DecInterval::round`, `DecInterval::round_ties_even`,
-        // `DecInterval::sign`, `DecInterval::sub` and `DecInterval::trunc`.
+        // `DecInterval::sign`, `DecInterval::sub` and `DecInterval::trunc`, and for the
+        // proof that every `DecInterval` is `com` only if its interval is common
+        // (`rocq/theories/ComCommon.v`).
         use Decoration::*;
 
         if d == Ill {
@@ -235,6 +246,10 @@ impl DecInterval {
     }
 
     pub(crate) const fn new_unchecked(x: Interval, d: Decoration) -> Self {
+        // The only struct expression of `DecInterval`. `rocq/theories/Model.v` transcribes
+        // this function and each of its callers for the proof that every `DecInterval` is
+        // `com` only if its interval is common (`rocq/theories/ComCommon.v`), so a new
+        // caller needs a proof there too.
         Self { x, d }
     }
 }
@@ -441,6 +456,9 @@ macro_rules! dec_interval {
 #[macro_export]
 macro_rules! const_interval {
     ($a:expr, $b:expr) => {{
+        // `rocq/theories/Model.v` transcribes this macro for the proof that every
+        // `DecInterval` is `com` only if its interval is common
+        // (`rocq/theories/ComCommon.v`).
         use ::std::{mem::transmute, primitive::*};
 
         const _: () = assert!($a <= $b && $a != f64::INFINITY && $b != f64::NEG_INFINITY);
@@ -465,6 +483,9 @@ macro_rules! const_interval {
 #[macro_export]
 macro_rules! const_dec_interval {
     ($a:expr, $b:expr) => {{
+        // The only `transmute` into a `DecInterval`. `rocq/theories/Model.v` transcribes
+        // this macro for the proof that every `DecInterval` is `com` only if its interval
+        // is common (`rocq/theories/ComCommon.v`), so it has to be updated along with it.
         use ::std::{mem::transmute, primitive::*};
 
         #[repr(C)]

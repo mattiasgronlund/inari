@@ -6,7 +6,9 @@
     parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
     [src/integer.rs], [src/absmax.rs] and [src/arith.rs] that [abs],
     [ceil], [floor], [max], [min], [round], [round_ties_even], [sign],
-    [trunc], [neg], [add], [sub] and [mul] of intervals use. This file is
+    [trunc], [neg], [add], [sub] and [mul] of intervals use, and for each
+    place in [src/interval.rs], [src/constants.rs], [src/set_op.rs] and
+    [src/bytes.rs] that makes a [DecInterval]. This file is
     the only one that has to be checked against the Rust code, and
     [Ieee1788.v] the only one that has to be checked against IEEE 1788; the
     other files prove properties of the definitions here.
@@ -682,6 +684,9 @@ Definition mask (b : bool) : Z := if b then 2^64 - 1 else 0.
 (** [pub(crate) fn splat(x: f64) -> F64X2] *)
 Definition splat (x : f64) : F64X2 := (x, x).
 
+(** [pub(crate) fn constant(x: f64, y: f64) -> F64X2] *)
+Definition constant (x y : f64) : F64X2 := (x, y).
+
 (** [pub(crate) fn ge(x: F64X2, y: F64X2) -> F64X2],
     [pub(crate) fn gt(x: F64X2, y: F64X2) -> F64X2],
     [pub(crate) fn le(x: F64X2, y: F64X2) -> F64X2] and
@@ -732,7 +737,12 @@ End Generic.
     [splat], [ge], [gt], [le], [lt], [all], [bitmask], [and], [or], [max],
     [maximum], [min], [minimum], [shuffle02], [shuffle03], [shuffle13],
     [swap], [add_ru], [mul_ru] and [HAS_MAXIMUM], which are the ones in
-    [Generic] here. *)
+    [Generic] here.
+
+    For [ComCommon.v], it also transcribes the other places that make a
+    [DecInterval]: [new], the constants, [convex_hull] and [intersection],
+    [try_from_be_bytes] and its siblings, and [const_dec_interval!].
+    [try_from_be_bytes] calls the backend's [constant]. *)
 
 (** [pub struct Interval], whose only field is [rep: F64X2]. *)
 Record Interval : Type := { rep : Generic.F64X2 }.
@@ -834,6 +844,22 @@ Module Interval.
 
 (** [pub const EMPTY: Self], i.e. [[NaN; NaN]]. *)
 Definition EMPTY : Interval := {| rep := (B754_nan, B754_nan) |}.
+
+(** [const_interval!(a, b)], which [transmute]s [[-(a), b]] into an
+    [Interval]. It does not compile unless
+    [a <= b && a != f64::INFINITY && b != f64::NEG_INFINITY]. *)
+Definition const_interval (a b : f64) : Interval := {| rep := (opp a, b) |}.
+
+(** [pub const ENTIRE: Self], i.e.
+    [const_interval!(f64::NEG_INFINITY, f64::INFINITY)], where
+    [f64::NEG_INFINITY] and [f64::INFINITY] are [B754_infinity true] and
+    [B754_infinity false]. *)
+Definition ENTIRE : Interval :=
+  const_interval (B754_infinity true) (B754_infinity false).
+
+(** [pub(crate) fn with_infsup_raw(a: f64, b: f64) -> Self] *)
+Definition with_infsup_raw (a b : f64) : Interval :=
+  {| rep := Generic.constant (opp a) b |}.
 
 (** [pub(crate) fn inf_raw(self) -> f64] and
     [pub(crate) fn sup_raw(self) -> f64] *)
@@ -1066,6 +1092,72 @@ Definition set_dec (x : Interval) (d : Decoration) : DecInterval :=
   else if dec_eqb d Com && negb (Interval.is_common_interval x) then
     new_unchecked x Dac
   else new_unchecked x d.
+
+(** [pub fn new(x: Interval) -> Self] *)
+Definition new (x : Interval) : DecInterval :=
+  let d :=
+    if Interval.is_empty x then Trv
+    else if negb (Interval.is_common_interval x) then Dac
+    else Com in
+  new_unchecked x d.
+
+(** [pub const ENTIRE: Self] *)
+Definition ENTIRE : DecInterval := new_unchecked Interval.ENTIRE Dac.
+
+(** A constant that [def_com!(C)] in [src/constants.rs] defines,
+    [new_unchecked(Interval::C, Decoration::Com)], where [Interval::C] is
+    [const_interval!(a, b)] for two float literals [a] and [b]. *)
+Definition def_com (a b : f64) : DecInterval :=
+  new_unchecked (Interval.const_interval a b) Com.
+
+(** [pub fn convex_hull(self, rhs: Self) -> Self] and
+    [pub fn intersection(self, rhs: Self) -> Self], which [impl_dec!] in
+    [src/set_op.rs] defines, where [f] is [Interval::convex_hull] or
+    [Interval::intersection]. *)
+Definition set_op (f : Interval -> Interval -> Interval)
+    (self rhs : DecInterval) : DecInterval :=
+  if is_nai self || is_nai rhs then NAI
+  else new_unchecked (f (itv self) (itv rhs)) Trv.
+
+(** [pub fn try_from_be_bytes(bytes: [u8; 17]) -> Option<Self>],
+    [try_from_le_bytes] and [try_from_ne_bytes], which
+    [impl_try_from_bytes!] in [src/bytes.rs] defines. [a] and [b] are the
+    floats that [f64::from_be_bytes] and so on decode from [bytes[..8]] and
+    [bytes[8..16]], and [c] is [bytes[16]]. [return None] from the [match]
+    is [let*]. [a.is_sign_negative()] is Flocq's [Bsign a], and
+    [b.is_sign_positive()] is [negb (Bsign b)], which differ from Rust only
+    for a NaN, for which [a <= b] is false, so the condition is false
+    either way. *)
+Definition try_from_bytes (a b : f64) (c : Z) : option DecInterval :=
+  let* dec :=
+    if c =? 0 then Some Ill
+    else if c =? 4 then Some Trv
+    else if c =? 8 then Some Def
+    else if c =? 12 then Some Dac
+    else if c =? 16 then Some Com
+    else None in
+  if le a b
+     && negb (eq a (B754_infinity false))
+     && negb (eq b (B754_infinity true))
+     && (negb (eq a zero) || Bsign a)
+     && (negb (eq b zero) || negb (Bsign b))
+     && (negb (dec_eqb dec Com) ||
+         negb (eq a (B754_infinity true)) && negb (eq b (B754_infinity false)))
+  then Some (new_unchecked (Interval.with_infsup_raw a b) dec)
+  else if eq a (B754_infinity false) && eq b (B754_infinity true) &&
+          dec_eqb dec Trv then Some EMPTY
+  else if is_nan a && is_nan b && dec_eqb dec Ill then Some NAI
+  else None.
+
+(** [const_dec_interval!(a, b)], which [transmute]s a [#[repr(C)]] struct
+    of an [Interval] [x] and a [Decoration] [d] into a [DecInterval], whose
+    fields are the same and in the same order. As it calls
+    [const_interval!(a, b)], it does not compile unless
+    [a <= b && a != f64::INFINITY && b != f64::NEG_INFINITY]. *)
+Definition const_dec_interval (a b : f64) : DecInterval :=
+  {| itv := Interval.const_interval a b;
+     dec := if eq a (B754_infinity true) || eq b (B754_infinity false) then Dac
+            else Com |}.
 
 (** [pub fn abs(self) -> Self] *)
 Definition abs (self : DecInterval) : option DecInterval :=

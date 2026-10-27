@@ -57,6 +57,9 @@ macro_rules! impl_dec {
         /// A NaI is returned if `self` or `rhs` is NaI.
         #[must_use]
         pub fn $f(self, rhs: Self) -> Self {
+            // `rocq/theories/Model.v` transcribes this function for the proof that every
+            // `DecInterval` is `com` only if its interval is common
+            // (`rocq/theories/ComCommon.v`), so it has to be updated along with it.
             if self.is_nai() || rhs.is_nai() {
                 return Self::NAI;
             }

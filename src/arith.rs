@@ -238,8 +238,8 @@ impl Mul for DecInterval {
 
     fn mul(self, rhs: Self) -> Self {
         // Proved correct in `rocq/theories/Mul.v` for the portable backend if `self` and
-        // `rhs` are `com` only when `self.x` and `rhs.x` are common, as
-        // `DecInterval::new`, `set_dec` and the other constructors make sure.
+        // `rhs` are `com` only when `self.x` and `rhs.x` are common, which
+        // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
         // `rocq/theories/Model.v` transcribes this function, so it has to be updated
         // along with it.
         if self.is_nai() || rhs.is_nai() {

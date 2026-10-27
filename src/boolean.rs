@@ -129,7 +129,9 @@ impl Interval {
         // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`,
         // `DecInterval::floor`, `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`,
         // `DecInterval::neg`, `DecInterval::round`, `DecInterval::round_ties_even`,
-        // `DecInterval::sign`, `DecInterval::sub` and `DecInterval::trunc`.
+        // `DecInterval::sign`, `DecInterval::sub` and `DecInterval::trunc`, and for the
+        // proof that every `DecInterval` is `com` only if its interval is common
+        // (`rocq/theories/ComCommon.v`).
         // -∞ < a  ∧  b < +∞
         all(lt(self.rep, splat(f64::INFINITY)))
     }
@@ -149,7 +151,9 @@ impl Interval {
         // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`,
         // `DecInterval::floor`, `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`,
         // `DecInterval::neg`, `DecInterval::round`, `DecInterval::round_ties_even`,
-        // `(Dec)Interval::sign`, `DecInterval::sub` and `DecInterval::trunc`.
+        // `(Dec)Interval::sign`, `DecInterval::sub` and `DecInterval::trunc`, and for the
+        // proof that every `DecInterval` is `com` only if its interval is common
+        // (`rocq/theories/ComCommon.v`).
         extract0(self.rep).is_nan()
     }
 

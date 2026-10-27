@@ -31,6 +31,7 @@ theories/RoundTiesEven.v
 theories/Nearest.v
 theories/Trunc.v
 theories/Round.v
+theories/ComCommon.v
 theories/Sign.v
 theories/Abs.v
 theories/MaxMin.v

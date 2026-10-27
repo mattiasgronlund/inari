@@ -27,14 +27,13 @@
     where the strongest decoration is [dac], as [com] asks for a bounded
     argument. The result is still right if the decoration of the argument
     is not [com], as the minimum with it is then the same for [com] and
-    [dac]. [DecInterval::new], [set_dec] and the other constructors of the
-    library make a [DecInterval] [com] only if its interval is common, but
-    nothing here proves it, so [dec_sign_correct] takes it as a
-    hypothesis. *)
+    [dac]. So [dec_sign_correct] takes as a hypothesis that the argument is
+    [com] only if its interval is common ([com_common]), which
+    [ComCommon.v] shows of every [DecInterval] that the library makes. *)
 
 From Stdlib Require Import ZArith Reals Lra.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Encoding Ieee1788 Integer.
+From Inari Require Import Model Encoding Ieee1788 Integer ComCommon.
 
 Open Scope R_scope.
 
@@ -587,7 +586,7 @@ Qed.
     [com] only when its interval is common. *)
 Theorem dec_sign_correct :
   forall x, valid (itv x) ->
-  (dec x = Com -> Interval.is_common_interval (itv x) = true) ->
+  com_common x ->
   if DecInterval.is_nai x then DecInterval.sign x = x
   else
     is_hull (image Rsign (itv x)) (itv (DecInterval.sign x)) /\

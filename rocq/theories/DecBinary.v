@@ -32,7 +32,8 @@
     not for [max], [min] and [*]: [max([-inf, 1], [0, 2]) = [0, 2]], and
     [[0, 0] × [1, +inf]] has the image [{0}]. For those, [DecMaxMin.v] and
     [Mul.v] assume that each argument is [com] only if its interval is
-    common.
+    common, which [ComCommon.v] shows of every [DecInterval] that the
+    library makes.
 
     [p2] asks for [com] that [z] be bounded, as the standard does, rather
     than the image: [[f64::MAX, f64::MAX] + [f64::MAX, f64::MAX]] is

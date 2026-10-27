@@ -78,7 +78,8 @@ pub(crate) fn add_ru(x: F64X2, y: F64X2) -> F64X2 {
 // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::floor`,
 // `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`, `DecInterval::neg`,
 // `DecInterval::round`, `DecInterval::round_ties_even`, `DecInterval::sign`,
-// `DecInterval::sub` and `DecInterval::trunc`.
+// `DecInterval::sub` and `DecInterval::trunc`, and for the proof that every `DecInterval`
+// is `com` only if its interval is common (`rocq/theories/ComCommon.v`).
 pub(crate) fn all(x: F64X2) -> bool {
     bitmask(x) == 3
 }
@@ -112,6 +113,8 @@ pub(crate) fn ceil(x: F64X2) -> F64X2 {
     [x[0].ceil(), x[1].ceil()]
 }
 
+// `rocq/theories/Model.v` transcribes this function for the proof that every `DecInterval`
+// is `com` only if its interval is common (`rocq/theories/ComCommon.v`).
 pub(crate) fn constant(x: f64, y: f64) -> F64X2 {
     [x, y]
 }
@@ -133,7 +136,8 @@ pub(crate) fn extract(x: F64X2) -> [f64; 2] {
 // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::floor`,
 // `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`, `DecInterval::neg`,
 // `DecInterval::round`, `DecInterval::round_ties_even`, `(Dec)Interval::sign`,
-// `DecInterval::sub` and `DecInterval::trunc`.
+// `DecInterval::sub` and `DecInterval::trunc`, and for the proof that every `DecInterval`
+// is `com` only if its interval is common (`rocq/theories/ComCommon.v`).
 pub(crate) fn extract0(x: F64X2) -> f64 {
     x[0]
 }
@@ -178,7 +182,8 @@ pub(crate) fn le(x: F64X2, y: F64X2) -> F64X2 {
 // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::floor`,
 // `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`, `DecInterval::neg`,
 // `DecInterval::round`, `DecInterval::round_ties_even`, `(Dec)Interval::sign`,
-// `DecInterval::sub` and `DecInterval::trunc`.
+// `DecInterval::sub` and `DecInterval::trunc`, and for the proof that every `DecInterval`
+// is `com` only if its interval is common (`rocq/theories/ComCommon.v`).
 pub(crate) fn lt(x: F64X2, y: F64X2) -> F64X2 {
     [mask(x[0] < y[0]), mask(x[1] < y[1])]
 }
@@ -288,7 +293,8 @@ pub(crate) fn shuffle13(x: F64X2, y: F64X2) -> F64X2 {
 // `(Dec)Interval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::floor`,
 // `DecInterval::max`, `DecInterval::min`, `(Dec)Interval::mul`, `DecInterval::neg`,
 // `DecInterval::round`, `DecInterval::round_ties_even`, `(Dec)Interval::sign`,
-// `DecInterval::sub` and `DecInterval::trunc`.
+// `DecInterval::sub` and `DecInterval::trunc`, and for the proof that every `DecInterval`
+// is `com` only if its interval is common (`rocq/theories/ComCommon.v`).
 pub(crate) fn splat(x: f64) -> F64X2 {
     [x, x]
 }

@@ -40,11 +40,12 @@
     the common result [[0, 0]]. So, as [dec_max_correct] in [DecMaxMin.v]
     does, [dec_mul_correct] takes as hypotheses that each argument is [com]
     only if its interval is common, and so bounded ([common_bounded] in
-    [DecBinary.v]). The minimum is [com] only if both decorations are, and
-    then the box is bounded. *)
+    [DecBinary.v]), which [ComCommon.v] shows of every [DecInterval] that
+    the library makes. The minimum is [com] only if both decorations are,
+    and then the box is bounded. *)
 
 From Stdlib Require Import Reals Lra.
-From Inari Require Import Model Ieee1788 DecBinary Abs MulMM MulMRow MulNP
+From Inari Require Import Model Ieee1788 ComCommon DecBinary Abs MulMM MulMRow MulNP
   MulZero.
 
 Open Scope R_scope.
@@ -132,8 +133,8 @@ Qed.
     common. *)
 Theorem dec_mul_correct :
   forall has_fma x y, valid (itv x) -> valid (itv y) ->
-  (dec x = Com -> Interval.is_common_interval (itv x) = true) ->
-  (dec y = Com -> Interval.is_common_interval (itv y) = true) ->
+  com_common x ->
+  com_common y ->
   exists z, DecInterval.mul has_fma x y = Some z /\
     if DecInterval.is_nai x || DecInterval.is_nai y then z = DecInterval.NAI
     else

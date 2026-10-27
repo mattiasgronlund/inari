@@ -1,6 +1,6 @@
 # Proofs of the portable backend
 
-Machine-checked proofs, in [Rocq](https://rocq-prover.org) with the [Flocq](https://flocq.gitlabpages.inria.fr) library, that parts of [`src/simd/generic.rs`](../src/simd/generic.rs) round correctly, and that `abs`, `floor`, `ceil`, `max`, `min`, `round`, `round_ties_even`, `sign`, `trunc`, `-x`, `x + y`, `x - y` and `x * y` of intervals and decorated intervals, built on it, return what IEEE 1788 asks of them.
+Machine-checked proofs, in [Rocq](https://rocq-prover.org) with the [Flocq](https://flocq.gitlabpages.inria.fr) library, that parts of [`src/simd/generic.rs`](../src/simd/generic.rs) round correctly, and that `abs`, `floor`, `ceil`, `max`, `min`, `round`, `round_ties_even`, `sign`, `trunc`, `-x`, `x + y`, `x - y` and `x * y` of intervals and decorated intervals, built on it, return what IEEE 1788 asks of them, and that every decorated interval that the library makes is `com` only if its interval is nonempty and bounded.
 
 ## What is proved
 
@@ -134,7 +134,7 @@ Theorem dec_floor_correct : forall x, valid (itv x) ->
 ```coq
 Theorem dec_sign_correct :
   forall x, valid (itv x) ->
-  (dec x = Com -> Interval.is_common_interval (itv x) = true) ->
+  com_common x ->
   if DecInterval.is_nai x then DecInterval.sign x = x
   else
     is_hull (image Rsign (itv x)) (itv (DecInterval.sign x)) /\
@@ -144,7 +144,7 @@ Theorem dec_sign_correct :
 
 `Interval::sign` compares both lanes of `[-a; b]` with 0. It keeps `1.0` in the lanes above 0 and `-1.0` in those below, by `and`ing the constants with the masks of `gt` and `lt`, and combines the two with `or`, which leaves `0.0` in a lane that is neither. So each lane holds its own sign, `sign(-a) = -sign(a)` in the first and `sign(b)` in the second, and the result is `[sign(a), sign(b)]`. As `sign` is nondecreasing, that is the hull of the image. An infinite bound gives -1 or 1, which `sign` takes on the reals far enough out. `sign` is discontinuous exactly at 0. If `sign(a) = sign(b)` for a bounded `[a, b]`, the restriction of `sign` to `[a, b]` is constant, and `sign` is continuous at each point of `[a, b]` unless 0 is in it. With `sign(a) = sign(b)`, that is only `[0, 0]`, so the test is `x.inf_raw() == 0.0`.
 
-The extra hypothesis says that `x` is `com` only if its interval is common, as `DecInterval::new`, `set_dec` and the other constructors make sure (see "What is not proved yet"). Unlike the roundings above, `sign` maps an unbounded interval on which it is constant, such as `[1, +∞]`, to a singleton, `[1, 1]`, for which `impl_dec!` picks `com`, where IEEE 1788 asks for `dac`, as `com` needs a bounded argument. Under the hypothesis, the decoration of `x` is not `com` there, and its minimum with `com` is the same as with `dac`.
+The extra hypothesis, `com_common x`, says that `x` is `com` only if its interval is common, which every `DecInterval` that the library makes is (`ComCommon.v`, below). Unlike the roundings above, `sign` maps an unbounded interval on which it is constant, such as `[1, +∞]`, to a singleton, `[1, 1]`, for which `impl_dec!` picks `com`, where IEEE 1788 asks for `dac`, as `com` needs a bounded argument. Under the hypothesis, the decoration of `x` is not `com` there, and its minimum with `com` is the same as with `dac`.
 
 `abs_correct` and `dec_abs_correct` in [`Abs.v`](theories/Abs.v) state the same for `abs`, with Stdlib's `Rabs`. `Interval::abs` matches on `classify`, which `transmute`s a `u8` into an `IntervalClass`. That is undefined behaviour unless the `u8` is the discriminant of a variant, and the model returns `None` then, so the theorems also state that the result is `Some`:
 
@@ -174,8 +174,8 @@ Theorem max_correct :
 ```coq
 Theorem dec_max_correct :
   forall x y, valid (itv x) -> valid (itv y) ->
-  (dec x = Com -> Interval.is_common_interval (itv x) = true) ->
-  (dec y = Com -> Interval.is_common_interval (itv y) = true) ->
+  com_common x ->
+  com_common y ->
   if DecInterval.is_nai x then DecInterval.max x y = x
   else if DecInterval.is_nai y then DecInterval.max x y = DecInterval.NAI
   else
@@ -220,8 +220,8 @@ Theorem mul_correct :
 
 Theorem dec_mul_correct :
   forall has_fma x y, valid (itv x) -> valid (itv y) ->
-  (dec x = Com -> Interval.is_common_interval (itv x) = true) ->
-  (dec y = Com -> Interval.is_common_interval (itv y) = true) ->
+  com_common x ->
+  com_common y ->
   exists z, DecInterval.mul has_fma x y = Some z /\
     if DecInterval.is_nai x || DecInterval.is_nai y then z = DecInterval.NAI
     else
@@ -241,6 +241,23 @@ In the other cases, `tightest_lanes` in `AddSub.v` shows, as for `+`, that the r
 - `N × N`, `N × P`, `P × N` and `P × P`: the reals of each argument have one sign, so `r * t` is `p * q` or `-(p * q)`, where `p` and `q` are the reals of `x` and `y`, or their negations, whichever are at least 0 (`image2_mult_opp_l`, `image2_mult_opp_r` and `image2_mult_opp_lr`). The largest `p * q` is the product of two lanes above 0 (`tight_mult_pos_r`). The largest `-(p * q)` is `-(m * n)` for the least `p` and `q`, `m` and `n` (`tight_mult_min`), which two finite lanes hold as `-m` and `-n`. `Interval::mul` negates one of them with `neg0`, so that their product is `-(m * n)`.
 
 `Rmult_continuous` in `Mul.v` shows that `*` is continuous on R², so `set_dec_correct` in `DecBinary.v` gives the decorations if `e` is `com` only when a nonempty box with a bounded image is bounded. For `+` this holds whatever `e` is, but not for `*`: `[0, 0] × [1, +∞]` has the bounded image `{0}`. `[0, 0] * [1, +∞]` is `[0, 0]`, and `set_dec` would keep `com` there if both arguments were `com`, where IEEE 1788 asks for `dac`, as `com` needs a bounded box. So `dec_mul_correct` has the extra hypothesis of `dec_max_correct`, under which `[1, +∞]` is not `com`.
+
+[`ComCommon.v`](theories/ComCommon.v) shows that this hypothesis of `dec_sign_correct`, `dec_max_correct`, `dec_min_correct` and `dec_mul_correct` holds for every `DecInterval` that the library makes:
+
+```coq
+Definition com_common (x : DecInterval) : Prop :=
+  dec x = Com -> Interval.is_common_interval (itv x) = true.
+```
+
+It proves `com_common` for each place that makes a `DecInterval`. The fields of `DecInterval` are `pub(crate)`, so only the library can make one with a struct expression, and the only such expression is the body of `new_unchecked`. The only `transmute` into a `DecInterval` is the one in `const_dec_interval!`, and no code assigns to a field. Anything else that returns a `DecInterval` returns one that it was given, or one made by these. The callers of `new_unchecked` are:
+
+- `DecInterval::new`, which picks `com` only for a common interval (`new_com_common`).
+- `set_dec`, which keeps `com` only for a common interval and lowers it to `dac` otherwise (`set_dec_com_common`). The theorem holds for any interval and decoration, so it covers every caller, such as `x * y`.
+- The constants `EMPTY`, `NAI` and `ENTIRE`, which are `trv`, `ill` and `dac` (`constants_com_common`), and those that `def_com!` decorates `com`, whose bounds are finite (`def_com_com_common`).
+- `convex_hull` and `intersection`, which return NaI or a `trv` interval (`set_op_com_common`).
+- `try_from_be_bytes`, `try_from_le_bytes` and `try_from_ne_bytes`, which accept `com` only for bounds `a <= b` where `a` is not -∞ and `b` is not +∞ (`try_from_bytes_com_common`). `a <= b` excludes NaN, and then `a` = +∞ would force `b` = +∞, and `b` = -∞ would force `a` = -∞, so both bounds are finite.
+
+`const_dec_interval!(a, b)` picks `com` only if `a` is not -∞ and `b` is not +∞, and does not compile unless `a <= b`, which makes both bounds finite too (`const_dec_interval_com_common`).
 
 On the way, the other files prove:
 
@@ -291,6 +308,7 @@ On the way, the other files prove:
 - `max1` and `min1` read `to_bits` only of two zeros, whose bit patterns the model gives exactly. `f64::NAN` in `maximum1` and `minimum1` is the model's only NaN.
 - `unsafe { transmute(c) }` in `classify`, from a `u8` to an `IntervalClass`, is `transmute_class`, which returns `None` unless `c` is the discriminant of a variant, as the behaviour is undefined then. The variants `E`, `M`, `N0`, `N1`, `P0`, `P1` and `Z` are `CE`, `CM` and so on, as `Z` is the type of integers. The casts `bitmask(...) as u8` keep the value, which is below 4, and are left out, and `|` of two `bool`s in `either_empty` is `||`, which gives the same value. `transmute` in `classify2`, from a `u8` to an `IntervalClass2`, is `transmute_class2`, which returns `None` unless `c / 16` and `c % 16` are both discriminants of `IntervalClass`, and otherwise the pair of the variants that `transmute_class` decodes them to, written `(CM, CN0)` for the variant `M_N0` and so on. That is the variant with discriminant `c`, as every discriminant of `IntervalClass` is below 16. The casts `c as u8` of an `IntervalClass` in `classify2` are `class_discriminant`.
 - `HAS_MAXIMUM` is the constant `true`, as in `generic.rs`. `Interval::max` and `Interval::min` are transcribed with both branches, but the proofs use only the one for `true`, so nothing is proved about the other, which calls `either_empty`, `max` and `min`.
+- The places that make a `DecInterval`, for `ComCommon.v`, are the ones listed above. That is checked by reading: `git grep -n 'new_unchecked\|transmute' -- src` finds the callers of `new_unchecked` and the `transmute`s, `git grep -nE '(Self|DecInterval) *\{' -- src` finds no struct expression of `DecInterval` other than the one in `new_unchecked`, the other `unsafe` code outside `src/simd` only calls MPFR and GMP, and nothing assigns to the fields `x` and `d`. The constants that `def_com!` decorates `com` are `const_interval!(a, b)` for decimal literals `a` and `b` between 0.3 and 6.3, which Rust rounds to finite floats. `try_from_be_bytes` and its siblings take the floats `a` and `b` that `f64::from_be_bytes` and so on decode, which the model leaves out, as the theorem holds for any. Their `a.is_sign_negative()` is Flocq's `Bsign a` and `b.is_sign_positive()` its negation, which differ from Rust only for a NaN, where `a <= b` already makes the condition false. The `transmute` in `const_dec_interval!` puts an `Interval` and a `Decoration` into the fields of a `DecInterval`, as both structs are `#[repr(C)]` with the same fields in the same order. `f64::NEG_INFINITY` and `f64::INFINITY` are `B754_infinity true` and `B754_infinity false`.
 
 [`Ieee1788.v`](theories/Ieee1788.v) states what IEEE Std 1788-2015 asks of an interval version of a function: the hull of the image (`is_hull`), or the tightest interval that contains it (`is_tightest`) where its bounds need not be floats, and the properties of the decorations. It is the only file that has to be checked against the standard by reading. For `com`, the standard asks for the computed interval to be bounded. `p`, for functions of one real, asks for the image instead. `is_hull_bounded` in `Integer.v` shows that the two are the same for a hull, which each of those functions returns. `p2`, for functions of two reals, asks for the computed interval, as the standard does, as `x + y` can overflow where the image is bounded. Stdlib's `continuity_pt` and `continue_in` are for functions of one real, so for functions of two, `Ieee1788.v` defines continuity on R² itself, by ε and δ with the norm `max(|r|, |t|)` (`continue_in2`, `continuity2_pt`). It also defines the image of a box (`image2`) and the decorations of a function of two reals (`p2`, `strongest2`).
 
@@ -299,10 +317,9 @@ The theorems depend on four axioms. Three come from Stdlib's real numbers: `sig_
 ## What is not proved yet
 
 - The SIMD backends that vectorize the same algorithm, such as `src/simd/x86_64/lanewise.rs` and `src/simd/wasm32.rs`.
-- The other backends' versions of the functions that `abs`, `floor`, `ceil`, `max`, `min`, `round`, `round_ties_even`, `sign`, `trunc`, `-x`, `x + y`, `x - y` and `x * y` of intervals call: `floor`, `ceil`, `round`, `round_ties_even`, `trunc` and `neg0`, such as `_mm_floor_pd` on x86-64, `splat`, `gt`, `lt`, `and` and `or` in `sign`, `ge`, `le`, `bitmask`, `splat`, `max`, `swap` and `shuffle02` in `abs` and `classify`, `maximum`, `minimum` and `shuffle03` in `max` and `min`, `swap` in `-x` and `x - y`, `add_ru` in `x + y` and `x - y`, `max`, `mul_ru`, `neg0`, `shuffle02`, `shuffle13`, `splat` and `swap` in `x * y`, and `lt`, `all`, `splat`, `extract0` and `extract1` in `is_empty`, `is_singleton` and `is_common_interval`. The roundings are meant to be the same IEEE 754 operations in every backend, but the theorems are proved only for the portable backend's.
+- The other backends' versions of the functions that `abs`, `floor`, `ceil`, `max`, `min`, `round`, `round_ties_even`, `sign`, `trunc`, `-x`, `x + y`, `x - y` and `x * y` of intervals, and `try_from_be_bytes` and its siblings, call: `floor`, `ceil`, `round`, `round_ties_even`, `trunc` and `neg0`, such as `_mm_floor_pd` on x86-64, `splat`, `gt`, `lt`, `and` and `or` in `sign`, `ge`, `le`, `bitmask`, `splat`, `max`, `swap` and `shuffle02` in `abs` and `classify`, `maximum`, `minimum` and `shuffle03` in `max` and `min`, `swap` in `-x` and `x - y`, `add_ru` in `x + y` and `x - y`, `max`, `mul_ru`, `neg0`, `shuffle02`, `shuffle13`, `splat` and `swap` in `x * y`, `lt`, `all`, `splat`, `extract0` and `extract1` in `is_empty`, `is_singleton` and `is_common_interval`, and `constant` in `try_from_be_bytes` and its siblings. The roundings are meant to be the same IEEE 754 operations in every backend, but the theorems are proved only for the portable backend's.
 - The branch of `Interval::max` and `Interval::min` for `HAS_MAXIMUM = false`, which the x86-64 backend takes.
 - That every `Interval` that the library makes is `valid`.
-- That every `DecInterval` that the library makes is `com` only if its interval is common, which `dec_sign_correct`, `dec_max_correct`, `dec_min_correct` and `dec_mul_correct` assume.
 - Every other operation, such as `sqr` or `/` of intervals.
 
 ## Building

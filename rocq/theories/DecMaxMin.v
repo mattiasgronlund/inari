@@ -16,18 +16,18 @@
     is bounded. For [max] and [min], the hull of the image of an unbounded
     box can be common: [max([-inf, 1], [0, 2]) = [0, 2]]. If both arguments
     were [com], [set_dec] would keep [com], where the strongest decoration
-    is [dac], as [com] asks for a bounded box. As for [sign],
-    [DecInterval::new], [set_dec] and the other constructors of the library
-    make a [DecInterval] [com] only if its interval is common, and so
-    bounded, but nothing here proves it, so the theorems take it as a
-    hypothesis. The minimum is [com] only if both decorations are, and then
-    both intervals are common, so the box is bounded.
+    is [dac], as [com] asks for a bounded box. As for [sign], the theorems
+    take as hypotheses that each argument is [com] only if its interval is
+    common, and so bounded ([com_common]), which [ComCommon.v] shows of
+    every [DecInterval] that the library makes. The minimum is [com] only
+    if both decorations are, and then both intervals are common, so the box
+    is bounded.
 
     [max] and [min] are continuous, as they move by no more than their
     arguments do. *)
 
 From Stdlib Require Import Reals Lra.
-From Inari Require Import Model Ieee1788 Integer MaxMin DecBinary.
+From Inari Require Import Model Ieee1788 Integer ComCommon MaxMin DecBinary.
 
 Open Scope R_scope.
 
@@ -53,8 +53,8 @@ Definition dec_binary (x y : DecInterval) : DecInterval :=
 
 Theorem dec_binary_correct :
   forall x y, valid (itv x) -> valid (itv y) ->
-  (dec x = Com -> Interval.is_common_interval (itv x) = true) ->
-  (dec y = Com -> Interval.is_common_interval (itv y) = true) ->
+  com_common x ->
+  com_common y ->
   if DecInterval.is_nai x then dec_binary x y = x
   else if DecInterval.is_nai y then dec_binary x y = DecInterval.NAI
   else
@@ -106,8 +106,8 @@ Qed.
     its interval is common. *)
 Theorem dec_max_correct :
   forall x y, valid (itv x) -> valid (itv y) ->
-  (dec x = Com -> Interval.is_common_interval (itv x) = true) ->
-  (dec y = Com -> Interval.is_common_interval (itv y) = true) ->
+  com_common x ->
+  com_common y ->
   if DecInterval.is_nai x then DecInterval.max x y = x
   else if DecInterval.is_nai y then DecInterval.max x y = DecInterval.NAI
   else
@@ -131,8 +131,8 @@ Qed.
 (** [DecInterval::min] does the same for [min]. *)
 Theorem dec_min_correct :
   forall x y, valid (itv x) -> valid (itv y) ->
-  (dec x = Com -> Interval.is_common_interval (itv x) = true) ->
-  (dec y = Com -> Interval.is_common_interval (itv y) = true) ->
+  com_common x ->
+  com_common y ->
   if DecInterval.is_nai x then DecInterval.min x y = x
   else if DecInterval.is_nai y then DecInterval.min x y = DecInterval.NAI
   else

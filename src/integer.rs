@@ -269,8 +269,8 @@ impl DecInterval {
 
     // Discontinuities: {0}.
     // Proved correct in `rocq/theories/Sign.v` for the portable backend if `self` is `com`
-    // only when `self.x` is common, as `DecInterval::new`, `set_dec` and the other
-    // constructors make sure.
+    // only when `self.x` is common, which `rocq/theories/ComCommon.v` proves of every
+    // `DecInterval` that the library makes.
     // `rocq/theories/Model.v` transcribes this call, so it has to be updated along
     // with it.
     impl_dec!(sign, x, y, x.inf_raw() == 0.0); // No need to check sup.

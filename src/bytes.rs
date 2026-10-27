@@ -83,6 +83,9 @@ macro_rules! impl_try_from_bytes {
     ($(#[$meta:meta])* $try_from_bytes:ident, $from_bytes:ident) => {
         $(#[$meta])*
         pub fn $try_from_bytes(bytes: [u8; 17]) -> Option<Self> {
+            // `rocq/theories/Model.v` transcribes this function for the proof that every
+            // `DecInterval` is `com` only if its interval is common
+            // (`rocq/theories/ComCommon.v`), so it has to be updated along with it.
             use Decoration::*;
             let a = f64::$from_bytes(<[u8; 8]>::try_from(&bytes[..8]).unwrap());
             let b = f64::$from_bytes(<[u8; 8]>::try_from(&bytes[8..16]).unwrap());
