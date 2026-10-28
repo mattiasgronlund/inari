@@ -533,6 +533,9 @@ impl Interval {
     /// | $\R$   | $\[0, ∞)$ |
     #[must_use]
     pub fn sqr(self) -> Self {
+        // Proved correct in `rocq/theories/Sqr.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         use IntervalClass::*;
         match self.classify() {
             E => Self::EMPTY,
@@ -676,6 +679,9 @@ impl DecInterval {
     /// A NaI is returned if `self` is NaI.
     #[must_use]
     pub fn sqr(self) -> Self {
+        // Proved correct in `rocq/theories/Sqr.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() {
             return self;
         }

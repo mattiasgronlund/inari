@@ -4,10 +4,10 @@ use std::mem::transmute;
 impl Interval {
     pub(crate) fn classify(self) -> IntervalClass {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `(Dec)Interval::abs` and `(Dec)Interval::mul`. `classify_defined` in
-        // `rocq/theories/Abs.v` shows, for the portable backend, that `transmute` gets the
-        // discriminant of a variant whenever `self` is `valid`, as the comment on
-        // `Interval::rep` defines it.
+        // `(Dec)Interval::abs`, `(Dec)Interval::mul` and `(Dec)Interval::sqr`.
+        // `classify_defined` in `rocq/theories/Abs.v` shows, for the portable backend, that
+        // `transmute` gets the discriminant of a variant whenever `self` is `valid`, as the
+        // comment on `Interval::rep` defines it.
         let zero = splat(0.0);
         let ge_zero = bitmask(ge(self.rep, zero)) as u8;
         let le_zero = bitmask(le(self.rep, zero)) as u8;
@@ -39,7 +39,7 @@ impl Interval {
 // * These codes are used only in comments.
 
 // `rocq/theories/Model.v` transcribes the discriminants in `transmute_class`, for the
-// proofs of `(Dec)Interval::abs` and `(Dec)Interval::mul`.
+// proofs of `(Dec)Interval::abs`, `(Dec)Interval::mul` and `(Dec)Interval::sqr`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(crate) enum IntervalClass {

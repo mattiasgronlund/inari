@@ -1,16 +1,17 @@
 (** * What IEEE 1788 asks of an interval version of a function
 
     The theorems in [Abs.v], [AddSub.v], [Integer.v], [MaxMin.v],
-    [DecMaxMin.v], [Mul.v], [Neg.v], [Round.v], [Sign.v], [Sqrt.v] and
-    [Trunc.v] are stated with the definitions here and the ones in
-    [Model.v]. Like [Model.v], this file has to be checked by reading:
-    against the standard, IEEE Std 1788-2015, rather than against the Rust
-    code. Continuity of a function of one real is that of Stdlib's
+    [DecMaxMin.v], [Mul.v], [Neg.v], [Round.v], [Sign.v], [Sqr.v],
+    [Sqrt.v] and [Trunc.v] are stated with the definitions here and the
+    ones in [Model.v]. Like [Model.v], this file has to be checked by
+    reading: against the standard, IEEE Std 1788-2015, rather than against
+    the Rust code. Continuity of a function of one real is that of Stdlib's
     [continuity_pt] and [continue_in], and of two reals that of
     [continuity2_pt] and [continue_in2] below. The point functions [abs],
-    [max], [min], [neg], [add], [sub], [mul] and [sqrt] are Stdlib's
-    [Rabs], [Rmax], [Rmin], [Ropp], [Rplus], [Rminus], [Rmult] and [sqrt],
-    the last one on its domain [sqrt_dom] only. *)
+    [max], [min], [neg], [add], [sub], [mul], [sqr] and [sqrt] are
+    Stdlib's [Rabs], [Rmax], [Rmin], [Ropp], [Rplus], [Rminus], [Rmult],
+    [Rsqr] and [sqrt], the last two with their domains [sqr_dom], which is
+    all of R, and [sqrt_dom]. *)
 
 From Stdlib Require Import Reals.
 From Flocq Require Import Core.Raux Core.Generic_fmt Core.Round_NE.
@@ -66,11 +67,13 @@ Definition bounded (s : R -> Prop) : Prop :=
     - [com]: [x] is nonempty and bounded, [f] is continuous at each point
       of [x], and the image of [x] is bounded. The standard asks this of the
       computed interval instead. For a result that is the hull of the image,
-      as the theorems show, the two are the same ([is_hull_bounded] in
-      [Integer.v]). [p2] below, for functions of two reals, asks it of the
-      computed interval, as the standard does, because a sum can overflow:
+      as the theorems stated with [p] show, the two are the same
+      ([is_hull_bounded] in [Integer.v]). [p2] below, for functions of two
+      reals, asks it of the computed interval, as the standard does,
+      because a sum can overflow:
       [[f64::MAX, f64::MAX] + [f64::MAX, f64::MAX]] is
-      [[f64::MAX, +inf]], though the image is bounded.
+      [[f64::MAX, +inf]], though the image is bounded. A square can
+      overflow too, so [sqr] is stated with [p_dom] and [sqr_dom] below.
     - [dac]: [x] is nonempty, and the restriction of [f] to [x] is
       continuous.
     - [def]: [x] is nonempty.
@@ -106,6 +109,13 @@ Definition strongest (d : Decoration) (f : R -> R) (x : Interval) : Prop :=
 
 (** The domain of the point function [sqrt]. *)
 Definition sqrt_dom (r : R) : Prop := 0 <= r.
+
+(** The domain of the point function [sqr], all of R. [sqr] is stated
+    with the definitions for a function with a domain because [p_dom],
+    unlike [p], asks for [com] that the computed interval be bounded, as
+    the standard does: [[f64::MAX, f64::MAX]] squared is
+    [[f64::MAX, +inf]], though the image is bounded. *)
+Definition sqr_dom (r : R) : Prop := True.
 
 (** The image of the interval [x] under [f] defined on [D], which the
     standard writes [Rge(f | x)]: the values of [f] at the reals of [x]

@@ -49,3 +49,4 @@ theories/MulNP.v
 theories/MulZero.v
 theories/Mul.v
 theories/Sqrt.v
+theories/Sqr.v
