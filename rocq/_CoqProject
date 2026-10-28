@@ -48,3 +48,4 @@ theories/MulMRow.v
 theories/MulNP.v
 theories/MulZero.v
 theories/Mul.v
+theories/Sqrt.v

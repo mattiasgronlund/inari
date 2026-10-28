@@ -1,14 +1,16 @@
 (** * What IEEE 1788 asks of an interval version of a function
 
     The theorems in [Abs.v], [AddSub.v], [Integer.v], [MaxMin.v],
-    [DecMaxMin.v], [Neg.v], [Round.v], [Sign.v] and [Trunc.v] are stated
-    with the definitions here and the ones in [Model.v]. Like [Model.v],
-    this file has to be checked by reading: against the standard, IEEE Std
-    1788-2015, rather than against the Rust code. Continuity of a function
-    of one real is that of Stdlib's [continuity_pt] and [continue_in], and
-    of two reals that of [continuity2_pt] and [continue_in2] below. The
-    point functions [abs], [max], [min], [neg], [add] and [sub] are
-    Stdlib's [Rabs], [Rmax], [Rmin], [Ropp], [Rplus] and [Rminus]. *)
+    [DecMaxMin.v], [Mul.v], [Neg.v], [Round.v], [Sign.v], [Sqrt.v] and
+    [Trunc.v] are stated with the definitions here and the ones in
+    [Model.v]. Like [Model.v], this file has to be checked by reading:
+    against the standard, IEEE Std 1788-2015, rather than against the Rust
+    code. Continuity of a function of one real is that of Stdlib's
+    [continuity_pt] and [continue_in], and of two reals that of
+    [continuity2_pt] and [continue_in2] below. The point functions [abs],
+    [max], [min], [neg], [add], [sub], [mul] and [sqrt] are Stdlib's
+    [Rabs], [Rmax], [Rmin], [Ropp], [Rplus], [Rminus], [Rmult] and [sqrt],
+    the last one on its domain [sqrt_dom] only. *)
 
 From Stdlib Require Import Reals.
 From Flocq Require Import Core.Raux Core.Generic_fmt Core.Round_NE.
@@ -92,6 +94,62 @@ Definition p (d : Decoration) (f : R -> R) (x : Interval) : Prop :=
     returns the minimum of this decoration and that of its argument. *)
 Definition strongest (d : Decoration) (f : R -> R) (x : Interval) : Prop :=
   p d f x /\ forall e, p e f x -> (discriminant e <= discriminant d)%Z.
+
+(** ** Functions of one real with a domain
+
+    A point function of IEEE 1788 may be defined only on a set of reals,
+    its domain [Dom(f)]. Here, such a function is a function [f] from R to
+    R with a domain [D], and only the values of [f] on [D] matter to the
+    definitions below. Stdlib's [sqrt], for example, returns 0 below 0,
+    where the standard's [sqrt] is not defined, and those values are never
+    used. *)
+
+(** The domain of the point function [sqrt]. *)
+Definition sqrt_dom (r : R) : Prop := 0 <= r.
+
+(** The image of the interval [x] under [f] defined on [D], which the
+    standard writes [Rge(f | x)]: the values of [f] at the reals of [x]
+    that are in [D]. The reals of [x] outside [D] are ignored, so the
+    image of [[-1, 1]] under [sqrt] is [[0, 1]]. *)
+Definition image_dom (D : R -> Prop) (f : R -> R) (x : Interval) :
+    R -> Prop :=
+  fun s => exists r, mem r x /\ D r /\ s = f r.
+
+(** The predicate [p_d(f, x)] for a function [f] defined on [D], with the
+    computed interval [z]:
+
+    - [com]: [x] is a bounded, nonempty subset of [D], [f] is continuous
+      at each point of [x], and [z] is bounded. [f] is continuous at a
+      point of [D] if its restriction to [D] is, as for the standard,
+      whose [sqrt] is continuous at each point of its domain, 0 included.
+      As in [p2], and as the standard asks, [z] has to be bounded, rather
+      than the image.
+    - [dac]: [x] is a nonempty subset of [D], and the restriction of [f]
+      to [x] is continuous.
+    - [def]: [x] is a nonempty subset of [D].
+    - [trv]: always true.
+    - [ill] is only for NaI, never the result of evaluating [f]. *)
+Definition p_dom (D : R -> Prop) (d : Decoration) (f : R -> R) (x z : Interval) :
+    Prop :=
+  let X := fun r => mem r x in
+  match d with
+  | Ill => False
+  | Trv => True
+  | Def => (exists r, X r) /\ (forall r, X r -> D r)
+  | Dac =>
+      (exists r, X r) /\ (forall r, X r -> D r) /\
+      forall r, X r -> continue_in f X r
+  | Com =>
+      (exists r, X r) /\ (forall r, X r -> D r) /\ bounded X /\
+      (forall r, X r -> continue_in f D r) /\ bounded (fun s => mem s z)
+  end.
+
+(** [strongest d f x] for a function [f] defined on [D], with the computed
+    interval [z]. *)
+Definition strongest_dom (D : R -> Prop) (d : Decoration) (f : R -> R)
+    (x z : Interval) : Prop :=
+  p_dom D d f x z /\
+  forall e, p_dom D e f x z -> (discriminant e <= discriminant d)%Z.
 
 (** ** Functions of two reals *)
 

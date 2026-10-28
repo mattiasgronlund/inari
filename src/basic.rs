@@ -570,6 +570,9 @@ impl Interval {
     /// | $\[0, ∞)$ | $\[0, ∞)$ |
     #[must_use]
     pub fn sqrt(self) -> Self {
+        // Proved correct in `rocq/theories/Sqrt.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_empty() {
             return Self::EMPTY;
         }
@@ -685,6 +688,9 @@ impl DecInterval {
     /// A NaI is returned if `self` is NaI.
     #[must_use]
     pub fn sqrt(self) -> Self {
+        // Proved correct in `rocq/theories/Sqrt.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() {
             return self;
         }

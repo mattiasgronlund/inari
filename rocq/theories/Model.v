@@ -4,9 +4,10 @@
     in [src/simd/generic.rs], line by line, so that the two can be compared
     side by side. The section on intervals at the end does the same for the
     parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
-    [src/integer.rs], [src/absmax.rs] and [src/arith.rs] that [abs],
-    [ceil], [floor], [max], [min], [round], [round_ties_even], [sign],
-    [trunc], [neg], [add], [sub] and [mul] of intervals use, and for each
+    [src/integer.rs], [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
+    that [abs], [ceil], [floor], [max], [min], [round], [round_ties_even],
+    [sign], [sqrt], [trunc], [neg], [add], [sub] and [mul] of intervals
+    use, and for each
     place in [src/interval.rs], [src/constants.rs], [src/set_op.rs] and
     [src/bytes.rs] that makes a [DecInterval]. This file is
     the only one that has to be checked against the Rust code, and
@@ -728,16 +729,17 @@ End Generic.
 (** ** Intervals
 
     The parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
-    [src/integer.rs], [src/absmax.rs] and [src/arith.rs] that
-    [Interval::abs], [Interval::ceil], [Interval::floor], [Interval::max],
-    [Interval::min], [Interval::round], [Interval::round_ties_even],
-    [Interval::sign], [Interval::trunc], [-x], [x + y], [x - y] and
-    [x * y] of intervals, and their decorated versions, use. Those call the
-    backend's [floor], [ceil], [round], [round_ties_even], [trunc], [neg0],
-    [splat], [ge], [gt], [le], [lt], [all], [bitmask], [and], [or], [max],
-    [maximum], [min], [minimum], [shuffle02], [shuffle03], [shuffle13],
-    [swap], [add_ru], [mul_ru] and [HAS_MAXIMUM], which are the ones in
-    [Generic] here.
+    [src/integer.rs], [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
+    that [Interval::abs], [Interval::ceil], [Interval::floor],
+    [Interval::max], [Interval::min], [Interval::round],
+    [Interval::round_ties_even], [Interval::sign], [Interval::sqrt],
+    [Interval::trunc], [-x], [x + y], [x - y] and [x * y] of intervals, and
+    their decorated versions, use. Those call the backend's [floor],
+    [ceil], [round], [round_ties_even], [trunc], [neg0], [splat],
+    [constant], [ge], [gt], [le], [lt], [all], [bitmask], [and], [or],
+    [max], [maximum], [min], [minimum], [shuffle02], [shuffle03],
+    [shuffle13], [swap], [add_ru], [mul_ru], [sqrt1_ru], [sqrt_rd_ru] and
+    [HAS_MAXIMUM], which are the ones in [Generic] here.
 
     For [ComCommon.v], it also transcribes the other places that make a
     [DecInterval]: [new], the constants, [convex_hull] and [intersection],
@@ -974,6 +976,23 @@ Definition sign (self : Interval) : Interval :=
     let r := Generic.or one_or_zero m_one_or_zero in
     {| rep := r |}.
 
+(** [pub fn sqrt(self) -> Self]. Its [sqrt1_ru] and [sqrt_rd_ru] call
+    [sqrt1_ru_impl::<HAS_FMA>] and [sqrt1_rd_impl::<HAS_FMA>], so
+    [has_fma] is an argument, as for [mul]. Each [return] is the value of
+    an [if] whose [else] holds the rest of the body, and [0.0] is +0. *)
+Definition sqrt (has_fma : bool) (self : Interval) : option Interval :=
+  if is_empty self then Some EMPTY
+  else
+    let a := inf_raw self in
+    let b := sup_raw self in
+    if lt b zero then Some EMPTY
+    else if le a zero then
+      let* s := Generic.sqrt1_ru has_fma b in
+      Some (with_infsup_raw zero s)
+    else
+      let* r := Generic.sqrt_rd_ru has_fma (Generic.neg0 (rep self)) in
+      Some {| rep := Generic.neg0 r |}.
+
 (** [pub fn trunc(self) -> Self] *)
 Definition trunc (self : Interval) : Interval :=
   {| rep := Generic.trunc (rep self) |}.
@@ -997,8 +1016,8 @@ Definition sub (self rhs : Interval) : option Interval :=
   Some {| rep := r |}.
 
 (** [pub(crate) fn zero() -> Self]. [zero] and [mul] come last, as they
-    shadow the [zero] and [mul] on floats, and [classify], [abs] and [sign]
-    above use that [zero]. *)
+    shadow the [zero] and [mul] on floats, and [classify], [abs], [sign]
+    and [sqrt] above use that [zero]. *)
 Definition zero : Interval := {| rep := Generic.splat zero |}.
 
 (** [fn mul(self, rhs: Self) -> Self] of [impl Mul for Interval]. Its
@@ -1224,6 +1243,16 @@ Definition round_ties_even : DecInterval -> DecInterval :=
 (** [impl_dec!(sign, x, y, x.inf_raw() == 0.0)] *)
 Definition sign : DecInterval -> DecInterval :=
   impl_dec Interval.sign (fun x y => eq (Interval.inf_raw x) zero).
+
+(** [pub fn sqrt(self) -> Self], where [self.x.sqrt()] is
+    [Interval.sqrt has_fma (itv self)], with the [has_fma] of
+    [Interval.sqrt] as an argument here too, and [0.0] is +0. *)
+Definition sqrt (has_fma : bool) (self : DecInterval) : option DecInterval :=
+  if is_nai self then Some self
+  else
+    let d := if lt (Interval.inf_raw (itv self)) zero then Trv else dec self in
+    let* x := Interval.sqrt has_fma (itv self) in
+    Some (set_dec x d).
 
 (** [impl_dec!(trunc, x, y, (x.inf_raw() != 0.0 && x.inf_raw() == y.inf_raw())
     || (x.sup_raw() != 0.0 && x.sup_raw() == y.sup_raw()))], where [a != b]
