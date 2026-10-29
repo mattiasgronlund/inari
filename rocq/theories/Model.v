@@ -577,9 +577,6 @@ Definition round_ties_even (x : F64X2) : F64X2 :=
 (** [pub(crate) fn trunc(x: F64X2) -> F64X2] *)
 Definition trunc (x : F64X2) : F64X2 := (ftrunc (fst x), ftrunc (snd x)).
 
-(** [pub(crate) const HAS_MAXIMUM: bool = true] *)
-Definition HAS_MAXIMUM : bool := true.
-
 (** [pub(crate) fn max(x: F64X2, y: F64X2) -> F64X2],
     [pub(crate) fn maximum(x: F64X2, y: F64X2) -> F64X2],
     [pub(crate) fn min(x: F64X2, y: F64X2) -> F64X2] and
@@ -739,8 +736,10 @@ End Generic.
     [neg0], [splat], [constant], [ge], [gt], [le], [lt], [all], [bitmask],
     [and], [or], [max], [maximum], [min], [minimum], [shuffle02],
     [shuffle03], [shuffle13], [swap], [add_ru], [mul_ru], [div_ru],
-    [sqrt1_ru], [sqrt_rd_ru] and [HAS_MAXIMUM], which are the ones in
-    [Generic] here.
+    [sqrt1_ru] and [sqrt_rd_ru], which are the ones in [Generic] here.
+    [Interval::max] and [Interval::min] also read the backend's
+    [HAS_MAXIMUM], whose value depends on the backend, so it is the
+    argument [has_maximum] here.
 
     For [ComCommon.v], it also transcribes the other places that make a
     [DecInterval]: [new], the constants, [convex_hull] and [intersection],
@@ -938,9 +937,12 @@ Definition floor (self : Interval) : Interval :=
   let r := Generic.floor x in
   {| rep := Generic.neg0 r |}.
 
-(** [pub fn max(self, rhs: Self) -> Self] *)
-Definition max (self rhs : Interval) : Interval :=
-  if Generic.HAS_MAXIMUM then
+(** [pub fn max(self, rhs: Self) -> Self]. It branches on the backend's
+    [HAS_MAXIMUM], which is [true] in [generic.rs] and [false] in
+    [x86_64.rs], so it is the argument [has_maximum], as [HAS_FMA] is for
+    [mul]. *)
+Definition max (has_maximum : bool) (self rhs : Interval) : Interval :=
+  if has_maximum then
     let min := Generic.minimum (rep self) (rep rhs) in
     let max := Generic.maximum (rep self) (rep rhs) in
     {| rep := Generic.shuffle03 min max |}
@@ -950,9 +952,10 @@ Definition max (self rhs : Interval) : Interval :=
     let max := Generic.max (rep self) (rep rhs) in
     {| rep := Generic.shuffle03 min max |}.
 
-(** [pub fn min(self, rhs: Self) -> Self] *)
-Definition min (self rhs : Interval) : Interval :=
-  if Generic.HAS_MAXIMUM then
+(** [pub fn min(self, rhs: Self) -> Self], with [has_maximum] as for
+    [max]. *)
+Definition min (has_maximum : bool) (self rhs : Interval) : Interval :=
+  if has_maximum then
     let max := Generic.maximum (rep self) (rep rhs) in
     let min := Generic.minimum (rep self) (rep rhs) in
     {| rep := Generic.shuffle03 max min |}
@@ -1360,13 +1363,18 @@ Definition abs (self : DecInterval) : option DecInterval :=
 
 (** [pub fn max(self, rhs: Self) -> Self] and
     [pub fn min(self, rhs: Self) -> Self], where [self.d.min(rhs.d)] is
-    [dec_min (dec self) (dec rhs)] *)
-Definition max (self rhs : DecInterval) : DecInterval :=
+    [dec_min (dec self) (dec rhs)], with the [has_maximum] of
+    [Interval.max] and [Interval.min] as an argument here too *)
+Definition max (has_maximum : bool) (self rhs : DecInterval) : DecInterval :=
   if is_nai self then self
-  else set_dec (Interval.max (itv self) (itv rhs)) (dec_min (dec self) (dec rhs)).
-Definition min (self rhs : DecInterval) : DecInterval :=
+  else
+    set_dec (Interval.max has_maximum (itv self) (itv rhs))
+      (dec_min (dec self) (dec rhs)).
+Definition min (has_maximum : bool) (self rhs : DecInterval) : DecInterval :=
   if is_nai self then self
-  else set_dec (Interval.min (itv self) (itv rhs)) (dec_min (dec self) (dec rhs)).
+  else
+    set_dec (Interval.min has_maximum (itv self) (itv rhs))
+      (dec_min (dec self) (dec rhs)).
 
 (** The function that [impl_dec!(f, x, y, is_not_com)] in [src/integer.rs]
     defines is [impl_dec Interval.f (fun x y => is_not_com)]. *)

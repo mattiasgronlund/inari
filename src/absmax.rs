@@ -42,9 +42,9 @@ impl Interval {
     /// | $\R^2$ | $\R$  |
     #[must_use]
     pub fn max(self, rhs: Self) -> Self {
-        // Proved correct in `rocq/theories/MaxMin.v` for the portable backend.
-        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
-        // along with it.
+        // Proved correct in `rocq/theories/MaxMin.v` for either value of `HAS_MAXIMUM`, with
+        // the portable backend's functions. `rocq/theories/Model.v` transcribes this
+        // function, so it has to be updated along with it.
         if HAS_MAXIMUM {
             // [max(a, c), max(b, d)] = [-max(a, c); max(b, d)] = [min(-a, -c); max(b, d)]
             let min = minimum(self.rep, rhs.rep); // [min(-a, -c); min(b, d)]
@@ -74,9 +74,9 @@ impl Interval {
     /// | $\R^2$ | $\R$  |
     #[must_use]
     pub fn min(self, rhs: Self) -> Self {
-        // Proved correct in `rocq/theories/MaxMin.v` for the portable backend.
-        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
-        // along with it.
+        // Proved correct in `rocq/theories/MaxMin.v` for either value of `HAS_MAXIMUM`, with
+        // the portable backend's functions. `rocq/theories/Model.v` transcribes this
+        // function, so it has to be updated along with it.
         if HAS_MAXIMUM {
             // [min(a, c), min(b, d)] = [-min(a, c); min(b, d)] = [max(-a, -c); min(b, d)]
             let max = maximum(self.rep, rhs.rep); // [max(-a, -c); max(b, d)]

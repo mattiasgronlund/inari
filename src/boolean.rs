@@ -152,7 +152,7 @@ impl Interval {
     pub fn is_empty(self) -> bool {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
         // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::div`,
-        // `DecInterval::floor`, `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`,
+        // `DecInterval::floor`, `(Dec)Interval::max`, `(Dec)Interval::min`, `DecInterval::mul`,
         // `DecInterval::neg`, `DecInterval::recip`, `DecInterval::round`,
         // `DecInterval::round_ties_even`, `(Dec)Interval::sign`, `DecInterval::sqr`,
         // `(Dec)Interval::sqrt`, `DecInterval::sub` and `DecInterval::trunc`, and for the
@@ -376,8 +376,8 @@ impl Interval {
         self.is_empty() & rhs.is_empty()
     }
 
-    // `rocq/theories/Model.v` transcribes this function, which `Interval::max` and
-    // `Interval::min` call only if `HAS_MAXIMUM` is false, so their proofs do not use it.
+    // `rocq/theories/Model.v` transcribes this function for the proofs of
+    // `(Dec)Interval::max` and `(Dec)Interval::min`.
     pub(crate) fn either_empty(self, rhs: Self) -> bool {
         self.is_empty() | rhs.is_empty()
     }

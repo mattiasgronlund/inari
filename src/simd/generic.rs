@@ -34,8 +34,9 @@
 
 use std::cmp::Ordering;
 
-// `rocq/theories/Model.v` transcribes this constant for the proofs of
-// `(Dec)Interval::max` and `(Dec)Interval::min`.
+// `Interval::max` and `Interval::min` branch on this constant. Some backends, such as
+// `x86_64.rs`, set it to `false`, so `rocq/theories/Model.v` takes it as an argument, and
+// the proofs of `(Dec)Interval::max` and `(Dec)Interval::min` hold for either value.
 pub(crate) const HAS_MAXIMUM: bool = true;
 
 pub(crate) type F64X2 = [f64; 2];
@@ -141,7 +142,7 @@ pub(crate) fn extract(x: F64X2) -> [f64; 2] {
 
 // `rocq/theories/Model.v` transcribes this function as `fst` for the proofs of
 // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::div`,
-// `DecInterval::floor`, `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`,
+// `DecInterval::floor`, `(Dec)Interval::max`, `(Dec)Interval::min`, `DecInterval::mul`,
 // `DecInterval::neg`, `DecInterval::recip`, `DecInterval::round`,
 // `DecInterval::round_ties_even`, `(Dec)Interval::sign`, `DecInterval::sqr`,
 // `(Dec)Interval::sqrt`, `DecInterval::sub` and `DecInterval::trunc`, and for the proof
@@ -205,7 +206,8 @@ pub(crate) fn lt(x: F64X2, y: F64X2) -> F64X2 {
 // The vector version of the `maximumNumber` operation defined in IEEE 754-2019,
 // which does not propagate NaNs. Same as `vmaxnmq_f64` on AArch64.
 // `rocq/theories/Model.v` transcribes this function for the proofs of
-// `(Dec)Interval::abs`, `(Dec)Interval::mul` and `(Dec)Interval::sqr`.
+// `(Dec)Interval::abs`, `(Dec)Interval::max`, `(Dec)Interval::min`, `(Dec)Interval::mul`
+// and `(Dec)Interval::sqr`.
 pub(crate) fn max(x: F64X2, y: F64X2) -> F64X2 {
     [max1(x[0], y[0]), max1(x[1], y[1])]
 }
@@ -218,8 +220,8 @@ pub(crate) fn maximum(x: F64X2, y: F64X2) -> F64X2 {
     [maximum1(x[0], y[0]), maximum1(x[1], y[1])]
 }
 
-// `rocq/theories/Model.v` transcribes this function, which `Interval::max` and
-// `Interval::min` call only if `HAS_MAXIMUM` is false, so their proofs do not use it.
+// `rocq/theories/Model.v` transcribes this function for the proofs of
+// `(Dec)Interval::max` and `(Dec)Interval::min`.
 pub(crate) fn min(x: F64X2, y: F64X2) -> F64X2 {
     [min1(x[0], y[0]), min1(x[1], y[1])]
 }

@@ -5,13 +5,22 @@
     function of two reals.
 
     An [Interval] stores [[a, b]] as [[-a; b]], and an empty one as
-    [[NaN; NaN]]. With [HAS_MAXIMUM], [Interval::max] of [[a, b]] and
-    [[c, d]] takes [minimum] of the first lanes and [maximum] of the
+    [[NaN; NaN]]. With [HAS_MAXIMUM] true, [Interval::max] of [[a, b]]
+    and [[c, d]] takes [minimum] of the first lanes and [maximum] of the
     second, [[min(-a, -c); max(b, d)]], which is [[-max(a, c); max(b, d)]],
     and [Interval::min] takes [[max(-a, -c); min(b, d)]], which is
     [[-min(a, c); min(b, d)]]. [maximum] and [minimum] give NaN in a lane
     if either argument is NaN there, so an empty argument gives an empty
     result, the hull of the image of an empty box.
+
+    The model takes [HAS_MAXIMUM] as the argument [has_maximum], as its
+    value depends on the backend. With it false, [Interval::max] and
+    [Interval::min] return [Interval::EMPTY] if [either_empty], and
+    otherwise take [min] and [max] ([min1] and [max1]) of the lanes where
+    the other branch takes [minimum] and [maximum]. On lanes that are not
+    NaN, [min1] and [max1] are [minimum1] and [maximum1], so for valid
+    arguments both branches return the same interval ([max_branches],
+    [min_branches]), and the theorems hold for either value.
 
     Both lanes of a nonempty interval have the form of an upper bound,
     finite or +inf, as [-a] is +inf when [a] is -inf. On such floats,
@@ -363,10 +372,10 @@ Qed.
 
 (** ** The result *)
 
-(** [Interval::max] and [Interval::min] with [HAS_MAXIMUM]. *)
+(** [Interval::max] and [Interval::min] with [HAS_MAXIMUM] true. *)
 Lemma max_rep :
   forall x y,
-  rep (Interval.max x y) =
+  rep (Interval.max true x y) =
     (minimum1 (fst (rep x)) (fst (rep y)), maximum1 (snd (rep x)) (snd (rep y))).
 Proof.
 intros x y. reflexivity.
@@ -374,7 +383,7 @@ Qed.
 
 Lemma min_rep :
   forall x y,
-  rep (Interval.min x y) =
+  rep (Interval.min true x y) =
     (maximum1 (fst (rep x)) (fst (rep y)), minimum1 (snd (rep x)) (snd (rep y))).
 Proof.
 intros x y. reflexivity.
@@ -384,14 +393,62 @@ Qed.
 Lemma nan_rep :
   forall x y, valid x -> valid y ->
   is_nan (fst (rep x)) = true \/ is_nan (fst (rep y)) = true ->
-  rep (Interval.max x y) = (B754_nan, B754_nan) /\
-  rep (Interval.min x y) = (B754_nan, B754_nan).
+  rep (Interval.max true x y) = (B754_nan, B754_nan) /\
+  rep (Interval.min true x y) = (B754_nan, B754_nan).
 Proof.
 intros x y Hx Hy [Hn|Hn]; rewrite max_rep, min_rep.
 - rewrite (empty_nan x Hx Hn). split; reflexivity.
 - (* [maximum1] and [minimum1] give NaN whatever the lanes of [x]. *)
   rewrite (empty_nan y Hy Hn). destruct (rep x) as [x0 x1]. cbn [fst snd].
   destruct x0, x1; split; reflexivity.
+Qed.
+
+(** An [Interval] is determined by its [rep]. *)
+Lemma rep_eq : forall z w : Interval, rep z = rep w -> z = w.
+Proof.
+intros [rz] [rw] E. cbn [rep] in E. now subst.
+Qed.
+
+(** With [HAS_MAXIMUM] false, [Interval::max] and [Interval::min] return
+    the same interval as with it true, for valid arguments. *)
+Lemma max_branches :
+  forall x y, valid x -> valid y ->
+  Interval.max false x y = Interval.max true x y.
+Proof.
+intros x y Hx Hy. apply rep_eq.
+destruct (is_nan (fst (rep x)) || is_nan (fst (rep y))) eqn:Hn.
+- (* [either_empty] holds, so the result is [Interval::EMPTY], whose lanes
+     are NaN, as are those of [maximum] and [minimum]. *)
+  rewrite (proj1 (nan_rep x y Hx Hy (proj1 (Bool.orb_true_iff _ _) Hn))).
+  unfold Interval.max, Interval.either_empty, Interval.is_empty. rewrite Hn.
+  reflexivity.
+- (* No lane is NaN, and there [max1] and [min1] are [maximum1] and
+     [minimum1]. *)
+  apply Bool.orb_false_iff in Hn. destruct Hn as [Hnx Hny].
+  destruct (lanes_ok x Hx Hnx) as (Ux0 & Ux1 & _).
+  destruct (lanes_ok y Hy Hny) as (Uy0 & Uy1 & _).
+  rewrite max_rep, (proj2 (maximum1_minimum1 _ _ Ux0 Uy0)),
+    (proj1 (maximum1_minimum1 _ _ Ux1 Uy1)).
+  unfold Interval.max, Interval.either_empty, Interval.is_empty.
+  rewrite Hnx, Hny. reflexivity.
+Qed.
+
+Lemma min_branches :
+  forall x y, valid x -> valid y ->
+  Interval.min false x y = Interval.min true x y.
+Proof.
+intros x y Hx Hy. apply rep_eq.
+destruct (is_nan (fst (rep x)) || is_nan (fst (rep y))) eqn:Hn.
+- rewrite (proj2 (nan_rep x y Hx Hy (proj1 (Bool.orb_true_iff _ _) Hn))).
+  unfold Interval.min, Interval.either_empty, Interval.is_empty. rewrite Hn.
+  reflexivity.
+- apply Bool.orb_false_iff in Hn. destruct Hn as [Hnx Hny].
+  destruct (lanes_ok x Hx Hnx) as (Ux0 & Ux1 & _).
+  destruct (lanes_ok y Hy Hny) as (Uy0 & Uy1 & _).
+  rewrite min_rep, (proj1 (maximum1_minimum1 _ _ Ux0 Uy0)),
+    (proj2 (maximum1_minimum1 _ _ Ux1 Uy1)).
+  unfold Interval.min, Interval.either_empty, Interval.is_empty.
+  rewrite Hnx, Hny. reflexivity.
 Qed.
 
 (** The empty interval is the hull of the image of an empty box. *)
@@ -451,10 +508,14 @@ Qed.
 (** [Interval::max] returns the tightest interval that contains the image
     of its arguments under [max]. *)
 Theorem max_correct :
-  forall x y, valid x -> valid y ->
-  is_hull (image2 Rmax x y) (Interval.max x y).
+  forall has_maximum x y, valid x -> valid y ->
+  is_hull (image2 Rmax x y) (Interval.max has_maximum x y).
 Proof.
-intros x y Hx Hy.
+intros has_maximum x y Hx Hy.
+(* Both branches return the same interval. *)
+replace (Interval.max has_maximum x y) with (Interval.max true x y)
+  by (destruct has_maximum;
+      [reflexivity | symmetry; exact (max_branches x y Hx Hy)]).
 destruct (is_nan (fst (rep x)) || is_nan (fst (rep y))) eqn:Hn.
 - apply Bool.orb_true_iff in Hn.
   exact (hull_nan Rmax x y _ Hx Hy Hn (proj1 (nan_rep x y Hx Hy Hn))).
@@ -463,7 +524,7 @@ destruct (is_nan (fst (rep x)) || is_nan (fst (rep y))) eqn:Hn.
   destruct (lanes_ok y Hy Hny) as (Uy0 & Uy1 & Ny & Ly & Hy1).
   destruct (min1_bound _ _ Ux0 Uy0) as (U0 & B0).
   destruct (max1_bound _ _ Ux1 Uy1) as (U1 & B1).
-  assert (E : rep (Interval.max x y) =
+  assert (E : rep (Interval.max true x y) =
                 (min1 (fst (rep x)) (fst (rep y)),
                  max1 (snd (rep x)) (snd (rep y)))).
   { rewrite max_rep, (proj2 (maximum1_minimum1 _ _ Ux0 Uy0)),
@@ -483,10 +544,14 @@ Qed.
 
 (** [Interval::min] does the same for [min]. *)
 Theorem min_correct :
-  forall x y, valid x -> valid y ->
-  is_hull (image2 Rmin x y) (Interval.min x y).
+  forall has_maximum x y, valid x -> valid y ->
+  is_hull (image2 Rmin x y) (Interval.min has_maximum x y).
 Proof.
-intros x y Hx Hy.
+intros has_maximum x y Hx Hy.
+(* Both branches return the same interval. *)
+replace (Interval.min has_maximum x y) with (Interval.min true x y)
+  by (destruct has_maximum;
+      [reflexivity | symmetry; exact (min_branches x y Hx Hy)]).
 destruct (is_nan (fst (rep x)) || is_nan (fst (rep y))) eqn:Hn.
 - apply Bool.orb_true_iff in Hn.
   exact (hull_nan Rmin x y _ Hx Hy Hn (proj2 (nan_rep x y Hx Hy Hn))).
@@ -495,7 +560,7 @@ destruct (is_nan (fst (rep x)) || is_nan (fst (rep y))) eqn:Hn.
   destruct (lanes_ok y Hy Hny) as (Uy0 & Uy1 & Ny & Ly & Hy1).
   destruct (max1_bound _ _ Ux0 Uy0) as (U0 & B0).
   destruct (min1_bound _ _ Ux1 Uy1) as (U1 & B1).
-  assert (E : rep (Interval.min x y) =
+  assert (E : rep (Interval.min true x y) =
                 (max1 (fst (rep x)) (fst (rep y)),
                  min1 (snd (rep x)) (snd (rep y)))).
   { rewrite min_rep, (proj1 (maximum1_minimum1 _ _ Ux0 Uy0)),

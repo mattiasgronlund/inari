@@ -5,8 +5,9 @@
     [Interval::max] or [Interval::min] and the minimum of the decorations
     of the arguments. If the second argument is NaI, that minimum is [ill],
     and [set_dec] returns NaI. [MaxMin.v] proves that the bare result is the
-    hull of the image of the box [x × y], and the proofs here use nothing
-    else about it.
+    hull of the image of the box [x × y] for either value of
+    [HAS_MAXIMUM], and the proofs here use nothing else about it, so they
+    hold for either value too.
 
     Section [Binary] proves the rest once, for any function [h] of two
     reals that is continuous at each point of R² and any interval operation
@@ -105,17 +106,21 @@ Qed.
     decoration that IEEE 1788 asks for, if each argument is [com] only when
     its interval is common. *)
 Theorem dec_max_correct :
-  forall x y, valid (itv x) -> valid (itv y) ->
+  forall has_maximum x y, valid (itv x) -> valid (itv y) ->
   com_common x ->
   com_common y ->
-  if DecInterval.is_nai x then DecInterval.max x y = x
-  else if DecInterval.is_nai y then DecInterval.max x y = DecInterval.NAI
+  if DecInterval.is_nai x then DecInterval.max has_maximum x y = x
+  else if DecInterval.is_nai y then
+    DecInterval.max has_maximum x y = DecInterval.NAI
   else
-    is_hull (image2 Rmax (itv x) (itv y)) (itv (DecInterval.max x y)) /\
-    exists d, strongest2 d Rmax (itv x) (itv y) (itv (DecInterval.max x y)) /\
-      dec (DecInterval.max x y) = dec_min d (dec_min (dec x) (dec y)).
+    is_hull (image2 Rmax (itv x) (itv y)) (itv (DecInterval.max has_maximum x y)) /\
+    exists d,
+      strongest2 d Rmax (itv x) (itv y) (itv (DecInterval.max has_maximum x y)) /\
+      dec (DecInterval.max has_maximum x y) = dec_min d (dec_min (dec x) (dec y)).
 Proof.
-exact (dec_binary_correct Rmax Interval.max Rmax_continuous max_correct).
+intros has_maximum.
+exact (dec_binary_correct Rmax (Interval.max has_maximum) Rmax_continuous
+         (max_correct has_maximum)).
 Qed.
 
 (** ** [min] *)
@@ -130,15 +135,19 @@ Qed.
 
 (** [DecInterval::min] does the same for [min]. *)
 Theorem dec_min_correct :
-  forall x y, valid (itv x) -> valid (itv y) ->
+  forall has_maximum x y, valid (itv x) -> valid (itv y) ->
   com_common x ->
   com_common y ->
-  if DecInterval.is_nai x then DecInterval.min x y = x
-  else if DecInterval.is_nai y then DecInterval.min x y = DecInterval.NAI
+  if DecInterval.is_nai x then DecInterval.min has_maximum x y = x
+  else if DecInterval.is_nai y then
+    DecInterval.min has_maximum x y = DecInterval.NAI
   else
-    is_hull (image2 Rmin (itv x) (itv y)) (itv (DecInterval.min x y)) /\
-    exists d, strongest2 d Rmin (itv x) (itv y) (itv (DecInterval.min x y)) /\
-      dec (DecInterval.min x y) = dec_min d (dec_min (dec x) (dec y)).
+    is_hull (image2 Rmin (itv x) (itv y)) (itv (DecInterval.min has_maximum x y)) /\
+    exists d,
+      strongest2 d Rmin (itv x) (itv y) (itv (DecInterval.min has_maximum x y)) /\
+      dec (DecInterval.min has_maximum x y) = dec_min d (dec_min (dec x) (dec y)).
 Proof.
-exact (dec_binary_correct Rmin Interval.min Rmin_continuous min_correct).
+intros has_maximum.
+exact (dec_binary_correct Rmin (Interval.min has_maximum) Rmin_continuous
+         (min_correct has_maximum)).
 Qed.
