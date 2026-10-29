@@ -8,6 +8,8 @@ impl Interval {
     // between `mul_rev_to_pair` (below) and `Div` (in arith.rs).
     #[inline]
     pub(crate) fn div_m_n1(self, rhs: Self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `(Dec)Interval::div`, so it has to be updated along with it.
         // M / N1 => [b/d, a/d] = [-b/d; a/d] = [b/-d; -a/-d] = [b; -a] ./ [-d; -d]
         let x = swap(self.rep); // [b; -a]
         let y = swap(rhs.rep); // [d; -c]
@@ -18,6 +20,8 @@ impl Interval {
 
     #[inline]
     pub(crate) fn div_m_p1(self, rhs: Self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `(Dec)Interval::div`, so it has to be updated along with it.
         // M / P1 => [a/c, b/c] = [-a/c; b/c] = [-a; b] ./ [c; c]
         let x = self.rep; // [-a; b]
         let y = neg0(rhs.rep); // [c; d]
@@ -27,6 +31,8 @@ impl Interval {
 
     #[inline]
     pub(crate) fn div_n_n0(self, rhs: Self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `(Dec)Interval::div`, so it has to be updated along with it.
         // N / N0 => [b/c, +∞] = [-b/c; +∞] = [b/-c; +∞]
         let x = swap(self.rep); // [b; -a]
         let y = rhs.rep; // [-c; d]
@@ -37,6 +43,8 @@ impl Interval {
 
     #[inline]
     pub(crate) fn div_n_n1(self, rhs: Self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `(Dec)Interval::div`, so it has to be updated along with it.
         // N / N1 => [b/c, a/d] = [-b/c; a/d] = [b/-c; a/d] = [b; a] ./ [-c; d]
         let x = neg0(self.rep); // [a; b]
         let x = swap(x); // [b; a]
@@ -46,6 +54,8 @@ impl Interval {
 
     #[inline]
     pub(crate) fn div_n_p0(self, rhs: Self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `(Dec)Interval::div`, so it has to be updated along with it.
         // N / P0 => [-∞, b/d] = [+∞; b/d]
         let x = self.rep; // [-a; b]
         let y = rhs.rep; // [-c; d]
@@ -56,6 +66,8 @@ impl Interval {
 
     #[inline]
     pub(crate) fn div_n_p1(self, rhs: Self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `(Dec)Interval::div`, so it has to be updated along with it.
         // N / P1 => [a/c, b/d] = [-a/c; b/d] = [-a; b] ./ [c; d]
         let x = self.rep; // [-a; b]
         let y = neg0(rhs.rep); // [c; d]
@@ -64,6 +76,8 @@ impl Interval {
 
     #[inline]
     pub(crate) fn div_p_n0(self, rhs: Self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `(Dec)Interval::div`, so it has to be updated along with it.
         // P / N0 => [-∞, a/c] = [+∞; a/c] = [+∞; -a/-c]
         let x = self.rep; // [-a; b]
         let y = rhs.rep; // [-c; d]
@@ -74,6 +88,8 @@ impl Interval {
 
     #[inline]
     pub(crate) fn div_p_n1(self, rhs: Self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `(Dec)Interval::div`, so it has to be updated along with it.
         // P / N1 => [b/d, a/c] = [-b/d; a/c] = [-b/d; -a/-c] = [-b; -a] ./ [d; -c]
         let x = swap(self.rep); // [b; -a]
         let x = neg0(x); // [-b; -a]
@@ -83,6 +99,8 @@ impl Interval {
 
     #[inline]
     pub(crate) fn div_p_p0(self, rhs: Self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `(Dec)Interval::div`, so it has to be updated along with it.
         // P / P0 => [a/d, +∞] = [-a/d; +∞]
         let x = self.rep; // [-a; b]
         let y = swap(rhs.rep); // [d; -c]
@@ -93,6 +111,8 @@ impl Interval {
 
     #[inline]
     pub(crate) fn div_p_p1(self, rhs: Self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `(Dec)Interval::div`, so it has to be updated along with it.
         // P / P1 => [a/d, b/c] = [-a/d; b/c] = [-a; b] ./ [d; c]
         let x = self.rep; // [-a; b]
         let y = neg0(rhs.rep); // [c; d]
@@ -489,6 +509,9 @@ impl Interval {
     /// | $\R ∖ \set 0$ | $\R ∖ \set 0$ |
     #[must_use]
     pub fn recip(self) -> Self {
+        // Proved correct in `rocq/theories/Recip.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         use IntervalClass::*;
         match self.classify() {
             E | Z => Self::EMPTY,
@@ -662,6 +685,11 @@ impl DecInterval {
     /// A NaI is returned if `self` is NaI.
     #[must_use]
     pub fn recip(self) -> Self {
+        // Proved correct in `rocq/theories/Recip.v` for the portable backend if `self` is
+        // `com` only when `self.x` is common, which `rocq/theories/ComCommon.v` proves of
+        // every `DecInterval` that the library makes.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() {
             return self;
         }

@@ -151,6 +151,9 @@ impl Div for Interval {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/Div.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         // [a, b] / [c, d] =
         //
         //    |  M  |     N0    |     N1     |     P0    |     P1     | Z
@@ -256,6 +259,11 @@ impl Div for DecInterval {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/Div.v` for the portable backend if `self` and
+        // `rhs` are `com` only when `self.x` and `rhs.x` are common, which
+        // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() || rhs.is_nai() {
             return Self::NAI;
         }

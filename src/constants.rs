@@ -10,7 +10,8 @@ impl Interval {
     pub const EMPTY: Self = unsafe { transmute([f64::NAN, f64::NAN]) };
 
     /// $\[-∞, +∞\]$.
-    // `rocq/theories/Model.v` transcribes this constant for the proof that every
+    // `rocq/theories/Model.v` transcribes this constant for the proofs of
+    // `(Dec)Interval::div` and `(Dec)Interval::recip`, and for the proof that every
     // `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`).
     pub const ENTIRE: Self = const_interval!(f64::NEG_INFINITY, f64::INFINITY);
 

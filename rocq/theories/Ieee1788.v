@@ -1,17 +1,18 @@
 (** * What IEEE 1788 asks of an interval version of a function
 
-    The theorems in [Abs.v], [AddSub.v], [Integer.v], [MaxMin.v],
-    [DecMaxMin.v], [Mul.v], [Neg.v], [Round.v], [Sign.v], [Sqr.v],
-    [Sqrt.v] and [Trunc.v] are stated with the definitions here and the
-    ones in [Model.v]. Like [Model.v], this file has to be checked by
-    reading: against the standard, IEEE Std 1788-2015, rather than against
-    the Rust code. Continuity of a function of one real is that of Stdlib's
-    [continuity_pt] and [continue_in], and of two reals that of
+    The theorems in [Abs.v], [AddSub.v], [Div.v], [Integer.v], [MaxMin.v],
+    [DecMaxMin.v], [Mul.v], [Neg.v], [Recip.v], [Round.v], [Sign.v],
+    [Sqr.v], [Sqrt.v] and [Trunc.v] are stated with the definitions here
+    and the ones in [Model.v]. Like [Model.v], this file has to be checked
+    by reading: against the standard, IEEE Std 1788-2015, rather than
+    against the Rust code. Continuity of a function of one real is that of
+    Stdlib's [continuity_pt] and [continue_in], and of two reals that of
     [continuity2_pt] and [continue_in2] below. The point functions [abs],
-    [max], [min], [neg], [add], [sub], [mul], [sqr] and [sqrt] are
-    Stdlib's [Rabs], [Rmax], [Rmin], [Ropp], [Rplus], [Rminus], [Rmult],
-    [Rsqr] and [sqrt], the last two with their domains [sqr_dom], which is
-    all of R, and [sqrt_dom]. *)
+    [max], [min], [neg], [add], [sub], [mul], [sqr], [sqrt], [recip] and
+    [div] are Stdlib's [Rabs], [Rmax], [Rmin], [Ropp], [Rplus], [Rminus],
+    [Rmult], [Rsqr], [sqrt], [Rinv] and [Rdiv], the last four with their
+    domains [sqr_dom], which is all of R, [sqrt_dom], [recip_dom], and the
+    product of [div_dom1] and [div_dom2]. *)
 
 From Stdlib Require Import Reals.
 From Flocq Require Import Core.Raux Core.Generic_fmt Core.Round_NE.
@@ -117,6 +118,10 @@ Definition sqrt_dom (r : R) : Prop := 0 <= r.
     [[f64::MAX, +inf]], though the image is bounded. *)
 Definition sqr_dom (r : R) : Prop := True.
 
+(** The domain of the point function [recip], all reals but 0. Stdlib's
+    [Rinv] returns 0 at 0, and that value is never used. *)
+Definition recip_dom (r : R) : Prop := r <> 0.
+
 (** The image of the interval [x] under [f] defined on [D], which the
     standard writes [Rge(f | x)]: the values of [f] at the reals of [x]
     that are in [D]. The reals of [x] outside [D] are ignored, so the
@@ -205,3 +210,59 @@ Definition p2 (d : Decoration) (f : R -> R -> R) (x y z : Interval) : Prop :=
 Definition strongest2 (d : Decoration) (f : R -> R -> R) (x y z : Interval) :
     Prop :=
   p2 d f x y z /\ forall e, p2 e f x y z -> (discriminant e <= discriminant d)%Z.
+
+(** ** Functions of two reals with a domain
+
+    A point function of two reals may be defined only on a subset of R².
+    Here the domain is a product [D1 × D2] of two sets of reals, as that of
+    [/], [R × (R ∖ {0})], is. A product suffices for [/], and it lets the
+    restriction of [f] to the domain be stated with [continue_in2], as for
+    a box. As for one real, only the values of [f] on the domain matter:
+    Stdlib's [Rdiv] returns 0 for a divisor 0, and that value is never
+    used. *)
+
+(** The domain of the point function [/], [div_dom1 × div_dom2]. *)
+Definition div_dom1 (r : R) : Prop := True.
+Definition div_dom2 (t : R) : Prop := t <> 0.
+
+(** The image of the box [x × y] under [f] defined on [D1 × D2]: the values
+    of [f] at the points of the box that are in the domain. The image of
+    [[1, 2] × [0, 1]] under [/] is [[1, +inf)]. *)
+Definition image2_dom (D1 D2 : R -> Prop) (f : R -> R -> R) (x y : Interval) :
+    R -> Prop :=
+  fun s => exists r t, mem r x /\ mem t y /\ D1 r /\ D2 t /\ s = f r t.
+
+(** [p_dom D d f x z] for a function [f] of two reals defined on
+    [D1 × D2], and the box [x × y] in place of [x]: the box is a nonempty
+    subset of the domain if [x] and [y] are nonempty subsets of [D1] and
+    [D2], and bounded if they are bounded. For [com], [f] is continuous at
+    each point of the box relative to the domain, as in [p_dom], and the
+    computed interval [z] is bounded, as in [p2]. *)
+Definition p2_dom (D1 D2 : R -> Prop) (d : Decoration) (f : R -> R -> R)
+    (x y z : Interval) : Prop :=
+  let X := fun r => mem r x in
+  let Y := fun t => mem t y in
+  match d with
+  | Ill => False
+  | Trv => True
+  | Def =>
+      (exists r, X r) /\ (exists t, Y t) /\
+      (forall r, X r -> D1 r) /\ (forall t, Y t -> D2 t)
+  | Dac =>
+      (exists r, X r) /\ (exists t, Y t) /\
+      (forall r, X r -> D1 r) /\ (forall t, Y t -> D2 t) /\
+      forall r t, X r -> Y t -> continue_in2 f X Y r t
+  | Com =>
+      (exists r, X r) /\ (exists t, Y t) /\
+      (forall r, X r -> D1 r) /\ (forall t, Y t -> D2 t) /\
+      bounded X /\ bounded Y /\
+      (forall r t, X r -> Y t -> continue_in2 f D1 D2 r t) /\
+      bounded (fun s => mem s z)
+  end.
+
+(** [strongest2 d f x y z] for a function [f] of two reals defined on
+    [D1 × D2]. *)
+Definition strongest2_dom (D1 D2 : R -> Prop) (d : Decoration) (f : R -> R -> R)
+    (x y z : Interval) : Prop :=
+  p2_dom D1 D2 d f x y z /\
+  forall e, p2_dom D1 D2 e f x y z -> (discriminant e <= discriminant d)%Z.

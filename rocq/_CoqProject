@@ -50,3 +50,10 @@ theories/MulZero.v
 theories/Mul.v
 theories/Sqrt.v
 theories/Sqr.v
+theories/DivTight.v
+theories/DivLane.v
+theories/DivSets.v
+theories/DivZero.v
+theories/DivCases.v
+theories/Recip.v
+theories/Div.v

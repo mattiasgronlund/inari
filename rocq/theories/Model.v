@@ -5,9 +5,9 @@
     side by side. The section on intervals at the end does the same for the
     parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
     [src/integer.rs], [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
-    that [abs], [ceil], [floor], [max], [min], [round], [round_ties_even],
-    [sign], [sqr], [sqrt], [trunc], [neg], [add], [sub] and [mul] of
-    intervals use, and for each
+    that [abs], [ceil], [floor], [max], [min], [recip], [round],
+    [round_ties_even], [sign], [sqr], [sqrt], [trunc], [neg], [add], [sub],
+    [mul] and [div] of intervals use, and for each
     place in [src/interval.rs], [src/constants.rs], [src/set_op.rs] and
     [src/bytes.rs] that makes a [DecInterval]. This file is
     the only one that has to be checked against the Rust code, and
@@ -731,15 +731,16 @@ End Generic.
     The parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
     [src/integer.rs], [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
     that [Interval::abs], [Interval::ceil], [Interval::floor],
-    [Interval::max], [Interval::min], [Interval::round],
+    [Interval::max], [Interval::min], [Interval::recip], [Interval::round],
     [Interval::round_ties_even], [Interval::sign], [Interval::sqr],
-    [Interval::sqrt], [Interval::trunc], [-x], [x + y], [x - y] and [x * y]
-    of intervals, and their decorated versions, use. Those call the
-    backend's [floor], [ceil], [round], [round_ties_even], [trunc], [neg0],
-    [splat], [constant], [ge], [gt], [le], [lt], [all], [bitmask], [and],
-    [or], [max], [maximum], [min], [minimum], [shuffle02], [shuffle03],
-    [shuffle13], [swap], [add_ru], [mul_ru], [sqrt1_ru], [sqrt_rd_ru] and
-    [HAS_MAXIMUM], which are the ones in [Generic] here.
+    [Interval::sqrt], [Interval::trunc], [-x], [x + y], [x - y], [x * y]
+    and [x / y] of intervals, and their decorated versions, use. Those call
+    the backend's [floor], [ceil], [round], [round_ties_even], [trunc],
+    [neg0], [splat], [constant], [ge], [gt], [le], [lt], [all], [bitmask],
+    [and], [or], [max], [maximum], [min], [minimum], [shuffle02],
+    [shuffle03], [shuffle13], [swap], [add_ru], [mul_ru], [div_ru],
+    [sqrt1_ru], [sqrt_rd_ru] and [HAS_MAXIMUM], which are the ones in
+    [Generic] here.
 
     For [ComCommon.v], it also transcribes the other places that make a
     [DecInterval]: [new], the constants, [convex_hull] and [intersection],
@@ -880,6 +881,14 @@ Definition is_empty (self : Interval) : bool := is_nan (fst (rep self)).
 Definition is_singleton (self : Interval) : bool :=
   eq (inf_raw self) (sup_raw self).
 
+(** [pub fn contains(self, rhs: f64) -> bool], where [f64::is_finite] is
+    Flocq's [is_finite], which is true exactly for the floats that are
+    neither infinite nor NaN, as [f64::is_finite] is, and whose [&] on
+    [bool]s gives the same value as [&&]. *)
+Definition contains (self : Interval) (rhs : f64) : bool :=
+  is_finite rhs &&
+  Generic.all (Generic.le (Generic.neg0 (Generic.splat rhs)) (rep self)).
+
 (** [pub(crate) fn either_empty(self, rhs: Self) -> bool], whose [|] on
     [bool]s gives the same value as [||]. *)
 Definition either_empty (self rhs : Interval) : bool :=
@@ -1015,10 +1024,11 @@ Definition sub (self rhs : Interval) : option Interval :=
   let* r := Generic.add_ru x y in
   Some {| rep := r |}.
 
-(** [pub(crate) fn zero() -> Self]. [zero], [sqr] and [mul] come last, as
-    [zero] and [mul] shadow the [zero] and [mul] on floats, and
-    [classify], [abs], [sign] and [sqrt] above use that [zero]. [sqr]
-    comes after [zero], which it calls. *)
+(** [pub(crate) fn zero() -> Self]. [zero], [sqr], [mul], the divisions,
+    [recip] and [div] come last, as [zero], [mul] and [div] shadow the
+    [zero], [mul] and [div] on floats, and [classify], [abs], [sign] and
+    [sqrt] above use that [zero]. [sqr] and [div] come after [zero], which
+    they call. *)
 Definition zero : Interval := {| rep := Generic.splat zero |}.
 
 (** [pub fn sqr(self) -> Self]. Its [mul_ru] calls [mul_ru_impl::<HAS_FMA>],
@@ -1114,6 +1124,142 @@ Definition mul (has_fma : bool) (self rhs : Interval) : option Interval :=
       let y := Generic.neg0 (rep rhs) in
       let* r := Generic.mul_ru has_fma x y in
       Some {| rep := r |}
+  end.
+
+(** [pub(crate) fn div_m_n1(self, rhs: Self) -> Self] and the other
+    divisions of [[a, b]] by [[c, d]] in [src/basic.rs], one for each case
+    of [div] below. Their [div_ru] calls [div_ru_impl::<HAS_FMA>], so
+    [has_fma] is an argument, as for [mul], and [f64::INFINITY] is
+    [infinity]. *)
+Definition div_m_n1 (has_fma : bool) (self rhs : Interval) : option Interval :=
+  let x := Generic.swap (rep self) in
+  let y := Generic.swap (rep rhs) in
+  let y := Generic.neg0 y in
+  let y := Generic.shuffle02 y y in
+  let* r := Generic.div_ru has_fma x y in
+  Some {| rep := r |}.
+
+(** [pub(crate) fn div_m_p1(self, rhs: Self) -> Self] *)
+Definition div_m_p1 (has_fma : bool) (self rhs : Interval) : option Interval :=
+  let x := rep self in
+  let y := Generic.neg0 (rep rhs) in
+  let y := Generic.shuffle02 y y in
+  let* r := Generic.div_ru has_fma x y in
+  Some {| rep := r |}.
+
+(** [pub(crate) fn div_n_n0(self, rhs: Self) -> Self] *)
+Definition div_n_n0 (has_fma : bool) (self rhs : Interval) : option Interval :=
+  let x := Generic.swap (rep self) in
+  let y := rep rhs in
+  let* r := Generic.div_ru has_fma x y in
+  Some {| rep := Generic.shuffle02 r (Generic.splat infinity) |}.
+
+(** [pub(crate) fn div_n_n1(self, rhs: Self) -> Self] *)
+Definition div_n_n1 (has_fma : bool) (self rhs : Interval) : option Interval :=
+  let x := Generic.neg0 (rep self) in
+  let x := Generic.swap x in
+  let y := rep rhs in
+  let* r := Generic.div_ru has_fma x y in
+  Some {| rep := r |}.
+
+(** [pub(crate) fn div_n_p0(self, rhs: Self) -> Self] *)
+Definition div_n_p0 (has_fma : bool) (self rhs : Interval) : option Interval :=
+  let x := rep self in
+  let y := rep rhs in
+  let* r := Generic.div_ru has_fma x y in
+  Some {| rep := Generic.shuffle03 (Generic.splat infinity) r |}.
+
+(** [pub(crate) fn div_n_p1(self, rhs: Self) -> Self] *)
+Definition div_n_p1 (has_fma : bool) (self rhs : Interval) : option Interval :=
+  let x := rep self in
+  let y := Generic.neg0 (rep rhs) in
+  let* r := Generic.div_ru has_fma x y in
+  Some {| rep := r |}.
+
+(** [pub(crate) fn div_p_n0(self, rhs: Self) -> Self] *)
+Definition div_p_n0 (has_fma : bool) (self rhs : Interval) : option Interval :=
+  let x := rep self in
+  let y := rep rhs in
+  let* r := Generic.div_ru has_fma x y in
+  Some {| rep := Generic.shuffle02 (Generic.splat infinity) r |}.
+
+(** [pub(crate) fn div_p_n1(self, rhs: Self) -> Self] *)
+Definition div_p_n1 (has_fma : bool) (self rhs : Interval) : option Interval :=
+  let x := Generic.swap (rep self) in
+  let x := Generic.neg0 x in
+  let y := Generic.swap (rep rhs) in
+  let* r := Generic.div_ru has_fma x y in
+  Some {| rep := r |}.
+
+(** [pub(crate) fn div_p_p0(self, rhs: Self) -> Self] *)
+Definition div_p_p0 (has_fma : bool) (self rhs : Interval) : option Interval :=
+  let x := rep self in
+  let y := Generic.swap (rep rhs) in
+  let* r := Generic.div_ru has_fma x y in
+  Some {| rep := Generic.shuffle02 r (Generic.splat infinity) |}.
+
+(** [pub(crate) fn div_p_p1(self, rhs: Self) -> Self] *)
+Definition div_p_p1 (has_fma : bool) (self rhs : Interval) : option Interval :=
+  let x := rep self in
+  let y := Generic.neg0 (rep rhs) in
+  let y := Generic.swap y in
+  let* r := Generic.div_ru has_fma x y in
+  Some {| rep := r |}.
+
+(** [pub fn recip(self) -> Self], with [has_fma] as for the divisions
+    above. [-1.0] is [opp (of_u64 1)], as in [sign]. *)
+Definition recip (has_fma : bool) (self : Interval) : option Interval :=
+  let* c := classify self in
+  match c with
+  | CE | CZ => Some EMPTY
+  | CM => Some ENTIRE
+  | CN0 =>
+      let x := Generic.splat (opp (of_u64 1)) in
+      let y := rep self in
+      let* r := Generic.div_ru has_fma x y in
+      Some {| rep := Generic.shuffle02 (Generic.splat infinity) r |}
+  | CN1 =>
+      let x := Generic.splat (opp (of_u64 1)) in
+      let y := Generic.swap (rep self) in
+      let* r := Generic.div_ru has_fma x y in
+      Some {| rep := r |}
+  | CP0 =>
+      let x := Generic.splat (opp (of_u64 1)) in
+      let y := rep self in
+      let* r := Generic.div_ru has_fma x y in
+      Some {| rep := Generic.shuffle13 r (Generic.splat infinity) |}
+  | CP1 =>
+      let x := Generic.splat (opp (of_u64 1)) in
+      let y := Generic.swap (rep self) in
+      let* r := Generic.div_ru has_fma x y in
+      Some {| rep := r |}
+  end.
+
+(** [fn div(self, rhs: Self) -> Self] of [impl Div for Interval], with
+    [has_fma] as for the divisions above, and the variants of
+    [IntervalClass2] and [Self::zero()] as in [mul]. *)
+Definition div (has_fma : bool) (self rhs : Interval) : option Interval :=
+  let* c := classify2 self rhs in
+  match c with
+  | (CE, CE) | (CE, CM) | (CE, CN0) | (CE, CN1) | (CE, CP0) | (CE, CP1)
+  | (CE, CZ) | (CM, CE) | (CM, CZ) | (CN0, CE) | (CN0, CZ) | (CN1, CE)
+  | (CN1, CZ) | (CP0, CE) | (CP0, CZ) | (CP1, CE) | (CP1, CZ) | (CZ, CE)
+  | (CZ, CZ) =>
+      Some EMPTY
+  | (CM, CM) | (CM, CN0) | (CM, CP0) | (CN0, CM) | (CN1, CM) | (CP0, CM)
+  | (CP1, CM) =>
+      Some ENTIRE
+  | (CZ, CM) | (CZ, CN0) | (CZ, CN1) | (CZ, CP0) | (CZ, CP1) => Some zero
+  | (CM, CN1) => div_m_n1 has_fma self rhs
+  | (CM, CP1) => div_m_p1 has_fma self rhs
+  | (CN0, CN0) | (CN1, CN0) => div_n_n0 has_fma self rhs
+  | (CN0, CN1) | (CN1, CN1) => div_n_n1 has_fma self rhs
+  | (CN0, CP0) | (CN1, CP0) => div_n_p0 has_fma self rhs
+  | (CN0, CP1) | (CN1, CP1) => div_n_p1 has_fma self rhs
+  | (CP0, CN0) | (CP1, CN0) => div_p_n0 has_fma self rhs
+  | (CP0, CN1) | (CP1, CN1) => div_p_n1 has_fma self rhs
+  | (CP0, CP0) | (CP1, CP0) => div_p_p0 has_fma self rhs
+  | (CP0, CP1) | (CP1, CP1) => div_p_p1 has_fma self rhs
   end.
 
 End Interval.
@@ -1302,9 +1448,10 @@ Definition trunc : DecInterval -> DecInterval :=
         eq (Interval.sup_raw x) (Interval.sup_raw y))).
 
 (** [fn neg(self) -> Self] of [impl Neg for DecInterval], where [-self.x]
-    is [Interval.neg (itv self)]. [neg], [add], [sub] and [mul] come last,
-    so that the [sub] in [round] and [round_ties_even] is still the one on
-    floats, and [mul] shadows the one on floats in no other definition. *)
+    is [Interval.neg (itv self)]. [neg], [add], [sub], [mul], [recip] and
+    [div] come last, so that the [sub] in [round] and [round_ties_even] is
+    still the one on floats, and [mul] and [div] shadow the ones on floats
+    in no other definition. *)
 Definition neg (self : DecInterval) : DecInterval :=
   if is_nai self then self
   else set_dec (Interval.neg (itv self)) (dec self).
@@ -1330,5 +1477,28 @@ Definition mul (has_fma : bool) (self rhs : DecInterval) : option DecInterval :=
   else
     let* x := Interval.mul has_fma (itv self) (itv rhs) in
     Some (set_dec x (dec_min (dec self) (dec rhs))).
+
+(** [pub fn recip(self) -> Self], where [self.x.recip()] is
+    [Interval.recip has_fma (itv self)], with the [has_fma] of
+    [Interval.recip] as an argument here too, and [0.0] is +0. *)
+Definition recip (has_fma : bool) (self : DecInterval) : option DecInterval :=
+  if is_nai self then Some self
+  else
+    let d := if Interval.contains (itv self) zero then Trv else dec self in
+    let* x := Interval.recip has_fma (itv self) in
+    Some (set_dec x d).
+
+(** [fn div(self, rhs: Self) -> Self] of [impl Div for DecInterval], where
+    [self.x / rhs.x] is [Interval.div has_fma (itv self) (itv rhs)], with
+    the [has_fma] of [Interval.div] as an argument here too, and [0.0] is
+    +0. *)
+Definition div (has_fma : bool) (self rhs : DecInterval) : option DecInterval :=
+  if is_nai self || is_nai rhs then Some NAI
+  else
+    let d :=
+      if Interval.contains (itv rhs) zero then Trv
+      else dec_min (dec self) (dec rhs) in
+    let* x := Interval.div has_fma (itv self) (itv rhs) in
+    Some (set_dec x d).
 
 End DecInterval.

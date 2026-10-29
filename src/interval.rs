@@ -63,11 +63,11 @@ pub struct Interval {
     //
     // `rocq/theories/Model.v` states this form, with the bounds that `TryFrom<(f64, f64)>`
     // accepts, as `valid`, for the proofs of `(Dec)Interval::abs`, `(Dec)Interval::add`,
-    // `(Dec)Interval::ceil`, `(Dec)Interval::floor`, `(Dec)Interval::max`,
-    // `(Dec)Interval::min`, `(Dec)Interval::mul`, `(Dec)Interval::neg`,
-    // `(Dec)Interval::round`, `(Dec)Interval::round_ties_even`, `(Dec)Interval::sign`,
-    // `(Dec)Interval::sqr`, `(Dec)Interval::sqrt`, `(Dec)Interval::sub` and
-    // `(Dec)Interval::trunc`.
+    // `(Dec)Interval::ceil`, `(Dec)Interval::div`, `(Dec)Interval::floor`,
+    // `(Dec)Interval::max`, `(Dec)Interval::min`, `(Dec)Interval::mul`,
+    // `(Dec)Interval::neg`, `(Dec)Interval::recip`, `(Dec)Interval::round`,
+    // `(Dec)Interval::round_ties_even`, `(Dec)Interval::sign`, `(Dec)Interval::sqr`,
+    // `(Dec)Interval::sqrt`, `(Dec)Interval::sub` and `(Dec)Interval::trunc`.
     pub(crate) rep: F64X2,
 }
 
@@ -102,7 +102,7 @@ impl Interval {
 
     pub(crate) fn zero() -> Self {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `(Dec)Interval::mul` and `(Dec)Interval::sqr`.
+        // `(Dec)Interval::div`, `(Dec)Interval::mul` and `(Dec)Interval::sqr`.
         Self { rep: splat(0.0) }
     }
 }
@@ -213,12 +213,13 @@ impl DecInterval {
     /// | Empty                | [`Decoration::Trv`], [`Decoration::Ill`]                                                                |
     pub fn set_dec(x: Interval, d: Decoration) -> Self {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`,
+        // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::div`,
         // `DecInterval::floor`, `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`,
-        // `DecInterval::neg`, `DecInterval::round`, `DecInterval::round_ties_even`,
-        // `DecInterval::sign`, `DecInterval::sqr`, `DecInterval::sqrt`, `DecInterval::sub`
-        // and `DecInterval::trunc`, and for the proof that every `DecInterval` is `com` only
-        // if its interval is common (`rocq/theories/ComCommon.v`).
+        // `DecInterval::neg`, `DecInterval::recip`, `DecInterval::round`,
+        // `DecInterval::round_ties_even`, `DecInterval::sign`, `DecInterval::sqr`,
+        // `DecInterval::sqrt`, `DecInterval::sub` and `DecInterval::trunc`, and for the
+        // proof that every `DecInterval` is `com` only if its interval is common
+        // (`rocq/theories/ComCommon.v`).
         use Decoration::*;
 
         if d == Ill {
