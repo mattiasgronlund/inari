@@ -10,7 +10,9 @@
 // Each error-free transformation is only valid under some no-underflow and
 // no-overflow hypotheses. The fast paths check them lane by lane with integer
 // comparisons of the exponents, and lanes that fail are recomputed by a slow path
-// that uses exact integer arithmetic.
+// that uses exact integer arithmetic. In `mul_ru`, the failing lanes whose product
+// is below 2^-968 in magnitude are instead rounded by `mul1_ru_tiny`, which scales
+// them into the range of the fast path unless the product rounds to ±0.
 //
 // References:
 //
@@ -419,7 +421,7 @@ pub(super) fn mul_add_ru_impl<const FMA: bool>(x: F64X2, y: F64X2, z: F64X2) -> 
 }
 
 pub(super) fn mul_ru_impl<const FMA: bool>(x: F64X2, y: F64X2) -> F64X2 {
-    lanewise2(x, y, mul1_ru_fast::<FMA>, mul1_ru_slow)
+    lanewise2(x, y, mul1_ru_fast::<FMA>, mul1_ru_tiny::<FMA>)
 }
 
 // Proved correct in `rocq/theories/SqrtRdRu.v` for both values of `FMA`, as are
@@ -869,16 +871,68 @@ fn add1_ru_slow(x: f64, y: f64) -> f64 {
 }
 
 // Proved correct in `rocq/theories/MulRu.v`, as is `mul_ru`. `rocq/theories/Model.v`
-// transcribes this function and the ones it calls, as well as `mul_ru_impl` and
-// `mul_ru`, so it has to be updated along with them.
+// transcribes this function and the ones it calls, as well as `mul1_ru_tiny`,
+// `mul_ru_impl` and `mul_ru`, so it has to be updated along with them.
 #[cold]
-fn mul1_ru_slow(x: f64, y: f64) -> f64 {
+pub(super) fn mul1_ru_slow(x: f64, y: f64) -> f64 {
     if !(is_finite(x) && is_finite(y)) || x == 0.0 || y == 0.0 {
         return x * y;
     }
     let (sx, mx, ex) = decompose(x);
     let (sy, my, ey) = decompose(y);
     round_up_exact(sx != sy, mx as u128 * my as u128, ex + ey, false)
+}
+
+// Returns RU(x * y) for x and y that `mul1_ru_fast` rejects. Products below
+// 2^-968 in magnitude are rounded here, by the fast path on a scaled product or,
+// where they round to ±0, by their sign, rather than with the slower integer
+// arithmetic of `mul1_ru_slow`. The others go to `mul1_ru_slow`: RN(x * y)
+// overflows, or, in Dekker's variant only, RN(x * y) is at least 2^1023 in
+// magnitude or a factor is at least 2^996.
+// Proved correct in `rocq/theories/MulRu.v` for both values of `FMA`, as is
+// `mul_ru`. `rocq/theories/Model.v` transcribes this function and the ones it
+// calls, so it has to be updated along with them.
+#[cold]
+fn mul1_ru_tiny<const FMA: bool>(x: f64, y: f64) -> f64 {
+    // Powers of two, so that scaling by them is exact unless it overflows or
+    // underflows.
+    const TWO_POW_64: f64 = 18446744073709551616.0;
+    const TWO_POW_128: f64 = TWO_POW_64 * TWO_POW_64;
+    const TWO_POW_M128: f64 = 1.0 / TWO_POW_128;
+    let p = x * y;
+    let special = !(is_finite(x) && is_finite(y)) || x == 0.0 || y == 0.0;
+    if special || exponent(p) >= -968 {
+        return mul1_ru_slow(x, y);
+    }
+    // Let z = x * y exactly. |p| < 2^-968, which is a float, so |z| < 2^-968.
+    if p == 0.0 {
+        // Then |z| <= 2^-1075, and p has the sign of z. RU(z) is the least
+        // positive float, 2^-1074, if z > 0, and -0 if z < 0.
+        return if p.is_sign_negative() {
+            p
+        } else {
+            f64::from_bits(1)
+        };
+    }
+    // Otherwise |z| > 2^-1075. Let S = 2^128. As |x|, |y| >= 2^-1074,
+    // |x|, |y| < 2^106, so x * S is exact and below 2^234, and 2^-947 < |z * S| <
+    // 2^-840: `two_prod_is_exact` holds for x * S and y with either value of `FMA`,
+    // and rs = RU(z * S).
+    let (rs, ok) = mul1_ru_fast::<FMA>(x * TWO_POW_128, y);
+    debug_assert!(ok);
+    // Then RU(z) = RU(rs / S). As rs / S >= z, RU(rs / S) >= RU(z). Conversely,
+    // g = RU(z) is a float with |g| <= 2^-968, so g * S is a float, and since
+    // g * S >= z * S, g * S >= rs: g is a float >= rs / S, so g >= RU(rs / S).
+    //
+    // RU(rs / S) is q = RN(rs / S) if q >= rs / S, and the successor of q
+    // otherwise: no float lies strictly between q and rs / S. q * S is exact, as
+    // |q| <= 2^-968, so comparing it with rs compares q with rs / S.
+    let q = rs * TWO_POW_M128;
+    if q * TWO_POW_128 < rs {
+        step_up(q)
+    } else {
+        q
+    }
 }
 
 // Proved correct in `rocq/theories/DivRu.v`, as is `div_ru`. `rocq/theories/Model.v`

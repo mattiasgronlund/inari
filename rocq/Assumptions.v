@@ -13,6 +13,7 @@ Print Assumptions sub_ru_correct.
 Print Assumptions two_prod_err_correct.
 Print Assumptions mul1_ru_fast_correct.
 Print Assumptions mul1_ru_slow_correct.
+Print Assumptions mul1_ru_tiny_correct.
 Print Assumptions mul_ru_impl_correct.
 Print Assumptions mul_ru_correct.
 Print Assumptions div1_ru_fast_correct.

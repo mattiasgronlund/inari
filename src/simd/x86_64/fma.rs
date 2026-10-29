@@ -126,9 +126,9 @@ fn mul_ru_fast(x: F64X2, y: F64X2, p: F64X2, special: F64X2) -> F64X2 {
 /// `mul_ru` where some lane fails `ok`: there, x and y are finite and nonzero,
 /// and p = RN(x * y) is below 2^-968 or ±∞.
 ///
-/// Products below 2^-968 are rounded here rather than by the generic backend's
-/// slow path, which takes several times as long: in operations recorded from
-/// rcad, a CAD kernel, most products were that small.
+/// Products below 2^-968 are rounded here, on both lanes at once, rather than by
+/// the generic backend: in operations recorded from rcad, a CAD kernel, most
+/// products were that small. The algorithm is that of `generic::mul1_ru_tiny`.
 fn mul_ru_tiny(x: F64X2, y: F64X2, p: F64X2, ok: F64X2, special: F64X2) -> F64X2 {
     // Powers of two, so that scaling by them is exact unless it overflows or
     // underflows.

@@ -241,7 +241,7 @@ why all three columns agree on `sqrt1_ru`.
 `fma`'s `mul_ru` rounds a product upward by computing its rounding error with an
 FMA, and relies on that error being exact only where the product's exponent is
 at least -968. It used to hand every pair with a lane below that to `generic`,
-whose slow path rounds the exact product in 128-bit integer arithmetic. It now
+whose slow path rounded the exact product in 128-bit integer arithmetic. It now
 scales one factor of such a lane by 2^128, rounds the scaled product on the fast
 path and scales the result back (`mul_ru_tiny` in `src/simd/x86_64/fma.rs`), so
 that only products that overflow still go to `generic`. The `mul_tiny`

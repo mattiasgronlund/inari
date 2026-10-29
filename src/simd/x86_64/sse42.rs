@@ -7,10 +7,10 @@
 // the generic backend (see `generic.rs`) instead: the fast paths are the same,
 // computed on both lanes at once, and the few inputs that fail their checks in
 // either lane are recomputed by the generic backend. `mul_ru` goes further: where
-// x and y are nonzero and |RN(x * y)| < 2^-968, which sends the generic backend
-// to its slow path, it computes RU(x * y) itself (see `mul_ru_tiny`). Without
-// FMA, Dekker's TwoProduct is used throughout. The scalar operations are those
-// of the generic backend.
+// x and y are nonzero and |RN(x * y)| < 2^-968, which its fast path rejects, it
+// computes RU(x * y) itself, as `generic::mul1_ru_tiny` does (see
+// `mul_ru_tiny`). Without FMA, Dekker's TwoProduct is used throughout. The
+// scalar operations are those of the generic backend.
 //
 // This is a port of the `wasm32` backend, which is the same method on a
 // different instruction set. The parts that do not depend on having an FMA are

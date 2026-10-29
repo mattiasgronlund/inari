@@ -11,6 +11,7 @@ theories/AddRu.v
 theories/SubRu.v
 theories/StepUp.v
 theories/TwoProduct.v
+theories/MulRuTiny.v
 theories/MulRu.v
 theories/DivRemainder.v
 theories/DivRuFast.v

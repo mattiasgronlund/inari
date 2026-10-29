@@ -113,7 +113,7 @@ const SPECIAL: [f64; 9] = [
 
 // Exponents around the thresholds of the fast paths and of the format. Below
 // 2^-1075, a product rounds to ±0, which `mul_ru_tiny` in the `fma`, `sse42` and
-// `wasm32` backends handles separately.
+// `wasm32` backends and `generic::mul1_ru_tiny` handle separately.
 const BOUNDARY_EXPONENTS: [i32; 15] = [
     -1075, -1074, -1022, -1021, -1020, -970, -968, -967, -966, 0, 995, 996, 1021, 1022, 1023,
 ];
@@ -332,11 +332,12 @@ fn random_pair(rng: &mut Rng, name: &str) -> (f64, f64) {
                 let y = rng.any();
                 return (rng.nudge(x * y), y);
             } else if name.starts_with("mul") {
-                // A product near or below 2^-968, where `mul_ru_tiny` takes over:
-                // e_x from -1023 (subnormal) to 110, and e_y = t - e_x for t from
-                // -1080 to -960. Two nonzero floats whose product is below 2^-968
-                // are below 2^106, which `mul_ru_tiny` relies on. It scales x
-                // alone, so the factors are swapped half the time.
+                // A product near or below 2^-968, where `mul_ru_tiny` and
+                // `generic::mul1_ru_tiny` take over: e_x from -1023 (subnormal) to
+                // 110, and e_y = t - e_x for t from -1080 to -960. Two nonzero
+                // floats whose product is below 2^-968 are below 2^106, which both
+                // rely on. Both scale x alone, so the factors are swapped half the
+                // time.
                 let ex = rng.below(1134) as i32 - 1023;
                 let x = rng.with_exponent(ex);
                 let t = rng.below(121) as i32 - 1080;
@@ -435,17 +436,20 @@ fn tiny_triple(rng: &mut Rng) -> (f64, f64, f64) {
     (a, b, c)
 }
 
+// 2^e, for e from -1074 to 1023.
+fn pow2(e: i32) -> f64 {
+    if e >= -1022 {
+        f64::from_bits(((e + 1023) as u64) << 52)
+    } else {
+        f64::from_bits(1 << (e + 1074))
+    }
+}
+
 // Hand-picked values: signed zeros, the smallest and largest subnormals, the
 // fast-path thresholds, halfway cases (1 ± 2^-27, 1 + 2^-53), values whose
 // splitting overflows (>= 2^996), and ±MAX, ±∞ and NaN, with their neighbors.
 fn adversarial(with_neighbors: bool) -> Vec<f64> {
-    let p = |e: i32| {
-        if e >= -1022 {
-            f64::from_bits(((e + 1023) as u64) << 52)
-        } else {
-            f64::from_bits(1 << (e + 1074))
-        }
-    };
+    let p = pow2;
     let mut v = vec![
         0.0,
         p(-1074),
@@ -607,6 +611,118 @@ fn differential() {
             summary,
             "{:18} {:>10} cases, {} mismatches",
             name, r.cases, r.mismatches
+        )
+        .unwrap();
+        summary += &r.examples;
+        total_mismatches += r.mismatches;
+    }
+
+    println!("{}", summary);
+    assert_eq!(total_mismatches, 0, "\n{}", summary);
+}
+
+// `generic::mul_ru_impl`, with and without an FMA, against
+// `generic::mul1_ru_slow`, which `mul_ru` called for every lane that its fast
+// path rejects until `mul1_ru_tiny` took over the products below 2^-968, and
+// which `rocq/theories/MulRu.v` proves correct for all inputs. Except under
+// AVX-512F, `differential` compares the generic backend with SIMD backends that
+// round tiny products with the algorithm of `mul1_ru_tiny`, so a mistake in the
+// algorithm they share could go unnoticed there.
+#[test]
+fn mul_ru_tiny_generic() {
+    let n = random_cases();
+    let mut rng = Rng(3);
+    let mut summary = String::new();
+    let mut total_mismatches = 0;
+
+    // x * y = -(2^-1075 + 2^-1128), as 3y = 1/2 + 2^-54 (y is the float above
+    // RN(1/6)). Scaled by 2^128, it rounds up to rs = -2^-947, and rs / 2^128 =
+    // -2^-1075 is a tie, which rounds to q = -0, the result. It is checked against
+    // the oracle below like the other cases.
+    let tie = (-3.0 * pow2(-1074), f64::from_bits(0x3fc5_5555_5555_5556));
+    assert!(same(generic::mul1_ru_slow(tie.0, tie.1), -0.0));
+
+    // Products near or below 2^-968, with their sign flips and swapped factors.
+    let mut cases = vec![];
+    for (x, y) in [
+        // p = RN(x * y) is ±0, so the result follows from the sign of p:
+        // 2^-1075 (a tie), just below it, and 2^-2148.
+        (pow2(-1074), 0.5),
+        (pow2(-1074), 0.5 - pow2(-54)),
+        (pow2(-1074), pow2(-1074)),
+        // p = ±2^-1074, and the result is 2^-1074 or -0.
+        (pow2(-1074), 0.5 + pow2(-53)),
+        (1.0 / 3.0, 3.0 * pow2(-1074)),
+        (pow2(-537), pow2(-537) - pow2(-590)),
+        tie,
+        // Subnormal results: exact, then inexact.
+        (pow2(-537), pow2(-537)),
+        (1.0 + pow2(-52), pow2(-1050)),
+        (1.5, 3.0 * pow2(-1074)),
+        (pow2(-1022) - pow2(-1074), 0.5),
+        // Around 2^-968. x * 5 = 2^-968 * (1 - 3 * 2^-55) rounds to nearest to the
+        // float below 2^-968, and up to 2^-968.
+        ((((1u64 << 55) - 3) / 5) as f64 * pow2(-1023), 5.0),
+        (pow2(-968) - pow2(-1021), 1.0 - pow2(-53)),
+        (pow2(-968) - pow2(-1021), 1.0),
+        (pow2(-968), 1.0 - pow2(-53)),
+        (pow2(-968), 1.0),
+        // The largest factor of a nonzero product below 2^-968, where
+        // (x * 2^128) * y is close to 2^-840, and the next float, where the
+        // product is 2^-968.
+        (pow2(-1074), pow2(106) - pow2(53)),
+        (pow2(-1074), pow2(106)),
+        // An ordinary product, which the fast path takes, for the other lane.
+        (1.0, 3.0),
+    ] {
+        for (x, y) in [(x, y), (y, x)] {
+            cases.extend([(x, y), (-x, y), (x, -y), (-x, -y)]);
+        }
+    }
+
+    let variants: [(&str, Binary); 2] = [
+        ("mul_ru_tiny/fma", generic::mul_ru_impl::<true>),
+        ("mul_ru_tiny/dekker", generic::mul_ru_impl::<false>),
+    ];
+    for (name, f) in variants {
+        let mut r = Report::default();
+        // The lanes with finite, nonzero factors and |RN(x * y)| < 2^-968: those
+        // that `mul1_ru_tiny` rounds itself rather than with `mul1_ru_slow`.
+        let mut tiny = 0;
+        let mut check = |x: [f64; 2], y: [f64; 2]| {
+            let actual = f(x, y);
+            for i in 0..2 {
+                let (x, y) = (x[i], y[i]);
+                let finite = x.is_finite() && y.is_finite();
+                if finite && x != 0.0 && y != 0.0 && exponent(x * y) < -968 {
+                    tiny += 1;
+                }
+                r.check(name, &[x, y], generic::mul1_ru_slow(x, y), actual[i]);
+            }
+        };
+        // Each case in both lanes, next to every other one.
+        for &(x0, y0) in &cases {
+            for &(x1, y1) in &cases {
+                check([x0, x1], [y0, y1]);
+            }
+        }
+        let v = adversarial(true);
+        for (i, &x) in v.iter().enumerate() {
+            for (j, &y) in v.iter().enumerate() {
+                // Pair each case with another one in the other lane.
+                let (x1, y1) = (v[(i + 7) % v.len()], v[(j + 13) % v.len()]);
+                check([x, x1], [y, y1]);
+            }
+        }
+        for _ in 0..n {
+            let (x0, y0) = random_pair(&mut rng, "mul");
+            let (x1, y1) = random_pair(&mut rng, "mul");
+            check([x0, x1], [y0, y1]);
+        }
+        writeln!(
+            summary,
+            "{:18} {:>10} cases ({} tiny), {} mismatches",
+            name, r.cases, tiny, r.mismatches
         )
         .unwrap();
         summary += &r.examples;

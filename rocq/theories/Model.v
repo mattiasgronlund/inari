@@ -420,7 +420,7 @@ Definition add1_ru_slow (x y : f64) : option f64 :=
     (* [mx as u128] and [my as u128] keep the values. *)
     sum_round_up sx mx ex sy my ey.
 
-(** [fn mul1_ru_slow(x: f64, y: f64) -> f64] *)
+(** [pub(super) fn mul1_ru_slow(x: f64, y: f64) -> f64] *)
 Definition mul1_ru_slow (x y : f64) : option f64 :=
   if negb (is_finite x && is_finite y) || eq x zero || eq y zero then
     Some (mul x y)
@@ -432,6 +432,27 @@ Definition mul1_ru_slow (x y : f64) : option f64 :=
     let* e := checked_i 32 (ex + ey) in
     (* [sx != sy] *)
     round_up_exact (negb (Bool.eqb sx sy)) m e false.
+
+(** [fn mul1_ru_tiny<const FMA: bool>(x: f64, y: f64) -> f64] *)
+Definition mul1_ru_tiny (fma : bool) (x y : f64) : option f64 :=
+  (* The [const]s, as in [sqrt1_slow]. *)
+  let two_pow_64 := of_u64 (2^64) in
+  let two_pow_128 := mul two_pow_64 two_pow_64 in
+  let two_pow_m128 := div (of_u64 1) two_pow_128 in
+  let p := mul x y in
+  let special := negb (is_finite x && is_finite y) || eq x zero || eq y zero in
+  if special || (-968 <=? exponent p) then mul1_ru_slow x y
+  else if eq p zero then
+    (* [p.is_sign_negative()] is [Bsign p], as [p] is not NaN here: [x] and
+       [y] are finite. *)
+    Some (if Bsign p then p else from_bits 1)
+  else
+    let '(rs, ok) := mul1_ru_fast fma (mul x two_pow_128) y in
+    (* [debug_assert!(ok)] panics in a debug build. *)
+    if negb ok then None
+    else
+      let q := mul rs two_pow_m128 in
+      Some (if lt (mul q two_pow_128) rs then step_up q else q).
 
 (** [fn div1_ru_slow(x: f64, y: f64) -> f64] *)
 Definition div1_ru_slow (x y : f64) : option f64 :=
@@ -549,7 +570,7 @@ Definition add_ru (x y : F64X2) : option F64X2 :=
 
 (** [pub(super) fn mul_ru_impl<const FMA: bool>(x: F64X2, y: F64X2) -> F64X2] *)
 Definition mul_ru_impl (fma : bool) (x y : F64X2) : option F64X2 :=
-  lanewise2 x y (mul1_ru_fast fma) mul1_ru_slow.
+  lanewise2 x y (mul1_ru_fast fma) (mul1_ru_tiny fma).
 
 (** [pub(crate) fn mul_ru(x: F64X2, y: F64X2) -> F64X2], which calls
     [mul_ru_impl::<HAS_FMA>]. [HAS_FMA] depends on the target, so it is an
