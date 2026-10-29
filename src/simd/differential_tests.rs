@@ -112,7 +112,8 @@ const SPECIAL: [f64; 9] = [
 ];
 
 // Exponents around the thresholds of the fast paths and of the format. Below
-// 2^-1075, a product rounds to ±0, which `fma::mul_ru_tiny` handles separately.
+// 2^-1075, a product rounds to ±0, which `mul_ru_tiny` in the `fma`, `sse42` and
+// `wasm32` backends handles separately.
 const BOUNDARY_EXPONENTS: [i32; 15] = [
     -1075, -1074, -1022, -1021, -1020, -970, -968, -967, -966, 0, 995, 996, 1021, 1022, 1023,
 ];
@@ -331,7 +332,19 @@ fn random_pair(rng: &mut Rng, name: &str) -> (f64, f64) {
                 let y = rng.any();
                 return (rng.nudge(x * y), y);
             } else if name.starts_with("mul") {
-                rng.any()
+                // A product near or below 2^-968, where `mul_ru_tiny` takes over:
+                // e_x from -1023 (subnormal) to 110, and e_y = t - e_x for t from
+                // -1080 to -960. Two nonzero floats whose product is below 2^-968
+                // are below 2^106, which `mul_ru_tiny` relies on. It scales x
+                // alone, so the factors are swapped half the time.
+                let ex = rng.below(1134) as i32 - 1023;
+                let x = rng.with_exponent(ex);
+                let t = rng.below(121) as i32 - 1080;
+                // `with_exponent` stops at -1023, so y is drawn 2^200 higher and
+                // scaled down. Where e_y < -1022, that rounds it to a multiple of
+                // 2^-1074, and where e_y < -1075 (about 5% of the draws), to ±0.
+                let y = rng.with_exponent(t - ex + 200) * 2f64.powi(-200);
+                return if rng.below(2) == 0 { (x, y) } else { (y, x) };
             } else {
                 // Cancellation: y ≈ -x (for add) or y ≈ x (for sub).
                 let y = rng.nudge(x);

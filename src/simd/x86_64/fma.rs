@@ -5,7 +5,9 @@
 // on both lanes at once, with the few inputs that fail their checks in either
 // lane recomputed by the generic backend (see `lanewise.rs`) — with the FMA,
 // which makes TwoProduct and the remainders of division and of the square root
-// one instruction each instead of Dekker's algorithm.
+// one instruction each instead of Dekker's algorithm. As there, `mul_ru` computes
+// RU(x * y) itself where x and y are nonzero and |RN(x * y)| < 2^-968 (see
+// `mul_ru_tiny`).
 //
 // The obvious alternative is to let the hardware round: `vaddpd` and friends
 // with MXCSR set to round toward +∞. That is what this backend replaced, and it

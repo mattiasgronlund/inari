@@ -4,10 +4,12 @@
 // WebAssembly has only round-to-nearest arithmetic, so the operations that round
 // upward use the method of the generic backend (see `generic.rs`): the fast paths
 // are the same, computed on both lanes at once, and the few inputs that fail
-// their checks in either lane are recomputed by the generic backend. WebAssembly
-// has no FMA (relaxed-simd's `f64x2.relaxed_madd` may round twice), so Dekker's
-// TwoProduct is used throughout. The scalar operations are those of the generic
-// backend.
+// their checks in either lane are recomputed by the generic backend. `mul_ru`
+// goes further: where x and y are nonzero and |RN(x * y)| < 2^-968, which sends
+// the generic backend to its slow path, it computes RU(x * y) itself (see
+// `mul_ru_tiny`). WebAssembly has no FMA (relaxed-simd's `f64x2.relaxed_madd`
+// may round twice), so Dekker's TwoProduct is used throughout. The scalar
+// operations are those of the generic backend.
 
 use super::generic;
 use std::arch::wasm32::*;
@@ -209,13 +211,62 @@ pub(crate) fn mul_add_ru(a: F64X2, b: F64X2, c: F64X2) -> F64X2 {
 pub(crate) fn mul_ru(x: F64X2, y: F64X2) -> F64X2 {
     // See `generic::mul1_ru_fast`.
     let p = f64x2_mul(x, y);
-    let e = two_prod_err(x, y, p);
     let special = is_special(x, y);
     let ok = or(special, two_prod_is_exact(x, y, p));
+    // Each branch rounds by itself, as in `x86_64::fma::mul_ru`.
+    if i64x2_all_true(ok) {
+        mul_ru_fast(x, y, p, special)
+    } else {
+        mul_ru_tiny(x, y, p, ok, special)
+    }
+}
+
+/// Returns RU(x * y) from p = RN(x * y), in the lanes that are `special` or
+/// where `two_prod_is_exact(x, y, p)`.
+fn mul_ru_fast(x: F64X2, y: F64X2, p: F64X2, special: F64X2) -> F64X2 {
+    let e = two_prod_err(x, y, p);
     let up = v128_andnot(f64x2_gt(e, ZERO), special);
-    or_generic(ok, select(up, step_up(p), p), || {
-        generic::mul_ru(extract(x), extract(y))
-    })
+    select(up, step_up(p), p)
+}
+
+/// `mul_ru` where some lane fails `ok`: there, x and y are finite and nonzero,
+/// and p = RN(x * y) is below 2^-968 or at least 2^1023 in magnitude, or x or y
+/// is at least 2^996 in magnitude.
+///
+/// This is `x86_64::fma::mul_ru_tiny` with Dekker's TwoProduct, which also
+/// bounds the factors. See there for why the result is RU(x * y).
+fn mul_ru_tiny(x: F64X2, y: F64X2, p: F64X2, ok: F64X2, special: F64X2) -> F64X2 {
+    // Powers of two, so that scaling by them is exact unless it overflows or
+    // underflows.
+    const TWO_POW_64: f64 = 18446744073709551616.0;
+    const TWO_POW_128: f64 = TWO_POW_64 * TWO_POW_64;
+    const TWO_POW_M128: f64 = 1.0 / TWO_POW_128;
+    // Let z = x * y exactly, and S = 2^128. If |p| < 2^-968, then |z| < 2^-968,
+    // and as |x|, |y| >= 2^-1074, |x|, |y| < 2^106. So x * S is exact, and
+    // |x * S| < 2^234 and |y| < 2^106 are below the 2^996 that `split` needs.
+    // In a lane that fails `ok` for another reason, |y| >= 2^996, or x * S or ps
+    // overflows, and the lane fails the check at the end.
+    let xs = f64x2_mul(x, splat(TWO_POW_128));
+    let ps = f64x2_mul(xs, y);
+    // rs = RU(z * S) where `two_prod_is_exact(xs, y, ps)`, as in `mul_ru`.
+    let rs = mul_ru_fast(xs, y, ps, special);
+    // RU(z) = RU(rs / S), which is q = RN(rs / S) or its successor. q * S is
+    // exact, so comparing it with rs decides which.
+    let q = f64x2_mul(rs, splat(TWO_POW_M128));
+    let qs = f64x2_mul(q, splat(TWO_POW_128));
+    let q = select(f64x2_lt(qs, rs), step_up(q), q);
+    // If p = ±0, then |z| <= 2^-1075, and RU(z) is 2^-1074 for z > 0 and -0 for
+    // z < 0. p has the sign of z, and as integers, -0 < 0 and 2^-1074 = 1.
+    // Otherwise |z| > 2^-1075, so 2^-947 < |z * S| < 2^-840, and
+    // `two_prod_is_exact(xs, y, ps)` holds: every lane with |p| < 2^-968 is
+    // computed here, and only those with |p| >= 2^1023, or with a factor of 2^996
+    // or more, go to the generic backend.
+    let p_zero = f64x2_eq(p, ZERO);
+    let zero_rule = select(i64x2_lt(p, ZERO), p, i64x2_splat(1));
+    let r = mul_ru_fast(x, y, p, special);
+    let res = select(ok, r, select(p_zero, zero_rule, q));
+    let ok = or(ok, or(p_zero, two_prod_is_exact(xs, y, ps)));
+    or_generic(ok, res, || generic::mul_ru(extract(x), extract(y)))
 }
 
 pub(crate) fn neg(x: F64X2) -> F64X2 {
