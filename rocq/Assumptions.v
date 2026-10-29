@@ -3,7 +3,8 @@
 
 From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign
-  Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul Sqrt Sqr Recip Div ComCommon.
+  Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul Sqrt Sqr Recip Div ComCommon
+  ValidMake ValidSetOp ValidOps ValidDecOps Valid.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -74,3 +75,58 @@ Print Assumptions def_com_com_common.
 Print Assumptions set_op_com_common.
 Print Assumptions try_from_bytes_com_common.
 Print Assumptions const_dec_interval_com_common.
+Print Assumptions EMPTY_valid.
+Print Assumptions const_interval_valid.
+Print Assumptions ENTIRE_valid.
+Print Assumptions zero_valid.
+Print Assumptions with_infsup_raw_valid.
+Print Assumptions try_from_valid.
+Print Assumptions try_from_bytes_valid.
+Print Assumptions try_from_ninterval_exact_valid.
+Print Assumptions new_valid.
+Print Assumptions set_dec_valid.
+Print Assumptions dec_constants_valid.
+Print Assumptions def_com_valid.
+Print Assumptions const_dec_interval_valid.
+Print Assumptions dec_try_from_valid.
+Print Assumptions dec_try_from_bytes_valid.
+Print Assumptions from_dec_ninterval_valid.
+Print Assumptions convex_hull_valid.
+Print Assumptions intersection_valid.
+Print Assumptions floor_valid.
+Print Assumptions ceil_valid.
+Print Assumptions round_valid.
+Print Assumptions round_ties_even_valid.
+Print Assumptions trunc_valid.
+Print Assumptions sign_valid.
+Print Assumptions neg_valid.
+Print Assumptions abs_valid.
+Print Assumptions max_valid.
+Print Assumptions min_valid.
+Print Assumptions add_valid.
+Print Assumptions sub_valid.
+Print Assumptions mul_valid.
+Print Assumptions div_valid.
+Print Assumptions sqr_valid.
+Print Assumptions sqrt_valid.
+Print Assumptions recip_valid.
+Print Assumptions dec_floor_valid.
+Print Assumptions dec_ceil_valid.
+Print Assumptions dec_round_valid.
+Print Assumptions dec_round_ties_even_valid.
+Print Assumptions dec_trunc_valid.
+Print Assumptions dec_sign_valid.
+Print Assumptions dec_neg_valid.
+Print Assumptions dec_abs_valid.
+Print Assumptions dec_max_valid.
+Print Assumptions dec_min_valid.
+Print Assumptions dec_add_valid.
+Print Assumptions dec_sub_valid.
+Print Assumptions dec_mul_valid.
+Print Assumptions dec_div_valid.
+Print Assumptions dec_sqr_valid.
+Print Assumptions dec_sqrt_valid.
+Print Assumptions dec_recip_valid.
+Print Assumptions dec_convex_hull_valid.
+Print Assumptions dec_intersection_valid.
+Print Assumptions made_valid.

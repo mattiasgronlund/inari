@@ -9,6 +9,9 @@ impl Interval {
     /// | $\self = \[a, b\]$ | $\[a, b\]$ | $\[\min \set{a, c}, \max \set{b, d}\]$ |
     #[must_use]
     pub fn convex_hull(self, rhs: Self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`), so it has to be updated along with it.
         if self.is_empty() {
             return rhs;
         }
@@ -31,6 +34,9 @@ impl Interval {
     /// | $\self = \[a, b\]$ | $∅$        | $\[\max \set{a, c}, \min \set{b, d}\]$ |
     #[must_use]
     pub fn intersection(self, rhs: Self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`), so it has to be updated along with it.
         if self.either_empty(rhs) {
             return Self::EMPTY;
         }
@@ -59,7 +65,9 @@ macro_rules! impl_dec {
         pub fn $f(self, rhs: Self) -> Self {
             // `rocq/theories/Model.v` transcribes this function for the proof that every
             // `DecInterval` is `com` only if its interval is common
-            // (`rocq/theories/ComCommon.v`), so it has to be updated along with it.
+            // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that
+            // the constructors and the proved operations make is `valid`
+            // (`rocq/theories/Valid.v`), so it has to be updated along with it.
             if self.is_nai() || rhs.is_nai() {
                 return Self::NAI;
             }

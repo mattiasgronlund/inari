@@ -548,12 +548,21 @@ fn number_to_f64(n: &Number, infsup: InfSup) -> F64 {
 
 impl From<NInterval> for Interval {
     fn from(x: NInterval) -> Self {
+        // `rocq/theories/Model.v` transcribes this function as the `x` of
+        // `DecInterval.from_dec_ninterval` for the proof that every `Interval` that the
+        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`),
+        // so it has to be updated along with it.
         DecInterval::from(DecNInterval::new(x)).x
     }
 }
 
 impl From<DecNInterval> for DecInterval {
     fn from(DecNInterval { x, d }: DecNInterval) -> Self {
+        // `rocq/theories/Model.v` transcribes this function as
+        // `DecInterval.from_dec_ninterval` for the proof that every `Interval` that the
+        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`),
+        // so it has to be updated along with it. The transcription takes the floats that
+        // `number_to_f64` computes with MPFR as arguments, and the proof holds for any.
         let a = number_to_f64(x.inf(), InfSup::Inf);
         let b = number_to_f64(x.sup(), InfSup::Sup);
         // The empty interval cannot be constructed with `Interval::try_from`.
@@ -602,6 +611,11 @@ impl FromStr for DecInterval {
 
 impl Interval {
     fn try_from_ninterval_exact(x: NInterval) -> Result<Self> {
+        // `rocq/theories/Model.v` transcribes this function for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`), so it has to be updated along with it. The
+        // transcription takes the floats that `number_to_f64` computes with MPFR as
+        // arguments, and the proof holds for any.
         let a = number_to_f64(x.inf(), InfSup::Inf);
         let b = number_to_f64(x.sup(), InfSup::Sup);
         let x = Self::try_from((a.f, b.f)).unwrap_or(Self::EMPTY);

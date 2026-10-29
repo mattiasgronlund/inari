@@ -132,9 +132,10 @@ impl Interval {
         // `DecInterval::floor`, `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`,
         // `DecInterval::neg`, `DecInterval::recip`, `DecInterval::round`,
         // `DecInterval::round_ties_even`, `DecInterval::sign`, `DecInterval::sqr`,
-        // `DecInterval::sqrt`, `DecInterval::sub` and `DecInterval::trunc`, and for the
-        // proof that every `DecInterval` is `com` only if its interval is common
-        // (`rocq/theories/ComCommon.v`).
+        // `DecInterval::sqrt`, `DecInterval::sub` and `DecInterval::trunc`, for the proof
+        // that every `DecInterval` is `com` only if its interval is common
+        // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
+        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
         // -∞ < a  ∧  b < +∞
         all(lt(self.rep, splat(f64::INFINITY)))
     }
@@ -155,9 +156,10 @@ impl Interval {
         // `DecInterval::floor`, `(Dec)Interval::max`, `(Dec)Interval::min`, `DecInterval::mul`,
         // `DecInterval::neg`, `DecInterval::recip`, `DecInterval::round`,
         // `DecInterval::round_ties_even`, `(Dec)Interval::sign`, `DecInterval::sqr`,
-        // `(Dec)Interval::sqrt`, `DecInterval::sub` and `DecInterval::trunc`, and for the
-        // proof that every `DecInterval` is `com` only if its interval is common
-        // (`rocq/theories/ComCommon.v`).
+        // `(Dec)Interval::sqrt`, `DecInterval::sub` and `DecInterval::trunc`, for the proof
+        // that every `DecInterval` is `com` only if its interval is common
+        // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
+        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
         extract0(self.rep).is_nan()
     }
 
@@ -377,7 +379,9 @@ impl Interval {
     }
 
     // `rocq/theories/Model.v` transcribes this function for the proofs of
-    // `(Dec)Interval::max` and `(Dec)Interval::min`.
+    // `(Dec)Interval::max` and `(Dec)Interval::min`, and for the proof that every
+    // `Interval` that the constructors and the proved operations make is `valid`
+    // (`rocq/theories/Valid.v`).
     pub(crate) fn either_empty(self, rhs: Self) -> bool {
         self.is_empty() | rhs.is_empty()
     }
@@ -433,6 +437,15 @@ impl DecInterval {
 
     /// Returns `true` if `self` is NaI.
     pub fn is_nai(self) -> bool {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::div`,
+        // `DecInterval::floor`, `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`,
+        // `DecInterval::neg`, `DecInterval::recip`, `DecInterval::round`,
+        // `DecInterval::round_ties_even`, `DecInterval::sign`, `DecInterval::sqr`,
+        // `DecInterval::sqrt`, `DecInterval::sub` and `DecInterval::trunc`, for the proof
+        // that every `DecInterval` is `com` only if its interval is common
+        // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
+        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
         self.d == Decoration::Ill
     }
 

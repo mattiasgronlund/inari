@@ -68,6 +68,8 @@ pub struct Interval {
     // `(Dec)Interval::neg`, `(Dec)Interval::recip`, `(Dec)Interval::round`,
     // `(Dec)Interval::round_ties_even`, `(Dec)Interval::sign`, `(Dec)Interval::sqr`,
     // `(Dec)Interval::sqrt`, `(Dec)Interval::sub` and `(Dec)Interval::trunc`.
+    // `rocq/theories/Valid.v` proves that every `Interval` that the constructors and the
+    // proved operations make is `valid`, and it relies on no code assigning to `rep`.
     pub(crate) rep: F64X2,
 }
 
@@ -84,17 +86,29 @@ impl fmt::Debug for Interval {
 
 impl Interval {
     pub(crate) fn inf_raw(self) -> f64 {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
+        // `DecInterval::round_ties_even`, `DecInterval::sign`, `(Dec)Interval::sqrt` and
+        // `DecInterval::trunc`, and for the proof that every `Interval` that the
+        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
         -extract0(self.rep)
     }
 
     pub(crate) fn sup_raw(self) -> f64 {
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
+        // `DecInterval::round_ties_even`, `DecInterval::sign`, `(Dec)Interval::sqrt` and
+        // `DecInterval::trunc`, and for the proof that every `Interval` that the
+        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
         extract1(self.rep)
     }
 
     pub(crate) fn with_infsup_raw(a: f64, b: f64) -> Self {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `(Dec)Interval::sqrt`, and for the proof that every `DecInterval` is `com` only
-        // if its interval is common (`rocq/theories/ComCommon.v`).
+        // `(Dec)Interval::sqrt`, for the proof that every `DecInterval` is `com` only if
+        // its interval is common (`rocq/theories/ComCommon.v`), and for the proof that
+        // every `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`).
         Self {
             rep: constant(-a, b),
         }
@@ -102,7 +116,9 @@ impl Interval {
 
     pub(crate) fn zero() -> Self {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `(Dec)Interval::div`, `(Dec)Interval::mul` and `(Dec)Interval::sqr`.
+        // `(Dec)Interval::div`, `(Dec)Interval::mul` and `(Dec)Interval::sqr`, and for the
+        // proof that every `Interval` that the constructors and the proved operations make
+        // is `valid` (`rocq/theories/Valid.v`).
         Self { rep: splat(0.0) }
     }
 }
@@ -126,6 +142,9 @@ impl TryFrom<(f64, f64)> for Interval {
     type Error = IntervalError;
 
     fn try_from((a, b): (f64, f64)) -> Result<Self> {
+        // `rocq/theories/Model.v` transcribes this function for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`), so it has to be updated along with it.
         if a <= b && a != f64::INFINITY && b != f64::NEG_INFINITY {
             Ok(Self::with_infsup_raw(a, b))
         } else {
@@ -140,6 +159,16 @@ impl TryFrom<(f64, f64)> for Interval {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum Decoration {
+    // `rocq/theories/Model.v` transcribes this enum, with the discriminants by which the
+    // derived `Ord` compares its variants, for the proofs of `DecInterval::abs`,
+    // `DecInterval::add`, `DecInterval::ceil`, `DecInterval::div`, `DecInterval::floor`,
+    // `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`, `DecInterval::neg`,
+    // `DecInterval::recip`, `DecInterval::round`, `DecInterval::round_ties_even`,
+    // `DecInterval::sign`, `DecInterval::sqr`, `DecInterval::sqrt`, `DecInterval::sub` and
+    // `DecInterval::trunc`, for the proof that every `DecInterval` is `com` only if its
+    // interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
+    // `Interval` that the constructors and the proved operations make is `valid`
+    // (`rocq/theories/Valid.v`).
     /// The “ill-formed” decoration.
     Ill = 0,
     /// The “trivial” decoration.
@@ -169,7 +198,10 @@ pub enum Decoration {
 pub struct DecInterval {
     // `rocq/theories/ComCommon.v` proves that every `DecInterval` is `com` only if its
     // interval is common, for each place that makes one: the callers of `new_unchecked`
-    // and `const_dec_interval!`. It relies on no code assigning to these fields.
+    // and `const_dec_interval!`. It relies on no code assigning to these fields, and so
+    // does the proof that every `Interval` that the constructors and the proved operations
+    // make is `valid` (`rocq/theories/Valid.v`), which covers the interval of a
+    // `DecInterval` too.
     pub(crate) x: Interval,
     pub(crate) d: Decoration,
 }
@@ -189,7 +221,9 @@ impl DecInterval {
     pub fn new(x: Interval) -> Self {
         // `rocq/theories/Model.v` transcribes this function for the proof that every
         // `DecInterval` is `com` only if its interval is common
-        // (`rocq/theories/ComCommon.v`), so it has to be updated along with it.
+        // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
+        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`),
+        // so it has to be updated along with it.
         use Decoration::*;
 
         let d = if x.is_empty() {
@@ -217,9 +251,10 @@ impl DecInterval {
         // `DecInterval::floor`, `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`,
         // `DecInterval::neg`, `DecInterval::recip`, `DecInterval::round`,
         // `DecInterval::round_ties_even`, `DecInterval::sign`, `DecInterval::sqr`,
-        // `DecInterval::sqrt`, `DecInterval::sub` and `DecInterval::trunc`, and for the
-        // proof that every `DecInterval` is `com` only if its interval is common
-        // (`rocq/theories/ComCommon.v`).
+        // `DecInterval::sqrt`, `DecInterval::sub` and `DecInterval::trunc`, for the proof
+        // that every `DecInterval` is `com` only if its interval is common
+        // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
+        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
         use Decoration::*;
 
         if d == Ill {
@@ -250,8 +285,10 @@ impl DecInterval {
     pub(crate) const fn new_unchecked(x: Interval, d: Decoration) -> Self {
         // The only struct expression of `DecInterval`. `rocq/theories/Model.v` transcribes
         // this function and each of its callers for the proof that every `DecInterval` is
-        // `com` only if its interval is common (`rocq/theories/ComCommon.v`), so a new
-        // caller needs a proof there too.
+        // `com` only if its interval is common (`rocq/theories/ComCommon.v`), and for the
+        // proof that every `Interval` that the constructors and the proved operations make
+        // is `valid` (`rocq/theories/Valid.v`), so a new caller needs a proof in both
+        // files.
         Self { x, d }
     }
 }
@@ -270,6 +307,9 @@ impl TryFrom<(f64, f64)> for DecInterval {
     type Error = IntervalError;
 
     fn try_from(x: (f64, f64)) -> Result<Self> {
+        // `rocq/theories/Model.v` transcribes this function for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`), so it has to be updated along with it.
         match Interval::try_from(x) {
             Ok(x) => Ok(Self::new(x)),
             _ => Err(Self::Error {
@@ -460,7 +500,9 @@ macro_rules! const_interval {
     ($a:expr, $b:expr) => {{
         // `rocq/theories/Model.v` transcribes this macro for the proof that every
         // `DecInterval` is `com` only if its interval is common
-        // (`rocq/theories/ComCommon.v`).
+        // (`rocq/theories/ComCommon.v`), and this macro and its assertion
+        // (`const_interval_ok`) for the proof that every `Interval` that the constructors
+        // and the proved operations make is `valid` (`rocq/theories/Valid.v`).
         use ::std::{mem::transmute, primitive::*};
 
         const _: () = assert!($a <= $b && $a != f64::INFINITY && $b != f64::NEG_INFINITY);
@@ -487,7 +529,9 @@ macro_rules! const_dec_interval {
     ($a:expr, $b:expr) => {{
         // The only `transmute` into a `DecInterval`. `rocq/theories/Model.v` transcribes
         // this macro for the proof that every `DecInterval` is `com` only if its interval
-        // is common (`rocq/theories/ComCommon.v`), so it has to be updated along with it.
+        // is common (`rocq/theories/ComCommon.v`), and for the proof that every `Interval`
+        // that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`), so it has to be updated along with it.
         use ::std::{mem::transmute, primitive::*};
 
         #[repr(C)]

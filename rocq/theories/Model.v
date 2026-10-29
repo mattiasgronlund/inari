@@ -7,9 +7,11 @@
     [src/integer.rs], [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
     that [abs], [ceil], [floor], [max], [min], [recip], [round],
     [round_ties_even], [sign], [sqr], [sqrt], [trunc], [neg], [add], [sub],
-    [mul] and [div] of intervals use, and for each
+    [mul] and [div] of intervals use, for each
     place in [src/interval.rs], [src/constants.rs], [src/set_op.rs] and
-    [src/bytes.rs] that makes a [DecInterval]. This file is
+    [src/bytes.rs] that makes a [DecInterval], and for each place in those
+    files and in [src/parse.rs] that makes an [Interval] other than by an
+    operation that is not proved here. This file is
     the only one that has to be checked against the Rust code, and
     [Ieee1788.v] the only one that has to be checked against IEEE 1788; the
     other files prove properties of the definitions here.
@@ -744,7 +746,15 @@ End Generic.
     For [ComCommon.v], it also transcribes the other places that make a
     [DecInterval]: [new], the constants, [convex_hull] and [intersection],
     [try_from_be_bytes] and its siblings, and [const_dec_interval!].
-    [try_from_be_bytes] calls the backend's [constant]. *)
+    [try_from_be_bytes] calls the backend's [constant].
+
+    For [Valid.v], it also transcribes the places that make an [Interval]
+    other than the operations above: the condition that [const_interval!]
+    asserts, [TryFrom<(f64, f64)>] of [Interval] and of [DecInterval],
+    [try_from_be_bytes] and its siblings of [Interval], [convex_hull] and
+    [intersection] of [Interval], and the conversions in [src/parse.rs]
+    that [FromStr] and [interval_exact!] call. [convex_hull] and
+    [intersection] call the backend's [max] and [min]. *)
 
 (** [pub struct Interval], whose only field is [rep: F64X2]. *)
 Record Interval : Type := { rep : Generic.F64X2 }.
@@ -852,6 +862,13 @@ Definition EMPTY : Interval := {| rep := (B754_nan, B754_nan) |}.
     [a <= b && a != f64::INFINITY && b != f64::NEG_INFINITY]. *)
 Definition const_interval (a b : f64) : Interval := {| rep := (opp a, b) |}.
 
+(** [$a <= $b && $a != f64::INFINITY && $b != f64::NEG_INFINITY], which
+    [const_interval!(a, b)] asserts in a [const], so that it does not
+    compile unless this is [true]. Its [&&] gives the same value as Rocq's,
+    and [a != b] is [!(a == b)]. *)
+Definition const_interval_ok (a b : f64) : bool :=
+  le a b && negb (eq a (B754_infinity false)) && negb (eq b (B754_infinity true)).
+
 (** [pub const ENTIRE: Self], i.e.
     [const_interval!(f64::NEG_INFINITY, f64::INFINITY)], where
     [f64::NEG_INFINITY] and [f64::INFINITY] are [B754_infinity true] and
@@ -867,6 +884,43 @@ Definition with_infsup_raw (a b : f64) : Interval :=
     [pub(crate) fn sup_raw(self) -> f64] *)
 Definition inf_raw (self : Interval) : f64 := opp (fst (rep self)).
 Definition sup_raw (self : Interval) : f64 := snd (rep self).
+
+(** [fn try_from((a, b): (f64, f64)) -> Result<Self>] of
+    [impl TryFrom<(f64, f64)> for Interval], with [Ok(x)] as [Some x] and
+    the [Err] as [None]. *)
+Definition try_from (a b : f64) : option Interval :=
+  if le a b && negb (eq a (B754_infinity false)) && negb (eq b (B754_infinity true))
+  then Some (with_infsup_raw a b)
+  else None.
+
+(** [pub fn try_from_be_bytes(bytes: [u8; 16]) -> Option<Self>],
+    [try_from_le_bytes] and [try_from_ne_bytes] of [Interval], which
+    [impl_try_from_bytes!] in [src/bytes.rs] defines. [a] and [b] are the
+    floats that [f64::from_be_bytes] and so on decode from [bytes[..8]] and
+    [bytes[8..16]], and [0.0] is +0. [a.is_sign_negative()] is Flocq's
+    [Bsign a], and [b.is_sign_positive()] is [negb (Bsign b)], which differ
+    from Rust only for a NaN, for which [a <= b] is false, so the condition
+    is false either way. *)
+Definition try_from_bytes (a b : f64) : option Interval :=
+  if le a b
+     && negb (eq a (B754_infinity false))
+     && negb (eq b (B754_infinity true))
+     && (negb (eq a zero) || Bsign a)
+     && (negb (eq b zero) || negb (Bsign b))
+  then Some (with_infsup_raw a b)
+  else if eq a (B754_infinity false) && eq b (B754_infinity true) then Some EMPTY
+  else None.
+
+(** [fn try_from_ninterval_exact(x: NInterval) -> Result<Self>] in
+    [src/parse.rs], with [Ok(x)] as [Some x] and the [Err] as [None]. [a]
+    and [b] are the floats [a.f] and [b.f] that [number_to_f64] computes
+    from the bounds of [x] with MPFR, and [inexact] is
+    [a.inexact || b.inexact]. The model takes them as arguments, and the
+    theorems hold for any. [unwrap_or(Self::EMPTY)] is the [match]. *)
+Definition try_from_ninterval_exact (a b : f64) (inexact : bool) :
+    option Interval :=
+  let x := match try_from a b with Some x => x | None => EMPTY end in
+  if inexact then None else Some x.
 
 (** [pub fn is_common_interval(self) -> bool] *)
 Definition is_common_interval (self : Interval) : bool :=
@@ -892,6 +946,23 @@ Definition contains (self : Interval) (rhs : f64) : bool :=
     [bool]s gives the same value as [||]. *)
 Definition either_empty (self rhs : Interval) : bool :=
   is_empty self || is_empty rhs.
+
+(** [pub fn convex_hull(self, rhs: Self) -> Self] in [src/set_op.rs]. Each
+    [return] is the value of an [if] whose [else] holds the rest of the
+    body. *)
+Definition convex_hull (self rhs : Interval) : Interval :=
+  if is_empty self then rhs
+  else if is_empty rhs then self
+  else {| rep := Generic.max (rep self) (rep rhs) |}.
+
+(** [pub fn intersection(self, rhs: Self) -> Self] in [src/set_op.rs],
+    whose [return] is the value of an [if] whose [else] holds the rest of
+    the body *)
+Definition intersection (self rhs : Interval) : Interval :=
+  if either_empty self rhs then EMPTY
+  else
+    let i := {| rep := Generic.min (rep self) (rep rhs) |} in
+    if gt (inf_raw i) (sup_raw i) then EMPTY else i.
 
 (** [pub(crate) fn classify(self) -> IntervalClass]. The casts
     [bitmask(...) as u8] keep the value, which is below 4, and are left
@@ -1296,6 +1367,32 @@ Definition new (x : Interval) : DecInterval :=
     else Com in
   new_unchecked x d.
 
+(** [fn try_from(x: (f64, f64)) -> Result<Self>] of
+    [impl TryFrom<(f64, f64)> for DecInterval], with [Ok] and [Err] as in
+    [Interval.try_from], where [x] is the pair [(a, b)]. *)
+Definition try_from (a b : f64) : option DecInterval :=
+  match Interval.try_from a b with
+  | Some x => Some (new x)
+  | None => None
+  end.
+
+(** [fn from(DecNInterval { x, d }: DecNInterval) -> Self] of
+    [impl From<DecNInterval> for DecInterval] in [src/parse.rs], which
+    [FromStr] for [DecInterval] calls. [From<NInterval> for Interval],
+    which [FromStr] for [Interval] calls, returns the [x] of its result for
+    the [d] that [DecNInterval::new] picks. [a] and [b] are the floats
+    [a.f] and [b.f] that [number_to_f64] computes from the bounds of [x]
+    with MPFR, and [overflow] is [a.overflow || b.overflow]. The model
+    takes them as arguments, and the theorems hold for any.
+    [unwrap_or(Interval::EMPTY)] is the [match], and [d.min(Decoration::Dac)]
+    is [dec_min d Dac]. *)
+Definition from_dec_ninterval (a b : f64) (overflow : bool) (d : Decoration) :
+    DecInterval :=
+  let x :=
+    match Interval.try_from a b with Some x => x | None => Interval.EMPTY end in
+  let d := if overflow then dec_min d Dac else d in
+  set_dec x d.
+
 (** [pub const ENTIRE: Self] *)
 Definition ENTIRE : DecInterval := new_unchecked Interval.ENTIRE Dac.
 
@@ -1313,6 +1410,12 @@ Definition set_op (f : Interval -> Interval -> Interval)
     (self rhs : DecInterval) : DecInterval :=
   if is_nai self || is_nai rhs then NAI
   else new_unchecked (f (itv self) (itv rhs)) Trv.
+
+(** [impl_dec!(convex_hull)] and [impl_dec!(intersection)] *)
+Definition convex_hull : DecInterval -> DecInterval -> DecInterval :=
+  set_op Interval.convex_hull.
+Definition intersection : DecInterval -> DecInterval -> DecInterval :=
+  set_op Interval.intersection.
 
 (** [pub fn try_from_be_bytes(bytes: [u8; 17]) -> Option<Self>],
     [try_from_le_bytes] and [try_from_ne_bytes], which
