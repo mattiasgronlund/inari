@@ -76,8 +76,6 @@ com-struct src/basic.rs: Self { rep: mul_ru(x, y) }
 com-struct src/basic.rs: Self { rep: r }
 com-struct src/basic.rs: Self { rep: z }
 com-struct src/basic.rs: Self { rep: z }
-com-struct src/basic.rs: Self { rep: z }
-com-struct src/basic.rs: Some(Less) => Self { rep: z },
 com-struct src/basic.rs: impl DecInterval {
 com-struct src/basic.rs: pub fn cancel_minus(self, rhs: Self) -> Self {
 com-struct src/basic.rs: pub fn cancel_minus(self, rhs: Self) -> Self {
@@ -326,8 +324,6 @@ valid-rep src/basic.rs: Self { rep: mul_ru(x, y) }
 valid-rep src/basic.rs: Self { rep: r }
 valid-rep src/basic.rs: Self { rep: z }
 valid-rep src/basic.rs: Self { rep: z }
-valid-rep src/basic.rs: Self { rep: z }
-valid-rep src/basic.rs: Some(Less) => Self { rep: z },
 valid-rep src/basic.rs: rep: mul_add_ru(x, y, addend.rep), // *
 valid-rep src/basic.rs: rep: mul_add_ru(x, y, addend.rep), // *
 valid-rep src/basic.rs: rep: mul_add_ru(x, y, addend.rep), // *

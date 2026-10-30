@@ -334,6 +334,20 @@ impl Interval {
         let w_rn = hadd_rn(x, y); // [width(x); width(y)] = [b - a; d - c] = [-a; -c] .+ [b; d],
                                   // rounded to nearest, ≥ 0.
         let [wx, wy] = extract(w_rn);
+        let (x, y, w_rn) = if wx == f64::INFINITY && wy == f64::INFINITY {
+            // Both widths overflow, so every bound is at least 2^970 in magnitude:
+            // b - a ≥ 2^1024 - 2^970 and b ≤ f64::MAX = 2^1024 - 2^971 give -a ≥ 2^970,
+            // and the same holds for b, c and d. Halving such a float is exact, and the
+            // halved widths are at most f64::MAX, so they are compared instead.
+            let [ma, b] = extract(x);
+            let [mc, d] = extract(y);
+            let x = constant(0.5 * ma, 0.5 * b);
+            let y = constant(0.5 * mc, 0.5 * d);
+            (x, y, hadd_rn(x, y))
+        } else {
+            (x, y, w_rn)
+        };
+        let [wx, wy] = extract(w_rn);
         // `wx` and `wy` are not NaN as `x` and `y` are common intervals.
         match wx.partial_cmp(&wy) {
             Some(Greater) => {
@@ -343,68 +357,31 @@ impl Interval {
             }
             Some(Less) => Self::ENTIRE,
             Some(Equal) => {
-                if wx == f64::INFINITY {
-                    // wx = wy = +∞.
-                    // The widths are too large to be compared through
-                    // the rounded values.
-                    let z_rn = sub_rn(x, y);
-                    let [mz0, z1] = extract(z_rn);
-                    match (-mz0).partial_cmp(&z1) {
-                        Some(Greater) => Self::ENTIRE,
-                        Some(Less) => Self { rep: z },
-                        Some(Equal) => {
-                            // z0 = z1.
-                            // Use the 2Sum algorithm to compute the
-                            // remainders dz0 and dz1, where
-                            //   c - a = z0 + dz0, b - d = z1 + dz1, or
-                            //   x .+ (-y) = z_rn .+ dz.
-                            //
-                            // (z_rn, dz) = elementwise_two_sum(x, -y)
-                            //   z_rn := x .+ (-y) = [-a; -c] .- [b; d]
-                            //   d1 := z_rn .- (-y) = z_rn .+ y
-                            //   d2 := z_rn .- d1
-                            //   d1 := x .- d1
-                            //   d2 := -y .- d2 ⟹ -d2 = y .+ d2
-                            //   dz := d1 .+ d2 = d1 .- (-d2)
-                            let d1 = add_rn(z_rn, y);
-                            let d2 = sub_rn(z_rn, d1);
-                            let d1 = sub_rn(x, d1);
-                            let md2 = add_rn(y, d2);
-                            let dz = sub_rn(d1, md2);
-                            let [mdz0, dz1] = extract(dz);
-                            if -mdz0 <= dz1 {
-                                Self { rep: z }
-                            } else {
-                                Self::ENTIRE
-                            }
-                        }
-                        None => unreachable!(),
-                    }
+                // wx = wy < +∞.
+                // Use the Fast2Sum algorithm (T. J. Dekker, A floating-point technique for
+                // extending the available precision, Numer. Math. 18, 1971) to compute the
+                // remainders dx and dy, where
+                //   -a + b = wx + dx, -c + d = wy + dy, or
+                //   [-a; -c] .+ [b; d] = w_rn .+ dw.
+                // It needs an addend whose magnitude is at least that of the other:
+                // -a + b ≥ 0, so the larger of -a and b is at least |the smaller|, and the
+                // same holds for -c and d. No step overflows, unlike in 2Sum, which
+                // overflows for x = y = [f64::MIN, -3 × 2^970].
+                //
+                // (w_rn, dw) = elementwise_fast_two_sum(hi, lo)
+                //   hi := max([-a; -c], [b; d]), lo := min([-a; -c], [b; d])
+                //   w_rn = hi .+ lo
+                //   t := hi .- w_rn
+                //   dw := lo .+ t
+                let hi = max(shuffle02(x, y), shuffle13(x, y));
+                let lo = min(shuffle02(x, y), shuffle13(x, y));
+                let t = sub_rn(hi, w_rn);
+                let dw = add_rn(lo, t);
+                let [dwx, dwy] = extract(dw);
+                if dwx >= dwy {
+                    Self { rep: z }
                 } else {
-                    // wx = wy < +∞.
-                    // Use the 2Sum algorithm to compute the remainders
-                    // dx and dy, where
-                    //   -a + b = wx + dx, -c + d = wy + dy, or
-                    //   [-a; -c] .+ [b; d] = w_rn .+ dw.
-                    //
-                    // (w_rn, dw) = elementwise_two_sum([-a; -c], [b; d])
-                    //   w_rn := [b - a; d - c] = [-a; -c] .+ [b; d]
-                    //   d1 := w_rn .- [b; d]
-                    //   d2 := w_rn .- d1
-                    //   d1 := [-a; -c] .- d1
-                    //   d2 := [b; d] .- d2
-                    //   dw := d1 .+ d2
-                    let d1 = sub_rn(w_rn, shuffle13(x, y));
-                    let d2 = sub_rn(w_rn, d1);
-                    let d1 = sub_rn(shuffle02(x, y), d1);
-                    let d2 = sub_rn(shuffle13(x, y), d2);
-                    let dw = add_rn(d1, d2);
-                    let [dwx, dwy] = extract(dw);
-                    if dwx >= dwy {
-                        Self { rep: z }
-                    } else {
-                        Self::ENTIRE
-                    }
+                    Self::ENTIRE
                 }
             }
             None => unreachable!(),
@@ -821,6 +798,23 @@ mod tests {
         assert_eq!(
             const_interval!(f64::MAX, f64::MAX).cancel_minus(const_interval!(f64::MIN, -1e292)),
             I::ENTIRE
+        );
+
+        // 2^970, half an ulp of `f64::MAX`. Computing the remainders of the widths with
+        // 2Sum instead of Fast2Sum overflowed here, which gave `Interval::ENTIRE`.
+        let h = f64::from_bits((970 + 1023) << 52);
+        let x = I::try_from((f64::MIN, -3.0 * h)).unwrap();
+        assert_eq!(x.cancel_minus(x), const_interval!(0.0, 0.0));
+        // The widths overflow and are equal, and a - c = b - d = -(2^1024 - 5 × 2^970).
+        let x = I::try_from((f64::MIN, h)).unwrap();
+        let y = I::try_from((-3.0 * h, f64::MAX - 2.0 * h)).unwrap();
+        assert_eq!(
+            x.cancel_minus(y),
+            I::try_from((f64::MIN + 2.0 * h, f64::MIN + 4.0 * h)).unwrap()
+        );
+        assert_eq!(
+            x.cancel_plus(-y),
+            I::try_from((f64::MIN + 2.0 * h, f64::MIN + 4.0 * h)).unwrap()
         );
     }
 }

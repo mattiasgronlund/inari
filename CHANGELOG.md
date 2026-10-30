@@ -21,6 +21,7 @@ Items marked with ⚠️ are breaking changes.
 ### Fixed
 
 - Fixed `(Dec)Interval::rad` to return `0.0` instead of `-0.0` for the interval [0, 0] when its upper bound is `-0.0`, as in `const_interval!(0.0, -0.0)`. It returned `-0.0` with Rust 1.96 on x86-64, because `f64::max` may return either zero when given `0.0` and `-0.0`.
+- Fixed `(Dec)Interval::cancel_minus` and `(Dec)Interval::cancel_plus` to return the tightest interval instead of `(Dec)Interval::ENTIRE` for some arguments whose widths round to the same float and that have a bound of `f64::MIN` or `f64::MAX`, such as `x.cancel_minus(x)` for `x` = [`f64::MIN`, -3 × 2^970], which is [0, 0]. An intermediate result of the error-free sum that compares the widths overflowed.
 
 ## v2.0.0 - 2024-08-07
 
