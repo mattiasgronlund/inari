@@ -14,6 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The proofs in `Valid.v` and `ComCommon.v` rely on a list of the places
+      # in `src` that make an `Interval` or a `DecInterval`, which the greps in
+      # rocq/README.md, "What is assumed", find. This fails if the lines that
+      # they find change, also in a change to the Rust code alone.
+      - name: Check the places that make an interval
+        run: rocq/check-sites.sh
+
       # The container runs as a user that does not own the checkout, and has
       # to write the compiled proofs next to the sources.
       - name: Make the proofs writable by the container
