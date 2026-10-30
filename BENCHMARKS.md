@@ -557,10 +557,12 @@ therefore the default, and `avx_fma` has been removed.
 
 `generic` is not a replacement for either. It has no fixed rounding-mode cost
 but needs many more instructions: against `avx_fma` it was within about 1.3×
-either way except on division, but against `fma` it is slower on every row of
-both tables except `sqrt1_ru`, which the two share, by 1.2× on the rows that do
-almost no arithmetic and by 1.5–4× on the rest. `force-generic` remains the
-portable fallback rather than a faster one.
+either way on most rows and at worst 2.7× slower, but against `fma` it is slower
+on every row of both tables except `sqrt1_ru`, which the two share. It takes 1.2×
+as long on the two interval rows that do almost no arithmetic, `div/PM` and
+`sqrt/M`, 1.2–1.6× as long on the latency of the three primitives where `fma`'s
+correction lengthens the chain, and 1.5–4× as long on the rest. `force-generic`
+remains the portable fallback rather than a faster one.
 
 `sse42` is the same method as `fma` without an FMA, and is 1.2–2.1× faster than
 `generic` at the same feature level on everything but subtraction and Horner.
