@@ -1,6 +1,6 @@
 # Benchmarks
 
-A comparison of the backends of inari, in four sittings:
+A comparison of the backends of inari, in five sittings:
 
 - 2026-09-22: `avx_fma`, then the default for x86-64, which set MXCSR around
   every instruction to make the hardware round, against the portable backend
@@ -13,14 +13,18 @@ A comparison of the backends of inari, in four sittings:
   `avx_fma` has been removed from the crate.
 - 2026-10-24: `fma` on multiplications whose products are below 2^-968, before
   and after the change that keeps them on its fast path, against inari 2.0.0.
+- 2026-10-30: the `mul_add_ru` rows of the `fma` section again, after
+  `fma::mul_add_ru` stopped computing a separate result for its special cases.
 
 `avx_fma` is the base column of the first three x86-64 sections, so that the
 two explicit backends are measured against what they replaced, and against each
 other. The fourth uses inari 2.0.0 instead, as `avx_fma` had been removed by
 then. The x86-64 backend of 2.0.0 is `avx_fma` as it was before its square root
-changed, so its multiplication is `avx_fma`'s. No backend for x86-64 changes the
-rounding mode any more: `avx512f` uses per-instruction embedded rounding, and
-the other two round by correcting a round-to-nearest result.
+changed, so its multiplication is `avx_fma`'s. The fifth sitting, which replaces
+two rows of the `fma` section, builds `avx_fma` from `cc5e384`, the commit
+before its removal. No backend for x86-64 changes the rounding mode any more:
+`avx512f` uses per-instruction embedded rounding, and the other two round by
+correcting a round-to-nearest result.
 
 ## Setup
 
@@ -47,7 +51,9 @@ Native configurations:
 `avx_fma` and `fma` take the same flags because the target features are what
 selects a backend. They were measured against each other from a snapshot of the
 tree that still had both, with a temporary Cargo feature choosing between them;
-that snapshot is the code the `fma` section below reports.
+that snapshot is the code the `fma` section below reports, except in its two
+`mul_add_ru` rows, which were measured again later from separate builds (see
+"Variance").
 
 WebAssembly configurations, all on `wasm32-wasip1` under wasmtime, and all
 without an FMA, which WebAssembly does not have:
@@ -111,10 +117,45 @@ which is within 0.4% of the lower one since the spread is at most 0.7% in every
 row. Rounds 3–6 agree with them to within 1% on every configuration they share.
 The first version of the change is the subject of an observation below.
 
-Composite benchmarks drift between sittings in a way the primitives do not: the
+The two `mul_add_ru` rows of the `fma` section were measured again on
+2026-10-30, as the first measurement predates `a6650cb`, after which
+`fma::mul_add_ru` no longer computes a separate result for its special cases.
+`avx_fma` was built from `cc5e384`, the commit before its removal, and `fma` and
+`generic, FMA` from `8bbcf64`, with the flags above. Twelve rounds ran the
+configurations interleaved, in an order rotated from round to round, with the
+load average, the idle time of the pinned core's SMT sibling and the busy time
+of the other cores recorded for every run. A round was kept only if, in each of
+its runs, the load average was below 3 at the start and at the end, the sibling
+was at least 99% idle and the other cores were busy for at most two cores' worth
+of time in total. All twelve were, at a load average of 1.0 to 2.0, and the rows
+report their medians; the `fma` ratios are the same to two decimal places
+whether the lowest or the median is used. `fma` as it was before `a6650cb`,
+built from `469f00b`, ran in the same rounds as a control. It takes 0.84× the
+time of `avx_fma` on `mul_add_ru/throughput` and 1.11× on `mul_add_ru/latency`,
+as in the first measurement, so the move from 0.84× to 0.78× is not the
+sitting's. `fma` now takes 0.93× the time it did in throughput and 1.00× in
+latency, and the fast path of the throughput loop is 110 instructions long
+instead of 124. These builds cannot tell how much of the 0.93× is the change,
+though: `sqrt1_ru`, which ran alongside, came out at 0.95× between the same two
+builds in throughput, although the code of its benchmark is the same in both but
+for addresses. Against `avx_fma`, where `sqrt1_ru` compiled to the same code but
+for one range check, it came out at 1.04× for `fma` and at 1.10× for `fma`
+before `a6650cb`. In latency, all of them run `sqrt1_ru` at 1.00× of `avx_fma`.
+A throughput row can therefore move by 5% between two builds of the same code,
+and the same difference in the code came out at 4% in one pair of builds and at
+10% in another. The longer `mul_add_ru` loop moved less in the one comparison
+there is: against `avx_fma`, `fma` before `a6650cb` runs `sqrt1_ru/throughput`
+at 1.10× here and ran it at 1.00× in the first measurement, but runs both
+`mul_add_ru` rows at the same ratios as then. One comparison does not show how
+sensitive that loop is.
+
+Composite benchmarks drift between sittings more than the primitives do: the
 `avx_fma` 3×3 determinant is 236 ns in the first section, 211 ns in the `sse42`
 section and 193 ns in the `fma` section, while its `add/PP` is 9.25, 9.24 and
-9.25 ns. Compare ratios within a section, not times across sections.
+9.25 ns. Of its primitives, only `sqrt1_ru/throughput` has moved by more than
+1%: it takes 2.32 ns in all three sections, but 2.13 ns in the fifth sitting,
+built from `cc5e384`. Compare ratios within a section, not times across
+sections.
 
 ## Results
 
@@ -190,7 +231,8 @@ TwoProduct and the remainders of division and of the square root one instruction
 each instead of Dekker's algorithm, and widens their exactness hypotheses enough
 that some of the exponent checks drop out. It is compared with `avx_fma`, which
 it replaced as the default, and with `generic` at the same feature level.
-Medians over the four idle rounds; see "Variance" above.
+Medians over the four idle rounds, except in the `mul_add_ru` rows, which were
+measured again later over twelve; see "Variance" above.
 
 | Benchmark | avx_fma (ns) | fma (ns) | ratio | generic, FMA (ns) | ratio | spread |
 |---|--:|--:|--:|--:|--:|--:|
@@ -228,8 +270,8 @@ Medians over the four idle rounds; see "Variance" above.
 | mul_ru/latency | 8.75 | 7.06 | 0.81× | 13.09 | 1.50× | 0% |
 | div_ru/throughput | 9.25 | 5.43 | 0.59× | 9.83 | 1.06× | 8% |
 | div_ru/latency | 8.76 | 9.82 | 1.12× | 15.33 | 1.75× | 1% |
-| mul_add_ru/throughput | 9.01 | 7.54 | 0.84× | 19.34 | 2.15× | 1% |
-| mul_add_ru/latency | 8.53 | 9.44 | 1.11× | 11.23 | 1.32× | 1% |
+| mul_add_ru/throughput | 9.07 | 7.06 | 0.78× | 19.32 | 2.13× | 2% |
+| mul_add_ru/latency | 8.58 | 9.52 | 1.11× | 11.38 | 1.33× | 1% |
 | sqrt1_ru/throughput | 2.32 | 2.32 | 1.00× | 2.32 | 1.00× | 2% |
 | sqrt1_ru/latency | 7.33 | 7.33 | 1.00× | 7.33 | 1.00× | 1% |
 
@@ -457,7 +499,7 @@ its scalar square root matches the `generic, Nehalem` column exactly.
   on addition and subtraction, 0.49–0.62× on multiplication, 0.67–0.69× on
   division, 0.41–0.45× on Horner and 0.33× on the determinant. The three rows
   where `sse42` lost to the missing FMA come back to par or better:
-  `mul_add_ru/throughput` from 1.67× to 0.84×, `sqrt/P` from 1.80× to 1.03× and
+  `mul_add_ru/throughput` from 1.67× to 0.78×, `sqrt/P` from 1.80× to 1.03× and
   the scalar `sqrt1_ru` from 2.51× to 1.00×.
 - With an FMA the multiplication fast path is shorter than the addition's, which
   still needs a TwoSum: `mul_ru/throughput` is 0.43×, the largest gain of any
