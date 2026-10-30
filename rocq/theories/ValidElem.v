@@ -1,14 +1,16 @@
 (** * The elementary functions return [valid] intervals
 
     For [Valid.v]: each elementary function proved here returns a [valid]
-    interval for a [valid] argument, as its theorem's [is_tightest] says,
-    and so does its decorated version, whose result is [set_dec] of one or
-    NaI. Each assumes what [Mpfr.v] says of MPFR. *)
+    interval for a [valid] argument, as its theorem's [is_tightest], or for
+    [cos], [sin] and [tan] [encloses], says, and so does its decorated
+    version, whose result is [set_dec] of one or NaI. Each assumes what
+    [Mpfr.v] says of MPFR, and [tan] also that π is irrational
+    ([pi_irrational] in [Elementary.v]). *)
 
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr ValidMake ValidDecOps
-  Elem Atanh Cosh ClosedDom.
+  Elem Atanh Cosh ClosedDom Cos Sin Tan.
 
 (** [DecInterval::$f] of [impl_dec!($f)] is [set_dec] of [Interval::$f],
     so it is [valid] whenever [Interval::$f] is. *)
@@ -249,4 +251,73 @@ Theorem dec_tanh_valid :
   valid (itv x) -> valid (itv (DecInterval.tanh m x)).
 Proof.
 ve_dec ve_elem_dec_valid tanh_valid.
+Qed.
+
+(** [Interval::cos], [Interval::sin] and [Interval::tan] return an
+    [option], as [Interval::div] does, and [<f>_encloses] gives [encloses]
+    of the value, which starts with [valid y]. *)
+Theorem cos_valid :
+  forall emin emax m has_fma first x y,
+  range_ok emin emax -> get_d_ok emin emax m -> cos_ok emin emax m ->
+  valid x -> Interval.cos m has_fma first x = Some y -> valid y.
+Proof.
+intros emin emax m has_fma first x y Hr Hget Hok Hx E.
+destruct (cos_encloses emin emax m has_fma first x Hr Hget Hok Hx) as (y' & E' & H).
+rewrite E in E'. injection E' as <-. exact (proj1 H).
+Qed.
+
+Theorem dec_cos_valid :
+  forall emin emax m has_fma first x y,
+  range_ok emin emax -> get_d_ok emin emax m -> cos_ok emin emax m ->
+  valid (itv x) -> DecInterval.cos m has_fma first x = Some y -> valid (itv y).
+Proof.
+intros emin emax m has_fma first x y Hr Hget Hok Hx E. unfold DecInterval.cos in E.
+destruct (Interval.cos m has_fma first (itv x)) as [z |] eqn:Ez; [| discriminate E].
+injection E as <-. apply set_dec_valid.
+exact (cos_valid emin emax m has_fma first (itv x) z Hr Hget Hok Hx Ez).
+Qed.
+
+Theorem sin_valid :
+  forall emin emax m has_fma first x y,
+  range_ok emin emax -> get_d_ok emin emax m -> sin_ok emin emax m ->
+  valid x -> Interval.sin m has_fma first x = Some y -> valid y.
+Proof.
+intros emin emax m has_fma first x y Hr Hget Hok Hx E.
+destruct (sin_encloses emin emax m has_fma first x Hr Hget Hok Hx) as (y' & E' & H).
+rewrite E in E'. injection E' as <-. exact (proj1 H).
+Qed.
+
+Theorem dec_sin_valid :
+  forall emin emax m has_fma first x y,
+  range_ok emin emax -> get_d_ok emin emax m -> sin_ok emin emax m ->
+  valid (itv x) -> DecInterval.sin m has_fma first x = Some y -> valid (itv y).
+Proof.
+intros emin emax m has_fma first x y Hr Hget Hok Hx E. unfold DecInterval.sin in E.
+destruct (Interval.sin m has_fma first (itv x)) as [z |] eqn:Ez; [| discriminate E].
+injection E as <-. apply set_dec_valid.
+exact (sin_valid emin emax m has_fma first (itv x) z Hr Hget Hok Hx Ez).
+Qed.
+
+Theorem tan_valid :
+  forall emin emax m has_fma x y,
+  range_ok emin emax -> get_d_ok emin emax m -> tan_ok emin emax m -> pi_irrational ->
+  valid x -> Interval.tan m has_fma x = Some y -> valid y.
+Proof.
+intros emin emax m has_fma x y Hr Hget Hok Hpi Hx E.
+destruct (tan_encloses emin emax m has_fma x Hr Hget Hok Hpi Hx) as (y' & E' & H).
+rewrite E in E'. injection E' as <-. exact (proj1 H).
+Qed.
+
+(** [DecInterval::tan] takes its interval from [Interval::tan_impl], whose
+    first component [Interval::tan] returns. *)
+Theorem dec_tan_valid :
+  forall emin emax m has_fma x y,
+  range_ok emin emax -> get_d_ok emin emax m -> tan_ok emin emax m -> pi_irrational ->
+  valid (itv x) -> DecInterval.tan m has_fma x = Some y -> valid (itv y).
+Proof.
+intros emin emax m has_fma x y Hr Hget Hok Hpi Hx E. unfold DecInterval.tan in E.
+destruct (Interval.tan_impl m has_fma (itv x)) as [p |] eqn:Ep; [| discriminate E].
+injection E as <-. apply set_dec_valid.
+apply (tan_valid emin emax m has_fma (itv x) (fst p) Hr Hget Hok Hpi Hx).
+unfold Interval.tan. rewrite Ep. reflexivity.
 Qed.

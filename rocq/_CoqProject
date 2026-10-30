@@ -89,6 +89,15 @@ theories/LogDom.v
 theories/Atanh.v
 theories/ClosedDom.v
 theories/Elem.v
+theories/PiBounds.v
+theories/TrigPieces.v
+theories/TrigSpec.v
+theories/TrigQuot.v
+theories/TrigReduce.v
+theories/TrigBranch.v
+theories/Cos.v
+theories/Sin.v
+theories/Tan.v
 theories/ValidMake.v
 theories/ValidSetOp.v
 theories/ValidOps.v

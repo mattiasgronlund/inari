@@ -13,7 +13,7 @@ impl Interval {
     /// $\[-∞, +∞\]$.
     // `rocq/theories/Model.v` transcribes this constant for the proofs of
     // `(Dec)Interval::cancel_minus`, `(Dec)Interval::cancel_plus`, `(Dec)Interval::div`,
-    // `(Dec)Interval::mul_rev_to_pair` and `(Dec)Interval::recip`,
+    // `(Dec)Interval::mul_rev_to_pair`, `(Dec)Interval::recip` and `(Dec)Interval::tan`,
     // for the proof that every `DecInterval` is `com` only if its interval is common
     // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
     // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
@@ -35,6 +35,9 @@ impl Interval {
     pub const FRAC_2_SQRT_PI: Self = const_interval!(1.1283791670955126, 1.1283791670955128);
 
     /// The tightest interval enclosing $π / 2$.
+    // `rocq/theories/Model.v` transcribes this constant for the proofs of `(Dec)Interval::sin`
+    // and `(Dec)Interval::tan`, so it has to be updated along with it. `FRAC_PI_2_const` in
+    // `rocq/theories/PiBounds.v` shows that it encloses π/2.
     pub const FRAC_PI_2: Self = const_interval!(1.5707963267948966, 1.5707963267948968);
 
     /// The tightest interval enclosing $π / 3$.
@@ -68,6 +71,9 @@ impl Interval {
     pub const LOG2_E: Self = const_interval!(1.4426950408889634, 1.4426950408889636);
 
     /// The tightest interval enclosing $π$.
+    // `rocq/theories/Model.v` transcribes this constant for the proofs of `(Dec)Interval::cos`,
+    // so it has to be updated along with it. `PI_bounds` in `rocq/theories/PiBounds.v` shows
+    // that it encloses π.
     pub const PI: Self = const_interval!(3.141592653589793, 3.1415926535897936);
 
     /// The tightest interval enclosing $\sqrt{2}$.

@@ -65,6 +65,11 @@ Definition is_tightest (s : R -> Prop) (y : Interval) : Prop :=
   valid y /\ (forall r, s r -> mem r y) /\
   forall z, valid z -> (forall r, s r -> mem r z) -> forall r, mem r y -> mem r z.
 
+(** [y] contains [s]: it is a result of the accuracy that IEEE 1788 calls
+    valid, if [s] is the image of the argument. *)
+Definition encloses (s : R -> Prop) (y : Interval) : Prop :=
+  valid y /\ forall r, s r -> mem r y.
+
 Definition bounded (s : R -> Prop) : Prop :=
   exists m, forall r, s r -> Rabs r <= m.
 

@@ -24,8 +24,9 @@
     [Bfma] and [Bsqrt] in the same mode, [f64::floor], [f64::ceil],
     [f64::round] and [f64::trunc] are Flocq's [Bnearbyint] toward -inf,
     toward +inf, to nearest with ties away from zero, and toward zero, and
-    [f64::abs] is Flocq's [Babs]. A const generic parameter, such as [FMA],
-    is an ordinary argument.
+    [f64::abs] is Flocq's [Babs]. Flocq has no remainder, so [%] of [f64]s
+    is [frem] below. A const generic parameter, such as [FMA], is an
+    ordinary argument.
 
     NaN payloads and signs are not modelled: all NaNs are the same value, so
     [opp] keeps a NaN as it is where Rust's unary [-] flips its sign bit,
@@ -129,6 +130,30 @@ Definition zero : f64 := B754_zero false.
 (** [k as f64] for a [u64] [k], which rounds to nearest, ties to even. *)
 Definition of_u64 (k : Z) : f64 :=
   binary_normalize 53 1024 _ _ mode_NE k 0 false.
+
+(** [x % y], which is C's [fmod] (LLVM's [frem]): [x - n * y] for [n] the
+    integer [x / y] rounded toward zero, computed exactly, as that value is
+    always an [f64]. It has the sign of [x], also when it is zero; it is NaN
+    if [x] is NaN or an infinity or [y] is NaN or a zero, and [x] if [x] is
+    finite and [y] an infinity. For finite [x] and [y], [Z.rem] takes the
+    remainder of the significands brought to the smaller exponent [e]; it
+    has the sign of the dividend, and [y]'s sign does not matter. *)
+Definition frem (x y : f64) : f64 :=
+  match x, y with
+  | B754_nan, _ | _, B754_nan | B754_infinity _, _ | _, B754_zero _ => B754_nan
+  | B754_zero s, _ => B754_zero s
+  | B754_finite _ _ _ _, B754_infinity _ => x
+  | B754_finite sx mx ex _, B754_finite _ my ey _ =>
+      let e := Z.min ex ey in
+      let r := Z.rem (cond_Zopp sx (Zpos mx) * 2 ^ (ex - e)) (Zpos my * 2 ^ (ey - e)) in
+      binary_normalize 53 1024 _ _ mode_NE r e sx
+  end.
+
+(** [x.rem_euclid(y)] of [f64], which the standard library defines as
+    [let r = x % y; if r < 0.0 { r + y.abs() } else { r }]. *)
+Definition rem_euclid (x y : f64) : f64 :=
+  let r := frem x y in
+  if lt r zero then add r (fabs y) else r.
 
 (** [x.to_bits()] and [f64::from_bits(b)]. The bit patterns are integers
     instead of [u64], so an addition to one cannot wrap around;
@@ -820,6 +845,7 @@ Record mpfr : Type := {
   mpfr_asinh : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_atan : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_atanh : mpfr_rnd -> mpfr_t -> mpfr_t;
+  mpfr_cos : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_cosh : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_exp : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_exp10 : mpfr_rnd -> mpfr_t -> mpfr_t;
@@ -827,7 +853,9 @@ Record mpfr : Type := {
   mpfr_log : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_log10 : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_log2 : mpfr_rnd -> mpfr_t -> mpfr_t;
+  mpfr_sin : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_sinh : mpfr_rnd -> mpfr_t -> mpfr_t;
+  mpfr_tan : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_tanh : mpfr_rnd -> mpfr_t -> mpfr_t
 }.
 
@@ -840,8 +868,7 @@ Definition mpfr_fn (m : mpfr) (f : mpfr_rnd -> mpfr_t -> mpfr_t)
   mpfr_get_d m rnd (f rnd (with_val x)).
 
 (** The functions that [mpfr_fn!(acos, acos_rd, acos_ru)] and the other
-    uses of [mpfr_fn!] in [src/elementary.rs] define, but those for [cos],
-    [sin] and [tan], which are not modelled yet. *)
+    uses of [mpfr_fn!] in [src/elementary.rs] define. *)
 Definition acos_rd (m : mpfr) := mpfr_fn m (mpfr_acos m) RNDD.
 Definition acos_ru (m : mpfr) := mpfr_fn m (mpfr_acos m) RNDU.
 Definition acosh_rd (m : mpfr) := mpfr_fn m (mpfr_acosh m) RNDD.
@@ -854,6 +881,8 @@ Definition atan_rd (m : mpfr) := mpfr_fn m (mpfr_atan m) RNDD.
 Definition atan_ru (m : mpfr) := mpfr_fn m (mpfr_atan m) RNDU.
 Definition atanh_rd (m : mpfr) := mpfr_fn m (mpfr_atanh m) RNDD.
 Definition atanh_ru (m : mpfr) := mpfr_fn m (mpfr_atanh m) RNDU.
+Definition cos_rd (m : mpfr) := mpfr_fn m (mpfr_cos m) RNDD.
+Definition cos_ru (m : mpfr) := mpfr_fn m (mpfr_cos m) RNDU.
 Definition cosh_rd (m : mpfr) := mpfr_fn m (mpfr_cosh m) RNDD.
 Definition cosh_ru (m : mpfr) := mpfr_fn m (mpfr_cosh m) RNDU.
 Definition exp_rd (m : mpfr) := mpfr_fn m (mpfr_exp m) RNDD.
@@ -868,35 +897,50 @@ Definition log10_rd (m : mpfr) := mpfr_fn m (mpfr_log10 m) RNDD.
 Definition log10_ru (m : mpfr) := mpfr_fn m (mpfr_log10 m) RNDU.
 Definition log2_rd (m : mpfr) := mpfr_fn m (mpfr_log2 m) RNDD.
 Definition log2_ru (m : mpfr) := mpfr_fn m (mpfr_log2 m) RNDU.
+Definition sin_rd (m : mpfr) := mpfr_fn m (mpfr_sin m) RNDD.
+Definition sin_ru (m : mpfr) := mpfr_fn m (mpfr_sin m) RNDU.
 Definition sinh_rd (m : mpfr) := mpfr_fn m (mpfr_sinh m) RNDD.
 Definition sinh_ru (m : mpfr) := mpfr_fn m (mpfr_sinh m) RNDU.
+Definition tan_rd (m : mpfr) := mpfr_fn m (mpfr_tan m) RNDD.
+Definition tan_ru (m : mpfr) := mpfr_fn m (mpfr_tan m) RNDU.
 Definition tanh_rd (m : mpfr) := mpfr_fn m (mpfr_tanh m) RNDD.
 Definition tanh_ru (m : mpfr) := mpfr_fn m (mpfr_tanh m) RNDU.
 
-(** [x.max(y)] of two [f64]s that are not NaN, as [Interval::cosh] calls
-    it: the larger of the two. If they compare equal, Rust returns either,
-    and such floats differ only as +0 and -0, so the argument [first] says
-    whether it is [x]. *)
+(** [x.max(y)] of two [f64]s that are not NaN, as [Interval::cosh],
+    [Interval::cos] and [Interval::sin] call it: the larger of the two. If
+    they compare equal, Rust returns either, and such floats differ only as
+    +0 and -0, so the argument [first] says whether it is [x]. *)
 Definition fmax (first : bool) (x y : f64) : f64 :=
   if lt x y then y else if lt y x then x else if first then x else y.
+
+(** [x.min(y)] of two [f64]s that are not NaN, as [Interval::cos] and
+    [Interval::sin] call it: the smaller of the two, and as for [fmax],
+    [first] says which one Rust returns if they compare equal. *)
+Definition fmin (first : bool) (x y : f64) : f64 :=
+  if lt x y then x else if lt y x then y else if first then x else y.
+
+(** [fn rem_euclid_2(x: f64) -> f64] in [src/elementary.rs]. *)
+Definition rem_euclid_2 (x : f64) : f64 :=
+  if eq (mul (of_u64 2) (ffloor (div x (of_u64 2)))) x then zero else of_u64 1.
 
 (** ** Intervals
 
     The parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
     [src/integer.rs], [src/absmax.rs], [src/arith.rs], [src/basic.rs],
-    [src/set_op.rs] and [src/elementary.rs] that [Interval::abs],
-    [Interval::cancel_minus], [Interval::cancel_plus], [Interval::ceil],
-    [Interval::floor], [Interval::max], [Interval::min],
+    [src/set_op.rs], [src/constants.rs] and [src/elementary.rs] that
+    [Interval::abs], [Interval::cancel_minus], [Interval::cancel_plus],
+    [Interval::ceil], [Interval::floor], [Interval::max], [Interval::min],
     [Interval::mul_add], [Interval::mul_rev_to_pair], [Interval::recip],
     [Interval::round], [Interval::round_ties_even], [Interval::sign],
     [Interval::sqr], [Interval::sqrt], [Interval::trunc],
     [-x], [x + y], [x - y], [x * y] and [x / y] of intervals, the
     elementary functions [Interval::acos], [Interval::acosh],
     [Interval::asin], [Interval::asinh], [Interval::atan],
-    [Interval::atanh], [Interval::cosh], [Interval::exp],
+    [Interval::atanh], [Interval::cos], [Interval::cosh], [Interval::exp],
     [Interval::exp10], [Interval::exp2], [Interval::ln],
-    [Interval::log10], [Interval::log2], [Interval::sinh] and
-    [Interval::tanh], and their decorated versions, use. Those call the
+    [Interval::log10], [Interval::log2], [Interval::sin],
+    [Interval::sinh], [Interval::tan] and [Interval::tanh], and their
+    decorated versions, use. Those call the
     backend's [floor], [ceil], [round], [round_ties_even], [trunc],
     [neg0], [splat], [constant], [extract], [eq], [ge], [gt], [le], [lt],
     [all], [bitmask], [and], [or], [max], [maximum], [min], [minimum],
@@ -1041,6 +1085,15 @@ Definition const_interval_ok (a b : f64) : bool :=
     [B754_infinity false]. *)
 Definition ENTIRE : Interval :=
   const_interval (B754_infinity true) (B754_infinity false).
+
+(** [pub const PI: Self] and [pub const FRAC_PI_2: Self] in
+    [src/constants.rs]: [const_interval!(3.141592653589793,
+    3.1415926535897936)] and [const_interval!(1.5707963267948966,
+    1.5707963267948968)], with the [f64]s as their bit patterns. *)
+Definition PI : Interval :=
+  const_interval (from_bits 0x400921fb54442d18) (from_bits 0x400921fb54442d19).
+Definition FRAC_PI_2 : Interval :=
+  const_interval (from_bits 0x3ff921fb54442d18) (from_bits 0x3ff921fb54442d19).
 
 (** [pub(crate) fn with_infsup_raw(a: f64, b: f64) -> Self] *)
 Definition with_infsup_raw (a b : f64) : Interval :=
@@ -1767,6 +1820,38 @@ Definition atanh_impl (m : mpfr) (self : Interval) : Interval * Decoration :=
     (y, d).
 Definition atanh (m : mpfr) (self : Interval) : Interval := fst (atanh_impl m self).
 
+(** [pub fn cos(self) -> Self]. Its [self / Self::PI] is [div] and its
+    [(..).floor()] is [floor] of intervals, so [has_fma] is an argument, as
+    for [div], and the result is an [option], [None] where [div] would be.
+    [x.max(y)] and [x.min(y)] are [fmax first x y] and [fmin first x y],
+    which pick the same argument only if the two compare equal; there is at
+    most one such call on each path, so one [first] covers every choice
+    Rust may make. [a == b], [n == 0.0] and the like are [Model.eq],
+    [n <= 1.0] is [Model.le], [qb - qa] is [Model.sub], [0.0] is
+    [Model.zero], [1.0] is [of_u64 1] and [-1.0] is [opp (of_u64 1)]
+    ([Model.] avoids the [sub] and [zero] of intervals). [return] is as in
+    [log_impl]. *)
+Definition cos (m : mpfr) (has_fma first : bool) (self : Interval) :
+    option Interval :=
+  if is_empty self then Some self
+  else
+    let a := inf_raw self in
+    let b := sup_raw self in
+    let* q_nowrap0 := div has_fma self PI in
+    let q_nowrap := floor q_nowrap0 in
+    let qa := inf_raw q_nowrap in
+    let qb := sup_raw q_nowrap in
+    let n := if Model.eq a b then Model.zero else Model.sub qb qa in
+    let q := rem_euclid_2 qa in
+    if Model.eq n Model.zero then
+      if Model.eq q Model.zero then Some (with_infsup_raw (cos_rd m b) (cos_ru m a))
+      else Some (with_infsup_raw (cos_rd m a) (cos_ru m b))
+    else if Model.le n (of_u64 1) then
+      if Model.eq q Model.zero then
+        Some (with_infsup_raw (opp (of_u64 1)) (fmax first (cos_ru m a) (cos_ru m b)))
+      else Some (with_infsup_raw (fmin first (cos_rd m a) (cos_rd m b)) (of_u64 1))
+    else Some (const_interval (opp (of_u64 1)) (of_u64 1)).
+
 (** [pub fn cosh(self) -> Self], with [1.0] as [of_u64 1],
     [(-a).max(b)] as [fmax first (opp a) b], where [-a] and [b] are not
     NaN, and [return] as in [log_impl]. *)
@@ -1799,10 +1884,71 @@ Definition log2_impl (m : mpfr) : Interval -> Interval * Decoration :=
   log_impl (log2_rd m) (log2_ru m).
 Definition log2 (m : mpfr) (self : Interval) : Interval := fst (log2_impl m self).
 
-(** [impl_mono_inc!(sinh, sinh_rd, sinh_ru)] and
-    [impl_mono_inc!(tanh, tanh_rd, tanh_ru)] *)
+(** [pub fn sin(self) -> Self], written as [cos] is, with
+    [qa.rem_euclid(4.0)] as [rem_euclid qa (of_u64 4)] and [n < 1.0] as
+    [Model.lt]. Rust's [&&] binds tighter than its [||], as Rocq's do. *)
+Definition sin (m : mpfr) (has_fma first : bool) (self : Interval) :
+    option Interval :=
+  if is_empty self then Some self
+  else
+    let a := inf_raw self in
+    let b := sup_raw self in
+    let* q_nowrap0 := div has_fma self FRAC_PI_2 in
+    let q_nowrap := floor q_nowrap0 in
+    let qa := inf_raw q_nowrap in
+    let qb := sup_raw q_nowrap in
+    let n := if Model.eq a b then Model.zero else Model.sub qb qa in
+    let q := rem_euclid qa (of_u64 4) in
+    if Model.eq q Model.zero && Model.lt n (of_u64 1)
+       || Model.eq q (of_u64 3) && Model.lt n (of_u64 2) then
+      Some (with_infsup_raw (sin_rd m a) (sin_ru m b))
+    else if Model.eq q (of_u64 1) && Model.lt n (of_u64 2)
+            || Model.eq q (of_u64 2) && Model.lt n (of_u64 1) then
+      Some (with_infsup_raw (sin_rd m b) (sin_ru m a))
+    else if Model.eq q Model.zero && Model.lt n (of_u64 3)
+            || Model.eq q (of_u64 3) && Model.lt n (of_u64 4) then
+      Some (with_infsup_raw (fmin first (sin_rd m a) (sin_rd m b)) (of_u64 1))
+    else if Model.eq q (of_u64 1) && Model.lt n (of_u64 4)
+            || Model.eq q (of_u64 2) && Model.lt n (of_u64 3) then
+      Some (with_infsup_raw (opp (of_u64 1)) (fmax first (sin_ru m a) (sin_ru m b)))
+    else Some (const_interval (opp (of_u64 1)) (of_u64 1)).
+
+(** [impl_mono_inc!(sinh, sinh_rd, sinh_ru)] *)
 Definition sinh (m : mpfr) : Interval -> Interval :=
   mono_inc (sinh_rd m) (sinh_ru m).
+
+(** [fn tan_impl(self) -> (Self, Decoration)] and [pub fn tan(self) ->
+    Self], written as [cos] is. In [cont], Rust's [&&] does not evaluate
+    its right side when [qb] is +inf, so the [mul] of intervals is under an
+    [if]; [qb != f64::INFINITY] is [!(qb == f64::INFINITY)]. *)
+Definition tan_impl (m : mpfr) (has_fma : bool) (self : Interval) :
+    option (Interval * Decoration) :=
+  if is_empty self then Some (self, Trv)
+  else
+    let a := inf_raw self in
+    let b := sup_raw self in
+    let* q_nowrap0 := div has_fma self FRAC_PI_2 in
+    let q_nowrap := floor q_nowrap0 in
+    let qa := inf_raw q_nowrap in
+    let qb := sup_raw q_nowrap in
+    let n := if Model.eq a b then Model.zero else Model.sub qb qa in
+    let q := rem_euclid_2 qa in
+    let* cont :=
+      if negb (Model.eq qb (B754_infinity false)) then
+        let* p := mul has_fma (with_infsup_raw qb qb) FRAC_PI_2 in
+        Some (Model.le b (inf_raw p))
+      else Some false in
+    if Model.eq q Model.zero
+         && (Model.lt n (of_u64 1) || Model.eq n (of_u64 1) && cont)
+       || Model.eq q (of_u64 1)
+         && (Model.lt n (of_u64 2) || Model.eq n (of_u64 2) && cont) then
+      Some (with_infsup_raw (tan_rd m a) (tan_ru m b), Com)
+    else Some (ENTIRE, Trv).
+Definition tan (m : mpfr) (has_fma : bool) (self : Interval) : option Interval :=
+  let* p := tan_impl m has_fma self in
+  Some (fst p).
+
+(** [impl_mono_inc!(tanh, tanh_rd, tanh_ru)] *)
 Definition tanh (m : mpfr) : Interval -> Interval :=
   mono_inc (tanh_rd m) (tanh_ru m).
 
@@ -2145,8 +2291,9 @@ Definition elem_dec_impl (f_impl : Interval -> Interval * Decoration)
   set_dec y (dec_min (dec self) d).
 
 (** [impl_dec!(acos, acos_impl)] and the other uses of [impl_dec!] in
-    [src/elementary.rs], but those for [cos], [sin] and [tan]. [m] is
-    MPFR, and [first] in [cosh] is that of [Interval.cosh]. *)
+    [src/elementary.rs], but those for [cos], [sin] and [tan], which are
+    after [cosh]. [m] is MPFR, and [first] in [cosh] is that of
+    [Interval.cosh]. *)
 Definition acos (m : mpfr) := elem_dec_impl (Interval.acos_impl m).
 Definition acosh (m : mpfr) := elem_dec_impl (Interval.acosh_impl m).
 Definition asin (m : mpfr) := elem_dec_impl (Interval.asin_impl m).
@@ -2154,6 +2301,24 @@ Definition asinh (m : mpfr) := elem_dec (Interval.asinh m).
 Definition atan (m : mpfr) := elem_dec (Interval.atan m).
 Definition atanh (m : mpfr) := elem_dec_impl (Interval.atanh_impl m).
 Definition cosh (m : mpfr) (first : bool) := elem_dec (Interval.cosh m first).
+
+(** [impl_dec!(cos)], [impl_dec!(sin)] and [impl_dec!(tan, tan_impl)], as
+    [elem_dec] and [elem_dec_impl] but for interval functions that return
+    an [option], with [has_fma] and [first] those of [Interval.cos] and
+    [Interval.sin]. *)
+Definition cos (m : mpfr) (has_fma first : bool) (self : DecInterval) :
+    option DecInterval :=
+  let* y := Interval.cos m has_fma first (itv self) in
+  Some (set_dec y (dec self)).
+Definition sin (m : mpfr) (has_fma first : bool) (self : DecInterval) :
+    option DecInterval :=
+  let* y := Interval.sin m has_fma first (itv self) in
+  Some (set_dec y (dec self)).
+Definition tan (m : mpfr) (has_fma : bool) (self : DecInterval) :
+    option DecInterval :=
+  let* p := Interval.tan_impl m has_fma (itv self) in
+  Some (set_dec (fst p) (dec_min (dec self) (snd p))).
+
 Definition exp (m : mpfr) := elem_dec (Interval.exp m).
 Definition exp10 (m : mpfr) := elem_dec (Interval.exp10 m).
 Definition exp2 (m : mpfr) := elem_dec (Interval.exp2 m).

@@ -88,8 +88,9 @@ pub(crate) fn add_ru(x: F64X2, y: F64X2) -> F64X2 {
 // `DecInterval::recip`, `DecInterval::round`, `DecInterval::round_ties_even`,
 // `DecInterval::sign`, `DecInterval::sqr`, `DecInterval::sqrt`, `DecInterval::sub` and
 // `DecInterval::trunc`, of the decorated versions of the functions of `src/elementary.rs`
-// in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v` and
-// `rocq/theories/Cosh.v`, and of `Interval::acos`, `Interval::acosh`, `Interval::asin`,
+// in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
+// `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
+// `rocq/theories/Tan.v`, and of `Interval::acos`, `Interval::acosh`, `Interval::asin`,
 // `Interval::atanh`, `Interval::ln`, `Interval::log10` and `Interval::log2`, for the
 // proof that every `DecInterval` is `com` only if its interval is common
 // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
@@ -119,8 +120,9 @@ pub(crate) fn any(x: F64X2) -> bool {
 // `(Dec)Interval::recip`, `DecInterval::round`, `DecInterval::round_ties_even`,
 // `DecInterval::sign`, `(Dec)Interval::sqr`, `DecInterval::sqrt`, `DecInterval::sub` and
 // `DecInterval::trunc`, of the decorated versions of the functions of `src/elementary.rs`
-// in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v` and
-// `rocq/theories/Cosh.v`, and of `Interval::acos`, `Interval::acosh`, `Interval::asin`,
+// in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
+// `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
+// `rocq/theories/Tan.v`, and of `Interval::acos`, `Interval::acosh`, `Interval::asin`,
 // `Interval::atanh`, `Interval::ln`, `Interval::log10` and `Interval::log2`.
 pub(crate) fn bitmask(x: F64X2) -> u32 {
     (x[0].to_bits() >> 63) as u32 | ((x[1].to_bits() >> 63) as u32) << 1
@@ -135,8 +137,9 @@ pub(crate) fn ceil(x: F64X2) -> F64X2 {
 // `rocq/theories/Model.v` transcribes this function for the proofs of
 // `(Dec)Interval::cancel_minus`, `(Dec)Interval::cancel_plus` and `(Dec)Interval::sqrt`
 // and of the functions of `src/elementary.rs` in `rocq/theories/Elem.v`,
-// `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v` and `rocq/theories/Cosh.v`, for the
-// proof that every `DecInterval` is `com` only if its interval is common
+// `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`,
+// `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, for the proof
+// that every `DecInterval` is `com` only if its interval is common
 // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
 // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
 pub(crate) fn constant(x: f64, y: f64) -> F64X2 {
@@ -173,8 +176,9 @@ pub(crate) fn extract(x: F64X2) -> [f64; 2] {
 // `DecInterval::recip`, `DecInterval::round`, `DecInterval::round_ties_even`,
 // `(Dec)Interval::sign`, `DecInterval::sqr`, `(Dec)Interval::sqrt`, `DecInterval::sub` and
 // `DecInterval::trunc` and of the functions of `src/elementary.rs` in
-// `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v` and
-// `rocq/theories/Cosh.v`, for the proof that every `DecInterval` is `com` only if its
+// `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
+// `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
+// `rocq/theories/Tan.v`, for the proof that every `DecInterval` is `com` only if its
 // interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
 // `Interval` that the constructors and the proved operations make is `valid`
 // (`rocq/theories/Valid.v`).
@@ -186,8 +190,9 @@ pub(crate) fn extract0(x: F64X2) -> f64 {
 // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
 // `DecInterval::round_ties_even`, `DecInterval::sign`, `(Dec)Interval::sqrt` and
 // `DecInterval::trunc` and of the functions of `src/elementary.rs` in
-// `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v` and
-// `rocq/theories/Cosh.v`, and for the proof that every `Interval` that the constructors and
+// `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
+// `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
+// `rocq/theories/Tan.v`, and for the proof that every `Interval` that the constructors and
 // the proved operations make is `valid` (`rocq/theories/Valid.v`).
 pub(crate) fn extract1(x: F64X2) -> f64 {
     x[1]
@@ -239,7 +244,8 @@ pub(crate) fn le(x: F64X2, y: F64X2) -> F64X2 {
 // `(Dec)Interval::sign`, `DecInterval::sqr`, `DecInterval::sqrt`, `DecInterval::sub` and
 // `DecInterval::trunc` and of the decorated versions of the functions of
 // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
-// `rocq/theories/Atanh.v` and `rocq/theories/Cosh.v`, for the proof that every
+// `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
+// `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, for the proof that every
 // `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`), and
 // for the proof that every `Interval` that the constructors and the proved operations make
 // is `valid` (`rocq/theories/Valid.v`).
@@ -377,7 +383,8 @@ pub(crate) fn shuffle13(x: F64X2, y: F64X2) -> F64X2 {
 // `(Dec)Interval::sign`, `(Dec)Interval::sqr`, `DecInterval::sqrt`, `DecInterval::sub`
 // and `DecInterval::trunc`, of the decorated versions of the functions of
 // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
-// `rocq/theories/Atanh.v` and `rocq/theories/Cosh.v`, and of `Interval::atanh`,
+// `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
+// `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, and of `Interval::atanh`,
 // `Interval::ln`, `Interval::log10` and `Interval::log2`, for the proof that every
 // `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`), and
 // for the proof that every `Interval` that the constructors and the proved operations make
@@ -550,7 +557,8 @@ fn lanewise2(
 // `(Dec)Interval::sign`, `(Dec)Interval::sqr`, `DecInterval::sqrt`, `DecInterval::sub`
 // and `DecInterval::trunc`, of the decorated versions of the functions of
 // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
-// `rocq/theories/Atanh.v` and `rocq/theories/Cosh.v`, and of `Interval::acos`,
+// `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
+// `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, and of `Interval::acos`,
 // `Interval::acosh`, `Interval::asin`, `Interval::atanh`, `Interval::ln`,
 // `Interval::log10` and `Interval::log2`.
 fn mask(b: bool) -> f64 {

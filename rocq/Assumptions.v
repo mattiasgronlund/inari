@@ -4,8 +4,8 @@
 From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign
   Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
-  MulRevSets MulRev CancelSpec Cancel MpfrRound ClosedDom Elem Atanh Cosh ValidMake
-  ValidSetOp ValidOps ValidDecOps ValidElem Valid.
+  MulRevSets MulRev CancelSpec Cancel MpfrRound ClosedDom Elem Atanh Cosh PiBounds
+  Cos Sin Tan ValidMake ValidSetOp ValidOps ValidDecOps ValidElem Valid.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -112,6 +112,16 @@ Print Assumptions atanh_correct.
 Print Assumptions dec_atanh_correct.
 Print Assumptions cosh_correct.
 Print Assumptions dec_cosh_correct.
+Print Assumptions PI_bounds.
+Print Assumptions cos_encloses.
+Print Assumptions cos_correct.
+Print Assumptions dec_cos_correct.
+Print Assumptions sin_encloses.
+Print Assumptions sin_correct.
+Print Assumptions dec_sin_correct.
+Print Assumptions tan_encloses.
+Print Assumptions tan_correct.
+Print Assumptions dec_tan_correct.
 Print Assumptions new_com_common.
 Print Assumptions set_dec_com_common.
 Print Assumptions constants_com_common.
@@ -163,6 +173,7 @@ Print Assumptions asin_valid.
 Print Assumptions asinh_valid.
 Print Assumptions atan_valid.
 Print Assumptions atanh_valid.
+Print Assumptions cos_valid.
 Print Assumptions cosh_valid.
 Print Assumptions exp_valid.
 Print Assumptions exp10_valid.
@@ -170,7 +181,9 @@ Print Assumptions exp2_valid.
 Print Assumptions ln_valid.
 Print Assumptions log10_valid.
 Print Assumptions log2_valid.
+Print Assumptions sin_valid.
 Print Assumptions sinh_valid.
+Print Assumptions tan_valid.
 Print Assumptions tanh_valid.
 Print Assumptions dec_floor_valid.
 Print Assumptions dec_ceil_valid.
@@ -198,6 +211,7 @@ Print Assumptions dec_asin_valid.
 Print Assumptions dec_asinh_valid.
 Print Assumptions dec_atan_valid.
 Print Assumptions dec_atanh_valid.
+Print Assumptions dec_cos_valid.
 Print Assumptions dec_cosh_valid.
 Print Assumptions dec_exp_valid.
 Print Assumptions dec_exp10_valid.
@@ -205,7 +219,9 @@ Print Assumptions dec_exp2_valid.
 Print Assumptions dec_ln_valid.
 Print Assumptions dec_log10_valid.
 Print Assumptions dec_log2_valid.
+Print Assumptions dec_sin_valid.
 Print Assumptions dec_sinh_valid.
+Print Assumptions dec_tan_valid.
 Print Assumptions dec_tanh_valid.
 Print Assumptions dec_convex_hull_valid.
 Print Assumptions dec_intersection_valid.

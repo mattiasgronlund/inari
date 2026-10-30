@@ -92,8 +92,9 @@ impl Interval {
         // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
         // `DecInterval::round_ties_even`, `DecInterval::sign`, `(Dec)Interval::sqrt` and
         // `DecInterval::trunc`, of the functions of `src/elementary.rs` in
-        // `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v` and
-        // `rocq/theories/Cosh.v`, and for the proof that every `Interval` that the
+        // `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
+        // `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
+        // `rocq/theories/Tan.v`, and for the proof that every `Interval` that the
         // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
         -extract0(self.rep)
     }
@@ -103,8 +104,9 @@ impl Interval {
         // `DecInterval::ceil`, `DecInterval::floor`, `DecInterval::round`,
         // `DecInterval::round_ties_even`, `DecInterval::sign`, `(Dec)Interval::sqrt` and
         // `DecInterval::trunc`, of the functions of `src/elementary.rs` in
-        // `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v` and
-        // `rocq/theories/Cosh.v`, and for the proof that every `Interval` that the
+        // `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
+        // `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
+        // `rocq/theories/Tan.v`, and for the proof that every `Interval` that the
         // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
         extract1(self.rep)
     }
@@ -112,8 +114,9 @@ impl Interval {
     pub(crate) fn with_infsup_raw(a: f64, b: f64) -> Self {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
         // `(Dec)Interval::sqrt` and of the functions of `src/elementary.rs` in
-        // `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v` and
-        // `rocq/theories/Cosh.v`, for the proof that every `DecInterval` is `com` only if
+        // `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
+        // `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
+        // `rocq/theories/Tan.v`, for the proof that every `DecInterval` is `com` only if
         // its interval is common (`rocq/theories/ComCommon.v`), and for the proof that
         // every `Interval` that the constructors and the proved operations make is `valid`
         // (`rocq/theories/Valid.v`).
@@ -176,8 +179,9 @@ pub enum Decoration {
     // `DecInterval::round`, `DecInterval::round_ties_even`, `DecInterval::sign`,
     // `DecInterval::sqr`, `DecInterval::sqrt`, `DecInterval::sub` and `DecInterval::trunc`
     // and of the decorated versions of the functions of `src/elementary.rs` in
-    // `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v` and
-    // `rocq/theories/Cosh.v`, for the proof that every `DecInterval` is `com` only if its
+    // `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
+    // `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
+    // `rocq/theories/Tan.v`, for the proof that every `DecInterval` is `com` only if its
     // interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
     // `Interval` that the constructors and the proved operations make is `valid`
     // (`rocq/theories/Valid.v`).
@@ -267,7 +271,8 @@ impl DecInterval {
         // `DecInterval::sign`, `DecInterval::sqr`, `DecInterval::sqrt`, `DecInterval::sub`
         // and `DecInterval::trunc` and of the decorated versions of the functions of
         // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
-        // `rocq/theories/Atanh.v` and `rocq/theories/Cosh.v`, for the proof that every
+        // `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
+        // `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, for the proof that every
         // `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`),
         // and for the proof that every `Interval` that the constructors and the proved
         // operations make is `valid` (`rocq/theories/Valid.v`).
@@ -516,8 +521,9 @@ macro_rules! const_interval {
     ($a:expr, $b:expr) => {{
         // `rocq/theories/Model.v` transcribes this macro for the proofs of
         // `(Dec)Interval::acos`, `(Dec)Interval::acosh`, `(Dec)Interval::asin`,
-        // `(Dec)Interval::atanh`, `(Dec)Interval::ln`, `(Dec)Interval::log10` and
-        // `(Dec)Interval::log2`, for the proof that every `DecInterval` is `com` only if its
+        // `(Dec)Interval::atanh`, `(Dec)Interval::cos`, `(Dec)Interval::ln`,
+        // `(Dec)Interval::log10`, `(Dec)Interval::log2`, `(Dec)Interval::sin` and
+        // `(Dec)Interval::tan`, for the proof that every `DecInterval` is `com` only if its
         // interval is common (`rocq/theories/ComCommon.v`), and this macro and its assertion
         // (`const_interval_ok`) for the proof that every `Interval` that the constructors
         // and the proved operations make is `valid` (`rocq/theories/Valid.v`).

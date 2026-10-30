@@ -2,12 +2,12 @@ use crate::{classify::*, const_interval, interval::*};
 use gmp_mpfr_sys::mpfr;
 use rug::Float;
 
-// `rocq/theories/Model.v` transcribes the functions that this macro defines, but those for
-// `cos`, `sin` and `tan`, as `mpfr_fn` of an abstract MPFR function, for the proofs of the
-// functions of this file in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
-// `rocq/theories/Atanh.v` and `rocq/theories/Cosh.v`, so it has to be updated along with
-// it. `rocq/theories/Mpfr.v` states what those proofs assume of the MPFR functions and of
-// `mpfr::get_d`.
+// `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn`
+// of an abstract MPFR function, for the proofs of the functions of this file in
+// `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
+// `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
+// `rocq/theories/Tan.v`, so it has to be updated along with it. `rocq/theories/Mpfr.v`
+// states what those proofs assume of the MPFR functions and of `mpfr::get_d`.
 macro_rules! mpfr_fn {
     ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
         fn $f_rd(x: f64) -> f64 {
@@ -94,6 +94,10 @@ mpfr_fn!(sinh, sinh_rd, sinh_ru);
 mpfr_fn!(tan, tan_rd, tan_ru);
 mpfr_fn!(tanh, tanh_rd, tanh_ru);
 
+// `rocq/theories/Model.v` transcribes this function for the proofs of `(Dec)Interval::cos`
+// and `(Dec)Interval::tan`, so it has to be updated along with it. `rem_euclid_2_int` in
+// `rocq/theories/TrigReduce.v` shows that it returns `0.0` for an even integer and `1.0` for
+// an odd one.
 fn rem_euclid_2(x: f64) -> f64 {
     if 2.0 * (x / 2.0).floor() == x {
         0.0
@@ -456,8 +460,25 @@ impl Interval {
     /// | Domain | Range       |
     /// | ------ | ----------- |
     /// | $\R$   | $\[-1, 1\]$ |
+    ///
+    /// The result always contains the image of `self`. It is the tightest such interval if
+    /// `self` is a singleton or at least $2π$ wide. Otherwise it may be wider, as the function
+    /// locates the multiples of $π$ in `self` with the interval division by [`Interval::PI`],
+    /// which only encloses the quotient by $π$. This can happen when a bound of `self` is
+    /// close to a multiple of $π$ relative to its magnitude: the cosine of
+    /// `[-134241567.2736211, -134241567.27362108]` is computed as `[0.9999999999999989, 1]`,
+    /// while the tightest result is `[0.9999999999999989, 0.9999999999999999]`.
     #[must_use]
     pub fn cos(self) -> Self {
+        // Proved, with `DecInterval::cos`, in `rocq/theories/Cos.v` for the portable backend,
+        // assuming what `rocq/theories/Mpfr.v` says of MPFR: the result contains the image of
+        // `self`, and it is the tightest such interval if `trig_tight` in
+        // `rocq/theories/TrigSpec.v` holds, and `DecInterval::cos` decorates it as IEEE 1788
+        // asks if `self` is `com` only when `self.x` is common, which
+        // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated along
+        // with it. `max` and `min` may return either zero if both arguments are zeros, so the
+        // model takes which one they return as an argument.
         if self.is_empty() {
             return self;
         }
@@ -778,8 +799,26 @@ impl Interval {
     /// | Domain | Range       |
     /// | ------ | ----------- |
     /// | $\R$   | $\[-1, 1\]$ |
+    ///
+    /// The result always contains the image of `self`. It is the tightest such interval if
+    /// `self` is a singleton or at least $2π$ wide. Otherwise it may be wider, as the function
+    /// locates the multiples of $π/2$ in `self` with the interval division by
+    /// [`Interval::FRAC_PI_2`], which only encloses the quotient by $π/2$. This can happen
+    /// when a bound of `self` is close to a multiple of $π/2$ relative to its magnitude: the
+    /// sine of `[134246318.93250957, 134246318.9325096]` is computed as
+    /// `[0.9999999999999988, 1]`, while the tightest result is
+    /// `[0.9999999999999988, 0.9999999999999999]`.
     #[must_use]
     pub fn sin(self) -> Self {
+        // Proved, with `DecInterval::sin`, in `rocq/theories/Sin.v` for the portable backend,
+        // assuming what `rocq/theories/Mpfr.v` says of MPFR: the result contains the image of
+        // `self`, and it is the tightest such interval if `trig_tight` in
+        // `rocq/theories/TrigSpec.v` holds, and `DecInterval::sin` decorates it as IEEE 1788
+        // asks if `self` is `com` only when `self.x` is common, which
+        // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated along
+        // with it. `max` and `min` may return either zero if both arguments are zeros, so the
+        // model takes which one they return as an argument.
         if self.is_empty() {
             return self;
         }
@@ -829,12 +868,29 @@ impl Interval {
     /// | Domain                            | Range |
     /// | --------------------------------- | ----- |
     /// | $\R ∖ \set{(n + 1/2) π ∣ n ∈ \Z}$ | $\R$  |
+    ///
+    /// The result always contains the image of `self`. It is the tightest such interval if
+    /// `self` is a singleton or at least $π$ wide. Otherwise it may be wider, as the function
+    /// locates the poles in `self` with the interval division by [`Interval::FRAC_PI_2`],
+    /// which only encloses the quotient by $π/2$. This can happen when a bound of `self` is
+    /// close to a pole relative to its magnitude: the tangent of
+    /// `[7.853981633974484, 7.853981633974485]`, just above the pole $5π/2$, is computed as
+    /// $\[-∞, +∞\]$, which [`DecInterval::tan`] decorates [`Decoration::Trv`], while the
+    /// tightest result is `[-1718163698371049.0, -680181816043107.0]`, and
+    /// [`Decoration::Com`] holds for it.
     #[must_use]
     pub fn tan(self) -> Self {
         self.tan_impl().0
     }
 
     fn tan_impl(self) -> (Self, Decoration) {
+        // Proved, with `Interval::tan` and `DecInterval::tan`, in `rocq/theories/Tan.v` for
+        // the portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR and that π
+        // is irrational (`pi_irrational` in `rocq/theories/Elementary.v`): the result
+        // contains the image of `self`, the decoration that `DecInterval::tan` gives holds,
+        // and both are the tightest and the strongest if `trig_tight` in
+        // `rocq/theories/TrigSpec.v` holds. `rocq/theories/Model.v` transcribes this function
+        // and `Interval::tan`, so it has to be updated along with them.
         if self.is_empty() {
             return (self, Decoration::Trv);
         }
@@ -871,10 +927,12 @@ impl Interval {
     );
 }
 
-// `rocq/theories/Model.v` transcribes the functions that this macro defines, but those for
-// `cos`, `sin` and `tan`, for the proofs of the decorated versions of the functions of this
-// file in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v` and
-// `rocq/theories/Cosh.v`, so it has to be updated along with it.
+// `rocq/theories/Model.v` transcribes the functions that this macro defines, those for
+// `cos`, `sin` and `tan` each on its own, as the model of `Interval::cos` and the others
+// returns an `option`, for the proofs of the decorated versions of the functions of this
+// file in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
+// `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
+// `rocq/theories/Tan.v`, so it has to be updated along with it.
 macro_rules! impl_dec {
     ($f:ident) => {
         #[doc = concat!("The decorated version of [`Interval::", stringify!($f), "`].")]

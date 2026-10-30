@@ -109,6 +109,12 @@ Definition atanh_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_atanh m RNDD (MNum (-1)) = MInf true /\
   mpfr_atanh m RNDU (MNum 1) = MInf false.
 
+(** [Interval::cos], [Interval::sin] and [Interval::tan] call [cos],
+    [sin] and [tan] only at finite arguments, so no special value is
+    assumed of them. *)
+Definition cos_ok (emin emax : Z) (m : mpfr) : Prop :=
+  mpfr_correct emin emax real_dom cos (mpfr_cos m).
+
 (** [cosh(-inf) = cosh(+inf) = +inf] *)
 Definition cosh_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct emin emax real_dom cosh (mpfr_cosh m) /\
@@ -148,11 +154,17 @@ Definition log2_ok (emin emax : Z) (m : mpfr) : Prop :=
   (forall s, mpfr_log2 m RNDD (MZero s) = MInf true) /\
   mpfr_log2 m RNDU (MInf false) = MInf false.
 
+Definition sin_ok (emin emax : Z) (m : mpfr) : Prop :=
+  mpfr_correct emin emax real_dom sin (mpfr_sin m).
+
 (** [sinh(-inf) = -inf] and [sinh(+inf) = +inf] *)
 Definition sinh_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct emin emax real_dom sinh (mpfr_sinh m) /\
   mpfr_sinh m RNDD (MInf true) = MInf true /\
   mpfr_sinh m RNDU (MInf false) = MInf false.
+
+Definition tan_ok (emin emax : Z) (m : mpfr) : Prop :=
+  mpfr_correct emin emax tan_dom tan (mpfr_tan m).
 
 (** [tanh(-inf) = -1] and [tanh(+inf) = 1] *)
 Definition tanh_ok (emin emax : Z) (m : mpfr) : Prop :=
