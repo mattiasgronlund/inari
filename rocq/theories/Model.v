@@ -836,7 +836,12 @@ Definition with_val (x : f64) : mpfr_t :=
     [mpfr_acos] and the others, of which [mpfr_log] is MPFR's [log].
     [mpfr::f(x.as_raw_mut(), x.as_raw(), rnd)] sets the MPFR number [x] to
     [f rnd x], rounded to the 53 bits of [x], which is both the argument
-    and the result. *)
+    and the result. [mpfr_pow] takes a second MPFR number, and
+    [mpfr_pow_si] a [c_long], which is an integer here:
+    [mpfr::pow(x.as_raw_mut(), x.as_raw(), y.as_raw(), rnd)] sets [x] to
+    [mpfr_pow rnd x y], and
+    [mpfr::pow_si(x.as_raw_mut(), x.as_raw(), n, rnd)] to
+    [mpfr_pow_si rnd x n]. *)
 Record mpfr : Type := {
   mpfr_get_d : mpfr_rnd -> mpfr_t -> f64;
   mpfr_acos : mpfr_rnd -> mpfr_t -> mpfr_t;
@@ -853,6 +858,8 @@ Record mpfr : Type := {
   mpfr_log : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_log10 : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_log2 : mpfr_rnd -> mpfr_t -> mpfr_t;
+  mpfr_pow : mpfr_rnd -> mpfr_t -> mpfr_t -> mpfr_t;
+  mpfr_pow_si : mpfr_rnd -> mpfr_t -> Z -> mpfr_t;
   mpfr_sin : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_sinh : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_tan : mpfr_rnd -> mpfr_t -> mpfr_t;
@@ -867,8 +874,29 @@ Definition mpfr_fn (m : mpfr) (f : mpfr_rnd -> mpfr_t -> mpfr_t)
     (rnd : mpfr_rnd) (x : f64) : f64 :=
   mpfr_get_d m rnd (f rnd (with_val x)).
 
+(** The body [mpfr_fn2!($mpfr_f(x, y, rnd))] of the functions that
+    [mpfr_fn2!] defines, for the MPFR function [f] of two numbers: [x] and
+    [y] as MPFR numbers of 53 bits, [x] set to [f] of them rounded in the
+    direction [rnd], and then converted to an [f64] in the same
+    direction. *)
+Definition mpfr_fn2 (m : mpfr) (f : mpfr_rnd -> mpfr_t -> mpfr_t -> mpfr_t)
+    (rnd : mpfr_rnd) (x y : f64) : f64 :=
+  mpfr_get_d m rnd (f rnd (with_val x) (with_val y)).
+
+(** The body [mpfr_fn_si!($mpfr_f(x, y, rnd))] of the functions that
+    [mpfr_fn_si!] defines, for the MPFR function [f] of a number and a
+    [c_long], with the [i32] [y] as the integer [n], which [y.into()]
+    converts to a [c_long] exactly. *)
+Definition mpfr_fn_si (m : mpfr) (f : mpfr_rnd -> mpfr_t -> Z -> mpfr_t)
+    (rnd : mpfr_rnd) (x : f64) (n : Z) : f64 :=
+  mpfr_get_d m rnd (f rnd (with_val x) n).
+
+(** The integers that an [i32] holds. *)
+Definition is_i32 (n : Z) : Prop := (- 2 ^ 31 <= n < 2 ^ 31)%Z.
+
 (** The functions that [mpfr_fn!(acos, acos_rd, acos_ru)] and the other
-    uses of [mpfr_fn!] in [src/elementary.rs] define. *)
+    uses of [mpfr_fn!], [mpfr_fn2!] and [mpfr_fn_si!] in
+    [src/elementary.rs] define. *)
 Definition acos_rd (m : mpfr) := mpfr_fn m (mpfr_acos m) RNDD.
 Definition acos_ru (m : mpfr) := mpfr_fn m (mpfr_acos m) RNDU.
 Definition acosh_rd (m : mpfr) := mpfr_fn m (mpfr_acosh m) RNDD.
@@ -897,6 +925,10 @@ Definition log10_rd (m : mpfr) := mpfr_fn m (mpfr_log10 m) RNDD.
 Definition log10_ru (m : mpfr) := mpfr_fn m (mpfr_log10 m) RNDU.
 Definition log2_rd (m : mpfr) := mpfr_fn m (mpfr_log2 m) RNDD.
 Definition log2_ru (m : mpfr) := mpfr_fn m (mpfr_log2 m) RNDU.
+Definition pow_rd (m : mpfr) := mpfr_fn2 m (mpfr_pow m) RNDD.
+Definition pow_ru (m : mpfr) := mpfr_fn2 m (mpfr_pow m) RNDU.
+Definition pown_rd (m : mpfr) := mpfr_fn_si m (mpfr_pow_si m) RNDD.
+Definition pown_ru (m : mpfr) := mpfr_fn_si m (mpfr_pow_si m) RNDU.
 Definition sin_rd (m : mpfr) := mpfr_fn m (mpfr_sin m) RNDD.
 Definition sin_ru (m : mpfr) := mpfr_fn m (mpfr_sin m) RNDU.
 Definition sinh_rd (m : mpfr) := mpfr_fn m (mpfr_sinh m) RNDD.
@@ -907,15 +939,17 @@ Definition tanh_rd (m : mpfr) := mpfr_fn m (mpfr_tanh m) RNDD.
 Definition tanh_ru (m : mpfr) := mpfr_fn m (mpfr_tanh m) RNDU.
 
 (** [x.max(y)] of two [f64]s that are not NaN, as [Interval::cosh],
-    [Interval::cos] and [Interval::sin] call it: the larger of the two. If
-    they compare equal, Rust returns either, and such floats differ only as
-    +0 and -0, so the argument [first] says whether it is [x]. *)
+    [Interval::cos], [Interval::pow] and [Interval::sin] call it: the
+    larger of the two. If they compare equal, Rust returns either, and
+    such floats differ only as +0 and -0, so the argument [first] says
+    whether it is [x]. *)
 Definition fmax (first : bool) (x y : f64) : f64 :=
   if lt x y then y else if lt y x then x else if first then x else y.
 
-(** [x.min(y)] of two [f64]s that are not NaN, as [Interval::cos] and
-    [Interval::sin] call it: the smaller of the two, and as for [fmax],
-    [first] says which one Rust returns if they compare equal. *)
+(** [x.min(y)] of two [f64]s that are not NaN, as [Interval::cos],
+    [Interval::pow] and [Interval::sin] call it: the smaller of the two,
+    and as for [fmax], [first] says which one Rust returns if they compare
+    equal. *)
 Definition fmin (first : bool) (x y : f64) : f64 :=
   if lt x y then x else if lt y x then y else if first then x else y.
 
@@ -938,9 +972,9 @@ Definition rem_euclid_2 (x : f64) : f64 :=
     [Interval::asin], [Interval::asinh], [Interval::atan],
     [Interval::atanh], [Interval::cos], [Interval::cosh], [Interval::exp],
     [Interval::exp10], [Interval::exp2], [Interval::ln],
-    [Interval::log10], [Interval::log2], [Interval::sin],
-    [Interval::sinh], [Interval::tan] and [Interval::tanh], and their
-    decorated versions, use. Those call the
+    [Interval::log10], [Interval::log2], [Interval::pow],
+    [Interval::powi], [Interval::sin], [Interval::sinh], [Interval::tan]
+    and [Interval::tanh], and their decorated versions, use. Those call the
     backend's [floor], [ceil], [round], [round_ties_even], [trunc],
     [neg0], [splat], [constant], [extract], [eq], [ge], [gt], [le], [lt],
     [all], [bitmask], [and], [or], [max], [maximum], [min], [minimum],
@@ -1884,6 +1918,85 @@ Definition log2_impl (m : mpfr) : Interval -> Interval * Decoration :=
   log_impl (log2_rd m) (log2_ru m).
 Definition log2 (m : mpfr) (self : Interval) : Interval := fst (log2_impl m self).
 
+(** [fn pow_impl(self, rhs: Self) -> (Self, Decoration)] and
+    [pub fn pow(self, rhs: Self) -> Self]. [DOM] is
+    [const_interval!(0.0, f64::INFINITY)], [0.0] and [1.0] are the floats
+    [Model.zero], i.e. +0, and [of_u64 1], and [Self::zero()] is [zero].
+    Each [return] is the value of an [if] whose [else] holds the rest of
+    the body. [z_ad.min(z_bc)] and [z_ac.max(z_bd)] are [fmin first_min]
+    and [fmax first_max], with one argument each, as they are two calls
+    on the same path. *)
+Definition pow_impl (m : mpfr) (first_min first_max : bool) (self rhs : Interval) :
+    Interval * Decoration :=
+  let DOM := const_interval Model.zero (B754_infinity false) in
+  let x := intersection self DOM in
+  if either_empty x rhs then (EMPTY, Trv)
+  else
+    let a := inf_raw x in
+    let b := sup_raw x in
+    let c := inf_raw rhs in
+    let d := sup_raw rhs in
+    if Model.le d Model.zero then
+      if Model.eq b Model.zero then (EMPTY, Trv)
+      else
+        let dec := if interior self DOM then Com else Trv in
+        if Model.lt b (of_u64 1) then
+          (with_infsup_raw (pow_rd m b d) (pow_ru m a c), dec)
+        else if Model.gt a (of_u64 1) then
+          (with_infsup_raw (pow_rd m b c) (pow_ru m a d), dec)
+        else (with_infsup_raw (pow_rd m b c) (pow_ru m a c), dec)
+    else if Model.gt c Model.zero then
+      let dec := if subset self DOM then Com else Trv in
+      if Model.lt b (of_u64 1) then
+        (with_infsup_raw (pow_rd m a d) (pow_ru m b c), dec)
+      else if Model.gt a (of_u64 1) then
+        (with_infsup_raw (pow_rd m a c) (pow_ru m b d), dec)
+      else (with_infsup_raw (pow_rd m a d) (pow_ru m b d), dec)
+    else if Model.eq b Model.zero then (zero, Trv)
+    else
+      let z_ac := pow_ru m a c in
+      let z_ad := pow_rd m a d in
+      let z_bc := pow_rd m b c in
+      let z_bd := pow_ru m b d in
+      let dec := if interior self DOM then Com else Trv in
+      (with_infsup_raw (fmin first_min z_ad z_bc) (fmax first_max z_ac z_bd), dec).
+Definition pow (m : mpfr) (first_min first_max : bool) (self rhs : Interval) :
+    Interval :=
+  fst (pow_impl m first_min first_max self rhs).
+
+(** [fn powi_impl(self, rhs: i32) -> (Self, Decoration)] and
+    [pub fn powi(self, rhs: i32) -> Self], with [rhs] as the integer [n],
+    [rhs < 0] as [Z.ltb n 0] and [rhs % 2 == 0] as [Z.rem n 2 =? 0], since
+    Rust's [%] on integers rounds the quotient toward zero, as [Z.rem]
+    does. [abs] returns an [option], so these do too. [0.0] and [-0.0]
+    are the floats [Model.zero] and [opp Model.zero], and the assignments
+    to [a] and [b] are [let]s. Each [return] is the value of an [if] whose
+    [else] holds the rest of the body. *)
+Definition powi_impl (m : mpfr) (n : Z) (self : Interval) :
+    option (Interval * Decoration) :=
+  if is_empty self then Some (self, Trv)
+  else
+    let a := inf_raw self in
+    let b := sup_raw self in
+    if Z.ltb n 0 then
+      let d := if Model.le a Model.zero && Model.ge b Model.zero then Trv else Com in
+      if Model.eq a Model.zero && Model.eq b Model.zero then Some (EMPTY, d)
+      else if Z.eqb (Z.rem n 2) 0 then
+        let* abs := abs self in
+        Some (with_infsup_raw (pown_rd m (sup_raw abs) n) (pown_ru m (inf_raw abs) n), d)
+      else if Model.lt a Model.zero && Model.gt b Model.zero then Some (ENTIRE, d)
+      else
+        let a := if Model.eq a Model.zero then Model.zero else a in
+        let b := if Model.eq b Model.zero then opp Model.zero else b in
+        Some (with_infsup_raw (pown_rd m b n) (pown_ru m a n), d)
+    else if Z.eqb (Z.rem n 2) 0 then
+      let* abs := abs self in
+      Some (with_infsup_raw (pown_rd m (inf_raw abs) n) (pown_ru m (sup_raw abs) n), Com)
+    else Some (with_infsup_raw (pown_rd m a n) (pown_ru m b n), Com).
+Definition powi (m : mpfr) (n : Z) (self : Interval) : option Interval :=
+  let* p := powi_impl m n self in
+  Some (fst p).
+
 (** [pub fn sin(self) -> Self], written as [cos] is, with
     [qa.rem_euclid(4.0)] as [rem_euclid qa (of_u64 4)] and [n < 1.0] as
     [Model.lt]. Rust's [&&] binds tighter than its [||], as Rocq's do. *)
@@ -2325,6 +2438,25 @@ Definition exp2 (m : mpfr) := elem_dec (Interval.exp2 m).
 Definition ln (m : mpfr) := elem_dec_impl (Interval.ln_impl m).
 Definition log10 (m : mpfr) := elem_dec_impl (Interval.log10_impl m).
 Definition log2 (m : mpfr) := elem_dec_impl (Interval.log2_impl m).
+
+(** The function [$f] that [impl_dec2!($f, $f_impl)] in
+    [src/elementary.rs] defines, for [Interval::$f_impl] as [f_impl]. Like
+    [elem_dec_impl], it does not test for NaI. *)
+Definition elem_dec2_impl (f_impl : Interval -> Interval -> Interval * Decoration)
+    (self rhs : DecInterval) : DecInterval :=
+  let '(z, d) := f_impl (itv self) (itv rhs) in
+  set_dec z (dec_min (dec self) (dec_min (dec rhs) d)).
+
+(** [impl_dec2!(pow, pow_impl)], with [first_min] and [first_max] those
+    of [Interval.pow_impl]. *)
+Definition pow (m : mpfr) (first_min first_max : bool) :=
+  elem_dec2_impl (Interval.pow_impl m first_min first_max).
+
+(** [pub fn powi(self, rhs: i32) -> Self], with [rhs] as the integer [n],
+    and an [option] as [Interval.powi_impl] returns one. *)
+Definition powi (m : mpfr) (n : Z) (self : DecInterval) : option DecInterval :=
+  let* p := Interval.powi_impl m n (itv self) in
+  Some (set_dec (fst p) (dec_min (dec self) (snd p))).
 Definition sinh (m : mpfr) := elem_dec (Interval.sinh m).
 Definition tanh (m : mpfr) := elem_dec (Interval.tanh m).
 

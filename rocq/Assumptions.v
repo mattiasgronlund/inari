@@ -5,7 +5,8 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign
   Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
   MulRevSets MulRev CancelSpec Cancel MpfrRound ClosedDom Elem Atanh Cosh PiBounds
-  Cos Sin Tan ValidMake ValidSetOp ValidOps ValidDecOps ValidElem Valid.
+  Cos Sin Tan Dom2 Pow Powi ValidMake ValidSetOp ValidOps ValidDecOps ValidElem
+  Valid.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -122,6 +123,18 @@ Print Assumptions dec_sin_correct.
 Print Assumptions tan_encloses.
 Print Assumptions tan_correct.
 Print Assumptions dec_tan_correct.
+Print Assumptions image2_set_prod.
+Print Assumptions continue_in2_set_prod.
+Print Assumptions p2_set_prod.
+Print Assumptions strongest2_set_prod.
+Print Assumptions image2_set_all.
+Print Assumptions p2_set_all.
+Print Assumptions strongest2_set_all.
+Print Assumptions elem_dec2_impl_correct.
+Print Assumptions pow_correct.
+Print Assumptions dec_pow_correct.
+Print Assumptions powi_correct.
+Print Assumptions dec_powi_correct.
 Print Assumptions new_com_common.
 Print Assumptions set_dec_com_common.
 Print Assumptions constants_com_common.
@@ -181,6 +194,8 @@ Print Assumptions exp2_valid.
 Print Assumptions ln_valid.
 Print Assumptions log10_valid.
 Print Assumptions log2_valid.
+Print Assumptions pow_valid.
+Print Assumptions powi_valid.
 Print Assumptions sin_valid.
 Print Assumptions sinh_valid.
 Print Assumptions tan_valid.
@@ -219,6 +234,8 @@ Print Assumptions dec_exp2_valid.
 Print Assumptions dec_ln_valid.
 Print Assumptions dec_log10_valid.
 Print Assumptions dec_log2_valid.
+Print Assumptions dec_pow_valid.
+Print Assumptions dec_powi_valid.
 Print Assumptions dec_sin_valid.
 Print Assumptions dec_sinh_valid.
 Print Assumptions dec_tan_valid.

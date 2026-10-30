@@ -29,6 +29,10 @@ macro_rules! mpfr_fn {
     }};
 }
 
+// `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn2`
+// of an abstract MPFR function, for the proofs of `(Dec)Interval::pow` in
+// `rocq/theories/Pow.v`, so it has to be updated along with it. `rocq/theories/Mpfr.v`
+// states what those proofs assume of `mpfr::pow` and of `mpfr::get_d`.
 macro_rules! mpfr_fn2 {
     ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
         fn $f_rd(x: f64, y: f64) -> f64 {
@@ -51,6 +55,11 @@ macro_rules! mpfr_fn2 {
     }};
 }
 
+// `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn_si`
+// of an abstract MPFR function, with the `i32` `y` as an integer, which `y.into()` converts
+// to a `c_long` exactly, for the proofs of `(Dec)Interval::powi` in `rocq/theories/Powi.v`,
+// so it has to be updated along with it. `rocq/theories/Mpfr.v` states what those proofs
+// assume of `mpfr::pow_si` and of `mpfr::get_d`.
 macro_rules! mpfr_fn_si {
     ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
         fn $f_rd(x: f64, y: i32) -> f64 {
@@ -648,6 +657,14 @@ impl Interval {
 
     #[allow(clippy::many_single_char_names)]
     fn pow_impl(self, rhs: Self) -> (Self, Decoration) {
+        // Proved correct, with `Interval::pow` and `DecInterval::pow`, in
+        // `rocq/theories/Pow.v` for the portable backend, assuming what `rocq/theories/Mpfr.v`
+        // says of MPFR, and for `DecInterval::pow` also if `self` and `rhs` are `com` only
+        // when their intervals are common, which `rocq/theories/ComCommon.v` proves of every
+        // `DecInterval` that the library makes. `rocq/theories/Model.v` transcribes this
+        // function and `Interval::pow`, so it has to be updated along with them. `min` and
+        // `max` may return either zero if both arguments are zeros, so the model takes which
+        // ones they return as arguments.
         const DOM: Interval = const_interval!(0.0, f64::INFINITY);
         let x = self.intersection(DOM);
 
@@ -738,6 +755,13 @@ impl Interval {
     }
 
     fn powi_impl(self, rhs: i32) -> (Self, Decoration) {
+        // Proved correct, with `Interval::powi` and `DecInterval::powi`, in
+        // `rocq/theories/Powi.v` for the portable backend and every `rhs`, assuming what
+        // `rocq/theories/Mpfr.v` says of MPFR, and for `DecInterval::powi` with `rhs <= 0`
+        // also if `self` is `com` only when `self.x` is common, which
+        // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
+        // `rocq/theories/Model.v` transcribes this function and `Interval::powi`, so it has
+        // to be updated along with them.
         if self.is_empty() {
             return (self, Decoration::Trv);
         }
@@ -956,6 +980,9 @@ macro_rules! impl_dec {
     };
 }
 
+// `rocq/theories/Model.v` transcribes the functions that this macro defines, as
+// `elem_dec2_impl` of `Interval::$f_impl`, for the proof of `DecInterval::pow` in
+// `rocq/theories/Pow.v`, so it has to be updated along with it.
 macro_rules! impl_dec2 {
     ($f:ident, $f_impl:ident) => {
         #[doc = concat!("The decorated version of [`Interval::", stringify!($f), "`].")]
@@ -992,6 +1019,9 @@ impl DecInterval {
     /// A NaI is returned if `self` is NaI.
     #[must_use]
     pub fn powi(self, rhs: i32) -> Self {
+        // `rocq/theories/Model.v` transcribes this function for the proof of
+        // `DecInterval::powi` in `rocq/theories/Powi.v` (see `Interval::powi_impl`), so it
+        // has to be updated along with it.
         let (y, d) = self.x.powi_impl(rhs);
         Self::set_dec(y, self.d.min(d))
     }

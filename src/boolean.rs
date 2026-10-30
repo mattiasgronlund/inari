@@ -105,10 +105,10 @@ impl Interval {
     /// ```
     pub fn interior(self, rhs: Self) -> bool {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `(Dec)Interval::atanh`, `(Dec)Interval::ln`, `(Dec)Interval::log10` and
-        // `(Dec)Interval::log2`, so it has to be updated along with it.
-        // `rocq/theories/Interior.v` proves what it says of the reals of two `valid`
-        // intervals.
+        // `(Dec)Interval::atanh`, `(Dec)Interval::ln`, `(Dec)Interval::log10`,
+        // `(Dec)Interval::log2` and `(Dec)Interval::pow`, so it has to be updated along
+        // with it. `rocq/theories/Interior.v` proves what it says of the reals of two
+        // `valid` intervals.
         //
         // self = ∅  ∨  b < d  ∨  b = d = +∞
         let l = self.is_empty()
@@ -143,10 +143,11 @@ impl Interval {
         // and `DecInterval::trunc`, of the decorated versions of the functions of
         // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
         // `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
-        // `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, for the proof that every
-        // `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`),
-        // and for the proof that every `Interval` that the constructors and the proved
-        // operations make is `valid` (`rocq/theories/Valid.v`).
+        // `rocq/theories/Sin.v`, `rocq/theories/Tan.v`, `rocq/theories/Pow.v` and
+        // `rocq/theories/Powi.v`, for the proof that every `DecInterval` is `com` only if its
+        // interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`).
         // -∞ < a  ∧  b < +∞
         all(lt(self.rep, splat(f64::INFINITY)))
     }
@@ -172,10 +173,11 @@ impl Interval {
         // `DecInterval::sub` and `DecInterval::trunc`, of the functions of
         // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
         // `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
-        // `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, for the proof that every
-        // `DecInterval` is `com` only if its interval is common
-        // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
-        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
+        // `rocq/theories/Sin.v`, `rocq/theories/Tan.v`, `rocq/theories/Pow.v` and
+        // `rocq/theories/Powi.v`, for the proof that every `DecInterval` is `com` only if its
+        // interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`).
         extract0(self.rep).is_nan()
     }
 
@@ -383,9 +385,10 @@ impl Interval {
     /// ```
     pub fn subset(self, rhs: Self) -> bool {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `(Dec)Interval::acos`, `(Dec)Interval::acosh` and `(Dec)Interval::asin`, so it has
-        // to be updated along with it. `rocq/theories/Interior.v` proves what it says of the
-        // reals of two `valid` intervals.
+        // `(Dec)Interval::acos`, `(Dec)Interval::acosh`, `(Dec)Interval::asin` and
+        // `(Dec)Interval::pow`, so it has to be updated along with it.
+        // `rocq/theories/Interior.v` proves what it says of the reals of two `valid`
+        // intervals.
         self.is_empty() | {
             // c ≤ a  ∧  b ≤ d
             //   ⟺ -a ≤ -c  ∧  b ≤ d
@@ -401,9 +404,9 @@ impl Interval {
     // `rocq/theories/Model.v` transcribes this function for the proofs of
     // `(Dec)Interval::acos`, `(Dec)Interval::acosh`, `(Dec)Interval::asin`,
     // `(Dec)Interval::atanh`, `(Dec)Interval::ln`, `(Dec)Interval::log10`,
-    // `(Dec)Interval::log2`, `(Dec)Interval::max` and `(Dec)Interval::min`, and for the
-    // proof that every `Interval` that the constructors and the proved operations make is
-    // `valid` (`rocq/theories/Valid.v`).
+    // `(Dec)Interval::log2`, `(Dec)Interval::max`, `(Dec)Interval::min` and
+    // `(Dec)Interval::pow`, and for the proof that every `Interval` that the constructors
+    // and the proved operations make is `valid` (`rocq/theories/Valid.v`).
     pub(crate) fn either_empty(self, rhs: Self) -> bool {
         self.is_empty() | rhs.is_empty()
     }
@@ -469,10 +472,11 @@ impl DecInterval {
         // and `DecInterval::trunc` and of the decorated versions of the functions of
         // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
         // `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
-        // `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, for the proof that every
-        // `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`),
-        // and for the proof that every `Interval` that the constructors and the proved
-        // operations make is `valid` (`rocq/theories/Valid.v`).
+        // `rocq/theories/Sin.v`, `rocq/theories/Tan.v`, `rocq/theories/Pow.v` and
+        // `rocq/theories/Powi.v`, for the proof that every `DecInterval` is `com` only if its
+        // interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`).
         self.d == Decoration::Ill
     }
 

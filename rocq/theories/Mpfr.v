@@ -75,6 +75,15 @@ Definition mpfr_correct (emin emax : Z) (D : R -> Prop) (f : R -> R)
   forall rnd (x : f64), is_finite x = true -> D (B2R x) ->
   mpfr_round (mpfr_format emin emax) rnd (f (B2R x)) (g rnd (with_val x)).
 
+(** The same for an MPFR function [g] of two numbers, which computes [f]
+    on the domain [D] of points of R². *)
+Definition mpfr_correct2 (emin emax : Z) (D : R -> R -> Prop) (f : R -> R -> R)
+    (g : mpfr_rnd -> mpfr_t -> mpfr_t -> mpfr_t) : Prop :=
+  forall rnd (x y : f64), is_finite x = true -> is_finite y = true ->
+  D (B2R x) (B2R y) ->
+  mpfr_round (mpfr_format emin emax) rnd (f (B2R x) (B2R y))
+    (g rnd (with_val x) (with_val y)).
+
 (** ** The functions
 
     For each function, [mpfr_correct] and the special values that
@@ -153,6 +162,63 @@ Definition log2_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct emin emax log_dom Rlog2 (mpfr_log2 m) /\
   (forall s, mpfr_log2 m RNDD (MZero s) = MInf true) /\
   mpfr_log2 m RNDU (MInf false) = MInf false.
+
+(** [Interval::pow] calls [pow] at points [(x, y)] where [x] is +0, a
+    real above 0 or +inf, or -0 for a [y] above 0, which [mpfr_correct2]
+    covers. The special values below are those of the [mpfr_pow] entry of
+    the MPFR manual at the points that the code passes: [x] +0, 1 or +inf,
+    or [y] a zero or an infinity, outside the domain or not finite. MPFR
+    returns them exactly, so they are stated for both directions. *)
+Definition pow_ok (emin emax : Z) (m : mpfr) : Prop :=
+  mpfr_correct2 emin emax pow_dom Rpow (mpfr_pow m) /\
+  (* [pow(+0, y) = +inf] for [y < 0], [-inf] included, as [y] is then not
+     an odd integer or [+0] is the zero; [pow(+0, +inf) = +0] *)
+  (forall rnd y, y < 0 -> mpfr_pow m rnd (MZero false) (MNum y) = MInf false) /\
+  (forall rnd, mpfr_pow m rnd (MZero false) (MInf true) = MInf false) /\
+  (forall rnd, mpfr_pow m rnd (MZero false) (MInf false) = MZero false) /\
+  (* [pow(x, ±0) = 1] for [x] +0 and +inf, and [pow(+1, ±inf) = 1] *)
+  (forall rnd s, mpfr_pow m rnd (MZero false) (MZero s) = MNum 1) /\
+  (forall rnd s, mpfr_pow m rnd (MInf false) (MZero s) = MNum 1) /\
+  (forall rnd s, mpfr_pow m rnd (MNum 1) (MInf s) = MNum 1) /\
+  (* [pow(x, -inf)] is +inf for [0 < x < 1] and +0 for [x > 1], and
+     [pow(x, +inf)] is +0 for [0 < x < 1] and +inf for [x > 1] *)
+  (forall rnd y, 0 < y < 1 -> mpfr_pow m rnd (MNum y) (MInf true) = MInf false) /\
+  (forall rnd y, 1 < y -> mpfr_pow m rnd (MNum y) (MInf true) = MZero false) /\
+  (forall rnd y, 0 < y < 1 -> mpfr_pow m rnd (MNum y) (MInf false) = MZero false) /\
+  (forall rnd y, 1 < y -> mpfr_pow m rnd (MNum y) (MInf false) = MInf false) /\
+  (* [pow(+inf, y)] is +0 for [y < 0] and +inf for [y > 0], infinities
+     included *)
+  (forall rnd y, y < 0 -> mpfr_pow m rnd (MInf false) (MNum y) = MZero false) /\
+  (forall rnd, mpfr_pow m rnd (MInf false) (MInf true) = MZero false) /\
+  (forall rnd y, 0 < y -> mpfr_pow m rnd (MInf false) (MNum y) = MInf false) /\
+  (forall rnd, mpfr_pow m rnd (MInf false) (MInf false) = MInf false).
+
+(** [Interval::powi] calls [pow_si] with an [i32] [n]. It computes
+    [powerRZ] on its domain for finite [x], and the special values below
+    are those of the [mpfr_pow] entry of the MPFR manual, which covers
+    [mpfr_pow_si], at the points that the code passes: a zero for [n < 0],
+    and an infinity. MPFR returns them exactly, so they are stated for both
+    directions. *)
+Definition pown_ok (emin emax : Z) (m : mpfr) : Prop :=
+  (forall rnd (x : f64) n, is_i32 n -> is_finite x = true -> pown_dom n (B2R x) ->
+   mpfr_round (mpfr_format emin emax) rnd (powerRZ (B2R x) n)
+     (mpfr_pow_si m rnd (with_val x) n)) /\
+  (* [pow_si(±0, n)] for [n < 0]: +inf for an even [n], and the infinity
+     with the sign of the zero for an odd one *)
+  (forall rnd s n, is_i32 n -> (n < 0)%Z -> Z.even n = true ->
+   mpfr_pow_si m rnd (MZero s) n = MInf false) /\
+  (forall rnd s n, is_i32 n -> (n < 0)%Z -> Z.odd n = true ->
+   mpfr_pow_si m rnd (MZero s) n = MInf s) /\
+  (* [pow_si(+inf, n)] is +0 for [n < 0], 1 for [n = 0] and +inf for
+     [n > 0], and [pow_si(-inf, n)] is -0 for an odd [n < 0] and -inf for
+     an odd [n > 0] *)
+  (forall rnd n, is_i32 n -> (n < 0)%Z -> mpfr_pow_si m rnd (MInf false) n = MZero false) /\
+  (forall rnd, mpfr_pow_si m rnd (MInf false) 0 = MNum 1) /\
+  (forall rnd n, is_i32 n -> (0 < n)%Z -> mpfr_pow_si m rnd (MInf false) n = MInf false) /\
+  (forall rnd n, is_i32 n -> (n < 0)%Z -> Z.odd n = true ->
+   mpfr_pow_si m rnd (MInf true) n = MZero true) /\
+  (forall rnd n, is_i32 n -> (0 < n)%Z -> Z.odd n = true ->
+   mpfr_pow_si m rnd (MInf true) n = MInf true).
 
 Definition sin_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct emin emax real_dom sin (mpfr_sin m).

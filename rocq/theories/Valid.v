@@ -6,9 +6,9 @@
     the operations proved here, any number of times, is [valid]. [made]
     and [dmade] say what that is: each constructor below is one place in
     the library that makes a value, or one proved operation. There is no
-    constructor for an operation that is not modelled here, such as [pow],
-    so [made_valid] does not show that its results, or the intervals
-    computed from them, are [valid].
+    constructor for an operation that is not modelled here, such as
+    [atan2], so [made_valid] does not show that its results, or the
+    intervals computed from them, are [valid].
 
     The constructors of [made] are [Interval::EMPTY], [const_interval!],
     which [Interval::ENTIRE] and the other constants of [Interval] are,
@@ -21,8 +21,8 @@
     [x / y], both outputs of [mul_rev_to_pair], [cancel_minus], [cancel_plus],
     [convex_hull], [intersection], and the functions [acos], [acosh],
     [asin], [asinh], [atan], [atanh], [cos], [cosh], [exp], [exp10],
-    [exp2], [ln], [log10], [log2], [sin], [sinh], [tan] and [tanh] of
-    [src/elementary.rs].
+    [exp2], [ln], [log10], [log2], [pow], [powi], [sin], [sinh], [tan]
+    and [tanh] of [src/elementary.rs].
     Those of [dmade] are the constants, [def_com!], [const_dec_interval!],
     [new], [set_dec], [TryFrom<(f64, f64)>], [try_from_be_bytes] and its
     siblings, [From<DecNInterval>], which [FromStr] calls, and the
@@ -31,8 +31,9 @@
     The constructors of the functions of [src/elementary.rs] assume an
     MPFR [m] and an exponent range [emin], [emax] that satisfy the
     hypotheses of [Mpfr.v]: [range_ok], [get_d_ok], and the function's own
-    hypothesis, such as [exp_ok]. Those of [tan] also assume that π is
-    irrational ([pi_irrational] in [Elementary.v]). *)
+    hypothesis, such as [exp_ok]. Those of [powi] also assume that the
+    exponent is an [i32] ([is_i32] in [Model.v]), and those of [tan] that
+    π is irrational ([pi_irrational] in [Elementary.v]). *)
 
 From Inari Require Import Model Elementary Mpfr ValidMake ValidSetOp ValidOps
   ValidDecOps ValidElem.
@@ -140,6 +141,14 @@ Inductive made : Interval -> Prop :=
   | made_log2 :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       log2_ok emin emax m -> made x -> made (Interval.log2 m x)
+  | made_pow :
+      forall emin emax m first_min first_max x y, range_ok emin emax ->
+      get_d_ok emin emax m -> pow_ok emin emax m -> made x -> made y ->
+      made (Interval.pow m first_min first_max x y)
+  | made_powi :
+      forall emin emax m n x y, range_ok emin emax -> get_d_ok emin emax m ->
+      pown_ok emin emax m -> is_i32 n -> made x ->
+      Interval.powi m n x = Some y -> made y
   | made_sin :
       forall emin emax m has_fma first x y, range_ok emin emax ->
       get_d_ok emin emax m -> sin_ok emin emax m -> made x ->
@@ -270,6 +279,14 @@ with dmade : DecInterval -> Prop :=
   | dmade_log2 :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       log2_ok emin emax m -> dmade x -> dmade (DecInterval.log2 m x)
+  | dmade_pow :
+      forall emin emax m first_min first_max x y, range_ok emin emax ->
+      get_d_ok emin emax m -> pow_ok emin emax m -> dmade x -> dmade y ->
+      dmade (DecInterval.pow m first_min first_max x y)
+  | dmade_powi :
+      forall emin emax m n x y, range_ok emin emax -> get_d_ok emin emax m ->
+      pown_ok emin emax m -> is_i32 n -> dmade x ->
+      DecInterval.powi m n x = Some y -> dmade y
   | dmade_sin :
       forall emin emax m has_fma first x y, range_ok emin emax ->
       get_d_ok emin emax m -> sin_ok emin emax m -> dmade x ->
@@ -356,6 +373,10 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (log10_valid emin emax m x Hr Hg Ho Hx).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (log2_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m f1 f2 x y Hr Hg Ho _ Hx _ Hy.
+  exact (pow_valid emin emax m f1 f2 x y Hr Hg Ho Hx Hy).
+- intros emin emax m n x y Hr Hg Ho Hn _ Hx E.
+  exact (powi_valid emin emax m n x y Hr Hg Ho Hn Hx E).
 - intros emin emax m f first x y Hr Hg Ho _ Hx E.
   exact (sin_valid emin emax m f first x y Hr Hg Ho Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
@@ -428,6 +449,10 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (dec_log10_valid emin emax m x Hr Hg Ho Hx).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (dec_log2_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m f1 f2 x y Hr Hg Ho _ Hx _ Hy.
+  exact (dec_pow_valid emin emax m f1 f2 x y Hr Hg Ho Hx Hy).
+- intros emin emax m n x y Hr Hg Ho Hn _ Hx E.
+  exact (dec_powi_valid emin emax m n x y Hr Hg Ho Hn Hx E).
 - intros emin emax m f first x y Hr Hg Ho _ Hx E.
   exact (dec_sin_valid emin emax m f first x y Hr Hg Ho Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.

@@ -11,7 +11,8 @@
     [Interval::cancel_minus]. Continuity of a
     function of one real is that of
     Stdlib's [continuity_pt] and [continue_in], of two reals that of
-    [continuity2_pt] and [continue_in2] below, and of three reals that of
+    [continuity2_pt], [continue_in2] and [continue_in2_set] below, and of
+    three reals that of
     [continuity3_pt] and [continue_in3]. The point functions [abs],
     [max], [min], [neg], [add], [sub], [mul], [sqr], [sqrt], [recip] and
     [div] are Stdlib's [Rabs], [Rmax], [Rmin], [Ropp], [Rplus], [Rminus],
@@ -277,6 +278,58 @@ Definition strongest2_dom (D1 D2 : R -> Prop) (d : Decoration) (f : R -> R -> R)
     (x y z : Interval) : Prop :=
   p2_dom D1 D2 d f x y z /\
   forall e, p2_dom D1 D2 e f x y z -> (discriminant e <= discriminant d)%Z.
+
+(** ** Functions of two reals with any domain
+
+    The domain of a point function of two reals need not be a product:
+    that of [pow] is [{x > 0} ∪ {(0, y) | y > 0}], and that of [atan2] is
+    R² without [(0, 0)]. Here the domain is any set [D] of points of R²,
+    [D r t] saying that [(r, t)] is in it. [Dom2.v] shows that for a
+    product [D1 × D2] the definitions below are [image2_dom], [p2_dom] and
+    [strongest2_dom], and for all of R² [image2], [p2] and [strongest2]. *)
+
+(** The image of the box [x × y] under [f] defined on [D]: the values of
+    [f] at the points of the box that are in [D]. *)
+Definition image2_set (D : R -> R -> Prop) (f : R -> R -> R) (x y : Interval) :
+    R -> Prop :=
+  fun s => exists r t, mem r x /\ mem t y /\ D r t /\ s = f r t.
+
+(** The restriction of [f] to [D] is continuous at [(r, t)], in the
+    topology of R² of [continue_in2]. *)
+Definition continue_in2_set (f : R -> R -> R) (D : R -> R -> Prop) (r t : R) : Prop :=
+  forall eps, 0 < eps -> exists delta, 0 < delta /\
+    forall r' t', D r' t' -> Rabs (r' - r) < delta -> Rabs (t' - t) < delta ->
+    Rabs (f r' t' - f r t) < eps.
+
+(** [p2_dom] for a function [f] defined on [D]: the box [x × y] has to be
+    a nonempty subset of [D] for [def], and for [com], [f] continuous at
+    each point of the box relative to [D], and the computed interval [z]
+    bounded, as in [p_dom] and [p2]. *)
+Definition p2_set (D : R -> R -> Prop) (d : Decoration) (f : R -> R -> R)
+    (x y z : Interval) : Prop :=
+  let X := fun r => mem r x in
+  let Y := fun t => mem t y in
+  match d with
+  | Ill => False
+  | Trv => True
+  | Def =>
+      (exists r, X r) /\ (exists t, Y t) /\ (forall r t, X r -> Y t -> D r t)
+  | Dac =>
+      (exists r, X r) /\ (exists t, Y t) /\ (forall r t, X r -> Y t -> D r t) /\
+      forall r t, X r -> Y t -> continue_in2 f X Y r t
+  | Com =>
+      (exists r, X r) /\ (exists t, Y t) /\ (forall r t, X r -> Y t -> D r t) /\
+      bounded X /\ bounded Y /\
+      (forall r t, X r -> Y t -> continue_in2_set f D r t) /\
+      bounded (fun s => mem s z)
+  end.
+
+(** [strongest2 d f x y z] for a function [f] of two reals defined on
+    [D]. *)
+Definition strongest2_set (D : R -> R -> Prop) (d : Decoration) (f : R -> R -> R)
+    (x y z : Interval) : Prop :=
+  p2_set D d f x y z /\
+  forall e, p2_set D e f x y z -> (discriminant e <= discriminant d)%Z.
 
 (** ** Functions of three reals *)
 

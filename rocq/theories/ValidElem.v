@@ -1,16 +1,16 @@
 (** * The elementary functions return [valid] intervals
 
     For [Valid.v]: each elementary function proved here returns a [valid]
-    interval for a [valid] argument, as its theorem's [is_tightest], or for
+    interval for [valid] arguments, as its theorem's [is_tightest], or for
     [cos], [sin] and [tan] [encloses], says, and so does its decorated
     version, whose result is [set_dec] of one or NaI. Each assumes what
-    [Mpfr.v] says of MPFR, and [tan] also that π is irrational
-    ([pi_irrational] in [Elementary.v]). *)
+    [Mpfr.v] says of MPFR, [powi] that its exponent is an [i32], and [tan]
+    also that π is irrational ([pi_irrational] in [Elementary.v]). *)
 
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr ValidMake ValidDecOps
-  Elem Atanh Cosh ClosedDom Cos Sin Tan.
+  Elem Atanh Cosh ClosedDom Cos Sin Tan Pow Powi.
 
 (** [DecInterval::$f] of [impl_dec!($f)] is [set_dec] of [Interval::$f],
     so it is [valid] whenever [Interval::$f] is. *)
@@ -320,4 +320,51 @@ destruct (Interval.tan_impl m has_fma (itv x)) as [p |] eqn:Ep; [| discriminate 
 injection E as <-. apply set_dec_valid.
 apply (tan_valid emin emax m has_fma (itv x) (fst p) Hr Hget Hok Hpi Hx).
 unfold Interval.tan. rewrite Ep. reflexivity.
+Qed.
+
+Theorem pow_valid :
+  forall emin emax m first_min first_max x y,
+  range_ok emin emax -> get_d_ok emin emax m -> pow_ok emin emax m ->
+  valid x -> valid y -> valid (Interval.pow m first_min first_max x y).
+Proof.
+intros emin emax m f1 f2 x y Hr Hget Hok Hx Hy.
+exact (proj1 (pow_correct emin emax m f1 f2 x y Hr Hget Hok Hx Hy)).
+Qed.
+
+(** [DecInterval::pow] of [impl_dec2!(pow, pow_impl)] is [set_dec] of the
+    first component of [Interval::pow_impl], that is, [Interval::pow]. *)
+Theorem dec_pow_valid :
+  forall emin emax m first_min first_max x y,
+  range_ok emin emax -> get_d_ok emin emax m -> pow_ok emin emax m ->
+  valid (itv x) -> valid (itv y) ->
+  valid (itv (DecInterval.pow m first_min first_max x y)).
+Proof.
+intros emin emax m f1 f2 x y Hr Hget Hok Hx Hy.
+pose proof (pow_valid emin emax m f1 f2 (itv x) (itv y) Hr Hget Hok Hx Hy) as H.
+unfold DecInterval.pow, DecInterval.elem_dec2_impl. unfold Interval.pow in H.
+destruct (Interval.pow_impl m f1 f2 (itv x) (itv y)) as [z d].
+exact (set_dec_valid _ _ H).
+Qed.
+
+Theorem powi_valid :
+  forall emin emax m n x y,
+  range_ok emin emax -> get_d_ok emin emax m -> pown_ok emin emax m -> is_i32 n ->
+  valid x -> Interval.powi m n x = Some y -> valid y.
+Proof.
+intros emin emax m n x y Hr Hget Hok Hn Hx E.
+destruct (powi_correct emin emax m n x Hr Hget Hok Hn Hx) as (y' & E' & H).
+rewrite E in E'. injection E' as <-. exact (proj1 H).
+Qed.
+
+(** [DecInterval::powi] is [set_dec] of the first component of
+    [Interval::powi_impl], whose [is_tightest] starts with [valid]. *)
+Theorem dec_powi_valid :
+  forall emin emax m n x y,
+  range_ok emin emax -> get_d_ok emin emax m -> pown_ok emin emax m -> is_i32 n ->
+  valid (itv x) -> DecInterval.powi m n x = Some y -> valid (itv y).
+Proof.
+intros emin emax m n x y Hr Hget Hok Hn Hx E.
+destruct (pwi_impl emin emax m n (itv x) Hr Hget Hok Hn Hx) as (p & Ep & Ht & _).
+unfold DecInterval.powi in E. rewrite Ep in E. injection E as <-.
+exact (set_dec_valid _ _ (proj1 Ht)).
 Qed.
