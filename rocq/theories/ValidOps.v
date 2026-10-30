@@ -2,13 +2,17 @@
 
     Each theorem that states that an operation is correct concludes
     [is_hull s y] or [is_tightest s y] of its result [y], and both include
-    [valid y] (in [Ieee1788.v]). Where the operation returns an [option],
-    the theorem also shows that it returns [Some]. The theorems here take
-    [valid y] out of them. *)
+    [valid y] (in [Ieee1788.v]), except that [mul_rev_to_pair_correct]
+    concludes [two_output], each of whose outputs is [EMPTY] or
+    [is_tightest], and [cancel_minus_correct] and [cancel_plus_correct]
+    conclude [cancel_result], whose result is [valid]
+    ([cancel_result_valid] in [CancelSpec.v]). Where the operation returns
+    an [option], the theorem also shows that it returns [Some]. The
+    theorems here take [valid y] out of them. *)
 
 From Inari Require Import Model Ieee1788.
 From Inari Require Integer Round Trunc Sign Abs MaxMin Neg AddSub Mul Sqr Sqrt
-  Recip Div MulRev ValidMake.
+  Recip Div MulRev Cancel CancelSpec ValidMake.
 
 Theorem floor_valid : forall x, valid x -> valid (Interval.floor x).
 Proof.
@@ -143,4 +147,24 @@ destruct H as [(_ & -> & ->) |
 - split; exact ValidMake.EMPTY_valid.
 - split; [exact (proj1 Hu) | exact ValidMake.EMPTY_valid].
 - split; [exact (proj1 Hu) | exact (proj1 Hv)].
+Qed.
+
+(** [cancel_minus] and [cancel_plus] return a [cancel_result], which is
+    [valid]. *)
+Theorem cancel_minus_valid :
+  forall x y z, valid x -> valid y -> Interval.cancel_minus x y = Some z ->
+  valid z.
+Proof.
+intros x y z Hx Hy E.
+destruct (Cancel.cancel_minus_correct x y Hx Hy) as (z' & E' & H).
+rewrite E in E'. injection E' as <-. exact (CancelSpec.cancel_result_valid _ _ _ H).
+Qed.
+
+Theorem cancel_plus_valid :
+  forall x y z, valid x -> valid y -> Interval.cancel_plus x y = Some z ->
+  valid z.
+Proof.
+intros x y z Hx Hy E.
+destruct (Cancel.cancel_plus_correct x y Hx Hy) as (z' & E' & H).
+rewrite E in E'. injection E' as <-. exact (CancelSpec.cancel_result_valid _ _ _ H).
 Qed.

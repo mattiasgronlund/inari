@@ -5,9 +5,10 @@
     side by side. The section on intervals at the end does the same for the
     parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
     [src/integer.rs], [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
-    that [abs], [ceil], [floor], [max], [min], [mul_rev_to_pair], [recip],
-    [round], [round_ties_even], [sign], [sqr], [sqrt], [trunc], [neg],
-    [add], [sub], [mul] and [div] of intervals use, for each place in
+    that [abs], [cancel_minus], [cancel_plus], [ceil], [floor], [max],
+    [min], [mul_rev_to_pair], [recip], [round], [round_ties_even], [sign],
+    [sqr], [sqrt], [trunc], [neg], [add], [sub], [mul] and [div] of
+    intervals use, for each place in
     [src/interval.rs], [src/constants.rs], [src/set_op.rs] and
     [src/bytes.rs] that makes a [DecInterval], and for each place in those
     files and in [src/parse.rs] that makes an [Interval] other than by an
@@ -79,6 +80,12 @@ Definition le (x y : f64) : bool := Bleb x y.
 
 (** [x == y], which is false if either is NaN, and true for [0.0 == -0.0]. *)
 Definition eq (x y : f64) : bool := Beqb x y.
+
+(** [x.partial_cmp(&y)] of [f64]: [None] if either is NaN, and otherwise
+    [Some] of how [x] compares to [y], with [Lt], [Eq] and [Gt] for
+    [Less], [Equal] and [Greater], [0.0] equal to [-0.0], and -inf and +inf
+    below and above every other float. This is Flocq's [Bcompare]. *)
+Definition partial_cmp (x y : f64) : option comparison := Bcompare x y.
 
 (** [x * y] and [-x]. *)
 Definition mul (x y : f64) : f64 := Bmult mode_NE x y.
@@ -622,6 +629,17 @@ Definition shuffle03 (x y : F64X2) : F64X2 := (fst x, snd y).
 Definition shuffle13 (x y : F64X2) : F64X2 := (snd x, snd y).
 Definition swap (x : F64X2) : F64X2 := (snd x, fst x).
 
+(** [pub(crate) fn add_rn(x: F64X2, y: F64X2) -> F64X2],
+    [pub(crate) fn sub_rn(x: F64X2, y: F64X2) -> F64X2] and
+    [pub(crate) fn hadd_rn(x: F64X2, y: F64X2) -> F64X2] *)
+Definition add_rn (x y : F64X2) : F64X2 := (add (fst x) (fst y), add (snd x) (snd y)).
+Definition sub_rn (x y : F64X2) : F64X2 := (sub (fst x) (fst y), sub (snd x) (snd y)).
+Definition hadd_rn (x y : F64X2) : F64X2 := (add (fst x) (snd x), add (fst y) (snd y)).
+
+(** [pub(crate) fn extract(x: F64X2) -> [f64; 2]], with the array as a
+    pair. *)
+Definition extract (x : F64X2) : f64 * f64 := x.
+
 (** [pub(crate) fn sub_ru(x: F64X2, y: F64X2) -> F64X2] *)
 Definition sub_ru (x y : F64X2) : option F64X2 := add_ru x (neg y).
 
@@ -1119,6 +1137,48 @@ Definition sub (self rhs : Interval) : option Interval :=
   let y := Generic.swap (rep rhs) in
   let* r := Generic.add_ru x y in
   Some {| rep := r |}.
+
+(** [pub fn cancel_minus(self, rhs: Self) -> Self], with [0.5] as [half],
+    [f64::INFINITY] as [infinity], and [unreachable!()] as [None]. Each
+    [return] is the value of an [if] whose [else] holds the rest of the
+    body. It comes before [mul], which shadows the [mul] on floats that
+    [0.5 * ma] is. *)
+Definition cancel_minus (self rhs : Interval) : option Interval :=
+  if is_empty self && (is_empty rhs || is_common_interval rhs) then Some EMPTY
+  else if negb (is_common_interval self) || is_empty rhs
+          || negb (is_common_interval rhs) then Some ENTIRE
+  else
+    let x := rep self in
+    let y := rep rhs in
+    let* z := Generic.sub_ru x y in
+    let w_rn := Generic.hadd_rn x y in
+    let '(wx, wy) := Generic.extract w_rn in
+    let '(x, y, w_rn) :=
+      if eq wx infinity && eq wy infinity then
+        let '(ma, b) := Generic.extract x in
+        let '(mc, d) := Generic.extract y in
+        let x := Generic.constant (mul half ma) (mul half b) in
+        let y := Generic.constant (mul half mc) (mul half d) in
+        (x, y, Generic.hadd_rn x y)
+      else (x, y, w_rn) in
+    let '(wx, wy) := Generic.extract w_rn in
+    match partial_cmp wx wy with
+    | Some Gt => Some {| rep := z |}
+    | Some Lt => Some ENTIRE
+    | Some Eq =>
+        let hi := Generic.max (Generic.shuffle02 x y) (Generic.shuffle13 x y) in
+        let lo := Generic.min (Generic.shuffle02 x y) (Generic.shuffle13 x y) in
+        let t := Generic.sub_rn hi w_rn in
+        let dw := Generic.add_rn lo t in
+        let '(dwx, dwy) := Generic.extract dw in
+        if ge dwx dwy then Some {| rep := z |} else Some ENTIRE
+    | None => None
+    end.
+
+(** [pub fn cancel_plus(self, rhs: Self) -> Self], where [-rhs] is
+    [neg rhs]. *)
+Definition cancel_plus (self rhs : Interval) : option Interval :=
+  cancel_minus self (neg rhs).
 
 (** [pub(crate) fn zero() -> Self]. [zero], [sqr], [mul], the divisions,
     [recip] and [div] come last, as [zero], [mul] and [div] shadow the
@@ -1694,5 +1754,21 @@ Definition mul_rev_to_pair (has_fma : bool) (self numerator : DecInterval) :
       if Interval.contains (itv self) zero then Trv
       else dec_min (dec self) (dec numerator) in
     Some (set_dec u d, set_dec v Trv).
+
+(** [pub fn cancel_minus(self, rhs: Self) -> Self] and
+    [pub fn cancel_plus(self, rhs: Self) -> Self], where
+    [self.x.cancel_minus(rhs.x)] is
+    [Interval.cancel_minus (itv self) (itv rhs)], and the same for
+    [cancel_plus]. *)
+Definition cancel_minus (self rhs : DecInterval) : option DecInterval :=
+  if is_nai self || is_nai rhs then Some NAI
+  else
+    let* x := Interval.cancel_minus (itv self) (itv rhs) in
+    Some (set_dec x Trv).
+Definition cancel_plus (self rhs : DecInterval) : option DecInterval :=
+  if is_nai self || is_nai rhs then Some NAI
+  else
+    let* x := Interval.cancel_plus (itv self) (itv rhs) in
+    Some (set_dec x Trv).
 
 End DecInterval.

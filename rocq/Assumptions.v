@@ -4,7 +4,7 @@
 From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign
   Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul Sqrt Sqr Recip Div ComCommon
-  MulRevSets MulRev ValidMake ValidSetOp ValidOps ValidDecOps Valid.
+  MulRevSets MulRev CancelSpec Cancel ValidMake ValidSetOp ValidOps ValidDecOps Valid.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -72,6 +72,12 @@ Print Assumptions dec_div_correct.
 Print Assumptions mul_rev_one_component.
 Print Assumptions mul_rev_to_pair_correct.
 Print Assumptions dec_mul_rev_to_pair_correct.
+Print Assumptions cancel_result_empty.
+Print Assumptions cancel_result_hull.
+Print Assumptions cancel_minus_correct.
+Print Assumptions cancel_plus_correct.
+Print Assumptions dec_cancel_minus_correct.
+Print Assumptions dec_cancel_plus_correct.
 Print Assumptions new_com_common.
 Print Assumptions set_dec_com_common.
 Print Assumptions constants_com_common.
@@ -115,6 +121,8 @@ Print Assumptions sqr_valid.
 Print Assumptions sqrt_valid.
 Print Assumptions recip_valid.
 Print Assumptions mul_rev_to_pair_valid.
+Print Assumptions cancel_minus_valid.
+Print Assumptions cancel_plus_valid.
 Print Assumptions dec_floor_valid.
 Print Assumptions dec_ceil_valid.
 Print Assumptions dec_round_valid.
@@ -133,6 +141,8 @@ Print Assumptions dec_sqr_valid.
 Print Assumptions dec_sqrt_valid.
 Print Assumptions dec_recip_valid.
 Print Assumptions dec_mul_rev_to_pair_valid.
+Print Assumptions dec_cancel_minus_valid.
+Print Assumptions dec_cancel_plus_valid.
 Print Assumptions dec_convex_hull_valid.
 Print Assumptions dec_intersection_valid.
 Print Assumptions made_valid.

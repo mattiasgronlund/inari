@@ -18,7 +18,8 @@
     [DecInterval::interval] returns, and the operations [abs], [ceil],
     [floor], [max], [min], [round], [round_ties_even], [sign], [sqr],
     [sqrt], [trunc], [-x], [x + y], [x - y], [x * y], [recip], [x / y],
-    both outputs of [mul_rev_to_pair], [convex_hull] and [intersection].
+    both outputs of [mul_rev_to_pair], [cancel_minus], [cancel_plus],
+    [convex_hull] and [intersection].
     Those of [dmade] are the constants, [def_com!], [const_dec_interval!],
     [new], [set_dec], [TryFrom<(f64, f64)>], [try_from_be_bytes] and its
     siblings, [From<DecNInterval>], which [FromStr] calls, and the
@@ -75,6 +76,10 @@ Inductive made : Interval -> Prop :=
   | made_mul_rev_to_pair2 :
       forall has_fma x y u v, made x -> made y ->
       Interval.mul_rev_to_pair has_fma x y = Some (u, v) -> made v
+  | made_cancel_minus :
+      forall x y z, made x -> made y -> Interval.cancel_minus x y = Some z -> made z
+  | made_cancel_plus :
+      forall x y z, made x -> made y -> Interval.cancel_plus x y = Some z -> made z
   | made_convex_hull :
       forall x y, made x -> made y -> made (Interval.convex_hull x y)
   | made_intersection :
@@ -139,6 +144,12 @@ with dmade : DecInterval -> Prop :=
   | dmade_mul_rev_to_pair2 :
       forall has_fma x y u v, dmade x -> dmade y ->
       DecInterval.mul_rev_to_pair has_fma x y = Some (u, v) -> dmade v
+  | dmade_cancel_minus :
+      forall x y z, dmade x -> dmade y -> DecInterval.cancel_minus x y = Some z ->
+      dmade z
+  | dmade_cancel_plus :
+      forall x y z, dmade x -> dmade y -> DecInterval.cancel_plus x y = Some z ->
+      dmade z
   | dmade_convex_hull :
       forall x y, dmade x -> dmade y -> dmade (DecInterval.convex_hull x y)
   | dmade_intersection :
@@ -182,6 +193,8 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
 - intros f x y z _ Hx _ Hy. exact (div_valid f x y z Hx Hy).
 - intros f x y u v _ Hx _ Hy E. exact (proj1 (mul_rev_to_pair_valid f x y u v Hx Hy E)).
 - intros f x y u v _ Hx _ Hy E. exact (proj2 (mul_rev_to_pair_valid f x y u v Hx Hy E)).
+- intros x y z _ Hx _ Hy. exact (cancel_minus_valid x y z Hx Hy).
+- intros x y z _ Hx _ Hy. exact (cancel_plus_valid x y z Hx Hy).
 - intros x y _ Hx _ Hy. exact (convex_hull_valid x y Hx Hy).
 - intros x y _ Hx _ Hy. exact (intersection_valid x y Hx Hy).
 - exact (proj1 dec_constants_valid).
@@ -215,6 +228,8 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (proj1 (dec_mul_rev_to_pair_valid f x y u v Hx Hy E)).
 - intros f x y u v _ Hx _ Hy E.
   exact (proj2 (dec_mul_rev_to_pair_valid f x y u v Hx Hy E)).
+- intros x y z _ Hx _ Hy. exact (dec_cancel_minus_valid x y z Hx Hy).
+- intros x y z _ Hx _ Hy. exact (dec_cancel_plus_valid x y z Hx Hy).
 - intros x y _ Hx _ Hy. exact (dec_convex_hull_valid x y Hx Hy).
 - intros x y _ Hx _ Hy. exact (dec_intersection_valid x y Hx Hy).
 Qed.

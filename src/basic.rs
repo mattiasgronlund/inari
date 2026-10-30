@@ -310,6 +310,9 @@ impl Interval {
     /// ```
     #[must_use]
     pub fn cancel_minus(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/Cancel.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         use Ordering::*;
         // cancel_minus([a, b], [c, d]) =
         //
@@ -394,6 +397,9 @@ impl Interval {
     #[inline]
     #[must_use]
     pub fn cancel_plus(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/Cancel.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         self.cancel_minus(-rhs)
     }
 
@@ -641,6 +647,9 @@ impl DecInterval {
     /// A NaI is returned if `self` or `rhs` is NaI.
     #[must_use]
     pub fn cancel_minus(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/Cancel.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() || rhs.is_nai() {
             return Self::NAI;
         }
@@ -652,6 +661,9 @@ impl DecInterval {
     /// A NaI is returned if `self` or `rhs` is NaI.
     #[must_use]
     pub fn cancel_plus(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/Cancel.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() || rhs.is_nai() {
             return Self::NAI;
         }

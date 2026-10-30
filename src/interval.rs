@@ -63,6 +63,7 @@ pub struct Interval {
     //
     // `rocq/theories/Model.v` states this form, with the bounds that `TryFrom<(f64, f64)>`
     // accepts, as `valid`, for the proofs of `(Dec)Interval::abs`, `(Dec)Interval::add`,
+    // `(Dec)Interval::cancel_minus`, `(Dec)Interval::cancel_plus`,
     // `(Dec)Interval::ceil`, `(Dec)Interval::div`, `(Dec)Interval::floor`,
     // `(Dec)Interval::max`, `(Dec)Interval::min`, `(Dec)Interval::mul`,
     // `(Dec)Interval::mul_rev_to_pair`, `(Dec)Interval::neg`, `(Dec)Interval::recip`,
@@ -162,7 +163,8 @@ impl TryFrom<(f64, f64)> for Interval {
 pub enum Decoration {
     // `rocq/theories/Model.v` transcribes this enum, with the discriminants by which the
     // derived `Ord` compares its variants, for the proofs of `DecInterval::abs`,
-    // `DecInterval::add`, `DecInterval::ceil`, `DecInterval::div`, `DecInterval::floor`,
+    // `DecInterval::add`, `DecInterval::cancel_minus`, `DecInterval::cancel_plus`,
+    // `DecInterval::ceil`, `DecInterval::div`, `DecInterval::floor`,
     // `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`,
     // `DecInterval::mul_rev_to_pair`, `DecInterval::neg`, `DecInterval::recip`,
     // `DecInterval::round`, `DecInterval::round_ties_even`, `DecInterval::sign`,
@@ -248,7 +250,8 @@ impl DecInterval {
     /// | Empty                | [`Decoration::Trv`], [`Decoration::Ill`]                                                                |
     pub fn set_dec(x: Interval, d: Decoration) -> Self {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `DecInterval::abs`, `DecInterval::add`, `DecInterval::ceil`, `DecInterval::div`,
+        // `DecInterval::abs`, `DecInterval::add`, `DecInterval::cancel_minus`,
+        // `DecInterval::cancel_plus`, `DecInterval::ceil`, `DecInterval::div`,
         // `DecInterval::floor`, `DecInterval::max`, `DecInterval::min`, `DecInterval::mul`,
         // `DecInterval::mul_rev_to_pair`, `DecInterval::neg`, `DecInterval::recip`,
         // `DecInterval::round`, `DecInterval::round_ties_even`, `DecInterval::sign`,

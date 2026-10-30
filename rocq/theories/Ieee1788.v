@@ -1,12 +1,14 @@
 (** * What IEEE 1788 asks of an interval version of a function
 
-    The theorems in [Abs.v], [AddSub.v], [Div.v], [Integer.v], [MaxMin.v],
-    [DecMaxMin.v], [Mul.v], [MulRev.v], [Neg.v], [Recip.v], [Round.v],
-    [Sign.v], [Sqr.v], [Sqrt.v] and [Trunc.v] are stated with the
-    definitions here and the ones in [Model.v]. Like [Model.v], this file
-    has to be checked by reading: against the standard, IEEE Std
-    1788-2015, rather than against the Rust code, and [two_output] against
-    the doc comment of [Interval::mul_rev_to_pair]. Continuity of a
+    The theorems in [Abs.v], [AddSub.v], [Cancel.v], [CancelSpec.v],
+    [Div.v], [Integer.v], [MaxMin.v], [DecMaxMin.v], [Mul.v], [MulRev.v],
+    [Neg.v], [Recip.v], [Round.v], [Sign.v], [Sqr.v], [Sqrt.v] and
+    [Trunc.v] are stated with the definitions here and the ones in
+    [Model.v]. Like [Model.v], this file has to be checked by reading:
+    against the standard, IEEE Std 1788-2015, rather than against the Rust
+    code, [two_output] against the doc comment of
+    [Interval::mul_rev_to_pair], and [cancel_result] against that of
+    [Interval::cancel_minus]. Continuity of a
     function of one real is that of
     Stdlib's [continuity_pt] and [continue_in], and of two reals that of
     [continuity2_pt] and [continue_in2] below. The point functions [abs],
@@ -313,3 +315,40 @@ Definition two_output (s : R -> Prop) (u v : Interval) : Prop :=
      (forall k', component s k' ->
         (forall r, k' r <-> k1 r) \/ (forall r, k' r <-> k2 r)) /\
      is_tightest k1 u /\ is_tightest k2 v).
+
+(** ** Cancellative subtraction and addition
+
+    IEEE 1788's cancelMinus(x, y) is the tightest interval [z] such that
+    [y + z ⊇ x], where [+] is the sum of sets of reals, if there is such a
+    [z]. There is for an empty [x] and a bounded [y], when it is empty, and
+    for nonempty bounded [x = [a, b]] and [y = [c, d]] with
+    [d - c <= b - a], when it is [[a - c, b - d]]. Otherwise it has no value,
+    and an interval version returns Entire. cancelPlus(x, y) is
+    cancelMinus(x, -y). The sets [X] and [Y] below are the reals of [x] and
+    [y], so that cancelPlus is cancelMinus of [X] and the negations of the
+    reals of [y]. *)
+
+(** [Y + Z ⊇ X]: every real of [X] is a real of [Y] plus a real of [Z]. *)
+Definition sum_superset (Y Z X : R -> Prop) : Prop :=
+  forall r, X r -> exists s t, Y s /\ Z t /\ r = s + t.
+
+(** cancelMinus(X, Y) has a value. *)
+Definition cancel_defined (X Y : R -> Prop) : Prop :=
+  ((forall r, ~ X r) /\ bounded Y) \/
+  (exists a b c d, a <= b /\ c <= d /\ d - c <= b - a /\
+     (forall r, X r <-> a <= r <= b) /\ (forall r, Y r <-> c <= r <= d)).
+
+(** [z] is the result of cancelMinus(X, Y) as the doc comment of
+    [Interval::cancel_minus] states it: if cancelMinus(X, Y) has a value,
+    the tightest interval [z] such that [Y + z ⊇ X], i.e. the [valid] one
+    that every other [valid] interval with this property contains, and
+    [Interval::ENTIRE] otherwise. [cancel_result_empty] and
+    [cancel_result_hull] in [CancelSpec.v] show that [z] is then the empty
+    interval and the tightest interval that contains [[a - c, b - d]],
+    which is what IEEE 1788 asks of an interval version. *)
+Definition cancel_result (X Y : R -> Prop) (z : Interval) : Prop :=
+  (cancel_defined X Y ->
+     valid z /\ sum_superset Y (fun t => mem t z) X /\
+     forall z', valid z' -> sum_superset Y (fun t => mem t z') X ->
+       forall r, mem r z -> mem r z') /\
+  (~ cancel_defined X Y -> z = Interval.ENTIRE).

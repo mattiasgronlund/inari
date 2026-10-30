@@ -244,3 +244,27 @@ Proof.
     destruct (mul_rev_to_pair_valid _ _ _ _ _ Hx Hy E) as [Hu Hv].
     split; apply set_dec_valid; assumption.
 Qed.
+
+Theorem dec_cancel_minus_valid :
+  forall x y z, valid (itv x) -> valid (itv y) ->
+  DecInterval.cancel_minus x y = Some z -> valid (itv z).
+Proof.
+  intros x y z Hx Hy H. unfold DecInterval.cancel_minus in H.
+  destruct (DecInterval.is_nai x || DecInterval.is_nai y).
+  - injection H as <-. exact (proj1 (proj2 dec_constants_valid)).
+  - destruct (Interval.cancel_minus (itv x) (itv y)) as [u|] eqn:E; [| discriminate].
+    injection H as <-. apply set_dec_valid.
+    exact (cancel_minus_valid _ _ _ Hx Hy E).
+Qed.
+
+Theorem dec_cancel_plus_valid :
+  forall x y z, valid (itv x) -> valid (itv y) ->
+  DecInterval.cancel_plus x y = Some z -> valid (itv z).
+Proof.
+  intros x y z Hx Hy H. unfold DecInterval.cancel_plus in H.
+  destruct (DecInterval.is_nai x || DecInterval.is_nai y).
+  - injection H as <-. exact (proj1 (proj2 dec_constants_valid)).
+  - destruct (Interval.cancel_plus (itv x) (itv y)) as [u|] eqn:E; [| discriminate].
+    injection H as <-. apply set_dec_valid.
+    exact (cancel_plus_valid _ _ _ Hx Hy E).
+Qed.
