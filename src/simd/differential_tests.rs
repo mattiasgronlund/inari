@@ -515,12 +515,110 @@ fn adversarial(with_neighbors: bool) -> Vec<f64> {
     v
 }
 
+// x * y = -(2^-1075 + 2^-1128), as 3y = 1/2 + 2^-54 (y is the float above
+// RN(1/6)). Scaled by 2^128, it rounds up to rs = -2^-947, and rs / 2^128 =
+// -2^-1075 is a tie, which rounds to q = -0, the result.
+fn mul_ru_tie() -> (f64, f64) {
+    (-3.0 * pow2(-1074), f64::from_bits(0x3fc5_5555_5555_5556))
+}
+
+// Single cases that a backend once got wrong, that a comment gives as the reason
+// for a check, or that a test chose by hand for one step of an algorithm, as the
+// operation (named as in `binary_ops` and the other lists, without the variant
+// after a `/`) and its arguments. Each comment says why the case is here (what
+// it broke or would break, or the step it exercises) and where it was found.
+// Every mismatch that a random test or a fuzzer finds goes here, so that it
+// stays tested when the random draw or `adversarial` changes. `differential`
+// checks these cases against the generic backend on every backend that it tests.
+// Except under AVX-512F, the backend under test mostly computes with the
+// algorithm of the generic one, so a mistake they share goes unnoticed there;
+// `mul_ru_tiny_generic` therefore also checks the cases of `mul_ru` against
+// `generic::mul1_ru_slow`.
+fn regressions() -> Vec<(&'static str, Vec<f64>)> {
+    let p = pow2;
+    let tie = mul_ru_tie();
+    vec![
+        // -MAX + 3 * 2^970 is a tie that rounds away from zero, to
+        // s = -(MAX - 2^971), and TwoSum's s - y = -(MAX + 2^970) then overflows,
+        // which makes its error NaN. Without their check |x|, |y| < 2^1023, the
+        // fast paths of `add_ru` would return s, an ulp below the result. Given
+        // in `generic::two_sum_err` since 559d2e5 and in `adversarial` since
+        // df2e1f8; not known to have failed. With its negation, as the rounding
+        // is directed, and as a difference, by `sub_ru` and `sub1_ru`. Except
+        // under AVX-512F, the backend under test hands these cases to the generic
+        // one, so there they check only that its own fast path, if it has one,
+        // rejects them.
+        ("add_ru", vec![-f64::MAX, 3.0 * p(970)]),
+        ("add_ru", vec![f64::MAX, -3.0 * p(970)]),
+        ("sub_ru", vec![-f64::MAX, -3.0 * p(970)]),
+        ("sub1_ru", vec![-f64::MAX, -3.0 * p(970)]),
+        // RN(a * b) overflows and c is the opposite infinity, so a * b + c = c,
+        // while RN(a * b) + c is NaN. `generic::mul_add1_special` returns c for
+        // that reason, as does the `special_r` of `mul_add_ru` in `sse42` and
+        // `wasm32`, and so did that of `fma::mul_add_ru` from 469f00b until
+        // a6650cb removed it, as the FMA alone gives c there. Not known to have
+        // failed. With its negation.
+        ("mul_add_ru", vec![f64::MAX, 2.0, f64::NEG_INFINITY]),
+        ("mul_add_ru", vec![-f64::MAX, 2.0, f64::INFINITY]),
+        // `mul_ru_tie`: rs / 2^128 is a tie, -2^-1075, and rounds to the result,
+        // -0. Chosen by hand for `generic::mul1_ru_tiny` in 6fa4f83, which got
+        // it right.
+        ("mul_ru", vec![tie.0, tie.1]),
+    ]
+}
+
+// The operation of `name`: the part before any `/`. The part after it names a
+// variant of the generic backend.
+fn operation(name: &str) -> &str {
+    name.split('/').next().unwrap()
+}
+
+// The arguments of the cases of `regressions` for the operation of `name`, which
+// takes `arity` arguments.
+fn regression_cases(name: &str, arity: usize) -> Vec<Vec<f64>> {
+    let mut cases = vec![];
+    for (op, args) in regressions() {
+        if op == operation(name) {
+            assert_eq!(args.len(), arity, "{}{:?}", op, args);
+            cases.push(args);
+        }
+    }
+    cases
+}
+
+// The cases of `regression_cases`, each in both lanes, next to itself and next
+// to 1s, an ordinary case: the arguments of lane 0 and of lane 1.
+fn regression_lanes(name: &str, arity: usize) -> Vec<(Vec<f64>, Vec<f64>)> {
+    let ones = vec![1.0; arity];
+    let mut lanes = vec![];
+    for args in regression_cases(name, arity) {
+        lanes.push((args.clone(), args.clone()));
+        lanes.push((args.clone(), ones.clone()));
+        lanes.push((ones.clone(), args));
+    }
+    lanes
+}
+
 #[test]
 fn differential() {
     let n = random_cases();
     let mut rng = Rng(0x1788_2015);
     let mut summary = String::new();
     let mut total_mismatches = 0;
+
+    // A case of `regressions` whose operation is not compared here would be
+    // skipped without notice.
+    let names: Vec<&str> = binary_ops()
+        .iter()
+        .map(|op| op.0)
+        .chain(ternary_ops().iter().map(|op| op.0))
+        .chain(unary_ops().iter().map(|op| op.0))
+        .chain(unary1_ops().iter().map(|op| op.0))
+        .collect();
+    for (op, args) in regressions() {
+        let compared = names.iter().any(|&name| operation(name) == op);
+        assert!(compared, "nothing compares {}{:?}", op, args);
+    }
 
     for (name, hw, gen) in binary_ops() {
         let mut r = Report::default();
@@ -531,6 +629,9 @@ fn differential() {
                 let (x1, y1) = (v[(i + 7) % v.len()], v[(j + 13) % v.len()]);
                 check_binary(&mut r, name, hw, gen, [x, x1], [y, y1]);
             }
+        }
+        for (l0, l1) in regression_lanes(name, 2) {
+            check_binary(&mut r, name, hw, gen, [l0[0], l1[0]], [l0[1], l1[1]]);
         }
         for _ in 0..n {
             let (x0, y0) = random_pair(&mut rng, name);
@@ -558,6 +659,10 @@ fn differential() {
                 }
             }
         }
+        for (l0, l1) in regression_lanes(name, 3) {
+            let (a, b, c) = ([l0[0], l1[0]], [l0[1], l1[1]], [l0[2], l1[2]]);
+            check_ternary(&mut r, name, hw, gen, a, b, c);
+        }
         for _ in 0..n {
             let (a0, b0, c0) = random_triple(&mut rng);
             let (a1, b1, c1) = random_triple(&mut rng);
@@ -583,6 +688,9 @@ fn differential() {
                 check_unary(&mut r, name, hw, gen, [x, y]);
             }
         }
+        for (l0, l1) in regression_lanes(name, 1) {
+            check_unary(&mut r, name, hw, gen, [l0[0], l1[0]]);
+        }
         for _ in 0..n {
             let x0 = random_sqrt_arg(&mut rng);
             let x1 = random_sqrt_arg(&mut rng);
@@ -602,6 +710,9 @@ fn differential() {
         let mut r = Report::default();
         for &x in &adversarial(true) {
             r.check(name, &[x], hw(x), gen(x));
+        }
+        for args in regression_cases(name, 1) {
+            r.check(name, &args, hw(args[0]), gen(args[0]));
         }
         for _ in 0..n {
             let x = random_sqrt_arg(&mut rng);
@@ -635,16 +746,13 @@ fn mul_ru_tiny_generic() {
     let mut summary = String::new();
     let mut total_mismatches = 0;
 
-    // x * y = -(2^-1075 + 2^-1128), as 3y = 1/2 + 2^-54 (y is the float above
-    // RN(1/6)). Scaled by 2^128, it rounds up to rs = -2^-947, and rs / 2^128 =
-    // -2^-1075 is a tie, which rounds to q = -0, the result. It is checked against
-    // the oracle below like the other cases.
-    let tie = (-3.0 * pow2(-1074), f64::from_bits(0x3fc5_5555_5555_5556));
+    // The result of `mul_ru_tie`, worked out by hand. The tie is also checked
+    // against the oracle below, as one of `regressions`.
+    let tie = mul_ru_tie();
     assert!(same(generic::mul1_ru_slow(tie.0, tie.1), -0.0));
 
     // Products near or below 2^-968, with their sign flips and swapped factors.
-    let mut cases = vec![];
-    for (x, y) in [
+    let mut pairs = vec![
         // p = RN(x * y) is ±0, so the result follows from the sign of p:
         // 2^-1075 (a tie), just below it, and 2^-2148.
         (pow2(-1074), 0.5),
@@ -654,7 +762,6 @@ fn mul_ru_tiny_generic() {
         (pow2(-1074), 0.5 + pow2(-53)),
         (1.0 / 3.0, 3.0 * pow2(-1074)),
         (pow2(-537), pow2(-537) - pow2(-590)),
-        tie,
         // Subnormal results: exact, then inexact.
         (pow2(-537), pow2(-537)),
         (1.0 + pow2(-52), pow2(-1050)),
@@ -674,7 +781,11 @@ fn mul_ru_tiny_generic() {
         (pow2(-1074), pow2(106)),
         // An ordinary product, which the fast path takes, for the other lane.
         (1.0, 3.0),
-    ] {
+    ];
+    // And the cases of `regressions` for `mul_ru`, such as the tie.
+    pairs.extend(regression_cases("mul_ru", 2).iter().map(|v| (v[0], v[1])));
+    let mut cases = vec![];
+    for (x, y) in pairs {
         for (x, y) in [(x, y), (y, x)] {
             cases.extend([(x, y), (-x, y), (x, -y), (-x, -y)]);
         }
