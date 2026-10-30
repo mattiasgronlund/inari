@@ -58,6 +58,10 @@ theories/DivZero.v
 theories/DivCases.v
 theories/Recip.v
 theories/Div.v
+theories/MulRevSets.v
+theories/MulRevTwo.v
+theories/MulRevCases.v
+theories/MulRev.v
 theories/ValidMake.v
 theories/ValidSetOp.v
 theories/ValidOps.v

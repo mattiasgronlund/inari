@@ -8,7 +8,7 @@
 
 From Inari Require Import Model Ieee1788.
 From Inari Require Integer Round Trunc Sign Abs MaxMin Neg AddSub Mul Sqr Sqrt
-  Recip Div.
+  Recip Div MulRev ValidMake.
 
 Theorem floor_valid : forall x, valid x -> valid (Interval.floor x).
 Proof.
@@ -125,4 +125,22 @@ Proof.
 intros has_fma x y Hx E.
 destruct (Recip.recip_correct has_fma x Hx) as (y' & E' & H).
 rewrite E in E'. injection E' as <-. exact (proj1 H).
+Qed.
+
+(** Both outputs of [mul_rev_to_pair] are [valid]: each is the empty
+    interval or the tightest interval that contains a set. *)
+Theorem mul_rev_to_pair_valid :
+  forall has_fma x y u v, valid x -> valid y ->
+  Interval.mul_rev_to_pair has_fma x y = Some (u, v) -> valid u /\ valid v.
+Proof.
+intros has_fma x y u v Hx Hy E.
+destruct (MulRev.mul_rev_to_pair_correct has_fma x y Hx Hy)
+  as (u' & v' & E' & H).
+rewrite E in E'. injection E' as <- <-.
+(* The three cases of [two_output]: no component, one, or two. *)
+destruct H as [(_ & -> & ->) |
+               [(k & _ & _ & Hu & ->) | (k1 & k2 & _ & _ & _ & _ & Hu & Hv)]].
+- split; exact ValidMake.EMPTY_valid.
+- split; [exact (proj1 Hu) | exact ValidMake.EMPTY_valid].
+- split; [exact (proj1 Hu) | exact (proj1 Hv)].
 Qed.

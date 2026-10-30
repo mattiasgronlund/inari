@@ -5,10 +5,10 @@
     side by side. The section on intervals at the end does the same for the
     parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
     [src/integer.rs], [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
-    that [abs], [ceil], [floor], [max], [min], [recip], [round],
-    [round_ties_even], [sign], [sqr], [sqrt], [trunc], [neg], [add], [sub],
-    [mul] and [div] of intervals use, for each
-    place in [src/interval.rs], [src/constants.rs], [src/set_op.rs] and
+    that [abs], [ceil], [floor], [max], [min], [mul_rev_to_pair], [recip],
+    [round], [round_ties_even], [sign], [sqr], [sqrt], [trunc], [neg],
+    [add], [sub], [mul] and [div] of intervals use, for each place in
+    [src/interval.rs], [src/constants.rs], [src/set_op.rs] and
     [src/bytes.rs] that makes a [DecInterval], and for each place in those
     files and in [src/parse.rs] that makes an [Interval] other than by an
     operation that is not proved here. This file is
@@ -751,15 +751,16 @@ End Generic.
     The parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
     [src/integer.rs], [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
     that [Interval::abs], [Interval::ceil], [Interval::floor],
-    [Interval::max], [Interval::min], [Interval::recip], [Interval::round],
-    [Interval::round_ties_even], [Interval::sign], [Interval::sqr],
-    [Interval::sqrt], [Interval::trunc], [-x], [x + y], [x - y], [x * y]
-    and [x / y] of intervals, and their decorated versions, use. Those call
-    the backend's [floor], [ceil], [round], [round_ties_even], [trunc],
-    [neg0], [splat], [constant], [ge], [gt], [le], [lt], [all], [bitmask],
-    [and], [or], [max], [maximum], [min], [minimum], [shuffle02],
-    [shuffle03], [shuffle13], [swap], [add_ru], [mul_ru], [div_ru],
-    [sqrt1_ru] and [sqrt_rd_ru], which are the ones in [Generic] here.
+    [Interval::max], [Interval::min], [Interval::mul_rev_to_pair],
+    [Interval::recip], [Interval::round], [Interval::round_ties_even],
+    [Interval::sign], [Interval::sqr], [Interval::sqrt], [Interval::trunc],
+    [-x], [x + y], [x - y], [x * y] and [x / y] of intervals, and their
+    decorated versions, use. Those call the backend's [floor], [ceil],
+    [round], [round_ties_even], [trunc], [neg0], [splat], [constant],
+    [ge], [gt], [le], [lt], [all], [bitmask], [and], [or], [max],
+    [maximum], [min], [minimum], [shuffle02], [shuffle03], [shuffle13],
+    [swap], [add_ru], [mul_ru], [div_ru], [sqrt1_ru] and [sqrt_rd_ru],
+    which are the ones in [Generic] here.
     [Interval::max] and [Interval::min] also read the backend's
     [HAS_MAXIMUM], whose value depends on the backend, so it is the
     argument [has_maximum] here.
@@ -1357,6 +1358,51 @@ Definition div (has_fma : bool) (self rhs : Interval) : option Interval :=
   | (CP0, CP1) | (CP1, CP1) => div_p_p1 has_fma self rhs
   end.
 
+(** [pub fn mul_rev_to_pair(self, numerator: Self) -> [Self; 2]], with the
+    array [[u, v]] as the pair [(u, v)], [has_fma] as for the divisions
+    above, the variants of [IntervalClass2] and [Self::zero()] as in [mul],
+    and [f64::INFINITY] as [infinity]. *)
+Definition mul_rev_to_pair (has_fma : bool) (self numerator : Interval) :
+    option (Interval * Interval) :=
+  let* c := classify2 numerator self in
+  match c with
+  | (CE, CE) | (CE, CM) | (CE, CN0) | (CE, CN1) | (CE, CP0) | (CE, CP1)
+  | (CE, CZ) | (CM, CE) | (CN0, CE) | (CN1, CE) | (CN1, CZ) | (CP0, CE)
+  | (CP1, CE) | (CP1, CZ) | (CZ, CE) =>
+      Some (EMPTY, EMPTY)
+  | (CM, CZ) | (CN0, CZ) | (CP0, CZ) | (CZ, CZ) | (CM, CM) | (CM, CN0)
+  | (CM, CP0) | (CN0, CM) | (CP0, CM) | (CZ, CM) | (CZ, CN0) | (CZ, CP0)
+  | (CN0, CN0) | (CN0, CP0) | (CP0, CN0) | (CP0, CP0) =>
+      Some (ENTIRE, EMPTY)
+  | (CZ, CN1) | (CZ, CP1) => Some (zero, EMPTY)
+  | (CN1, CM) =>
+      let x := rep numerator in
+      let x := Generic.shuffle13 x x in
+      let* q := Generic.div_ru has_fma x (rep self) in
+      Some ({| rep := Generic.shuffle13 (Generic.splat infinity) q |},
+            {| rep := Generic.shuffle02 q (Generic.splat infinity) |})
+  | (CP1, CM) =>
+      let x := rep numerator in
+      let x := Generic.shuffle02 x x in
+      let* q := Generic.div_ru has_fma x (rep self) in
+      Some ({| rep := Generic.shuffle02 (Generic.splat infinity) q |},
+            {| rep := Generic.shuffle13 q (Generic.splat infinity) |})
+  | (CM, CN1) => let* z := div_m_n1 has_fma numerator self in Some (z, EMPTY)
+  | (CM, CP1) => let* z := div_m_p1 has_fma numerator self in Some (z, EMPTY)
+  | (CN1, CN0) => let* z := div_n_n0 has_fma numerator self in Some (z, EMPTY)
+  | (CN0, CN1) | (CN1, CN1) =>
+      let* z := div_n_n1 has_fma numerator self in Some (z, EMPTY)
+  | (CN1, CP0) => let* z := div_n_p0 has_fma numerator self in Some (z, EMPTY)
+  | (CN0, CP1) | (CN1, CP1) =>
+      let* z := div_n_p1 has_fma numerator self in Some (z, EMPTY)
+  | (CP1, CN0) => let* z := div_p_n0 has_fma numerator self in Some (z, EMPTY)
+  | (CP0, CN1) | (CP1, CN1) =>
+      let* z := div_p_n1 has_fma numerator self in Some (z, EMPTY)
+  | (CP1, CP0) => let* z := div_p_p0 has_fma numerator self in Some (z, EMPTY)
+  | (CP0, CP1) | (CP1, CP1) =>
+      let* z := div_p_p1 has_fma numerator self in Some (z, EMPTY)
+  end.
+
 End Interval.
 
 Module DecInterval.
@@ -1632,5 +1678,21 @@ Definition div (has_fma : bool) (self rhs : DecInterval) : option DecInterval :=
       else dec_min (dec self) (dec rhs) in
     let* x := Interval.div has_fma (itv self) (itv rhs) in
     Some (set_dec x d).
+
+(** [pub fn mul_rev_to_pair(self, numerator: Self) -> [Self; 2]], where
+    [self.x.mul_rev_to_pair(numerator.x)] is
+    [Interval.mul_rev_to_pair has_fma (itv self) (itv numerator)], with the
+    [has_fma] of [Interval.mul_rev_to_pair] as an argument here too, the
+    arrays as pairs, as there, [self.d.min(numerator.d)] as
+    [dec_min (dec self) (dec numerator)], and [0.0] as +0. *)
+Definition mul_rev_to_pair (has_fma : bool) (self numerator : DecInterval) :
+    option (DecInterval * DecInterval) :=
+  if is_nai self || is_nai numerator then Some (NAI, NAI)
+  else
+    let* (u, v) := Interval.mul_rev_to_pair has_fma (itv self) (itv numerator) in
+    let d :=
+      if Interval.contains (itv self) zero then Trv
+      else dec_min (dec self) (dec numerator) in
+    Some (set_dec u d, set_dec v Trv).
 
 End DecInterval.

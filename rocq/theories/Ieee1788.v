@@ -1,11 +1,13 @@
 (** * What IEEE 1788 asks of an interval version of a function
 
     The theorems in [Abs.v], [AddSub.v], [Div.v], [Integer.v], [MaxMin.v],
-    [DecMaxMin.v], [Mul.v], [Neg.v], [Recip.v], [Round.v], [Sign.v],
-    [Sqr.v], [Sqrt.v] and [Trunc.v] are stated with the definitions here
-    and the ones in [Model.v]. Like [Model.v], this file has to be checked
-    by reading: against the standard, IEEE Std 1788-2015, rather than
-    against the Rust code. Continuity of a function of one real is that of
+    [DecMaxMin.v], [Mul.v], [MulRev.v], [Neg.v], [Recip.v], [Round.v],
+    [Sign.v], [Sqr.v], [Sqrt.v] and [Trunc.v] are stated with the
+    definitions here and the ones in [Model.v]. Like [Model.v], this file
+    has to be checked by reading: against the standard, IEEE Std
+    1788-2015, rather than against the Rust code, and [two_output] against
+    the doc comment of [Interval::mul_rev_to_pair]. Continuity of a
+    function of one real is that of
     Stdlib's [continuity_pt] and [continue_in], and of two reals that of
     [continuity2_pt] and [continue_in2] below. The point functions [abs],
     [max], [min], [neg], [add], [sub], [mul], [sqr], [sqrt], [recip] and
@@ -266,3 +268,48 @@ Definition strongest2_dom (D1 D2 : R -> Prop) (d : Decoration) (f : R -> R -> R)
     (x y z : Interval) : Prop :=
   p2_dom D1 D2 d f x y z /\
   forall e, p2_dom D1 D2 e f x y z -> (discriminant e <= discriminant d)%Z.
+
+(** ** Two-output division
+
+    The standard's [mulRevToPair(b, c)] is [b.mul_rev_to_pair(c)] in
+    inari, whose doc comment writes its set [c ⊘′ b]: the reals [z] with
+    [t * z] in [c] for some [t] in [b]. The doc comment says that the set
+    is empty, or has one or two connected components, and that the two
+    intervals enclose them. [two_output] states what it asks of them. *)
+
+(** The reals [z] with [t * z] in [c] for some [t] in [b]. If [b] and [c]
+    are [[0, 0]], it is all of R. *)
+Definition mul_rev (b c : Interval) : R -> Prop :=
+  fun z => exists t, mem t b /\ mem (t * z) c.
+
+(** [s] holds every real between two of its elements. The connected
+    subsets of R are the convex ones. *)
+Definition convex (s : R -> Prop) : Prop :=
+  forall u v r, s u -> s v -> u <= r <= v -> s r.
+
+(** [k] is a connected component of [s]: a nonempty convex subset of [s]
+    that every convex subset of [s] that contains it equals. *)
+Definition component (s k : R -> Prop) : Prop :=
+  (exists r, k r) /\ convex k /\ (forall r, k r -> s r) /\
+  forall k', convex k' -> (forall r, k r -> k' r) -> (forall r, k' r -> s r) ->
+    forall r, k' r -> k r.
+
+(** What the doc comment of [Interval::mul_rev_to_pair] asks of its
+    outputs [u] and [v] for the set [s]:
+    - [s] is empty, and [u] and [v] are the empty interval;
+    - [s] has one component [k], i.e. every component of [s] has the
+      elements of [k], [u] is the tightest interval that contains [k],
+      and [v] is the empty interval;
+    - [s] has two components [k1] and [k2], every element of [k1] below
+      every element of [k2], and [u] and [v] are the tightest intervals
+      that contain [k1] and [k2].
+    So [s] has at most two components. *)
+Definition two_output (s : R -> Prop) (u v : Interval) : Prop :=
+  ((forall r, ~ s r) /\ u = Interval.EMPTY /\ v = Interval.EMPTY) \/
+  (exists k, component s k /\ (forall k', component s k' -> forall r, k' r <-> k r) /\
+     is_tightest k u /\ v = Interval.EMPTY) \/
+  (exists k1 k2, component s k1 /\ component s k2 /\
+     (forall r t, k1 r -> k2 t -> r < t) /\
+     (forall k', component s k' ->
+        (forall r, k' r <-> k1 r) \/ (forall r, k' r <-> k2 r)) /\
+     is_tightest k1 u /\ is_tightest k2 v).

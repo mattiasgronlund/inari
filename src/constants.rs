@@ -12,10 +12,10 @@ impl Interval {
 
     /// $\[-∞, +∞\]$.
     // `rocq/theories/Model.v` transcribes this constant for the proofs of
-    // `(Dec)Interval::div` and `(Dec)Interval::recip`, for the proof that every
-    // `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`),
-    // and for the proof that every `Interval` that the constructors and the proved
-    // operations make is `valid` (`rocq/theories/Valid.v`).
+    // `(Dec)Interval::div`, `(Dec)Interval::mul_rev_to_pair` and `(Dec)Interval::recip`,
+    // for the proof that every `DecInterval` is `com` only if its interval is common
+    // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
+    // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
     pub const ENTIRE: Self = const_interval!(f64::NEG_INFINITY, f64::INFINITY);
 
     /// The tightest interval enclosing $\e$, the base of natural logarithms.

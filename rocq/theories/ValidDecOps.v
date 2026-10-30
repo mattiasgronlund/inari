@@ -3,7 +3,8 @@
 
     A decorated operation returns its argument or NaI if an argument is
     NaI, and otherwise [set_dec] of the interval that the operation on the
-    intervals returns, which holds that interval or the empty one, except
+    intervals returns, or of each of the two that [mul_rev_to_pair]
+    returns, which holds that interval or the empty one, except
     [convex_hull] and [intersection], which return that interval itself,
     decorated [trv] ([set_op]). So its interval is [valid] if the
     arguments' intervals are, by the theorems in [ValidOps.v] and
@@ -219,4 +220,27 @@ Theorem dec_intersection_valid :
 Proof.
   intros x y Hx Hy. unfold DecInterval.intersection.
   apply set_op_valid; [exact intersection_valid | exact Hx | exact Hy].
+Qed.
+
+Theorem dec_mul_rev_to_pair_valid :
+  forall has_fma x y u v, valid (itv x) -> valid (itv y) ->
+  DecInterval.mul_rev_to_pair has_fma x y = Some (u, v) ->
+  valid (itv u) /\ valid (itv v).
+Proof.
+  intros has_fma x y u v Hx Hy H. unfold DecInterval.mul_rev_to_pair in H.
+  destruct (DecInterval.is_nai x || DecInterval.is_nai y).
+  - injection H as <- <-.
+    split; exact (proj1 (proj2 dec_constants_valid)).
+  - destruct (Interval.mul_rev_to_pair has_fma (itv x) (itv y))
+      as [[u' v'] |] eqn:E; [| discriminate].
+    cbv beta iota zeta in H.
+    (* [injection H as <- <-] may not finish on this [H], as in
+       [dec_div_valid]; it does on abstract [u0] and [v0]. *)
+    assert (Hs : forall u0 v0, Some (u0, v0) = Some (u, v) ->
+                 valid (itv u0) /\ valid (itv v0) ->
+                 valid (itv u) /\ valid (itv v))
+      by (intros u0 v0 Hu; injection Hu as -> ->; exact (fun h => h)).
+    apply (Hs _ _ H).
+    destruct (mul_rev_to_pair_valid _ _ _ _ _ Hx Hy E) as [Hu Hv].
+    split; apply set_dec_valid; assumption.
 Qed.
