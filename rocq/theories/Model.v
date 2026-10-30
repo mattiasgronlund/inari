@@ -6,9 +6,9 @@
     parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
     [src/integer.rs], [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
     that [abs], [cancel_minus], [cancel_plus], [ceil], [floor], [max],
-    [min], [mul_rev_to_pair], [recip], [round], [round_ties_even], [sign],
-    [sqr], [sqrt], [trunc], [neg], [add], [sub], [mul] and [div] of
-    intervals use, for each place in
+    [min], [mul_add], [mul_rev_to_pair], [recip], [round],
+    [round_ties_even], [sign], [sqr], [sqrt], [trunc], [neg], [add], [sub],
+    [mul] and [div] of intervals use, for each place in
     [src/interval.rs], [src/constants.rs], [src/set_op.rs] and
     [src/bytes.rs] that makes a [DecInterval], and for each place in those
     files and in [src/parse.rs] that makes an [Interval] other than by an
@@ -769,16 +769,17 @@ End Generic.
     The parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
     [src/integer.rs], [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
     that [Interval::abs], [Interval::ceil], [Interval::floor],
-    [Interval::max], [Interval::min], [Interval::mul_rev_to_pair],
-    [Interval::recip], [Interval::round], [Interval::round_ties_even],
-    [Interval::sign], [Interval::sqr], [Interval::sqrt], [Interval::trunc],
+    [Interval::max], [Interval::min], [Interval::mul_add],
+    [Interval::mul_rev_to_pair], [Interval::recip], [Interval::round],
+    [Interval::round_ties_even], [Interval::sign], [Interval::sqr],
+    [Interval::sqrt], [Interval::trunc],
     [-x], [x + y], [x - y], [x * y] and [x / y] of intervals, and their
     decorated versions, use. Those call the backend's [floor], [ceil],
     [round], [round_ties_even], [trunc], [neg0], [splat], [constant],
     [ge], [gt], [le], [lt], [all], [bitmask], [and], [or], [max],
     [maximum], [min], [minimum], [shuffle02], [shuffle03], [shuffle13],
-    [swap], [add_ru], [mul_ru], [div_ru], [sqrt1_ru] and [sqrt_rd_ru],
-    which are the ones in [Generic] here.
+    [swap], [add_ru], [mul_ru], [div_ru], [mul_add_ru], [sqrt1_ru] and
+    [sqrt_rd_ru], which are the ones in [Generic] here.
     [Interval::max] and [Interval::min] also read the backend's
     [HAS_MAXIMUM], whose value depends on the backend, so it is the
     argument [has_maximum] here.
@@ -1180,11 +1181,11 @@ Definition cancel_minus (self rhs : Interval) : option Interval :=
 Definition cancel_plus (self rhs : Interval) : option Interval :=
   cancel_minus self (neg rhs).
 
-(** [pub(crate) fn zero() -> Self]. [zero], [sqr], [mul], the divisions,
-    [recip] and [div] come last, as [zero], [mul] and [div] shadow the
-    [zero], [mul] and [div] on floats, and [classify], [abs], [sign] and
-    [sqrt] above use that [zero]. [sqr] and [div] come after [zero], which
-    they call. *)
+(** [pub(crate) fn zero() -> Self]. [zero], [sqr], [mul], [mul_add], the
+    divisions, [recip] and [div] come last, as [zero], [mul], [mul_add] and
+    [div] shadow the [zero], [mul], [mul_add] and [div] on floats, and
+    [classify], [abs], [sign] and [sqrt] above use that [zero]. [sqr] and
+    [div] come after [zero], which they call. *)
 Definition zero : Interval := {| rep := Generic.splat zero |}.
 
 (** [pub fn sqr(self) -> Self]. Its [mul_ru] calls [mul_ru_impl::<HAS_FMA>],
@@ -1281,6 +1282,77 @@ Definition mul (has_fma : bool) (self rhs : Interval) : option Interval :=
       let* r := Generic.mul_ru has_fma x y in
       Some {| rep := r |}
   end.
+
+(** [pub fn mul_add(self, rhs: Self, addend: Self) -> Self] in
+    [src/basic.rs]. Its [mul_add_ru] calls [mul_add_ru_impl::<HAS_FMA>], so
+    [has_fma] is an argument, as for [mul], and the variants of
+    [IntervalClass2] are as in [mul]. The [return] is the value of an [if]
+    whose [else] holds the rest of the body. *)
+Definition mul_add (has_fma : bool) (self rhs addend : Interval) : option Interval :=
+  if is_empty addend then Some EMPTY
+  else
+    let* c := classify2 self rhs in
+    match c with
+    | (CE, CE) | (CE, CM) | (CE, CN0) | (CE, CN1) | (CE, CP0) | (CE, CP1)
+    | (CE, CZ) | (CM, CE) | (CN0, CE) | (CN1, CE) | (CP0, CE) | (CP1, CE)
+    | (CZ, CE) =>
+        Some EMPTY
+    | (CM, CZ) | (CN0, CZ) | (CN1, CZ) | (CP0, CZ) | (CP1, CZ) | (CZ, CM)
+    | (CZ, CN0) | (CZ, CN1) | (CZ, CP0) | (CZ, CP1) | (CZ, CZ) =>
+        Some addend
+    | (CM, CM) =>
+        let x := Generic.shuffle02 (rep self) (rep self) in
+        let y := Generic.swap (rep rhs) in
+        let* xy := Generic.mul_add_ru has_fma x y (rep addend) in
+        let z := Generic.shuffle13 (rep self) (rep self) in
+        let w := rep rhs in
+        let* zw := Generic.mul_add_ru has_fma z w (rep addend) in
+        let r := Generic.max xy zw in
+        Some {| rep := r |}
+    | (CM, CN0) | (CM, CN1) =>
+        let x := Generic.swap (rep self) in
+        let y := Generic.shuffle02 (rep rhs) (rep rhs) in
+        let* r := Generic.mul_add_ru has_fma x y (rep addend) in
+        Some {| rep := r |}
+    | (CM, CP0) | (CM, CP1) =>
+        let x := rep self in
+        let y := Generic.shuffle13 (rep rhs) (rep rhs) in
+        let* r := Generic.mul_add_ru has_fma x y (rep addend) in
+        Some {| rep := r |}
+    | (CN0, CM) | (CN1, CM) =>
+        let x := Generic.shuffle02 (rep self) (rep self) in
+        let y := Generic.swap (rep rhs) in
+        let* r := Generic.mul_add_ru has_fma x y (rep addend) in
+        Some {| rep := r |}
+    | (CN0, CN0) | (CN0, CN1) | (CN1, CN0) | (CN1, CN1) =>
+        let x := Generic.swap (rep self) in
+        let x := Generic.neg0 x in
+        let y := Generic.swap (rep rhs) in
+        let* r := Generic.mul_add_ru has_fma x y (rep addend) in
+        Some {| rep := r |}
+    | (CN0, CP0) | (CN0, CP1) | (CN1, CP0) | (CN1, CP1) =>
+        let x := rep self in
+        let y := Generic.neg0 (rep rhs) in
+        let y := Generic.swap y in
+        let* r := Generic.mul_add_ru has_fma x y (rep addend) in
+        Some {| rep := r |}
+    | (CP0, CM) | (CP1, CM) =>
+        let x := Generic.shuffle13 (rep self) (rep self) in
+        let y := rep rhs in
+        let* r := Generic.mul_add_ru has_fma x y (rep addend) in
+        Some {| rep := r |}
+    | (CP0, CN0) | (CP0, CN1) | (CP1, CN0) | (CP1, CN1) =>
+        let x := Generic.neg0 (rep self) in
+        let x := Generic.swap x in
+        let y := rep rhs in
+        let* r := Generic.mul_add_ru has_fma x y (rep addend) in
+        Some {| rep := r |}
+    | (CP0, CP0) | (CP0, CP1) | (CP1, CP0) | (CP1, CP1) =>
+        let x := rep self in
+        let y := Generic.neg0 (rep rhs) in
+        let* r := Generic.mul_add_ru has_fma x y (rep addend) in
+        Some {| rep := r |}
+    end.
 
 (** [pub(crate) fn div_m_n1(self, rhs: Self) -> Self] and the other
     divisions of [[a, b]] by [[c, d]] in [src/basic.rs], one for each case
@@ -1686,10 +1758,10 @@ Definition trunc : DecInterval -> DecInterval :=
         eq (Interval.sup_raw x) (Interval.sup_raw y))).
 
 (** [fn neg(self) -> Self] of [impl Neg for DecInterval], where [-self.x]
-    is [Interval.neg (itv self)]. [neg], [add], [sub], [mul], [recip] and
-    [div] come last, so that the [sub] in [round] and [round_ties_even] is
-    still the one on floats, and [mul] and [div] shadow the ones on floats
-    in no other definition. *)
+    is [Interval.neg (itv self)]. [neg], [add], [sub], [mul], [mul_add],
+    [recip] and [div] come last, so that the [sub] in [round] and
+    [round_ties_even] is still the one on floats, and [mul], [mul_add] and
+    [div] shadow the ones on floats in no other definition. *)
 Definition neg (self : DecInterval) : DecInterval :=
   if is_nai self then self
   else set_dec (Interval.neg (itv self)) (dec self).
@@ -1715,6 +1787,19 @@ Definition mul (has_fma : bool) (self rhs : DecInterval) : option DecInterval :=
   else
     let* x := Interval.mul has_fma (itv self) (itv rhs) in
     Some (set_dec x (dec_min (dec self) (dec rhs))).
+
+(** [pub fn mul_add(self, rhs: Self, addend: Self) -> Self], where
+    [self.x.mul_add(rhs.x, addend.x)] is
+    [Interval.mul_add has_fma (itv self) (itv rhs) (itv addend)], with the
+    [has_fma] of [Interval.mul_add] as an argument here too, and
+    [self.d.min(rhs.d.min(addend.d))] is
+    [dec_min (dec self) (dec_min (dec rhs) (dec addend))]. *)
+Definition mul_add (has_fma : bool) (self rhs addend : DecInterval) :
+    option DecInterval :=
+  if is_nai self || is_nai rhs || is_nai addend then Some NAI
+  else
+    let* x := Interval.mul_add has_fma (itv self) (itv rhs) (itv addend) in
+    Some (set_dec x (dec_min (dec self) (dec_min (dec rhs) (dec addend)))).
 
 (** [pub fn recip(self) -> Self], where [self.x.recip()] is
     [Interval.recip has_fma (itv self)], with the [has_fma] of

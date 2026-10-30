@@ -6,9 +6,9 @@
     the operations proved here, any number of times, is [valid]. [made]
     and [dmade] say what that is: each constructor below is one place in
     the library that makes a value, or one proved operation. There is no
-    constructor for an operation that is not modelled here, such as [exp]
-    or [mul_add], so [made_valid] does not show that its results, or the
-    intervals computed from them, are [valid].
+    constructor for an operation that is not modelled here, such as [exp],
+    so [made_valid] does not show that its results, or the intervals
+    computed from them, are [valid].
 
     The constructors of [made] are [Interval::EMPTY], [const_interval!],
     which [Interval::ENTIRE] and the other constants of [Interval] are,
@@ -17,8 +17,8 @@
     the interval of a [dmade] [DecInterval], which
     [DecInterval::interval] returns, and the operations [abs], [ceil],
     [floor], [max], [min], [round], [round_ties_even], [sign], [sqr],
-    [sqrt], [trunc], [-x], [x + y], [x - y], [x * y], [recip], [x / y],
-    both outputs of [mul_rev_to_pair], [cancel_minus], [cancel_plus],
+    [sqrt], [trunc], [-x], [x + y], [x - y], [x * y], [mul_add], [recip],
+    [x / y], both outputs of [mul_rev_to_pair], [cancel_minus], [cancel_plus],
     [convex_hull] and [intersection].
     Those of [dmade] are the constants, [def_com!], [const_dec_interval!],
     [new], [set_dec], [TryFrom<(f64, f64)>], [try_from_be_bytes] and its
@@ -65,6 +65,9 @@ Inductive made : Interval -> Prop :=
   | made_mul :
       forall has_fma x y z, made x -> made y ->
       Interval.mul has_fma x y = Some z -> made z
+  | made_mul_add :
+      forall has_fma x y z w, made x -> made y -> made z ->
+      Interval.mul_add has_fma x y z = Some w -> made w
   | made_recip :
       forall has_fma x y, made x -> Interval.recip has_fma x = Some y -> made y
   | made_div :
@@ -132,6 +135,9 @@ with dmade : DecInterval -> Prop :=
   | dmade_mul :
       forall has_fma x y z, dmade x -> dmade y ->
       DecInterval.mul has_fma x y = Some z -> dmade z
+  | dmade_mul_add :
+      forall has_fma x y z w, dmade x -> dmade y -> dmade z ->
+      DecInterval.mul_add has_fma x y z = Some w -> dmade w
   | dmade_recip :
       forall has_fma x z, dmade x -> DecInterval.recip has_fma x = Some z ->
       dmade z
@@ -189,6 +195,7 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
 - intros x y z _ Hx _ Hy. exact (add_valid x y z Hx Hy).
 - intros x y z _ Hx _ Hy. exact (sub_valid x y z Hx Hy).
 - intros f x y z _ Hx _ Hy. exact (mul_valid f x y z Hx Hy).
+- intros f x y z w _ Hx _ Hy _ Hz. exact (mul_add_valid f x y z w Hx Hy Hz).
 - intros f x y _ Hx. exact (recip_valid f x y Hx).
 - intros f x y z _ Hx _ Hy. exact (div_valid f x y z Hx Hy).
 - intros f x y u v _ Hx _ Hy E. exact (proj1 (mul_rev_to_pair_valid f x y u v Hx Hy E)).
@@ -222,6 +229,7 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
 - intros x y z _ Hx _ Hy. exact (dec_add_valid x y z Hx Hy).
 - intros x y z _ Hx _ Hy. exact (dec_sub_valid x y z Hx Hy).
 - intros f x y z _ Hx _ Hy. exact (dec_mul_valid f x y z Hx Hy).
+- intros f x y z w _ Hx _ Hy _ Hz. exact (dec_mul_add_valid f x y z w Hx Hy Hz).
 - intros f x z _ Hx. exact (dec_recip_valid f x z Hx).
 - intros f x y z _ Hx _ Hy. exact (dec_div_valid f x y z Hx Hy).
 - intros f x y u v _ Hx _ Hy E.

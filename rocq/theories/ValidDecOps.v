@@ -149,6 +149,20 @@ Proof.
     exact (mul_valid _ _ _ _ Hx Hy E).
 Qed.
 
+Theorem dec_mul_add_valid :
+  forall has_fma x y z w, valid (itv x) -> valid (itv y) -> valid (itv z) ->
+  DecInterval.mul_add has_fma x y z = Some w -> valid (itv w).
+Proof.
+  intros has_fma x y z w Hx Hy Hz H. unfold DecInterval.mul_add in H.
+  destruct (DecInterval.is_nai x || DecInterval.is_nai y || DecInterval.is_nai z).
+  - injection H as <-. exact (proj1 (proj2 dec_constants_valid)).
+  - cbv zeta in H.
+    destruct (Interval.mul_add has_fma (itv x) (itv y) (itv z)) as [u |] eqn:E;
+      [| discriminate].
+    injection H as <-. apply set_dec_valid.
+    exact (mul_add_valid _ _ _ _ _ Hx Hy Hz E).
+Qed.
+
 Theorem dec_div_valid :
   forall has_fma x y z, valid (itv x) -> valid (itv y) ->
   DecInterval.div has_fma x y = Some z -> valid (itv z).

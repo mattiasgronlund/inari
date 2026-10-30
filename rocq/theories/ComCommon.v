@@ -1,10 +1,11 @@
 (** * A [DecInterval] is [com] only if its interval is common
 
-    [dec_sign_correct], [dec_max_correct], [dec_min_correct] and
-    [dec_mul_correct] assume [com_common] of each argument: the argument is
-    [com] only if its interval is common, i.e. nonempty and bounded. This
-    file shows that every [DecInterval] that the library makes has this
-    property.
+    [dec_sign_correct], [dec_max_correct], [dec_min_correct],
+    [dec_mul_correct], [dec_recip_correct] and [dec_div_correct] assume
+    [com_common] of each argument, and [dec_mul_add_correct] of its first
+    two: the argument is [com] only if its interval is common, i.e.
+    nonempty and bounded. This file shows that every [DecInterval] that the
+    library makes has this property.
 
     Rust makes a value of a struct only with a struct expression or with
     [unsafe] code such as [transmute], and otherwise copies existing ones.

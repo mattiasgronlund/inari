@@ -3,7 +3,7 @@
 
 From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign
-  Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul Sqrt Sqr Recip Div ComCommon
+  Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
   MulRevSets MulRev CancelSpec Cancel ValidMake ValidSetOp ValidOps ValidDecOps Valid.
 
 Print Assumptions add1_ru_fast_correct.
@@ -61,6 +61,8 @@ Print Assumptions dec_add_correct.
 Print Assumptions dec_sub_correct.
 Print Assumptions mul_correct.
 Print Assumptions dec_mul_correct.
+Print Assumptions mul_add_correct.
+Print Assumptions dec_mul_add_correct.
 Print Assumptions sqrt_correct.
 Print Assumptions dec_sqrt_correct.
 Print Assumptions sqr_correct.

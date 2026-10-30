@@ -11,7 +11,7 @@
     theorems here take [valid y] out of them. *)
 
 From Inari Require Import Model Ieee1788.
-From Inari Require Integer Round Trunc Sign Abs MaxMin Neg AddSub Mul Sqr Sqrt
+From Inari Require Integer Round Trunc Sign Abs MaxMin Neg AddSub Mul MulAdd Sqr Sqrt
   Recip Div MulRev Cancel CancelSpec ValidMake.
 
 Theorem floor_valid : forall x, valid x -> valid (Interval.floor x).
@@ -95,6 +95,15 @@ Theorem mul_valid :
 Proof.
 intros has_fma x y z Hx Hy E.
 destruct (Mul.mul_correct has_fma x y Hx Hy) as (z' & E' & H).
+rewrite E in E'. injection E' as <-. exact (proj1 H).
+Qed.
+
+Theorem mul_add_valid :
+  forall has_fma x y z w, valid x -> valid y -> valid z ->
+  Interval.mul_add has_fma x y z = Some w -> valid w.
+Proof.
+intros has_fma x y z w Hx Hy Hz E.
+destruct (MulAdd.mul_add_correct has_fma x y z Hx Hy Hz) as (w' & E' & H).
 rewrite E in E'. injection E' as <-. exact (proj1 H).
 Qed.
 

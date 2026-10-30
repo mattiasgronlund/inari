@@ -1,22 +1,24 @@
 (** * What IEEE 1788 asks of an interval version of a function
 
     The theorems in [Abs.v], [AddSub.v], [Cancel.v], [CancelSpec.v],
-    [Div.v], [Integer.v], [MaxMin.v], [DecMaxMin.v], [Mul.v], [MulRev.v],
-    [Neg.v], [Recip.v], [Round.v], [Sign.v], [Sqr.v], [Sqrt.v] and
-    [Trunc.v] are stated with the definitions here and the ones in
+    [Div.v], [Integer.v], [MaxMin.v], [DecMaxMin.v], [Mul.v], [MulAdd.v],
+    [MulRev.v], [Neg.v], [Recip.v], [Round.v], [Sign.v], [Sqr.v], [Sqrt.v]
+    and [Trunc.v] are stated with the definitions here and the ones in
     [Model.v]. Like [Model.v], this file has to be checked by reading:
     against the standard, IEEE Std 1788-2015, rather than against the Rust
     code, [two_output] against the doc comment of
     [Interval::mul_rev_to_pair], and [cancel_result] against that of
     [Interval::cancel_minus]. Continuity of a
     function of one real is that of
-    Stdlib's [continuity_pt] and [continue_in], and of two reals that of
-    [continuity2_pt] and [continue_in2] below. The point functions [abs],
+    Stdlib's [continuity_pt] and [continue_in], of two reals that of
+    [continuity2_pt] and [continue_in2] below, and of three reals that of
+    [continuity3_pt] and [continue_in3]. The point functions [abs],
     [max], [min], [neg], [add], [sub], [mul], [sqr], [sqrt], [recip] and
     [div] are Stdlib's [Rabs], [Rmax], [Rmin], [Ropp], [Rplus], [Rminus],
     [Rmult], [Rsqr], [sqrt], [Rinv] and [Rdiv], the last four with their
     domains [sqr_dom], which is all of R, [sqrt_dom], [recip_dom], and the
-    product of [div_dom1] and [div_dom2]. *)
+    product of [div_dom1] and [div_dom2]. The point function [fma] is
+    [Rfma] below. *)
 
 From Stdlib Require Import Reals.
 From Flocq Require Import Core.Raux Core.Generic_fmt Core.Round_NE.
@@ -270,6 +272,61 @@ Definition strongest2_dom (D1 D2 : R -> Prop) (d : Decoration) (f : R -> R -> R)
     (x y z : Interval) : Prop :=
   p2_dom D1 D2 d f x y z /\
   forall e, p2_dom D1 D2 e f x y z -> (discriminant e <= discriminant d)%Z.
+
+(** ** Functions of three reals *)
+
+(** The point function [fma], [x * y + z], which [Interval::mul_add]
+    evaluates. It is defined on all of R³. *)
+Definition Rfma (r t u : R) : R := r * t + u.
+
+(** The image of the box [x × y × z] under [f], as a set of reals. *)
+Definition image3 (f : R -> R -> R -> R) (x y z : Interval) : R -> Prop :=
+  fun s => exists r t u, mem r x /\ mem t y /\ mem u z /\ s = f r t u.
+
+(** The restriction of [f] to [X × Y × Z] is continuous at [(r, t, u)], in
+    the topology of R³, which is that of the norm [max(|r|, |t|, |u|)], as
+    [continue_in2] is for R². *)
+Definition continue_in3 (f : R -> R -> R -> R) (X Y Z : R -> Prop) (r t u : R) :
+    Prop :=
+  forall eps, 0 < eps -> exists delta, 0 < delta /\
+    forall r' t' u', X r' -> Y t' -> Z u' ->
+    Rabs (r' - r) < delta -> Rabs (t' - t) < delta -> Rabs (u' - u) < delta ->
+    Rabs (f r' t' u' - f r t u) < eps.
+
+(** [f] is continuous at [(r, t, u)], like Stdlib's [continuity_pt]. *)
+Definition continuity3_pt (f : R -> R -> R -> R) (r t u : R) : Prop :=
+  continue_in3 f (fun _ => True) (fun _ => True) (fun _ => True) r t u.
+
+(** [p2 d f x y w] for a function [f] of three reals, defined on all of
+    R³, and the box [x × y × z] in place of [x × y]: the box is nonempty
+    if [x], [y] and [z] are, and bounded if they are. For [com], the
+    computed interval [w], rather than the image, has to be bounded, as in
+    [p2]. *)
+Definition p3 (d : Decoration) (f : R -> R -> R -> R) (x y z w : Interval) : Prop :=
+  let X := fun r => mem r x in
+  let Y := fun t => mem t y in
+  let Z := fun u => mem u z in
+  match d with
+  | Ill => False
+  | Trv => True
+  | Def => (exists r, X r) /\ (exists t, Y t) /\ (exists u, Z u)
+  | Dac =>
+      (exists r, X r) /\ (exists t, Y t) /\ (exists u, Z u) /\
+      forall r t u, X r -> Y t -> Z u -> continue_in3 f X Y Z r t u
+  | Com =>
+      (exists r, X r) /\ (exists t, Y t) /\ (exists u, Z u) /\
+      bounded X /\ bounded Y /\ bounded Z /\
+      (forall r t u, X r -> Y t -> Z u -> continuity3_pt f r t u) /\
+      bounded (fun s => mem s w)
+  end.
+
+(** [strongest d f x] for a function [f] of three reals, the box
+    [x × y × z] and the computed interval [w]. An operation on three
+    decorated intervals returns the minimum of this decoration and those of
+    its arguments. *)
+Definition strongest3 (d : Decoration) (f : R -> R -> R -> R) (x y z w : Interval) :
+    Prop :=
+  p3 d f x y z w /\ forall e, p3 e f x y z w -> (discriminant e <= discriminant d)%Z.
 
 (** ** Two-output division
 

@@ -414,6 +414,9 @@ impl Interval {
     #[allow(clippy::many_single_char_names)]
     #[must_use]
     pub fn mul_add(self, rhs: Self, addend: Self) -> Self {
+        // Proved correct in `rocq/theories/MulAdd.v` for the portable backend.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if addend.is_empty() {
             return Self::EMPTY; // *
         }
@@ -675,6 +678,11 @@ impl DecInterval {
     /// A NaI is returned if `self`, `rhs` or `addend` is NaI.
     #[must_use]
     pub fn mul_add(self, rhs: Self, addend: Self) -> Self {
+        // Proved correct in `rocq/theories/MulAdd.v` for the portable backend if `self` and
+        // `rhs` are `com` only when `self.x` and `rhs.x` are common, which
+        // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it.
         if self.is_nai() || rhs.is_nai() || addend.is_nai() {
             return Self::NAI;
         }
