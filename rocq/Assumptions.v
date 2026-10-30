@@ -4,7 +4,8 @@
 From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign
   Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
-  MulRevSets MulRev CancelSpec Cancel ValidMake ValidSetOp ValidOps ValidDecOps Valid.
+  MulRevSets MulRev CancelSpec Cancel MpfrRound ClosedDom Elem Atanh Cosh ValidMake
+  ValidSetOp ValidOps ValidDecOps ValidElem Valid.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -80,6 +81,37 @@ Print Assumptions cancel_minus_correct.
 Print Assumptions cancel_plus_correct.
 Print Assumptions dec_cancel_minus_correct.
 Print Assumptions dec_cancel_plus_correct.
+Print Assumptions mpfr_fn_round.
+Print Assumptions asinh_correct.
+Print Assumptions dec_asinh_correct.
+Print Assumptions atan_correct.
+Print Assumptions dec_atan_correct.
+Print Assumptions exp_correct.
+Print Assumptions dec_exp_correct.
+Print Assumptions exp10_correct.
+Print Assumptions dec_exp10_correct.
+Print Assumptions exp2_correct.
+Print Assumptions dec_exp2_correct.
+Print Assumptions sinh_correct.
+Print Assumptions dec_sinh_correct.
+Print Assumptions tanh_correct.
+Print Assumptions dec_tanh_correct.
+Print Assumptions ln_correct.
+Print Assumptions dec_ln_correct.
+Print Assumptions log10_correct.
+Print Assumptions dec_log10_correct.
+Print Assumptions log2_correct.
+Print Assumptions dec_log2_correct.
+Print Assumptions asin_correct.
+Print Assumptions dec_asin_correct.
+Print Assumptions acosh_correct.
+Print Assumptions dec_acosh_correct.
+Print Assumptions acos_correct.
+Print Assumptions dec_acos_correct.
+Print Assumptions atanh_correct.
+Print Assumptions dec_atanh_correct.
+Print Assumptions cosh_correct.
+Print Assumptions dec_cosh_correct.
 Print Assumptions new_com_common.
 Print Assumptions set_dec_com_common.
 Print Assumptions constants_com_common.
@@ -125,6 +157,21 @@ Print Assumptions recip_valid.
 Print Assumptions mul_rev_to_pair_valid.
 Print Assumptions cancel_minus_valid.
 Print Assumptions cancel_plus_valid.
+Print Assumptions acos_valid.
+Print Assumptions acosh_valid.
+Print Assumptions asin_valid.
+Print Assumptions asinh_valid.
+Print Assumptions atan_valid.
+Print Assumptions atanh_valid.
+Print Assumptions cosh_valid.
+Print Assumptions exp_valid.
+Print Assumptions exp10_valid.
+Print Assumptions exp2_valid.
+Print Assumptions ln_valid.
+Print Assumptions log10_valid.
+Print Assumptions log2_valid.
+Print Assumptions sinh_valid.
+Print Assumptions tanh_valid.
 Print Assumptions dec_floor_valid.
 Print Assumptions dec_ceil_valid.
 Print Assumptions dec_round_valid.
@@ -145,6 +192,21 @@ Print Assumptions dec_recip_valid.
 Print Assumptions dec_mul_rev_to_pair_valid.
 Print Assumptions dec_cancel_minus_valid.
 Print Assumptions dec_cancel_plus_valid.
+Print Assumptions dec_acos_valid.
+Print Assumptions dec_acosh_valid.
+Print Assumptions dec_asin_valid.
+Print Assumptions dec_asinh_valid.
+Print Assumptions dec_atan_valid.
+Print Assumptions dec_atanh_valid.
+Print Assumptions dec_cosh_valid.
+Print Assumptions dec_exp_valid.
+Print Assumptions dec_exp10_valid.
+Print Assumptions dec_exp2_valid.
+Print Assumptions dec_ln_valid.
+Print Assumptions dec_log10_valid.
+Print Assumptions dec_log2_valid.
+Print Assumptions dec_sinh_valid.
+Print Assumptions dec_tanh_valid.
 Print Assumptions dec_convex_hull_valid.
 Print Assumptions dec_intersection_valid.
 Print Assumptions made_valid.

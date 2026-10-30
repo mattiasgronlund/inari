@@ -2,6 +2,12 @@ use crate::{classify::*, const_interval, interval::*};
 use gmp_mpfr_sys::mpfr;
 use rug::Float;
 
+// `rocq/theories/Model.v` transcribes the functions that this macro defines, but those for
+// `cos`, `sin` and `tan`, as `mpfr_fn` of an abstract MPFR function, for the proofs of the
+// functions of this file in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
+// `rocq/theories/Atanh.v` and `rocq/theories/Cosh.v`, so it has to be updated along with
+// it. `rocq/theories/Mpfr.v` states what those proofs assume of the MPFR functions and of
+// `mpfr::get_d`.
 macro_rules! mpfr_fn {
     ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
         fn $f_rd(x: f64) -> f64 {
@@ -96,6 +102,10 @@ fn rem_euclid_2(x: f64) -> f64 {
     }
 }
 
+// Proved correct in `rocq/theories/Elem.v`, from `rocq/theories/LogDom.v`, for the portable
+// backend, for `ln`, `log10` and `log2` and their decorated versions, assuming what
+// `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes the functions
+// that this macro defines, so it has to be updated along with it.
 macro_rules! impl_log {
     ($(#[$meta:meta])* $f:ident, $f_impl:ident, $f_rd:ident, $f_ru:ident) => {
         $(#[$meta])*
@@ -127,6 +137,13 @@ macro_rules! impl_log {
     };
 }
 
+// Proved correct in `rocq/theories/Elem.v`, from `rocq/theories/MonoInc.v`, for the
+// portable backend, for `asinh`, `atan`, `exp`, `exp10`, `exp2`, `sinh` and `tanh` and
+// their decorated versions, assuming what `rocq/theories/Mpfr.v` says of MPFR, and for the
+// decorated versions of `atan`, `exp`, `exp10`, `exp2` and `tanh` also if `self` is `com`
+// only when `self.x` is common, which `rocq/theories/ComCommon.v` proves of every
+// `DecInterval` that the library makes. `rocq/theories/Model.v` transcribes the function
+// that this macro defines, so it has to be updated along with it.
 macro_rules! impl_mono_inc {
     ($(#[$meta:meta])* $f:ident, $f_rd:ident, $f_ru:ident) => {
         $(#[$meta])*
@@ -155,6 +172,10 @@ impl Interval {
     }
 
     fn acos_impl(self) -> (Self, Decoration) {
+        // Proved correct, with `Interval::acos` and `DecInterval::acos`, in
+        // `rocq/theories/ClosedDom.v` for the portable backend, assuming what
+        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
+        // function and `Interval::acos`, so it has to be updated along with them.
         const DOM: Interval = const_interval!(-1.0, 1.0);
         let x = self.intersection(DOM);
 
@@ -184,6 +205,11 @@ impl Interval {
     }
 
     fn acosh_impl(self) -> (Self, Decoration) {
+        // Proved correct, with `Interval::acosh` and `DecInterval::acosh`, in
+        // `rocq/theories/Elem.v`, from `rocq/theories/ClosedDom.v`, for the portable backend,
+        // assuming what `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v`
+        // transcribes this function and `Interval::acosh`, so it has to be updated along
+        // with them.
         const DOM: Interval = const_interval!(1.0, f64::INFINITY);
         let x = self.intersection(DOM);
 
@@ -213,6 +239,11 @@ impl Interval {
     }
 
     fn asin_impl(self) -> (Self, Decoration) {
+        // Proved correct, with `Interval::asin` and `DecInterval::asin`, in
+        // `rocq/theories/Elem.v`, from `rocq/theories/ClosedDom.v`, for the portable backend,
+        // assuming what `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v`
+        // transcribes this function and `Interval::asin`, so it has to be updated along with
+        // them.
         const DOM: Interval = const_interval!(-1.0, 1.0);
         let x = self.intersection(DOM);
 
@@ -392,6 +423,11 @@ impl Interval {
 
     #[allow(clippy::many_single_char_names)]
     fn atanh_impl(self) -> (Self, Decoration) {
+        // Proved correct, with `Interval::atanh` and `DecInterval::atanh`, in
+        // `rocq/theories/Atanh.v` for the portable backend, assuming what
+        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
+        // function and `Interval::atanh`, so it has to be updated along with them.
+        //
         // Mathematically, the domain of atanh is (-1.0, 1.0), not [-1.0, 1.0].
         // However, IEEE 754/MPFR's atanh returns ±infinity for ±1.0,
         // (and signals the divide-by-zero exception), so we will make use of that.
@@ -471,6 +507,11 @@ impl Interval {
     /// | $\R$   | $\[1, ∞)$ |
     #[must_use]
     pub fn cosh(self) -> Self {
+        // Proved correct, with `DecInterval::cosh`, in `rocq/theories/Cosh.v` for the
+        // portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR.
+        // `rocq/theories/Model.v` transcribes this function, so it has to be updated along
+        // with it. `(-a).max(b)` may return either zero if `-a` and `b` are zeros, so the
+        // model takes which one it returns as an argument.
         if self.is_empty() {
             return self;
         }
@@ -830,6 +871,10 @@ impl Interval {
     );
 }
 
+// `rocq/theories/Model.v` transcribes the functions that this macro defines, but those for
+// `cos`, `sin` and `tan`, for the proofs of the decorated versions of the functions of this
+// file in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v` and
+// `rocq/theories/Cosh.v`, so it has to be updated along with it.
 macro_rules! impl_dec {
     ($f:ident) => {
         #[doc = concat!("The decorated version of [`Interval::", stringify!($f), "`].")]

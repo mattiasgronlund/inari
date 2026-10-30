@@ -6,7 +6,7 @@
     the operations proved here, any number of times, is [valid]. [made]
     and [dmade] say what that is: each constructor below is one place in
     the library that makes a value, or one proved operation. There is no
-    constructor for an operation that is not modelled here, such as [exp],
+    constructor for an operation that is not modelled here, such as [sin],
     so [made_valid] does not show that its results, or the intervals
     computed from them, are [valid].
 
@@ -19,13 +19,21 @@
     [floor], [max], [min], [round], [round_ties_even], [sign], [sqr],
     [sqrt], [trunc], [-x], [x + y], [x - y], [x * y], [mul_add], [recip],
     [x / y], both outputs of [mul_rev_to_pair], [cancel_minus], [cancel_plus],
-    [convex_hull] and [intersection].
+    [convex_hull], [intersection], and the functions [acos], [acosh],
+    [asin], [asinh], [atan], [atanh], [cosh], [exp], [exp10], [exp2], [ln],
+    [log10], [log2], [sinh] and [tanh] of [src/elementary.rs].
     Those of [dmade] are the constants, [def_com!], [const_dec_interval!],
     [new], [set_dec], [TryFrom<(f64, f64)>], [try_from_be_bytes] and its
     siblings, [From<DecNInterval>], which [FromStr] calls, and the
-    decorated versions of the same operations. *)
+    decorated versions of the same operations.
 
-From Inari Require Import Model ValidMake ValidSetOp ValidOps ValidDecOps.
+    The constructors of the functions of [src/elementary.rs] assume an
+    MPFR [m] and an exponent range [emin], [emax] that satisfy the
+    hypotheses of [Mpfr.v]: [range_ok], [get_d_ok], and the function's own
+    hypothesis, such as [exp_ok]. *)
+
+From Inari Require Import Model Mpfr ValidMake ValidSetOp ValidOps ValidDecOps
+  ValidElem.
 
 Inductive made : Interval -> Prop :=
   | made_EMPTY : made Interval.EMPTY
@@ -87,6 +95,51 @@ Inductive made : Interval -> Prop :=
       forall x y, made x -> made y -> made (Interval.convex_hull x y)
   | made_intersection :
       forall x y, made x -> made y -> made (Interval.intersection x y)
+  | made_acos :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      acos_ok emin emax m -> made x -> made (Interval.acos m x)
+  | made_acosh :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      acosh_ok emin emax m -> made x -> made (Interval.acosh m x)
+  | made_asin :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      asin_ok emin emax m -> made x -> made (Interval.asin m x)
+  | made_asinh :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      asinh_ok emin emax m -> made x -> made (Interval.asinh m x)
+  | made_atan :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      atan_ok emin emax m -> made x -> made (Interval.atan m x)
+  | made_atanh :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      atanh_ok emin emax m -> made x -> made (Interval.atanh m x)
+  | made_cosh :
+      forall emin emax m first x, range_ok emin emax -> get_d_ok emin emax m ->
+      cosh_ok emin emax m -> made x -> made (Interval.cosh m first x)
+  | made_exp :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      exp_ok emin emax m -> made x -> made (Interval.exp m x)
+  | made_exp10 :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      exp10_ok emin emax m -> made x -> made (Interval.exp10 m x)
+  | made_exp2 :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      exp2_ok emin emax m -> made x -> made (Interval.exp2 m x)
+  | made_ln :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      ln_ok emin emax m -> made x -> made (Interval.ln m x)
+  | made_log10 :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      log10_ok emin emax m -> made x -> made (Interval.log10 m x)
+  | made_log2 :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      log2_ok emin emax m -> made x -> made (Interval.log2 m x)
+  | made_sinh :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      sinh_ok emin emax m -> made x -> made (Interval.sinh m x)
+  | made_tanh :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      tanh_ok emin emax m -> made x -> made (Interval.tanh m x)
 with dmade : DecInterval -> Prop :=
   | dmade_EMPTY : dmade DecInterval.EMPTY
   | dmade_NAI : dmade DecInterval.NAI
@@ -159,7 +212,52 @@ with dmade : DecInterval -> Prop :=
   | dmade_convex_hull :
       forall x y, dmade x -> dmade y -> dmade (DecInterval.convex_hull x y)
   | dmade_intersection :
-      forall x y, dmade x -> dmade y -> dmade (DecInterval.intersection x y).
+      forall x y, dmade x -> dmade y -> dmade (DecInterval.intersection x y)
+  | dmade_acos :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      acos_ok emin emax m -> dmade x -> dmade (DecInterval.acos m x)
+  | dmade_acosh :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      acosh_ok emin emax m -> dmade x -> dmade (DecInterval.acosh m x)
+  | dmade_asin :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      asin_ok emin emax m -> dmade x -> dmade (DecInterval.asin m x)
+  | dmade_asinh :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      asinh_ok emin emax m -> dmade x -> dmade (DecInterval.asinh m x)
+  | dmade_atan :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      atan_ok emin emax m -> dmade x -> dmade (DecInterval.atan m x)
+  | dmade_atanh :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      atanh_ok emin emax m -> dmade x -> dmade (DecInterval.atanh m x)
+  | dmade_cosh :
+      forall emin emax m first x, range_ok emin emax -> get_d_ok emin emax m ->
+      cosh_ok emin emax m -> dmade x -> dmade (DecInterval.cosh m first x)
+  | dmade_exp :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      exp_ok emin emax m -> dmade x -> dmade (DecInterval.exp m x)
+  | dmade_exp10 :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      exp10_ok emin emax m -> dmade x -> dmade (DecInterval.exp10 m x)
+  | dmade_exp2 :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      exp2_ok emin emax m -> dmade x -> dmade (DecInterval.exp2 m x)
+  | dmade_ln :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      ln_ok emin emax m -> dmade x -> dmade (DecInterval.ln m x)
+  | dmade_log10 :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      log10_ok emin emax m -> dmade x -> dmade (DecInterval.log10 m x)
+  | dmade_log2 :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      log2_ok emin emax m -> dmade x -> dmade (DecInterval.log2 m x)
+  | dmade_sinh :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      sinh_ok emin emax m -> dmade x -> dmade (DecInterval.sinh m x)
+  | dmade_tanh :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      tanh_ok emin emax m -> dmade x -> dmade (DecInterval.tanh m x).
 
 (** Induction on [made] and [dmade] together, for properties that do not
     depend on the derivation. *)
@@ -204,6 +302,36 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
 - intros x y z _ Hx _ Hy. exact (cancel_plus_valid x y z Hx Hy).
 - intros x y _ Hx _ Hy. exact (convex_hull_valid x y Hx Hy).
 - intros x y _ Hx _ Hy. exact (intersection_valid x y Hx Hy).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (acos_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (acosh_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (asin_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (asinh_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (atan_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (atanh_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m first x Hr Hg Ho _ Hx.
+  exact (cosh_valid emin emax m first x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (exp_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (exp10_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (exp2_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (ln_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (log10_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (log2_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (sinh_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (tanh_valid emin emax m x Hr Hg Ho Hx).
 - exact (proj1 dec_constants_valid).
 - exact (proj1 (proj2 dec_constants_valid)).
 - exact (proj2 (proj2 dec_constants_valid)).
@@ -240,4 +368,34 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
 - intros x y z _ Hx _ Hy. exact (dec_cancel_plus_valid x y z Hx Hy).
 - intros x y _ Hx _ Hy. exact (dec_convex_hull_valid x y Hx Hy).
 - intros x y _ Hx _ Hy. exact (dec_intersection_valid x y Hx Hy).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_acos_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_acosh_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_asin_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_asinh_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_atan_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_atanh_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m first x Hr Hg Ho _ Hx.
+  exact (dec_cosh_valid emin emax m first x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_exp_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_exp10_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_exp2_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_ln_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_log10_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_log2_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_sinh_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_tanh_valid emin emax m x Hr Hg Ho Hx).
 Qed.

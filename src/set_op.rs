@@ -34,9 +34,13 @@ impl Interval {
     /// | $\self = \[a, b\]$ | $∅$        | $\[\max \set{a, c}, \min \set{b, d}\]$ |
     #[must_use]
     pub fn intersection(self, rhs: Self) -> Self {
-        // `rocq/theories/Model.v` transcribes this function for the proof that every
-        // `Interval` that the constructors and the proved operations make is `valid`
-        // (`rocq/theories/Valid.v`), so it has to be updated along with it.
+        // `rocq/theories/Model.v` transcribes this function for the proofs of
+        // `(Dec)Interval::acos`, `(Dec)Interval::acosh`, `(Dec)Interval::asin`,
+        // `(Dec)Interval::atanh`, `(Dec)Interval::ln`, `(Dec)Interval::log10` and
+        // `(Dec)Interval::log2`, and for the proof that every `Interval` that the
+        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`), so
+        // it has to be updated along with it. `rocq/theories/Interior.v` proves what it
+        // returns for the reals of two `valid` intervals.
         if self.either_empty(rhs) {
             return Self::EMPTY;
         }
