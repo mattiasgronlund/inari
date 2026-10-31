@@ -4,9 +4,9 @@ use std::mem::transmute;
 impl Interval {
     pub(crate) fn classify(self) -> IntervalClass {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `(Dec)Interval::abs`, `(Dec)Interval::div`, `(Dec)Interval::mul`,
-        // `(Dec)Interval::mul_add`, `(Dec)Interval::mul_rev_to_pair`, `(Dec)Interval::powi`,
-        // `(Dec)Interval::recip` and `(Dec)Interval::sqr`.
+        // `(Dec)Interval::abs`, `(Dec)Interval::atan2`, `(Dec)Interval::div`,
+        // `(Dec)Interval::mul`, `(Dec)Interval::mul_add`, `(Dec)Interval::mul_rev_to_pair`,
+        // `(Dec)Interval::powi`, `(Dec)Interval::recip` and `(Dec)Interval::sqr`.
         // `classify_defined` in `rocq/theories/Abs.v` shows, for the portable backend, that
         // `transmute` gets the discriminant of a variant whenever `self` is `valid`, as the
         // comment on `Interval::rep` defines it.
@@ -18,8 +18,8 @@ impl Interval {
 
     pub(crate) fn classify2(self, rhs: Self) -> IntervalClass2 {
         // `rocq/theories/Model.v` transcribes this function for the proofs of
-        // `(Dec)Interval::div`, `(Dec)Interval::mul`, `(Dec)Interval::mul_add` and
-        // `(Dec)Interval::mul_rev_to_pair`.
+        // `(Dec)Interval::atan2`, `(Dec)Interval::div`, `(Dec)Interval::mul`,
+        // `(Dec)Interval::mul_add` and `(Dec)Interval::mul_rev_to_pair`.
         // `classify2_pair` in `rocq/theories/Classify2.v` shows that `transmute` gets the
         // discriminant of the variant for the classes of `self` and `rhs` whenever
         // `classify` is defined on both.
@@ -43,9 +43,9 @@ impl Interval {
 // * These codes are used only in comments.
 
 // `rocq/theories/Model.v` transcribes the discriminants in `transmute_class`, for the
-// proofs of `(Dec)Interval::abs`, `(Dec)Interval::div`, `(Dec)Interval::mul`,
-// `(Dec)Interval::mul_add`, `(Dec)Interval::mul_rev_to_pair`, `(Dec)Interval::powi`,
-// `(Dec)Interval::recip` and `(Dec)Interval::sqr`.
+// proofs of `(Dec)Interval::abs`, `(Dec)Interval::atan2`, `(Dec)Interval::div`,
+// `(Dec)Interval::mul`, `(Dec)Interval::mul_add`, `(Dec)Interval::mul_rev_to_pair`,
+// `(Dec)Interval::powi`, `(Dec)Interval::recip` and `(Dec)Interval::sqr`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(crate) enum IntervalClass {
@@ -67,8 +67,8 @@ macro_rules! discr {
 
 // `rocq/theories/Model.v` transcribes the discriminants in `transmute_class2`, with the
 // variant `X_Y` as the pair of the variants `X` and `Y` of `IntervalClass`, for the
-// proofs of `(Dec)Interval::div`, `(Dec)Interval::mul`, `(Dec)Interval::mul_add` and
-// `(Dec)Interval::mul_rev_to_pair`.
+// proofs of `(Dec)Interval::atan2`, `(Dec)Interval::div`, `(Dec)Interval::mul`,
+// `(Dec)Interval::mul_add` and `(Dec)Interval::mul_rev_to_pair`.
 #[allow(dead_code)]
 #[allow(non_camel_case_types)] // We could rename E_E to ExE, etc., but that would degrade the legibility.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

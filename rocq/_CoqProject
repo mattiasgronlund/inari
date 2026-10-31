@@ -110,6 +110,16 @@ theories/PowMixHi.v
 theories/PowMix.v
 theories/Pow.v
 theories/Powi.v
+theories/AtanReal.v
+theories/PiTight.v
+theories/Atan2Mpfr.v
+theories/Dec2Set.v
+theories/Atan2Dec.v
+theories/Atan2Const.v
+theories/Atan2Right.v
+theories/Atan2Lower.v
+theories/Atan2Left.v
+theories/Atan2.v
 theories/ValidMake.v
 theories/ValidSetOp.v
 theories/ValidOps.v

@@ -10,7 +10,7 @@
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr ValidMake ValidDecOps
-  Elem Atanh Cosh ClosedDom Cos Sin Tan Pow Powi.
+  Elem Atanh Cosh ClosedDom Cos Sin Tan Pow Powi Atan2.
 
 (** [DecInterval::$f] of [impl_dec!($f)] is [set_dec] of [Interval::$f],
     so it is [valid] whenever [Interval::$f] is. *)
@@ -109,6 +109,31 @@ Theorem dec_atan_valid :
   valid (itv x) -> valid (itv (DecInterval.atan m x)).
 Proof.
 ve_dec ve_elem_dec_valid atan_valid.
+Qed.
+
+Theorem atan2_valid :
+  forall emin emax m y x z,
+  range_ok emin emax -> get_d_ok emin emax m -> atan2_ok emin emax m ->
+  valid y -> valid x -> Interval.atan2 m y x = Some z -> valid z.
+Proof.
+intros emin emax m y x z Hr Hget Hok Hy Hx E.
+destruct (atan2_correct emin emax m y x Hr Hget Hok Hy Hx) as (z' & E' & Ht).
+rewrite E in E'. injection E' as <-. exact (proj1 Ht).
+Qed.
+
+(** [DecInterval::atan2] of [impl_dec2!(atan2, atan2_impl)] is [set_dec]
+    of the first component of [Interval::atan2_impl], that is,
+    [Interval::atan2]. *)
+Theorem dec_atan2_valid :
+  forall emin emax m y x w,
+  range_ok emin emax -> get_d_ok emin emax m -> atan2_ok emin emax m ->
+  valid (itv y) -> valid (itv x) -> DecInterval.atan2 m y x = Some w -> valid (itv w).
+Proof.
+intros emin emax m y x w Hr Hget Hok Hy Hx E. unfold DecInterval.atan2 in E.
+destruct (Interval.atan2_impl m (itv y) (itv x)) as [p|] eqn:Ep; [|discriminate E].
+injection E as <-. apply set_dec_valid.
+apply (atan2_valid emin emax m (itv y) (itv x) (fst p) Hr Hget Hok Hy Hx).
+unfold Interval.atan2. rewrite Ep. reflexivity.
 Qed.
 
 Theorem atanh_valid :

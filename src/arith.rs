@@ -8,7 +8,8 @@ impl Neg for Interval {
     fn neg(self) -> Self {
         // Proved correct in `rocq/theories/Neg.v` for the portable backend.
         // `rocq/theories/Model.v` transcribes this function for that proof and those of
-        // `(Dec)Interval::cancel_plus`, so it has to be updated along with it.
+        // `(Dec)Interval::atan2` and `(Dec)Interval::cancel_plus`, so it has to be updated
+        // along with it.
         // [-b, -a] = [b; -a]
         Self {
             rep: swap(self.rep),

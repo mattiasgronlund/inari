@@ -30,9 +30,10 @@ macro_rules! mpfr_fn {
 }
 
 // `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn2`
-// of an abstract MPFR function, for the proofs of `(Dec)Interval::pow` in
-// `rocq/theories/Pow.v`, so it has to be updated along with it. `rocq/theories/Mpfr.v`
-// states what those proofs assume of `mpfr::pow` and of `mpfr::get_d`.
+// of an abstract MPFR function, for the proofs of `(Dec)Interval::atan2` in
+// `rocq/theories/Atan2.v` and of `(Dec)Interval::pow` in `rocq/theories/Pow.v`, so it has
+// to be updated along with it. `rocq/theories/Mpfr.v` states what those proofs assume of
+// `mpfr::atan2`, `mpfr::pow` and `mpfr::get_d`.
 macro_rules! mpfr_fn2 {
     ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
         fn $f_rd(x: f64, y: f64) -> f64 {
@@ -313,6 +314,13 @@ impl Interval {
 
     #[allow(clippy::many_single_char_names)]
     fn atan2_impl(self, rhs: Self) -> (Self, Decoration) {
+        // Proved correct, with `Interval::atan2` and `DecInterval::atan2`, in
+        // `rocq/theories/Atan2.v` for the portable backend, assuming what
+        // `rocq/theories/Mpfr.v` says of MPFR, and for `DecInterval::atan2` also if `self`
+        // and `rhs` are `com` only when their intervals are common, which
+        // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
+        // `rocq/theories/Model.v` transcribes this function and `Interval::atan2`, so it has
+        // to be updated along with them.
         let (x, y) = (rhs, self);
         let a = x.inf_raw();
         let b = x.sup_raw();
@@ -981,8 +989,10 @@ macro_rules! impl_dec {
 }
 
 // `rocq/theories/Model.v` transcribes the functions that this macro defines, as
-// `elem_dec2_impl` of `Interval::$f_impl`, for the proof of `DecInterval::pow` in
-// `rocq/theories/Pow.v`, so it has to be updated along with it.
+// `elem_dec2_impl` of `Interval::$f_impl` for the proof of `DecInterval::pow` in
+// `rocq/theories/Pow.v`, and the one for `atan2` on its own, as the model of
+// `Interval::atan2_impl` returns an `option`, for the proof of `DecInterval::atan2` in
+// `rocq/theories/Atan2.v`, so it has to be updated along with it.
 macro_rules! impl_dec2 {
     ($f:ident, $f_impl:ident) => {
         #[doc = concat!("The decorated version of [`Interval::", stringify!($f), "`].")]

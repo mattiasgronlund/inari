@@ -5,8 +5,8 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign
   Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
   MulRevSets MulRev CancelSpec Cancel MpfrRound ClosedDom Elem Atanh Cosh PiBounds
-  Cos Sin Tan Dom2 Pow Powi ValidMake ValidSetOp ValidOps ValidDecOps ValidElem
-  Valid.
+  Cos Sin Tan Dom2 Pow Powi AtanReal PiTight Dec2Set Atan2 ValidMake ValidSetOp
+  ValidOps ValidDecOps ValidElem Valid.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -135,6 +135,16 @@ Print Assumptions pow_correct.
 Print Assumptions dec_pow_correct.
 Print Assumptions powi_correct.
 Print Assumptions dec_powi_correct.
+Print Assumptions Ratan2_range.
+Print Assumptions Ratan2_polar.
+Print Assumptions Ratan2_polar_unique.
+Print Assumptions PI_up.
+Print Assumptions PI_dn.
+Print Assumptions FRAC_PI_2_up.
+Print Assumptions FRAC_PI_2_dn.
+Print Assumptions elem2_set_dec_strongest.
+Print Assumptions atan2_correct.
+Print Assumptions dec_atan2_correct.
 Print Assumptions new_com_common.
 Print Assumptions set_dec_com_common.
 Print Assumptions constants_com_common.
@@ -185,6 +195,7 @@ Print Assumptions acosh_valid.
 Print Assumptions asin_valid.
 Print Assumptions asinh_valid.
 Print Assumptions atan_valid.
+Print Assumptions atan2_valid.
 Print Assumptions atanh_valid.
 Print Assumptions cos_valid.
 Print Assumptions cosh_valid.
@@ -225,6 +236,7 @@ Print Assumptions dec_acosh_valid.
 Print Assumptions dec_asin_valid.
 Print Assumptions dec_asinh_valid.
 Print Assumptions dec_atan_valid.
+Print Assumptions dec_atan2_valid.
 Print Assumptions dec_atanh_valid.
 Print Assumptions dec_cos_valid.
 Print Assumptions dec_cosh_valid.

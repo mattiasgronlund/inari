@@ -836,9 +836,11 @@ Definition with_val (x : f64) : mpfr_t :=
     [mpfr_acos] and the others, of which [mpfr_log] is MPFR's [log].
     [mpfr::f(x.as_raw_mut(), x.as_raw(), rnd)] sets the MPFR number [x] to
     [f rnd x], rounded to the 53 bits of [x], which is both the argument
-    and the result. [mpfr_pow] takes a second MPFR number, and
-    [mpfr_pow_si] a [c_long], which is an integer here:
-    [mpfr::pow(x.as_raw_mut(), x.as_raw(), y.as_raw(), rnd)] sets [x] to
+    and the result. [mpfr_atan2] and [mpfr_pow] take a second MPFR number,
+    and [mpfr_pow_si] a [c_long], which is an integer here:
+    [mpfr::atan2(x.as_raw_mut(), x.as_raw(), y.as_raw(), rnd)] sets [x] to
+    [mpfr_atan2 rnd x y],
+    [mpfr::pow(x.as_raw_mut(), x.as_raw(), y.as_raw(), rnd)] to
     [mpfr_pow rnd x y], and
     [mpfr::pow_si(x.as_raw_mut(), x.as_raw(), n, rnd)] to
     [mpfr_pow_si rnd x n]. *)
@@ -849,6 +851,7 @@ Record mpfr : Type := {
   mpfr_asin : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_asinh : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_atan : mpfr_rnd -> mpfr_t -> mpfr_t;
+  mpfr_atan2 : mpfr_rnd -> mpfr_t -> mpfr_t -> mpfr_t;
   mpfr_atanh : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_cos : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_cosh : mpfr_rnd -> mpfr_t -> mpfr_t;
@@ -907,6 +910,8 @@ Definition asinh_rd (m : mpfr) := mpfr_fn m (mpfr_asinh m) RNDD.
 Definition asinh_ru (m : mpfr) := mpfr_fn m (mpfr_asinh m) RNDU.
 Definition atan_rd (m : mpfr) := mpfr_fn m (mpfr_atan m) RNDD.
 Definition atan_ru (m : mpfr) := mpfr_fn m (mpfr_atan m) RNDU.
+Definition atan2_rd (m : mpfr) := mpfr_fn2 m (mpfr_atan2 m) RNDD.
+Definition atan2_ru (m : mpfr) := mpfr_fn2 m (mpfr_atan2 m) RNDU.
 Definition atanh_rd (m : mpfr) := mpfr_fn m (mpfr_atanh m) RNDD.
 Definition atanh_ru (m : mpfr) := mpfr_fn m (mpfr_atanh m) RNDU.
 Definition cos_rd (m : mpfr) := mpfr_fn m (mpfr_cos m) RNDD.
@@ -970,11 +975,12 @@ Definition rem_euclid_2 (x : f64) : f64 :=
     [-x], [x + y], [x - y], [x * y] and [x / y] of intervals, the
     elementary functions [Interval::acos], [Interval::acosh],
     [Interval::asin], [Interval::asinh], [Interval::atan],
-    [Interval::atanh], [Interval::cos], [Interval::cosh], [Interval::exp],
-    [Interval::exp10], [Interval::exp2], [Interval::ln],
-    [Interval::log10], [Interval::log2], [Interval::pow],
-    [Interval::powi], [Interval::sin], [Interval::sinh], [Interval::tan]
-    and [Interval::tanh], and their decorated versions, use. Those call the
+    [Interval::atan2], [Interval::atanh], [Interval::cos],
+    [Interval::cosh], [Interval::exp], [Interval::exp10],
+    [Interval::exp2], [Interval::ln], [Interval::log10], [Interval::log2],
+    [Interval::pow], [Interval::powi], [Interval::sin], [Interval::sinh],
+    [Interval::tan] and [Interval::tanh], and their decorated versions,
+    use. Those call the
     backend's [floor], [ceil], [round], [round_ties_even], [trunc],
     [neg0], [splat], [constant], [extract], [eq], [ge], [gt], [le], [lt],
     [all], [bitmask], [and], [or], [max], [maximum], [min], [minimum],
@@ -1840,6 +1846,70 @@ Definition asinh (m : mpfr) : Interval -> Interval :=
 Definition atan (m : mpfr) : Interval -> Interval :=
   mono_inc (atan_rd m) (atan_ru m).
 
+(** [fn atan2_impl(self, rhs: Self) -> (Self, Decoration)] and
+    [pub fn atan2(self, rhs: Self) -> Self]. [(x, y) = (rhs, self)], so the
+    class of [rhs] comes first in [x.classify2(y)], which returns an
+    [option], as these do too. The arms are in the order of the Rust code.
+    [0.0] is the float [Model.zero], i.e. +0, [Self::zero()] is [zero],
+    [-Self::PI.sup_raw()] is [opp (sup_raw PI)], and [-Self::FRAC_PI_2] is
+    [neg FRAC_PI_2]. *)
+Definition atan2_impl (m : mpfr) (self rhs : Interval) :
+    option (Interval * Decoration) :=
+  let x := rhs in
+  let y := self in
+  let a := inf_raw x in
+  let b := sup_raw x in
+  let c := inf_raw y in
+  let d := sup_raw y in
+  let* cl := classify2 x y in
+  Some
+    match cl with
+    | (CE, CE) | (CE, CM) | (CE, CN0) | (CE, CN1) | (CE, CP0) | (CE, CP1)
+    | (CE, CZ) | (CM, CE) | (CN0, CE) | (CN1, CE) | (CP0, CE) | (CP1, CE)
+    | (CZ, CE) | (CZ, CZ) =>
+        (EMPTY, Trv)
+    | (CM, CM) | (CM, CN0) | (CN0, CM) | (CN0, CN0) =>
+        (with_infsup_raw (opp (sup_raw PI)) (sup_raw PI), Trv)
+    (* First quadrant *)
+    | (CP0, CP0) => (with_infsup_raw Model.zero (sup_raw FRAC_PI_2), Trv)
+    | (CP0, CP1) | (CP1, CP0) | (CP1, CP1) | (CP1, CZ) | (CZ, CP1) =>
+        (with_infsup_raw (atan2_rd m c b) (atan2_ru m d a), Com)
+    (* First & second quadrant *)
+    | (CM, CP0) | (CM, CZ) => (with_infsup_raw Model.zero (sup_raw PI), Trv)
+    | (CM, CP1) => (with_infsup_raw (atan2_rd m c b) (atan2_ru m c a), Com)
+    (* Second quadrant *)
+    | (CN0, CP0) => (with_infsup_raw (inf_raw FRAC_PI_2) (sup_raw PI), Trv)
+    | (CN0, CP1) | (CN1, CP1) =>
+        (with_infsup_raw (atan2_rd m d b) (atan2_ru m c a), Com)
+    | (CN1, CP0) => (with_infsup_raw (atan2_rd m d b) (sup_raw PI), Dac)
+    (* Second & third quadrant *)
+    | (CN1, CM) | (CN1, CN0) =>
+        (with_infsup_raw (opp (sup_raw PI)) (sup_raw PI), Def)
+    (* Third quadrant *)
+    | (CN0, CN1) | (CN1, CN1) =>
+        (with_infsup_raw (atan2_rd m d a) (atan2_ru m c b), Com)
+    (* Third & fourth quadrant *)
+    | (CM, CN1) => (with_infsup_raw (atan2_rd m d a) (atan2_ru m d b), Com)
+    (* Fourth quadrant *)
+    | (CP0, CN0) => (with_infsup_raw (opp (sup_raw FRAC_PI_2)) Model.zero, Trv)
+    | (CP0, CN1) | (CP1, CN0) | (CP1, CN1) | (CZ, CN1) =>
+        (with_infsup_raw (atan2_rd m c a) (atan2_ru m d b), Com)
+    (* Fourth & first quadrant *)
+    | (CP0, CM) | (CZ, CM) =>
+        (with_infsup_raw (opp (sup_raw FRAC_PI_2)) (sup_raw FRAC_PI_2), Trv)
+    | (CP1, CM) => (with_infsup_raw (atan2_rd m c a) (atan2_ru m d a), Com)
+    (* X axis *)
+    | (CN0, CZ) => (PI, Trv)
+    | (CN1, CZ) => (PI, Dac)
+    | (CP0, CZ) => (zero, Trv)
+    (* Y axis *)
+    | (CZ, CN0) => (neg FRAC_PI_2, Trv)
+    | (CZ, CP0) => (FRAC_PI_2, Trv)
+    end.
+Definition atan2 (m : mpfr) (self rhs : Interval) : option Interval :=
+  let* p := atan2_impl m self rhs in
+  Some (fst p).
+
 (** [fn atanh_impl(self) -> (Self, Decoration)] and
     [pub fn atanh(self) -> Self], with [return] as in [log_impl]. *)
 Definition atanh_impl (m : mpfr) (self : Interval) : Interval * Decoration :=
@@ -2446,6 +2516,12 @@ Definition elem_dec2_impl (f_impl : Interval -> Interval -> Interval * Decoratio
     (self rhs : DecInterval) : DecInterval :=
   let '(z, d) := f_impl (itv self) (itv rhs) in
   set_dec z (dec_min (dec self) (dec_min (dec rhs) d)).
+
+(** [impl_dec2!(atan2, atan2_impl)], as [elem_dec2_impl] but for
+    [Interval.atan2_impl], which returns an [option]. *)
+Definition atan2 (m : mpfr) (self rhs : DecInterval) : option DecInterval :=
+  let* p := Interval.atan2_impl m (itv self) (itv rhs) in
+  Some (set_dec (fst p) (dec_min (dec self) (dec_min (dec rhs) (snd p)))).
 
 (** [impl_dec2!(pow, pow_impl)], with [first_min] and [first_max] those
     of [Interval.pow_impl]. *)

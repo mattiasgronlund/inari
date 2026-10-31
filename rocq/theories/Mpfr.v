@@ -112,6 +112,40 @@ Definition atan_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_round (mpfr_format emin emax) RNDD (- (PI / 2)) (mpfr_atan m RNDD (MInf true)) /\
   mpfr_round (mpfr_format emin emax) RNDU (PI / 2) (mpfr_atan m RNDU (MInf false)).
 
+(** [Interval::atan2] calls [atan2(y, x)], with [y] a bound of [self] and
+    [x] one of [rhs], at points where [y] is not a zero or [x] is above 0
+    or +inf, and never at two infinities. For finite [y] and [x],
+    [mpfr_correct2] covers those points: MPFR's [atan2] of a zero [y] and
+    [x < 0] is [PI] or [-PI] by the sign of the zero, which no real
+    function gives, and that of two zeros is a zero or [±PI] by both
+    signs, at [(0, 0)], which is not in [atan2_dom], so the domain stated
+    leaves out [y = 0, x <= 0]. The
+    special values below are those of the [mpfr_atan2] entry of the MPFR
+    manual at the points that the code passes, one infinity and a finite
+    number. [atan2(±0, +inf) = ±0] is its [atan2(±0, x) = ±0] for
+    [x > 0]. The zeros are exact, so they are stated for both directions,
+    and [PI] and [PI / 2] are rounded. *)
+Definition atan2_ok (emin emax : Z) (m : mpfr) : Prop :=
+  mpfr_correct2 emin emax (fun y x => y <> 0 \/ 0 < x) Ratan2 (mpfr_atan2 m) /\
+  (* [atan2(y, +inf)] is +0 for [y > 0] and -0 for [y < 0], and
+     [atan2(±0, +inf) = ±0] *)
+  (forall rnd y, 0 < y -> mpfr_atan2 m rnd (MNum y) (MInf false) = MZero false) /\
+  (forall rnd y, y < 0 -> mpfr_atan2 m rnd (MNum y) (MInf false) = MZero true) /\
+  (forall rnd s, mpfr_atan2 m rnd (MZero s) (MInf false) = MZero s) /\
+  (* [atan2(y, -inf)] is [PI] for [y > 0] and [-PI] for [y < 0] *)
+  (forall rnd y, 0 < y ->
+   mpfr_round (mpfr_format emin emax) rnd PI (mpfr_atan2 m rnd (MNum y) (MInf true))) /\
+  (forall rnd y, y < 0 ->
+   mpfr_round (mpfr_format emin emax) rnd (- PI) (mpfr_atan2 m rnd (MNum y) (MInf true))) /\
+  (* [atan2(+inf, x)] is [PI / 2] and [atan2(-inf, x)] is [- (PI / 2)] for
+     a finite [x] *)
+  (forall rnd (x : f64), is_finite x = true ->
+   mpfr_round (mpfr_format emin emax) rnd (PI / 2)
+     (mpfr_atan2 m rnd (MInf false) (with_val x))) /\
+  (forall rnd (x : f64), is_finite x = true ->
+   mpfr_round (mpfr_format emin emax) rnd (- (PI / 2))
+     (mpfr_atan2 m rnd (MInf true) (with_val x))).
+
 (** [atanh(-1) = -inf] and [atanh(1) = +inf] *)
 Definition atanh_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct emin emax atanh_dom Ratanh (mpfr_atanh m) /\

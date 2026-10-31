@@ -36,9 +36,11 @@ impl Interval {
     pub const FRAC_2_SQRT_PI: Self = const_interval!(1.1283791670955126, 1.1283791670955128);
 
     /// The tightest interval enclosing $π / 2$.
-    // `rocq/theories/Model.v` transcribes this constant for the proofs of `(Dec)Interval::sin`
-    // and `(Dec)Interval::tan`, so it has to be updated along with it. `FRAC_PI_2_const` in
-    // `rocq/theories/PiBounds.v` shows that it encloses π/2.
+    // `rocq/theories/Model.v` transcribes this constant for the proofs of
+    // `(Dec)Interval::atan2`, `(Dec)Interval::sin` and `(Dec)Interval::tan`, so it has to be
+    // updated along with it. `FRAC_PI_2_const` in `rocq/theories/PiBounds.v` shows that it
+    // encloses π/2, and `FRAC_PI_2_dn` and `FRAC_PI_2_up` in `rocq/theories/PiTight.v` that
+    // its bounds are the floats next to π/2.
     pub const FRAC_PI_2: Self = const_interval!(1.5707963267948966, 1.5707963267948968);
 
     /// The tightest interval enclosing $π / 3$.
@@ -72,9 +74,10 @@ impl Interval {
     pub const LOG2_E: Self = const_interval!(1.4426950408889634, 1.4426950408889636);
 
     /// The tightest interval enclosing $π$.
-    // `rocq/theories/Model.v` transcribes this constant for the proofs of `(Dec)Interval::cos`,
-    // so it has to be updated along with it. `PI_bounds` in `rocq/theories/PiBounds.v` shows
-    // that it encloses π.
+    // `rocq/theories/Model.v` transcribes this constant for the proofs of
+    // `(Dec)Interval::atan2` and `(Dec)Interval::cos`, so it has to be updated along with it.
+    // `PI_bounds` in `rocq/theories/PiBounds.v` shows that it encloses π, and `PI_dn` and
+    // `PI_up` in `rocq/theories/PiTight.v` that its bounds are the floats next to π.
     pub const PI: Self = const_interval!(3.141592653589793, 3.1415926535897936);
 
     /// The tightest interval enclosing $\sqrt{2}$.

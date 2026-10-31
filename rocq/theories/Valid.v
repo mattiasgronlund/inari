@@ -5,10 +5,14 @@
     every [DecInterval], that is made from the library's constructors by
     the operations proved here, any number of times, is [valid]. [made]
     and [dmade] say what that is: each constructor below is one place in
-    the library that makes a value, or one proved operation. There is no
-    constructor for an operation that is not modelled here, such as
-    [atan2], so [made_valid] does not show that its results, or the
-    intervals computed from them, are [valid].
+    the library that makes a value, or one proved operation. Every other
+    public function of the library that returns an [Interval] or a
+    [DecInterval] returns one that these make: [FromStr] for [DecInterval]
+    calls [From<DecNInterval>], [FromStr] for [Interval] returns the
+    interval of that, [_try_from_str_exact], which [interval_exact!]
+    calls, calls [try_from_ninterval_exact], the operators on references,
+    such as [&x + &y], return what [x + y] and the others return, and the
+    compound assignments, such as [x += y], assign it.
 
     The constructors of [made] are [Interval::EMPTY], [const_interval!],
     which [Interval::ENTIRE] and the other constants of [Interval] are,
@@ -20,9 +24,9 @@
     [sqrt], [trunc], [-x], [x + y], [x - y], [x * y], [mul_add], [recip],
     [x / y], both outputs of [mul_rev_to_pair], [cancel_minus], [cancel_plus],
     [convex_hull], [intersection], and the functions [acos], [acosh],
-    [asin], [asinh], [atan], [atanh], [cos], [cosh], [exp], [exp10],
-    [exp2], [ln], [log10], [log2], [pow], [powi], [sin], [sinh], [tan]
-    and [tanh] of [src/elementary.rs].
+    [asin], [asinh], [atan], [atan2], [atanh], [cos], [cosh], [exp],
+    [exp10], [exp2], [ln], [log10], [log2], [pow], [powi], [sin], [sinh],
+    [tan] and [tanh] of [src/elementary.rs].
     Those of [dmade] are the constants, [def_com!], [const_dec_interval!],
     [new], [set_dec], [TryFrom<(f64, f64)>], [try_from_be_bytes] and its
     siblings, [From<DecNInterval>], which [FromStr] calls, and the
@@ -113,6 +117,10 @@ Inductive made : Interval -> Prop :=
   | made_atan :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       atan_ok emin emax m -> made x -> made (Interval.atan m x)
+  | made_atan2 :
+      forall emin emax m y x z, range_ok emin emax -> get_d_ok emin emax m ->
+      atan2_ok emin emax m -> made y -> made x ->
+      Interval.atan2 m y x = Some z -> made z
   | made_atanh :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       atanh_ok emin emax m -> made x -> made (Interval.atanh m x)
@@ -251,6 +259,10 @@ with dmade : DecInterval -> Prop :=
   | dmade_atan :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       atan_ok emin emax m -> dmade x -> dmade (DecInterval.atan m x)
+  | dmade_atan2 :
+      forall emin emax m y x w, range_ok emin emax -> get_d_ok emin emax m ->
+      atan2_ok emin emax m -> dmade y -> dmade x ->
+      DecInterval.atan2 m y x = Some w -> dmade w
   | dmade_atanh :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       atanh_ok emin emax m -> dmade x -> dmade (DecInterval.atanh m x)
@@ -355,6 +367,8 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (asinh_valid emin emax m x Hr Hg Ho Hx).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (atan_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m y x z Hr Hg Ho _ Hy _ Hx E.
+  exact (atan2_valid emin emax m y x z Hr Hg Ho Hy Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (atanh_valid emin emax m x Hr Hg Ho Hx).
 - intros emin emax m f first x y Hr Hg Ho _ Hx E.
@@ -431,6 +445,8 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (dec_asinh_valid emin emax m x Hr Hg Ho Hx).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (dec_atan_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m y x w Hr Hg Ho _ Hy _ Hx E.
+  exact (dec_atan2_valid emin emax m y x w Hr Hg Ho Hy Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (dec_atanh_valid emin emax m x Hr Hg Ho Hx).
 - intros emin emax m f first x y Hr Hg Ho _ Hx E.
