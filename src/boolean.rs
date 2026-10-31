@@ -425,7 +425,7 @@ macro_rules! impl_dec {
                 return false;
             }
 
-            self.x.$f()
+            self.x().$f()
         }
     };
 
@@ -439,7 +439,7 @@ macro_rules! impl_dec {
                 return false;
             }
 
-            self.x.$f(rhs.x)
+            self.x().$f(rhs.x())
         }
     };
 }
@@ -453,7 +453,7 @@ impl DecInterval {
             return false;
         }
 
-        Interval::contains(self.x, rhs)
+        Interval::contains(self.x(), rhs)
     }
 
     impl_dec!(disjoint, 2);
@@ -479,7 +479,7 @@ impl DecInterval {
         // `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`),
         // and for the proof that every `Interval` that the constructors and the proved
         // operations make is `valid` (`rocq/theories/Valid.v`).
-        self.d == Decoration::Ill
+        self.d() == Decoration::Ill
     }
 
     impl_dec!(is_singleton, 1);

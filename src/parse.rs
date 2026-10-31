@@ -596,7 +596,7 @@ impl From<NInterval> for Interval {
         // `DecInterval.from_ninterval`, also for the proof that every `Interval` that the
         // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`),
         // so it has to be updated along with it.
-        DecInterval::from(DecNInterval::new(x)).x
+        DecInterval::from(DecNInterval::new(x)).x()
     }
 }
 

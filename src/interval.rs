@@ -6,6 +6,10 @@ use std::{
     result,
 };
 
+mod dec_interval;
+
+pub use self::dec_interval::DecInterval;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IntervalErrorKind {
     PossiblyUndefinedOperation,
@@ -213,31 +217,6 @@ pub enum Decoration {
     Com = 16,
 }
 
-/// The decorated version of [`Interval`].
-///
-/// ## Notes on equality comparison
-///
-/// By definition, a NaI is *not* equal to itself:
-///
-/// ```
-/// use inari::*;
-/// assert_ne!(DecInterval::NAI, DecInterval::NAI);
-/// ```
-///
-/// For this reason, the traits [`Eq`] and [`Hash`] are not implemented for the type.
-#[derive(Clone, Copy, Debug)]
-#[repr(C)]
-pub struct DecInterval {
-    // `rocq/theories/ComCommon.v` proves that every `DecInterval` is `com` only if its
-    // interval is common, for each place that makes one: the callers of `new_unchecked`
-    // and `const_dec_interval!`. It relies on no code assigning to these fields, and so
-    // does the proof that every `Interval` that the constructors and the proved operations
-    // make is `valid` (`rocq/theories/Valid.v`), which covers the interval of a
-    // `DecInterval` too.
-    pub(crate) x: Interval,
-    pub(crate) d: Decoration,
-}
-
 unsafe impl Send for DecInterval {}
 unsafe impl Sync for DecInterval {}
 impl Unpin for DecInterval {}
@@ -314,24 +293,12 @@ impl DecInterval {
             return None;
         }
 
-        Some(self.x)
+        Some(self.x())
     }
 
     /// Returns the decoration part `self`.
     pub fn decoration(self) -> Decoration {
-        self.d
-    }
-
-    pub(crate) const fn new_unchecked(x: Interval, d: Decoration) -> Self {
-        // The only struct expression of `DecInterval`. `rocq/theories/Model.v` transcribes
-        // this function and each of its callers for the proof that every `DecInterval` is
-        // `com` only if its interval is common (`rocq/theories/ComCommon.v`), and for the
-        // proof that every `Interval` that the constructors and the proved operations make
-        // is `valid` (`rocq/theories/Valid.v`), so a new caller needs a proof in both
-        // files. The proofs that the constants of `DecInterval` from `E` to `TAU` are the
-        // tightest intervals around their values (`rocq/theories/ConstPi.v`, `ConstInv.v`,
-        // `ConstLn.v` and `ConstLog.v`) use it too.
-        Self { x, d }
+        self.d()
     }
 }
 
@@ -341,7 +308,7 @@ impl PartialEq for DecInterval {
             return false;
         }
 
-        self.x == rhs.x
+        self.x() == rhs.x()
     }
 }
 
@@ -575,10 +542,13 @@ macro_rules! const_interval {
 #[macro_export]
 macro_rules! const_dec_interval {
     ($a:expr, $b:expr) => {{
-        // The only `transmute` into a `DecInterval`. `rocq/theories/Model.v` transcribes
-        // this macro for the proof that every `DecInterval` is `com` only if its interval
-        // is common (`rocq/theories/ComCommon.v`), and for the proof that every `Interval`
-        // that the constructors and the proved operations make is `valid`
+        // The only `transmute` into a `DecInterval`. The macro expands outside
+        // `src/interval/dec_interval.rs`, where the fields of `DecInterval` are private, and
+        // usually in another crate, which cannot call `new_unchecked`, so it makes one by
+        // transmuting `_DecInterval`, which has the same layout. `rocq/theories/Model.v`
+        // transcribes this macro for the proof that every `DecInterval` is `com` only if its
+        // interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
         // (`rocq/theories/Valid.v`), so it has to be updated along with it.
         use ::std::{mem::transmute, primitive::*};
 

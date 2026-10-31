@@ -4,10 +4,12 @@
 # `ComCommon.v` rely on, and checks that they find the lines listed in
 # rocq/sites.txt. A line is compared without its line number and indentation,
 # so the check fails if a line is added, removed, changed or moved to another
-# file, but not if it only moves within its file. It also fails if the README
-# no longer gives one of the greps, or if one of the two that must find nothing
-# finds something. Which of the lines make an interval, and the rest of the
-# README's argument, is still checked by reading.
+# file, but not if it only moves within its file. The grep com-struct also
+# finds the declarations of the fields of `DecInterval`, so the check fails if
+# the line of one of them changes, for example if it gains `pub(crate)`. It
+# also fails if the README no longer gives one of the greps, or if one of the
+# two that must find nothing finds something. Which of the lines make an
+# interval, and the rest of the README's argument, is still checked by reading.
 #
 # Usage: rocq/check-sites.sh [--update]
 # With --update, it writes the lines that it finds to rocq/sites.txt.
@@ -30,7 +32,7 @@ valid_raw="git grep -n 'with_infsup_raw\|transmute' -- src ':!src/simd'"
 valid_shorthand="git grep -nE '\{ *rep *[,}]' -- src"
 valid_assign="git grep -nE '\.rep *=[^=]' -- src ':!src/simd'"
 com_unchecked="git grep -n 'new_unchecked\|transmute' -- src"
-com_struct="git grep -nE '(Self|DecInterval) *\{' -- src"
+com_struct="git grep -nE '(Self|DecInterval) *\{|\b[xd]: ' -- src/interval/dec_interval.rs"
 
 status=0
 
@@ -109,7 +111,11 @@ been added, removed or changed. For each such line:
   For such a place, update its model in rocq/theories/Model.v and its theorem
   in rocq/theories/ComCommon.v, which shows that a `DecInterval` is `com` only
   if its interval is common, and for a new constructor, add a `dmade`
-  constructor as above.
+  constructor as above. com-struct finds the declarations of the fields of
+  `DecInterval` and its one struct expression, in src/interval/dec_interval.rs.
+  Keep the fields private (no `pub`): the README's argument for ComCommon.v
+  needs the compiler to reject a struct expression of `DecInterval`, and an
+  assignment to one of its fields, outside that file.
 - Then update the two bullets in rocq/README.md, "What is assumed", that give
   these greps, and run `rocq/check-sites.sh --update`.
 A line that makes neither, such as a signature `-> Self {` or a comment, needs

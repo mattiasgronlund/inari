@@ -2,10 +2,10 @@
 
     [impl_dec!] in [src/elementary.rs] defines the decorated version of
     each elementary function. Its first arm, [DecInterval.elem_dec],
-    returns [set_dec(self.x.f(), self.d)], and its second,
+    returns [set_dec(self.x().f(), self.d())], and its second,
     [DecInterval.elem_dec_impl], for a function that also returns a
-    decoration [e] for its domain, [set_dec(y, self.d.min(e))] for
-    [(y, e) = self.x.f_impl()]. Neither tests for NaI: [set_dec] returns
+    decoration [e] for its domain, [set_dec(y, self.d().min(e))] for
+    [(y, e) = self.x().f_impl()]. Neither tests for NaI: [set_dec] returns
     NaI for the decoration [ill]. This file proves once, for both, that the
     result is NaI for NaI, and otherwise the tightest interval, decorated
     as IEEE 1788 asks, from what the interval function returns. *)

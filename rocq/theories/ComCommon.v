@@ -9,12 +9,16 @@
 
     Rust makes a value of a struct only with a struct expression or with
     [unsafe] code such as [transmute], and otherwise copies existing ones.
-    The fields of [struct DecInterval] are [pub(crate)], so a struct
-    expression of the type can only be in the library, and the only one is
-    the body of [new_unchecked]. The only [transmute] into a [DecInterval]
-    is the one in [const_dec_interval!], and no code assigns to a field. So
-    every [DecInterval] comes from [const_dec_interval!] or from one of the
-    callers of [new_unchecked]:
+    The fields of [struct DecInterval] are private to its module,
+    [src/interval/dec_interval.rs], which has no submodule, so the compiler
+    rejects a struct expression of the type, under any name, and an
+    assignment to a field outside that file. That file has one struct
+    expression, the body of [new_unchecked], and neither assigns to a
+    field nor takes a mutable reference to one, which code outside it
+    could assign through. Its derived [Clone], [Copy] and [Debug] copy the
+    value or read the fields. The only [transmute] into a [DecInterval] is
+    the one in [const_dec_interval!]. So every [DecInterval] comes from
+    [const_dec_interval!] or from one of the callers of [new_unchecked]:
     - [DecInterval::new] ([new_com_common]);
     - [DecInterval::set_dec] ([set_dec_com_common]), for any interval and
       decoration, so for every caller, such as [x * y];

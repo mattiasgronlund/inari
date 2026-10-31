@@ -212,7 +212,7 @@ macro_rules! impl_log {
 // portable backend, for `asinh`, `atan`, `exp`, `exp10`, `exp2`, `sinh` and `tanh` and
 // their decorated versions, assuming what `rocq/theories/Mpfr.v` says of MPFR, and for the
 // decorated versions of `atan`, `exp`, `exp10`, `exp2` and `tanh` also if `self` is `com`
-// only when `self.x` is common, which `rocq/theories/ComCommon.v` proves of every
+// only when `self.x()` is common, which `rocq/theories/ComCommon.v` proves of every
 // `DecInterval` that the library makes. `rocq/theories/Model.v` transcribes the function
 // that this macro defines, so it has to be updated along with it.
 macro_rules! impl_mono_inc {
@@ -540,7 +540,7 @@ impl Interval {
         // assuming what `rocq/theories/Mpfr.v` says of MPFR, also of `mpfr::sin`, which
         // `quadrant` calls: the result is the tightest interval that contains the image of
         // `self`, and `DecInterval::cos` decorates it as IEEE 1788
-        // asks if `self` is `com` only when `self.x` is common, which
+        // asks if `self` is `com` only when `self.x()` is common, which
         // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
         // `rocq/theories/TrigQuad.v`, `rocq/theories/TrigCount.v` and
         // `rocq/theories/TrigCert.v` prove what `quadrant`, `quadrants` and `floors_exact`
@@ -827,7 +827,7 @@ impl Interval {
         // Proved correct, with `Interval::powi` and `DecInterval::powi`, in
         // `rocq/theories/Powi.v` for the portable backend and every `rhs`, assuming what
         // `rocq/theories/Mpfr.v` says of MPFR, and for `DecInterval::powi` with `rhs <= 0`
-        // also if `self` is `com` only when `self.x` is common, which
+        // also if `self` is `com` only when `self.x()` is common, which
         // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
         // `rocq/theories/Model.v` transcribes this function and `Interval::powi`, so it has
         // to be updated along with them.
@@ -898,7 +898,7 @@ impl Interval {
         // assuming what `rocq/theories/Mpfr.v` says of MPFR, also of `mpfr::cos`, which
         // `quadrant` calls: the result is the tightest interval that contains the image of
         // `self`, and `DecInterval::sin` decorates it as IEEE 1788 asks if `self` is `com`
-        // only when `self.x` is common, which `rocq/theories/ComCommon.v` proves of every
+        // only when `self.x()` is common, which `rocq/theories/ComCommon.v` proves of every
         // `DecInterval` that the library makes. `rocq/theories/TrigQuad.v`,
         // `rocq/theories/TrigCount.v` and `rocq/theories/TrigCert.v` prove what `quadrant`,
         // `quadrants` and `floors_exact` return. `rocq/theories/Model.v` transcribes this
@@ -1034,7 +1034,7 @@ macro_rules! impl_dec {
         /// A NaI is returned if `self` is NaI.
         #[must_use]
         pub fn $f(self) -> Self {
-            Self::set_dec(self.x.$f(), self.d)
+            Self::set_dec(self.x().$f(), self.d())
         }
     };
 
@@ -1044,8 +1044,8 @@ macro_rules! impl_dec {
         /// A NaI is returned if `self` is NaI.
         #[must_use]
         pub fn $f(self) -> Self {
-            let (y, d) = self.x.$f_impl();
-            Self::set_dec(y, self.d.min(d))
+            let (y, d) = self.x().$f_impl();
+            Self::set_dec(y, self.d().min(d))
         }
     };
 }
@@ -1062,8 +1062,8 @@ macro_rules! impl_dec2 {
         /// A NaI is returned if `self` or `rhs` is NaI.
         #[must_use]
         pub fn $f(self, rhs: Self) -> Self {
-            let (z, d) = self.x.$f_impl(rhs.x);
-            Self::set_dec(z, self.d.min(rhs.d.min(d)))
+            let (z, d) = self.x().$f_impl(rhs.x());
+            Self::set_dec(z, self.d().min(rhs.d().min(d)))
         }
     };
 }
@@ -1094,8 +1094,8 @@ impl DecInterval {
         // `rocq/theories/Model.v` transcribes this function for the proof of
         // `DecInterval::powi` in `rocq/theories/Powi.v` (see `Interval::powi_impl`), so it
         // has to be updated along with it.
-        let (y, d) = self.x.powi_impl(rhs);
-        Self::set_dec(y, self.d.min(d))
+        let (y, d) = self.x().powi_impl(rhs);
+        Self::set_dec(y, self.d().min(d))
     }
 
     impl_dec!(sin);

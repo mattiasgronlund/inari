@@ -111,7 +111,7 @@ impl DecInterval {
             return self;
         }
 
-        Self::set_dec(self.x.abs(), self.d)
+        Self::set_dec(self.x().abs(), self.d())
     }
 
     /// The decorated version of [`Interval::max`].
@@ -120,7 +120,7 @@ impl DecInterval {
     #[must_use]
     pub fn max(self, rhs: Self) -> Self {
         // Proved correct in `rocq/theories/DecMaxMin.v` for the portable backend if `self`
-        // and `rhs` are `com` only when `self.x` and `rhs.x` are common, which
+        // and `rhs` are `com` only when `self.x()` and `rhs.x()` are common, which
         // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
         // `rocq/theories/Model.v` transcribes this function, so it has to be updated
         // along with it.
@@ -128,7 +128,7 @@ impl DecInterval {
             return self;
         }
 
-        Self::set_dec(self.x.max(rhs.x), self.d.min(rhs.d))
+        Self::set_dec(self.x().max(rhs.x()), self.d().min(rhs.d()))
     }
 
     /// The decorated version of [`Interval::min`].
@@ -137,7 +137,7 @@ impl DecInterval {
     #[must_use]
     pub fn min(self, rhs: Self) -> Self {
         // Proved correct in `rocq/theories/DecMaxMin.v` for the portable backend if `self`
-        // and `rhs` are `com` only when `self.x` and `rhs.x` are common, which
+        // and `rhs` are `com` only when `self.x()` and `rhs.x()` are common, which
         // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
         // `rocq/theories/Model.v` transcribes this function, so it has to be updated
         // along with it.
@@ -145,7 +145,7 @@ impl DecInterval {
             return self;
         }
 
-        Self::set_dec(self.x.min(rhs.x), self.d.min(rhs.d))
+        Self::set_dec(self.x().min(rhs.x()), self.d().min(rhs.d()))
     }
 }
 

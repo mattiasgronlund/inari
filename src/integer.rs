@@ -227,7 +227,7 @@ macro_rules! impl_dec {
                 return self;
             }
 
-            let $x = self.x;
+            let $x = self.x();
             let $y = $x.$f();
             let d = if $y.is_empty() {
                 Decoration::Trv
@@ -238,7 +238,7 @@ macro_rules! impl_dec {
             } else {
                 Decoration::Com
             };
-            Self::set_dec($y, d.min(self.d))
+            Self::set_dec($y, d.min(self.d()))
         }
     };
 }
@@ -269,7 +269,7 @@ impl DecInterval {
 
     // Discontinuities: {0}.
     // Proved correct in `rocq/theories/Sign.v` for the portable backend if `self` is `com`
-    // only when `self.x` is common, which `rocq/theories/ComCommon.v` proves of every
+    // only when `self.x()` is common, which `rocq/theories/ComCommon.v` proves of every
     // `DecInterval` that the library makes.
     // `rocq/theories/Model.v` transcribes this call, so it has to be updated along
     // with it.

@@ -453,7 +453,7 @@ impl DecInterval {
             return None;
         }
 
-        Some(self.x.overlap(rhs.x))
+        Some(self.x().overlap(rhs.x()))
     }
 }
 

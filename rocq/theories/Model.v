@@ -3,17 +3,18 @@
     Each definition in [Generic] transcribes the function of the same name
     in [src/simd/generic.rs], line by line, so that the two can be compared
     side by side. The section on intervals at the end does the same for the
-    parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
-    [src/integer.rs], [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
+    parts of [src/interval.rs], [src/interval/dec_interval.rs],
+    [src/boolean.rs], [src/classify.rs], [src/integer.rs],
+    [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
     that [abs], [cancel_minus], [cancel_plus], [ceil], [floor], [max],
     [min], [mul_add], [mul_rev_to_pair], [recip], [round],
     [round_ties_even], [sign], [sqr], [sqrt], [trunc], [neg], [add], [sub],
     [mul] and [div] of intervals use, for each place in
-    [src/interval.rs], [src/constants.rs], [src/set_op.rs] and
-    [src/bytes.rs] that makes a [DecInterval], and for each place in those
-    files and in [src/parse.rs] that makes an [Interval] other than by an
-    operation that is not proved here. This file is
-    the only one that has to be checked against the Rust code, and
+    [src/interval.rs], [src/interval/dec_interval.rs], [src/constants.rs],
+    [src/set_op.rs] and [src/bytes.rs] that makes a [DecInterval], and for
+    each place in those files and in [src/parse.rs] that makes an
+    [Interval] other than by an operation that is not proved here. This
+    file is the only one that has to be checked against the Rust code, and
     [Ieee1788.v] the only one that has to be checked against IEEE 1788; the
     other files prove properties of the definitions here.
 
@@ -999,7 +1000,8 @@ Definition quadrants (m : mpfr) (a b : f64) : f64 * f64 :=
 
 (** ** Intervals
 
-    The parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
+    The parts of [src/interval.rs], [src/interval/dec_interval.rs],
+    [src/boolean.rs], [src/classify.rs],
     [src/integer.rs], [src/absmax.rs], [src/arith.rs], [src/basic.rs],
     [src/set_op.rs], [src/constants.rs] and [src/elementary.rs] that
     [Interval::abs], [Interval::cancel_minus], [Interval::cancel_plus],
@@ -1088,8 +1090,12 @@ Definition dec_eqb (d e : Decoration) : bool := discriminant d =? discriminant e
 Definition dec_min (d e : Decoration) : Decoration :=
   if discriminant d <=? discriminant e then d else e.
 
-(** [pub struct DecInterval], with its fields [x] and [d] as [itv] and
-    [dec]. *)
+(** [pub struct DecInterval] in [src/interval/dec_interval.rs], with its
+    fields [x] and [d] as [itv] and [dec]. The fields are private to that
+    module, and the rest of the library reads them with
+    [pub(crate) const fn x(self) -> Interval] and
+    [pub(crate) const fn d(self) -> Decoration], which return them, so
+    [x()] and [d()] are [itv] and [dec] too. *)
 Record DecInterval : Type := { itv : Interval; dec : Decoration }.
 
 (** [pub(crate) enum IntervalClass], with the variants [E], [M], [N0],
@@ -2480,7 +2486,7 @@ Definition from_dec_ninterval (m : mpfr) (x : DecNInterval) : DecInterval :=
 
 (** [fn from(x: NInterval) -> Self] of [impl From<NInterval> for Interval]
     in [src/parse.rs], which [FromStr] for [Interval] calls:
-    [DecInterval::from(DecNInterval::new(x)).x]. *)
+    [DecInterval::from(DecNInterval::new(x)).x()]. *)
 Definition from_ninterval (m : mpfr) (x : NInterval) : Interval :=
   itv (from_dec_ninterval m (dn_new x)).
 
@@ -2593,7 +2599,7 @@ Definition abs (self : DecInterval) : option DecInterval :=
     Some (set_dec x (dec self)).
 
 (** [pub fn max(self, rhs: Self) -> Self] and
-    [pub fn min(self, rhs: Self) -> Self], where [self.d.min(rhs.d)] is
+    [pub fn min(self, rhs: Self) -> Self], where [self.d().min(rhs.d())] is
     [dec_min (dec self) (dec rhs)], with the [has_maximum] of
     [Interval.max] and [Interval.min] as an argument here too *)
 Definition max (has_maximum : bool) (self rhs : DecInterval) : DecInterval :=
@@ -2656,7 +2662,7 @@ Definition round_ties_even : DecInterval -> DecInterval :=
 Definition sign : DecInterval -> DecInterval :=
   impl_dec Interval.sign (fun x y => eq (Interval.inf_raw x) zero).
 
-(** [pub fn sqr(self) -> Self], where [self.x.sqr()] is
+(** [pub fn sqr(self) -> Self], where [self.x().sqr()] is
     [Interval.sqr has_fma (itv self)], with the [has_fma] of
     [Interval.sqr] as an argument here too. *)
 Definition sqr (has_fma : bool) (self : DecInterval) : option DecInterval :=
@@ -2665,7 +2671,7 @@ Definition sqr (has_fma : bool) (self : DecInterval) : option DecInterval :=
     let* x := Interval.sqr has_fma (itv self) in
     Some (set_dec x (dec self)).
 
-(** [pub fn sqrt(self) -> Self], where [self.x.sqrt()] is
+(** [pub fn sqrt(self) -> Self], where [self.x().sqrt()] is
     [Interval.sqrt has_fma (itv self)], with the [has_fma] of
     [Interval.sqrt] as an argument here too, and [0.0] is +0. *)
 Definition sqrt (has_fma : bool) (self : DecInterval) : option DecInterval :=
@@ -2686,7 +2692,7 @@ Definition trunc : DecInterval -> DecInterval :=
        (negb (eq (Interval.sup_raw x) zero) &&
         eq (Interval.sup_raw x) (Interval.sup_raw y))).
 
-(** [fn neg(self) -> Self] of [impl Neg for DecInterval], where [-self.x]
+(** [fn neg(self) -> Self] of [impl Neg for DecInterval], where [-self.x()]
     is [Interval.neg (itv self)]. [neg], [add], [sub], [mul], [mul_add],
     [recip] and [div] come last, so that the [sub] in [round] and
     [round_ties_even] is still the one on floats, and [mul], [mul_add] and
@@ -2709,7 +2715,7 @@ Definition sub (self rhs : DecInterval) : option DecInterval :=
     Some (set_dec x (dec_min (dec self) (dec rhs))).
 
 (** [fn mul(self, rhs: Self) -> Self] of [impl Mul for DecInterval], where
-    [self.x * rhs.x] is [Interval.mul has_fma (itv self) (itv rhs)], with
+    [self.x() * rhs.x()] is [Interval.mul has_fma (itv self) (itv rhs)], with
     the [has_fma] of [Interval.mul] as an argument here too. *)
 Definition mul (has_fma : bool) (self rhs : DecInterval) : option DecInterval :=
   if is_nai self || is_nai rhs then Some NAI
@@ -2718,10 +2724,10 @@ Definition mul (has_fma : bool) (self rhs : DecInterval) : option DecInterval :=
     Some (set_dec x (dec_min (dec self) (dec rhs))).
 
 (** [pub fn mul_add(self, rhs: Self, addend: Self) -> Self], where
-    [self.x.mul_add(rhs.x, addend.x)] is
+    [self.x().mul_add(rhs.x(), addend.x())] is
     [Interval.mul_add has_fma (itv self) (itv rhs) (itv addend)], with the
     [has_fma] of [Interval.mul_add] as an argument here too, and
-    [self.d.min(rhs.d.min(addend.d))] is
+    [self.d().min(rhs.d().min(addend.d()))] is
     [dec_min (dec self) (dec_min (dec rhs) (dec addend))]. *)
 Definition mul_add (has_fma : bool) (self rhs addend : DecInterval) :
     option DecInterval :=
@@ -2730,7 +2736,7 @@ Definition mul_add (has_fma : bool) (self rhs addend : DecInterval) :
     let* x := Interval.mul_add has_fma (itv self) (itv rhs) (itv addend) in
     Some (set_dec x (dec_min (dec self) (dec_min (dec rhs) (dec addend)))).
 
-(** [pub fn recip(self) -> Self], where [self.x.recip()] is
+(** [pub fn recip(self) -> Self], where [self.x().recip()] is
     [Interval.recip has_fma (itv self)], with the [has_fma] of
     [Interval.recip] as an argument here too, and [0.0] is +0. *)
 Definition recip (has_fma : bool) (self : DecInterval) : option DecInterval :=
@@ -2741,7 +2747,7 @@ Definition recip (has_fma : bool) (self : DecInterval) : option DecInterval :=
     Some (set_dec x d).
 
 (** [fn div(self, rhs: Self) -> Self] of [impl Div for DecInterval], where
-    [self.x / rhs.x] is [Interval.div has_fma (itv self) (itv rhs)], with
+    [self.x() / rhs.x()] is [Interval.div has_fma (itv self) (itv rhs)], with
     the [has_fma] of [Interval.div] as an argument here too, and [0.0] is
     +0. *)
 Definition div (has_fma : bool) (self rhs : DecInterval) : option DecInterval :=
@@ -2754,10 +2760,10 @@ Definition div (has_fma : bool) (self rhs : DecInterval) : option DecInterval :=
     Some (set_dec x d).
 
 (** [pub fn mul_rev_to_pair(self, numerator: Self) -> [Self; 2]], where
-    [self.x.mul_rev_to_pair(numerator.x)] is
+    [self.x().mul_rev_to_pair(numerator.x())] is
     [Interval.mul_rev_to_pair has_fma (itv self) (itv numerator)], with the
     [has_fma] of [Interval.mul_rev_to_pair] as an argument here too, the
-    arrays as pairs, as there, [self.d.min(numerator.d)] as
+    arrays as pairs, as there, [self.d().min(numerator.d())] as
     [dec_min (dec self) (dec numerator)], and [0.0] as +0. *)
 Definition mul_rev_to_pair (has_fma : bool) (self numerator : DecInterval) :
     option (DecInterval * DecInterval) :=
@@ -2771,7 +2777,7 @@ Definition mul_rev_to_pair (has_fma : bool) (self numerator : DecInterval) :
 
 (** [pub fn cancel_minus(self, rhs: Self) -> Self] and
     [pub fn cancel_plus(self, rhs: Self) -> Self], where
-    [self.x.cancel_minus(rhs.x)] is
+    [self.x().cancel_minus(rhs.x())] is
     [Interval.cancel_minus (itv self) (itv rhs)], and the same for
     [cancel_plus]. *)
 Definition cancel_minus (self rhs : DecInterval) : option DecInterval :=

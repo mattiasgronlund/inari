@@ -197,7 +197,7 @@ impl Neg for DecInterval {
             return self;
         }
 
-        Self::set_dec(-self.x, self.d)
+        Self::set_dec(-self.x(), self.d())
     }
 }
 
@@ -214,7 +214,7 @@ impl Add for DecInterval {
             return Self::NAI;
         }
 
-        Self::set_dec(self.x + rhs.x, self.d.min(rhs.d))
+        Self::set_dec(self.x() + rhs.x(), self.d().min(rhs.d()))
     }
 }
 
@@ -231,7 +231,7 @@ impl Sub for DecInterval {
             return Self::NAI;
         }
 
-        Self::set_dec(self.x - rhs.x, self.d.min(rhs.d))
+        Self::set_dec(self.x() - rhs.x(), self.d().min(rhs.d()))
     }
 }
 
@@ -242,7 +242,7 @@ impl Mul for DecInterval {
 
     fn mul(self, rhs: Self) -> Self {
         // Proved correct in `rocq/theories/Mul.v` for the portable backend if `self` and
-        // `rhs` are `com` only when `self.x` and `rhs.x` are common, which
+        // `rhs` are `com` only when `self.x()` and `rhs.x()` are common, which
         // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
         // `rocq/theories/Model.v` transcribes this function, so it has to be updated
         // along with it.
@@ -250,7 +250,7 @@ impl Mul for DecInterval {
             return Self::NAI;
         }
 
-        Self::set_dec(self.x * rhs.x, self.d.min(rhs.d))
+        Self::set_dec(self.x() * rhs.x(), self.d().min(rhs.d()))
     }
 }
 
@@ -261,7 +261,7 @@ impl Div for DecInterval {
 
     fn div(self, rhs: Self) -> Self {
         // Proved correct in `rocq/theories/Div.v` for the portable backend if `self` and
-        // `rhs` are `com` only when `self.x` and `rhs.x` are common, which
+        // `rhs` are `com` only when `self.x()` and `rhs.x()` are common, which
         // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
         // `rocq/theories/Model.v` transcribes this function, so it has to be updated
         // along with it.
@@ -269,12 +269,12 @@ impl Div for DecInterval {
             return Self::NAI;
         }
 
-        let d = if rhs.x.contains(0.0) {
+        let d = if rhs.x().contains(0.0) {
             Decoration::Trv
         } else {
-            self.d.min(rhs.d)
+            self.d().min(rhs.d())
         };
-        Self::set_dec(self.x / rhs.x, d)
+        Self::set_dec(self.x() / rhs.x(), d)
     }
 }
 

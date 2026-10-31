@@ -76,7 +76,7 @@ macro_rules! impl_to_bytes {
             let mut bytes = [0u8; 17];
             bytes[..8].copy_from_slice(&f64::$to_bytes(self.inf()));
             bytes[8..16].copy_from_slice(&f64::$to_bytes(self.sup()));
-            bytes[16] = self.d as u8;
+            bytes[16] = self.d() as u8;
             bytes
         }
     };

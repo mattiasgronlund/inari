@@ -77,7 +77,7 @@ macro_rules! impl_dec {
                 return Self::NAI;
             }
 
-            Self::new_unchecked(self.x.$f(rhs.x), Decoration::Trv)
+            Self::new_unchecked(self.x().$f(rhs.x()), Decoration::Trv)
         }
     };
 }

@@ -260,7 +260,7 @@ macro_rules! impl_dec {
                 return f64::NAN;
             }
 
-            self.x.$f()
+            self.x().$f()
         }
     };
 }

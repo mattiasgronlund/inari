@@ -2,182 +2,12 @@
 # line numbers and indentation.
 # Update this file with `rocq/check-sites.sh --update` after the changes that
 # the script's message names.
-com-struct src/absmax.rs: Self {
-com-struct src/absmax.rs: Self {
-com-struct src/absmax.rs: Self {
-com-struct src/absmax.rs: Self {
-com-struct src/absmax.rs: Self {
-com-struct src/absmax.rs: Self {
-com-struct src/absmax.rs: impl DecInterval {
-com-struct src/absmax.rs: pub fn abs(self) -> Self {
-com-struct src/absmax.rs: pub fn abs(self) -> Self {
-com-struct src/absmax.rs: pub fn max(self, rhs: Self) -> Self {
-com-struct src/absmax.rs: pub fn max(self, rhs: Self) -> Self {
-com-struct src/absmax.rs: pub fn min(self, rhs: Self) -> Self {
-com-struct src/absmax.rs: pub fn min(self, rhs: Self) -> Self {
-com-struct src/arith.rs: Self {
-com-struct src/arith.rs: Self { rep: add_ru(x, y) }
-com-struct src/arith.rs: Self { rep: add_ru(x, y) }
-com-struct src/arith.rs: Self { rep: mul_ru(x, y) }
-com-struct src/arith.rs: Self { rep: mul_ru(x, y) }
-com-struct src/arith.rs: Self { rep: mul_ru(x, y) }
-com-struct src/arith.rs: Self { rep: mul_ru(x, y) }
-com-struct src/arith.rs: Self { rep: mul_ru(x, y) }
-com-struct src/arith.rs: Self { rep: mul_ru(x, y) }
-com-struct src/arith.rs: Self { rep: mul_ru(x, y) }
-com-struct src/arith.rs: Self { rep: mul_ru(x, y) }
-com-struct src/arith.rs: Self { rep: r }
-com-struct src/arith.rs: fn add(self, rhs: Self) -> Self {
-com-struct src/arith.rs: fn add(self, rhs: Self) -> Self {
-com-struct src/arith.rs: fn div(self, rhs: Self) -> Self {
-com-struct src/arith.rs: fn div(self, rhs: Self) -> Self {
-com-struct src/arith.rs: fn mul(self, rhs: Self) -> Self {
-com-struct src/arith.rs: fn mul(self, rhs: Self) -> Self {
-com-struct src/arith.rs: fn neg(self) -> Self {
-com-struct src/arith.rs: fn neg(self) -> Self {
-com-struct src/arith.rs: fn sub(self, rhs: Self) -> Self {
-com-struct src/arith.rs: fn sub(self, rhs: Self) -> Self {
-com-struct src/arith.rs: impl $OpAssign for DecInterval {
-com-struct src/arith.rs: impl Add for DecInterval {
-com-struct src/arith.rs: impl Div for DecInterval {
-com-struct src/arith.rs: impl Mul for DecInterval {
-com-struct src/arith.rs: impl Neg for DecInterval {
-com-struct src/arith.rs: impl Sub for DecInterval {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self {
-com-struct src/basic.rs: Self { rep: div_ru(x, y) }
-com-struct src/basic.rs: Self { rep: div_ru(x, y) }
-com-struct src/basic.rs: Self { rep: div_ru(x, y) }
-com-struct src/basic.rs: Self { rep: div_ru(x, y) }
-com-struct src/basic.rs: Self { rep: div_ru(x, y) }
-com-struct src/basic.rs: Self { rep: div_ru(x, y) }
-com-struct src/basic.rs: Self { rep: div_ru(x, y) }
-com-struct src/basic.rs: Self { rep: div_ru(x, y) }
-com-struct src/basic.rs: Self { rep: mul_ru(x, y) }
-com-struct src/basic.rs: Self { rep: mul_ru(x, y) }
-com-struct src/basic.rs: Self { rep: r }
-com-struct src/basic.rs: Self { rep: z }
-com-struct src/basic.rs: Self { rep: z }
-com-struct src/basic.rs: impl DecInterval {
-com-struct src/basic.rs: pub fn cancel_minus(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub fn cancel_minus(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub fn cancel_plus(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub fn cancel_plus(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub fn mul_add(self, rhs: Self, addend: Self) -> Self {
-com-struct src/basic.rs: pub fn mul_add(self, rhs: Self, addend: Self) -> Self {
-com-struct src/basic.rs: pub fn recip(self) -> Self {
-com-struct src/basic.rs: pub fn recip(self) -> Self {
-com-struct src/basic.rs: pub fn sqr(self) -> Self {
-com-struct src/basic.rs: pub fn sqr(self) -> Self {
-com-struct src/basic.rs: pub fn sqrt(self) -> Self {
-com-struct src/basic.rs: pub fn sqrt(self) -> Self {
-com-struct src/basic.rs: pub(crate) fn div_m_n1(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub(crate) fn div_m_p1(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub(crate) fn div_n_n0(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub(crate) fn div_n_n1(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub(crate) fn div_n_p0(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub(crate) fn div_n_p1(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub(crate) fn div_p_n0(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub(crate) fn div_p_n1(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub(crate) fn div_p_p0(self, rhs: Self) -> Self {
-com-struct src/basic.rs: pub(crate) fn div_p_p1(self, rhs: Self) -> Self {
-com-struct src/boolean.rs: impl DecInterval {
-com-struct src/bytes.rs: impl DecInterval {
-com-struct src/constants.rs: impl DecInterval {
-com-struct src/elementary.rs: impl DecInterval {
-com-struct src/elementary.rs: pub fn $f(self) -> Self {
-com-struct src/elementary.rs: pub fn $f(self) -> Self {
-com-struct src/elementary.rs: pub fn $f(self) -> Self {
-com-struct src/elementary.rs: pub fn $f(self) -> Self {
-com-struct src/elementary.rs: pub fn $f(self, rhs: Self) -> Self {
-com-struct src/elementary.rs: pub fn acos(self) -> Self {
-com-struct src/elementary.rs: pub fn acosh(self) -> Self {
-com-struct src/elementary.rs: pub fn asin(self) -> Self {
-com-struct src/elementary.rs: pub fn atan2(self, rhs: Self) -> Self {
-com-struct src/elementary.rs: pub fn atanh(self) -> Self {
-com-struct src/elementary.rs: pub fn cos(self) -> Self {
-com-struct src/elementary.rs: pub fn cosh(self) -> Self {
-com-struct src/elementary.rs: pub fn pow(self, rhs: Self) -> Self {
-com-struct src/elementary.rs: pub fn powi(self, rhs: i32) -> Self {
-com-struct src/elementary.rs: pub fn powi(self, rhs: i32) -> Self {
-com-struct src/elementary.rs: pub fn sin(self) -> Self {
-com-struct src/elementary.rs: pub fn tan(self) -> Self {
-com-struct src/format.rs: impl fmt::Display for DecInterval {
-com-struct src/format.rs: impl fmt::LowerExp for DecInterval {
-com-struct src/format.rs: impl fmt::LowerHex for DecInterval {
-com-struct src/integer.rs: Self {
-com-struct src/integer.rs: Self {
-com-struct src/integer.rs: Self {
-com-struct src/integer.rs: Self { rep: neg0(r) }
-com-struct src/integer.rs: Self { rep: neg0(r) }
-com-struct src/integer.rs: Self { rep: r }
-com-struct src/integer.rs: impl DecInterval {
-com-struct src/integer.rs: pub fn $f(self) -> Self {
-com-struct src/integer.rs: pub fn ceil(self) -> Self {
-com-struct src/integer.rs: pub fn floor(self) -> Self {
-com-struct src/integer.rs: pub fn round(self) -> Self {
-com-struct src/integer.rs: pub fn round_ties_even(self) -> Self {
-com-struct src/integer.rs: pub fn sign(self) -> Self {
-com-struct src/integer.rs: pub fn trunc(self) -> Self {
-com-struct src/interval.rs: Self {
-com-struct src/interval.rs: Self { rep: splat(0.0) }
-com-struct src/interval.rs: Self { x, d }
-com-struct src/interval.rs: impl DecInterval {
-com-struct src/interval.rs: impl PartialEq for DecInterval {
-com-struct src/interval.rs: impl TryFrom<(f64, f64)> for DecInterval {
-com-struct src/interval.rs: impl Unpin for DecInterval {}
-com-struct src/interval.rs: pub fn new(x: Interval) -> Self {
-com-struct src/interval.rs: pub fn set_dec(x: Interval, d: Decoration) -> Self {
-com-struct src/interval.rs: pub struct DecInterval {
-com-struct src/interval.rs: pub(crate) const fn new_unchecked(x: Interval, d: Decoration) -> Self {
-com-struct src/interval.rs: pub(crate) fn with_infsup_raw(a: f64, b: f64) -> Self {
-com-struct src/interval.rs: pub(crate) fn zero() -> Self {
-com-struct src/interval.rs: struct _DecInterval {
-com-struct src/interval.rs: transmute::<_DecInterval, $crate::DecInterval>(_DecInterval {
-com-struct src/interval.rs: unsafe impl Send for DecInterval {}
-com-struct src/interval.rs: unsafe impl Sync for DecInterval {}
-com-struct src/numeric.rs: impl DecInterval {
-com-struct src/overlap.rs: impl DecInterval {
-com-struct src/parse.rs: Self {
-com-struct src/parse.rs: Self { x, d }
-com-struct src/parse.rs: Self { x, d }
-com-struct src/parse.rs: Self { x, d: Dac }
-com-struct src/parse.rs: const EMPTY: Self = Self {
-com-struct src/parse.rs: const NAI: Self = Self {
-com-struct src/parse.rs: fn from(DecNInterval { x, d }: DecNInterval) -> Self {
-com-struct src/parse.rs: fn from(_: ParseNumberError) -> Self {
-com-struct src/parse.rs: fn from(_: std::num::ParseIntError) -> Self {
-com-struct src/parse.rs: fn from(_: std::num::TryFromIntError) -> Self {
-com-struct src/parse.rs: fn from(x: NInterval) -> Self {
-com-struct src/parse.rs: fn neg(self) -> Self {
-com-struct src/parse.rs: fn new(x: NInterval) -> Self {
-com-struct src/parse.rs: fn set_dec(x: NInterval, d: Decoration) -> Self {
-com-struct src/parse.rs: impl From<DecNInterval> for DecInterval {
-com-struct src/parse.rs: impl FromStr for DecInterval {
-com-struct src/set_op.rs: Self {
-com-struct src/set_op.rs: impl DecInterval {
-com-struct src/set_op.rs: let i = Self {
-com-struct src/set_op.rs: pub fn $f(self, rhs: Self) -> Self {
-com-struct src/set_op.rs: pub fn convex_hull(self, rhs: Self) -> Self {
-com-struct src/set_op.rs: pub fn intersection(self, rhs: Self) -> Self {
+com-struct src/interval/dec_interval.rs: Self { x, d }
+com-struct src/interval/dec_interval.rs: d: Decoration,
+com-struct src/interval/dec_interval.rs: impl DecInterval {
+com-struct src/interval/dec_interval.rs: pub struct DecInterval {
+com-struct src/interval/dec_interval.rs: pub(crate) const fn new_unchecked(x: Interval, d: Decoration) -> Self {
+com-struct src/interval/dec_interval.rs: x: Interval,
 com-unchecked src/bytes.rs: Some(Self::new_unchecked(Interval::with_infsup_raw(a, b), dec))
 com-unchecked src/classify.rs: // `classify2_pair` in `rocq/theories/Classify2.v` shows that `transmute` gets the
 com-unchecked src/classify.rs: // `rocq/theories/Model.v` transcribes the discriminants in `transmute_class2`, with the
@@ -193,17 +23,19 @@ com-unchecked src/constants.rs: pub const EMPTY: Self = unsafe { transmute([f64:
 com-unchecked src/constants.rs: pub const ENTIRE: Self = Self::new_unchecked(Interval::ENTIRE, Decoration::Dac);
 com-unchecked src/constants.rs: pub const NAI: Self = Self::new_unchecked(Interval::EMPTY, Decoration::Ill);
 com-unchecked src/constants.rs: use std::mem::transmute;
-com-unchecked src/interval.rs: // The only `transmute` into a `DecInterval`. `rocq/theories/Model.v` transcribes
-com-unchecked src/interval.rs: // interval is common, for each place that makes one: the callers of `new_unchecked`
+com-unchecked src/interval.rs: // The only `transmute` into a `DecInterval`. The macro expands outside
+com-unchecked src/interval.rs: // usually in another crate, which cannot call `new_unchecked`, so it makes one by
 com-unchecked src/interval.rs: Self::new_unchecked(x, Dac)
 com-unchecked src/interval.rs: Self::new_unchecked(x, d)
 com-unchecked src/interval.rs: Self::new_unchecked(x, d)
-com-unchecked src/interval.rs: pub(crate) const fn new_unchecked(x: Interval, d: Decoration) -> Self {
 com-unchecked src/interval.rs: transmute::<[f64; 2], $crate::Interval>([-($a), $b])
 com-unchecked src/interval.rs: transmute::<_DecInterval, $crate::DecInterval>(_DecInterval {
 com-unchecked src/interval.rs: use ::std::{mem::transmute, primitive::*};
 com-unchecked src/interval.rs: use ::std::{mem::transmute, primitive::*};
-com-unchecked src/set_op.rs: Self::new_unchecked(self.x.$f(rhs.x), Decoration::Trv)
+com-unchecked src/interval/dec_interval.rs: // `d()`, and makes a `DecInterval` with `new_unchecked`, apart from the `transmute` in
+com-unchecked src/interval/dec_interval.rs: // interval is common, for each place that makes one: the callers of `new_unchecked`
+com-unchecked src/interval/dec_interval.rs: pub(crate) const fn new_unchecked(x: Interval, d: Decoration) -> Self {
+com-unchecked src/set_op.rs: Self::new_unchecked(self.x().$f(rhs.x()), Decoration::Trv)
 com-unchecked src/simd/aarch64.rs: let [a, b] = unsafe { transmute::<F64X2, [u64; 2]>(x) };
 com-unchecked src/simd/aarch64.rs: mem::transmute,
 com-unchecked src/simd/aarch64.rs: transmute(vandq_u64(
@@ -290,13 +122,14 @@ valid-raw src/elementary.rs: let y = Self::with_infsup_raw(acosh_rd(x.inf_raw())
 valid-raw src/elementary.rs: let y = Self::with_infsup_raw(asin_rd(x.inf_raw()), asin_ru(x.sup_raw()));
 valid-raw src/elementary.rs: let y = Self::with_infsup_raw(atanh_rd(a), atanh_ru(b));
 valid-raw src/elementary.rs: qb != f64::INFINITY && b <= (Self::with_infsup_raw(qb, qb) * Self::FRAC_PI_2).inf_raw();
-valid-raw src/interval.rs: // The only `transmute` into a `DecInterval`. `rocq/theories/Model.v` transcribes
+valid-raw src/interval.rs: // The only `transmute` into a `DecInterval`. The macro expands outside
 valid-raw src/interval.rs: Ok(Self::with_infsup_raw(a, b))
 valid-raw src/interval.rs: pub(crate) fn with_infsup_raw(a: f64, b: f64) -> Self {
 valid-raw src/interval.rs: transmute::<[f64; 2], $crate::Interval>([-($a), $b])
 valid-raw src/interval.rs: transmute::<_DecInterval, $crate::DecInterval>(_DecInterval {
 valid-raw src/interval.rs: use ::std::{mem::transmute, primitive::*};
 valid-raw src/interval.rs: use ::std::{mem::transmute, primitive::*};
+valid-raw src/interval/dec_interval.rs: // `d()`, and makes a `DecInterval` with `new_unchecked`, apart from the `transmute` in
 valid-rep src/absmax.rs: rep: shuffle02(splat(0.0), r),
 valid-rep src/absmax.rs: rep: shuffle03(max, min),
 valid-rep src/absmax.rs: rep: shuffle03(max, min),

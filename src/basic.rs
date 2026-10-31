@@ -636,11 +636,11 @@ impl DecInterval {
         if self.is_nai() || numerator.is_nai() {
             return [Self::NAI; 2];
         }
-        let [u, v] = self.x.mul_rev_to_pair(numerator.x);
-        let d = if self.x.contains(0.0) {
+        let [u, v] = self.x().mul_rev_to_pair(numerator.x());
+        let d = if self.x().contains(0.0) {
             Decoration::Trv
         } else {
-            self.d.min(numerator.d)
+            self.d().min(numerator.d())
         };
         [Self::set_dec(u, d), Self::set_dec(v, Decoration::Trv)]
     }
@@ -656,7 +656,7 @@ impl DecInterval {
         if self.is_nai() || rhs.is_nai() {
             return Self::NAI;
         }
-        Self::set_dec(self.x.cancel_minus(rhs.x), Decoration::Trv)
+        Self::set_dec(self.x().cancel_minus(rhs.x()), Decoration::Trv)
     }
 
     /// The decorated version of [`Interval::cancel_plus`].
@@ -670,7 +670,7 @@ impl DecInterval {
         if self.is_nai() || rhs.is_nai() {
             return Self::NAI;
         }
-        Self::set_dec(self.x.cancel_plus(rhs.x), Decoration::Trv)
+        Self::set_dec(self.x().cancel_plus(rhs.x()), Decoration::Trv)
     }
 
     /// The decorated version of [`Interval::mul_add`].
@@ -679,7 +679,7 @@ impl DecInterval {
     #[must_use]
     pub fn mul_add(self, rhs: Self, addend: Self) -> Self {
         // Proved correct in `rocq/theories/MulAdd.v` for the portable backend if `self` and
-        // `rhs` are `com` only when `self.x` and `rhs.x` are common, which
+        // `rhs` are `com` only when `self.x()` and `rhs.x()` are common, which
         // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
         // `rocq/theories/Model.v` transcribes this function, so it has to be updated
         // along with it.
@@ -688,8 +688,8 @@ impl DecInterval {
         }
 
         Self::set_dec(
-            self.x.mul_add(rhs.x, addend.x),
-            self.d.min(rhs.d.min(addend.d)),
+            self.x().mul_add(rhs.x(), addend.x()),
+            self.d().min(rhs.d().min(addend.d())),
         )
     }
 
@@ -699,7 +699,7 @@ impl DecInterval {
     #[must_use]
     pub fn recip(self) -> Self {
         // Proved correct in `rocq/theories/Recip.v` for the portable backend if `self` is
-        // `com` only when `self.x` is common, which `rocq/theories/ComCommon.v` proves of
+        // `com` only when `self.x()` is common, which `rocq/theories/ComCommon.v` proves of
         // every `DecInterval` that the library makes.
         // `rocq/theories/Model.v` transcribes this function, so it has to be updated
         // along with it.
@@ -707,12 +707,12 @@ impl DecInterval {
             return self;
         }
 
-        let d = if self.x.contains(0.0) {
+        let d = if self.x().contains(0.0) {
             Decoration::Trv
         } else {
-            self.d
+            self.d()
         };
-        Self::set_dec(self.x.recip(), d)
+        Self::set_dec(self.x().recip(), d)
     }
 
     /// The decorated version of [`Interval::sqr`].
@@ -727,7 +727,7 @@ impl DecInterval {
             return self;
         }
 
-        Self::set_dec(self.x.sqr(), self.d)
+        Self::set_dec(self.x().sqr(), self.d())
     }
 
     /// The decorated version of [`Interval::sqrt`].
@@ -742,12 +742,12 @@ impl DecInterval {
             return self;
         }
 
-        let d = if self.x.inf_raw() < 0.0 {
+        let d = if self.x().inf_raw() < 0.0 {
             Decoration::Trv
         } else {
-            self.d
+            self.d()
         };
-        Self::set_dec(self.x.sqrt(), d)
+        Self::set_dec(self.x().sqrt(), d)
     }
 }
 
