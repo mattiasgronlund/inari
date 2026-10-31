@@ -36,8 +36,7 @@
     MPFR [m] and an exponent range [emin], [emax] that satisfy the
     hypotheses of [Mpfr.v]: [range_ok], [get_d_ok], and the function's own
     hypothesis, such as [exp_ok]. Those of [powi] also assume that the
-    exponent is an [i32] ([is_i32] in [Model.v]), and those of [tan] that
-    π is irrational ([pi_irrational] in [Elementary.v]). Those of
+    exponent is an [i32] ([is_i32] in [Model.v]). Those of
     [try_from_ninterval_exact] and [From<DecNInterval>] hold for any MPFR
     [m], as any floats that MPFR returns for the bounds make a [valid]
     interval. *)
@@ -169,7 +168,7 @@ Inductive made : Interval -> Prop :=
       sinh_ok emin emax m -> made x -> made (Interval.sinh m x)
   | made_tan :
       forall emin emax m has_fma x y, range_ok emin emax -> get_d_ok emin emax m ->
-      tan_ok emin emax m -> pi_irrational -> made x ->
+      tan_ok emin emax m -> made x ->
       Interval.tan m has_fma x = Some y -> made y
   | made_tanh :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
@@ -311,7 +310,7 @@ with dmade : DecInterval -> Prop :=
       sinh_ok emin emax m -> dmade x -> dmade (DecInterval.sinh m x)
   | dmade_tan :
       forall emin emax m has_fma x y, range_ok emin emax -> get_d_ok emin emax m ->
-      tan_ok emin emax m -> pi_irrational -> dmade x ->
+      tan_ok emin emax m -> dmade x ->
       DecInterval.tan m has_fma x = Some y -> dmade y
   | dmade_tanh :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
@@ -398,8 +397,8 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (sin_valid emin emax m f first x y Hr Hg Ho Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (sinh_valid emin emax m x Hr Hg Ho Hx).
-- intros emin emax m f x y Hr Hg Ho Hpi _ Hx E.
-  exact (tan_valid emin emax m f x y Hr Hg Ho Hpi Hx E).
+- intros emin emax m f x y Hr Hg Ho _ Hx E.
+  exact (tan_valid emin emax m f x y Hr Hg Ho Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (tanh_valid emin emax m x Hr Hg Ho Hx).
 - exact (proj1 dec_constants_valid).
@@ -476,8 +475,8 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (dec_sin_valid emin emax m f first x y Hr Hg Ho Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (dec_sinh_valid emin emax m x Hr Hg Ho Hx).
-- intros emin emax m f x y Hr Hg Ho Hpi _ Hx E.
-  exact (dec_tan_valid emin emax m f x y Hr Hg Ho Hpi Hx E).
+- intros emin emax m f x y Hr Hg Ho _ Hx E.
+  exact (dec_tan_valid emin emax m f x y Hr Hg Ho Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (dec_tanh_valid emin emax m x Hr Hg Ho Hx).
 Qed.

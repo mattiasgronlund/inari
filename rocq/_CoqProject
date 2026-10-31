@@ -90,6 +90,10 @@ theories/Atanh.v
 theories/ClosedDom.v
 theories/Elem.v
 theories/PiBounds.v
+theories/NivenPoly.v
+theories/NivenAlt.v
+theories/NivenSym.v
+theories/PiIrrational.v
 theories/TrigPieces.v
 theories/TrigSpec.v
 theories/TrigQuot.v

@@ -4,8 +4,7 @@
     interval for [valid] arguments, as its theorem's [is_tightest], or for
     [cos], [sin] and [tan] [encloses], says, and so does its decorated
     version, whose result is [set_dec] of one or NaI. Each assumes what
-    [Mpfr.v] says of MPFR, [powi] that its exponent is an [i32], and [tan]
-    also that π is irrational ([pi_irrational] in [Elementary.v]). *)
+    [Mpfr.v] says of MPFR, and [powi] that its exponent is an [i32]. *)
 
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -325,11 +324,11 @@ Qed.
 
 Theorem tan_valid :
   forall emin emax m has_fma x y,
-  range_ok emin emax -> get_d_ok emin emax m -> tan_ok emin emax m -> pi_irrational ->
+  range_ok emin emax -> get_d_ok emin emax m -> tan_ok emin emax m ->
   valid x -> Interval.tan m has_fma x = Some y -> valid y.
 Proof.
-intros emin emax m has_fma x y Hr Hget Hok Hpi Hx E.
-destruct (tan_encloses emin emax m has_fma x Hr Hget Hok Hpi Hx) as (y' & E' & H).
+intros emin emax m has_fma x y Hr Hget Hok Hx E.
+destruct (tan_encloses emin emax m has_fma x Hr Hget Hok Hx) as (y' & E' & H).
 rewrite E in E'. injection E' as <-. exact (proj1 H).
 Qed.
 
@@ -337,13 +336,13 @@ Qed.
     first component [Interval::tan] returns. *)
 Theorem dec_tan_valid :
   forall emin emax m has_fma x y,
-  range_ok emin emax -> get_d_ok emin emax m -> tan_ok emin emax m -> pi_irrational ->
+  range_ok emin emax -> get_d_ok emin emax m -> tan_ok emin emax m ->
   valid (itv x) -> DecInterval.tan m has_fma x = Some y -> valid (itv y).
 Proof.
-intros emin emax m has_fma x y Hr Hget Hok Hpi Hx E. unfold DecInterval.tan in E.
+intros emin emax m has_fma x y Hr Hget Hok Hx E. unfold DecInterval.tan in E.
 destruct (Interval.tan_impl m has_fma (itv x)) as [p |] eqn:Ep; [| discriminate E].
 injection E as <-. apply set_dec_valid.
-apply (tan_valid emin emax m has_fma (itv x) (fst p) Hr Hget Hok Hpi Hx).
+apply (tan_valid emin emax m has_fma (itv x) (fst p) Hr Hget Hok Hx).
 unfold Interval.tan. rewrite Ep. reflexivity.
 Qed.
 

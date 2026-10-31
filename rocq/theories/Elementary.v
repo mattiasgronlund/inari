@@ -84,9 +84,3 @@ Definition atan2_dom (y x : R) : Prop := y <> 0 \/ x <> 0.
     R for [p >= 0], and R without 0 for [p < 0], where Stdlib's [powerRZ]
     returns 0 at 0, a value that is never used. *)
 Definition pown_dom (n : Z) (r : R) : Prop := (0 <= n)%Z \/ r <> 0.
-
-(** π is irrational (Lambert, 1761), which Stdlib does not prove. The
-    theorems about [tan] assume it, to know that no [f64] is a pole of
-    [tan]. *)
-Definition pi_irrational : Prop :=
-  forall p q : Z, (0 < q)%Z -> PI <> IZR p / IZR q.

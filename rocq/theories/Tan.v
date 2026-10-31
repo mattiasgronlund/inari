@@ -13,8 +13,7 @@
     [a != b] the first case never holds a pole. If [a == b], [n] is 0
     whatever [q] is, so the first case is taken whether or not [a] is a
     pole. The proofs derive that it is not from the irrationality of π
-    ([pi_irrational] in [Elementary.v]), which Stdlib does not prove, so
-    the theorems assume it. So the result encloses the image
+    ([pi_irrational] in [PiIrrational.v]). So the result encloses the image
     ([tan_encloses]); the decoration [com] then holds, and [trv] always
     does.
 
@@ -245,7 +244,6 @@ Variables (emin emax : Z) (m : mpfr) (has_fma : bool).
 Hypothesis Hrange : range_ok emin emax.
 Hypothesis Hget : get_d_ok emin emax m.
 Hypothesis Htan : tan_ok emin emax m.
-Hypothesis Hpi : pi_irrational.
 
 (** Between two poles [k * (PI / 2)] and [(k + 2) * (PI / 2)], for an odd
     [k], [tan] is defined and increases, so [[tan_rd(a), tan_ru(b)]] is the
@@ -257,7 +255,7 @@ Lemma tn_piece :
   (forall r, mem r x -> tan_dom r) /\
   is_tightest (image_dom tan_dom tan x)
     (Interval.with_infsup_raw (tan_rd m (Interval.inf_raw x)) (tan_ru m (Interval.sup_raw x))).
-Proof using Hrange Hget Htan Hpi.
+Proof using Hrange Hget Htan.
 intros x k Hf Hk Ha Hb.
 assert (HD : forall r, mem r x -> tan_dom r).
 { intros r Hr. apply (finite_itv_mem x r Hf) in Hr. apply (tan_piece_dom k r Hk). lra. }
@@ -275,9 +273,9 @@ Lemma tn_single :
   (forall r, mem r x -> tan_dom r) /\
   is_tightest (image_dom tan_dom tan x)
     (Interval.with_infsup_raw (tan_rd m (Interval.inf_raw x)) (tan_ru m (Interval.sup_raw x))).
-Proof using Hrange Hget Htan Hpi.
+Proof using Hrange Hget Htan.
 intros x Hf Eab.
-pose proof (tan_dom_f64 Hpi (Interval.inf_raw x) (proj1 (proj2 (proj2 Hf)))) as Da.
+pose proof (tan_dom_f64 (Interval.inf_raw x) (proj1 (proj2 (proj2 Hf)))) as Da.
 assert (Hr : forall r, mem r x -> r = B2R (Interval.inf_raw x)).
 { intros r Hr. apply (finite_itv_mem x r Hf) in Hr. lra. }
 assert (HD : forall r, mem r x -> tan_dom r) by (intros r H; rewrite (Hr r H); exact Da).
@@ -294,10 +292,10 @@ Lemma tn_pole_in :
   B2R (Interval.inf_raw x) < IZR k * (PI / 2) <= B2R (Interval.sup_raw x) ->
   is_tightest (image_dom tan_dom tan x) Interval.ENTIRE /\
   ~ (forall s, mem s x -> tan_dom s).
-Proof using Hrange Hget Htan Hpi.
+Proof using Hrange Hget Htan.
 intros x k Hf Hk [H1 H2].
 pose proof (tan_pole k Hk) as Np.
-pose proof (tan_dom_f64 Hpi (Interval.sup_raw x) (proj2 (proj2 (proj2 Hf)))) as Db.
+pose proof (tan_dom_f64 (Interval.sup_raw x) (proj2 (proj2 (proj2 Hf)))) as Db.
 assert (H3 : IZR k * (PI / 2) < B2R (Interval.sup_raw x)).
 { destruct (Rle_lt_or_eq_dec _ _ H2) as [H3|H3]; [exact H3|].
   rewrite H3 in Np. contradiction. }
@@ -323,7 +321,7 @@ Lemma tn_entire_tight :
   trig_tight has_fma Interval.FRAC_PI_2 (PI / 2) PI x ->
   is_tightest (image_dom tan_dom tan x) Interval.ENTIRE /\
   ~ (forall s, mem s x -> tan_dom s).
-Proof using Hrange Hget Htan Hpi.
+Proof using Hrange Hget Htan.
 intros x z Hf Eab Ez Hk [Hs|[(r & t & Hr & Ht & Hw)|He]].
 - destruct Hf as (Hx & Hn & _). rewrite (proj2 (bounds_eq x Hx Hn) Hs) in Eab.
   discriminate Eab.
@@ -345,7 +343,7 @@ Lemma tn_impl :
   (trig_tight has_fma Interval.FRAC_PI_2 (PI / 2) PI x ->
    is_tightest (image_dom tan_dom tan x) y /\
    (e = Trv -> ~ ((exists r, mem r x) /\ forall r, mem r x -> tan_dom r))).
-Proof using Hrange Hget Htan Hpi.
+Proof using Hrange Hget Htan.
 intros x Hx.
 destruct (Interval.is_empty x) eqn:Hn.
 { (* An empty [x] is returned with [trv]. *)
@@ -498,35 +496,32 @@ End TnImpl.
 
 Theorem tan_encloses :
   forall emin emax m has_fma x,
-  range_ok emin emax -> get_d_ok emin emax m -> tan_ok emin emax m ->
-  pi_irrational -> valid x ->
+  range_ok emin emax -> get_d_ok emin emax m -> tan_ok emin emax m -> valid x ->
   exists y, Interval.tan m has_fma x = Some y /\
     encloses (image_dom tan_dom tan x) y.
 Proof.
-intros emin emax m has_fma x Hrange Hget Htan Hpi Hx.
-destruct (tn_impl emin emax m has_fma Hrange Hget Htan Hpi x Hx)
+intros emin emax m has_fma x Hrange Hget Htan Hx.
+destruct (tn_impl emin emax m has_fma Hrange Hget Htan x Hx)
   as (y & e & Ei & Henc & _).
 exists y. unfold Interval.tan. rewrite Ei. split; [reflexivity | exact Henc].
 Qed.
 
 Theorem tan_correct :
   forall emin emax m has_fma x,
-  range_ok emin emax -> get_d_ok emin emax m -> tan_ok emin emax m ->
-  pi_irrational -> valid x ->
+  range_ok emin emax -> get_d_ok emin emax m -> tan_ok emin emax m -> valid x ->
   trig_tight has_fma Interval.FRAC_PI_2 (PI / 2) PI x ->
   exists y, Interval.tan m has_fma x = Some y /\
     is_tightest (image_dom tan_dom tan x) y.
 Proof.
-intros emin emax m has_fma x Hrange Hget Htan Hpi Hx Htt.
-destruct (tn_impl emin emax m has_fma Hrange Hget Htan Hpi x Hx)
+intros emin emax m has_fma x Hrange Hget Htan Hx Htt.
+destruct (tn_impl emin emax m has_fma Hrange Hget Htan x Hx)
   as (y & e & Ei & _ & _ & _ & Ht).
 exists y. unfold Interval.tan. rewrite Ei. split; [reflexivity | exact (proj1 (Ht Htt))].
 Qed.
 
 Theorem dec_tan_correct :
   forall emin emax m has_fma x,
-  range_ok emin emax -> get_d_ok emin emax m -> tan_ok emin emax m ->
-  pi_irrational -> valid (itv x) ->
+  range_ok emin emax -> get_d_ok emin emax m -> tan_ok emin emax m -> valid (itv x) ->
   exists y, DecInterval.tan m has_fma x = Some y /\
     if DecInterval.is_nai x then y = DecInterval.NAI
     else
@@ -537,8 +532,8 @@ Theorem dec_tan_correct :
        exists d, strongest_dom tan_dom d tan (itv x) (itv y) /\
          dec y = dec_min d (dec x)).
 Proof.
-intros emin emax m has_fma x Hrange Hget Htan Hpi Hx.
-destruct (tn_impl emin emax m has_fma Hrange Hget Htan Hpi (itv x) Hx)
+intros emin emax m has_fma x Hrange Hget Htan Hx.
+destruct (tn_impl emin emax m has_fma Hrange Hget Htan (itv x) Hx)
   as (y & e & Ei & Henc & Hemp & He & Ht).
 unfold DecInterval.tan. rewrite Ei. eexists. split; [reflexivity|]. cbn [fst snd].
 destruct (DecInterval.is_nai x) eqn:Enai.

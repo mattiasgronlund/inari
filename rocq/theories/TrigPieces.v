@@ -6,11 +6,13 @@
     Between two of them each function is monotone. This file states that,
     the values at the split points, and what an interval of length at
     least [2 * PI] (or [PI] for [tan]) contains. Only real analysis, from
-    Stdlib's periodicity and monotonicity lemmas. *)
+    Stdlib's periodicity and monotonicity lemmas, except at the end:
+    [tp_B2R_rat], that a finite [f64] is rational, and [tan_dom_f64], that
+    it is therefore not a pole, as π is irrational ([PiIrrational.v]). *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Elementary.
+From Inari Require Import Model Elementary PiIrrational.
 
 Open Scope R_scope.
 
@@ -427,12 +429,11 @@ Proof.
       * cbn [bpow radix_val radix2]; reflexivity.
 Qed.
 
-(** If π is irrational, no finite [f64] is a pole: it is a dyadic
-    rational. *)
-Lemma tan_dom_f64 :
-  pi_irrational -> forall w : f64, is_finite w = true -> tan_dom (B2R w).
+(** No finite [f64] is a pole: it is a dyadic rational, and π is
+    irrational ([pi_irrational] in [PiIrrational.v]). *)
+Lemma tan_dom_f64 : forall w : f64, is_finite w = true -> tan_dom (B2R w).
 Proof.
-  intros Hpi w Hw k Hk.
+  intros w Hw k Hk.
   destruct (tp_B2R_rat w Hw) as (n & d & Hd & Hnd).
   (* [(k + 1/2) * PI = n / d], so [PI = 2 * n / (d * (2 * k + 1))], whose
      divisor is a nonzero integer; flip both signs if it is negative. *)
@@ -445,9 +446,9 @@ Proof.
   assert (Heq : PI = IZR (2 * n) / IZR (d * (2 * k + 1))).
   { rewrite !mult_IZR, plus_IZR, mult_IZR, Hn; field; split; assumption. }
   destruct (Z.lt_trichotomy 0 (d * (2 * k + 1))) as [Hq | [Hq | Hq]].
-  - exact (Hpi _ _ Hq Heq).
+  - exact (pi_irrational _ _ Hq Heq).
   - symmetry in Hq; apply Z.mul_eq_0 in Hq; lia.
-  - apply (Hpi (- (2 * n))%Z (- (d * (2 * k + 1)))%Z); [lia |].
+  - apply (pi_irrational (- (2 * n))%Z (- (d * (2 * k + 1)))%Z); [lia |].
     rewrite Heq, !opp_IZR; field.
     apply not_0_IZR; lia.
 Qed.

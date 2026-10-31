@@ -917,8 +917,7 @@ impl Interval {
 
     fn tan_impl(self) -> (Self, Decoration) {
         // Proved, with `Interval::tan` and `DecInterval::tan`, in `rocq/theories/Tan.v` for
-        // the portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR and that π
-        // is irrational (`pi_irrational` in `rocq/theories/Elementary.v`): the result
+        // the portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR: the result
         // contains the image of `self`, the decoration that `DecInterval::tan` gives holds,
         // and both are the tightest and the strongest if `trig_tight` in
         // `rocq/theories/TrigSpec.v` holds. `rocq/theories/Model.v` transcribes this function
