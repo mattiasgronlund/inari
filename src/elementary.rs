@@ -9,7 +9,7 @@ use rug::Float;
 // `rocq/theories/Tan.v`, and of `quadrant`, which calls `sin_rd` and `cos_ru`, in
 // `rocq/theories/TrigQuad.v`, so it has to be updated along with it.
 // `rocq/theories/Mpfr.v` states what those proofs assume of the MPFR functions and of
-// `mpfr::get_d`.
+// `mpfr::get_d`, and `mpfr_tests` tests the linked MPFR against it.
 macro_rules! mpfr_fn {
     ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
         fn $f_rd(x: f64) -> f64 {
@@ -1103,6 +1103,9 @@ impl DecInterval {
     impl_dec!(tan, tan_impl);
     impl_dec!(tanh);
 }
+
+#[cfg(test)]
+mod mpfr_tests;
 
 #[cfg(test)]
 mod tests {
