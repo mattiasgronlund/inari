@@ -859,7 +859,11 @@ Definition with_val (x : f64) : mpfr_t :=
     are MPFR's exponent range, [emin] and [emax], during the call, which
     [rational_to_f64] sets around them. The other fields do not take it, as
     [src/elementary.rs] does not set it, and [Mpfr.v] states what it
-    assumes of them for any range that contains that of [f64]. *)
+    assumes of them for any range that contains that of [f64].
+
+    [ideal] in [MpfrIdeal.v] is a record of this type, which
+    [MpfrConsistent.v] shows satisfies those hypotheses, so a change to
+    the fields has to be made there too. *)
 Record mpfr : Type := {
   mpfr_get_d : mpfr_rnd -> mpfr_t -> f64;
   mpfr_acos : mpfr_rnd -> mpfr_t -> mpfr_t;

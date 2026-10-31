@@ -143,3 +143,11 @@ theories/ValidOps.v
 theories/ValidDecOps.v
 theories/ValidElem.v
 theories/Valid.v
+theories/MpfrIdeal.v
+theories/IdealRound.v
+theories/IdealGetD.v
+theories/IdealParse.v
+theories/IdealElem.v
+theories/IdealPow.v
+theories/IdealAtan2.v
+theories/MpfrConsistent.v

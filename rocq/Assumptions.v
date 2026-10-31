@@ -7,7 +7,8 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   MulRevSets MulRev CancelSpec Cancel MpfrRound ClosedDom Elem Atanh Cosh PiBounds
   PiIrrational TrigQuad TrigCount TrigCert Cos Sin Tan Dom2 Pow Powi AtanReal PiTight
   Dec2Set Atan2 ParseFormat ParseRound ParseHull ParseExact ParseDec ConstPi ConstInv
-  ConstLn ConstLog ValidMake ValidSetOp ValidOps ValidDecOps ValidElem Valid.
+  ConstLn ConstLog ValidMake ValidSetOp ValidOps ValidDecOps ValidElem Valid
+  MpfrIdeal IdealRound IdealGetD IdealParse IdealElem IdealPow IdealAtan2 MpfrConsistent.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -292,3 +293,32 @@ Print Assumptions dec_tanh_valid.
 Print Assumptions dec_convex_hull_valid.
 Print Assumptions dec_intersection_valid.
 Print Assumptions made_valid.
+Print Assumptions round_mpfr_correct.
+Print Assumptions ideal_get_d_ok.
+Print Assumptions ideal_set_q_ok.
+Print Assumptions ideal_subnormalize_ok.
+Print Assumptions ideal_acos_ok.
+Print Assumptions ideal_acosh_ok.
+Print Assumptions ideal_asin_ok.
+Print Assumptions ideal_asinh_ok.
+Print Assumptions ideal_atan_ok.
+Print Assumptions ideal_atanh_ok.
+Print Assumptions ideal_cos_ok.
+Print Assumptions ideal_cosh_ok.
+Print Assumptions ideal_exp_ok.
+Print Assumptions ideal_exp10_ok.
+Print Assumptions ideal_exp2_ok.
+Print Assumptions ideal_ln_ok.
+Print Assumptions ideal_log10_ok.
+Print Assumptions ideal_log2_ok.
+Print Assumptions ideal_sin_ok.
+Print Assumptions ideal_sinh_ok.
+Print Assumptions ideal_tan_ok.
+Print Assumptions ideal_tanh_ok.
+Print Assumptions ideal_pow_ok.
+Print Assumptions ideal_pown_ok.
+Print Assumptions ideal_atan2_ok.
+Print Assumptions ideal_parse_ok.
+Print Assumptions ideal_mpfr_ok.
+Print Assumptions mpfr_ok_consistent.
+Print Assumptions mpfr_ok_default.

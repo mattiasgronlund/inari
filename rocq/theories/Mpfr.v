@@ -16,7 +16,12 @@
     hold for every range that contains that of [f64] ([range_ok]), as
     MPFR's default range does. [rational_to_f64] in [src/parse.rs] sets the
     range around its calls, and the hypotheses about them, in the last
-    section, are stated at the range that it sets. *)
+    section, are stated at the range that it sets.
+
+    [mpfr_ok_consistent] in [MpfrConsistent.v] shows that the hypotheses
+    on [m] that the theorems take can all hold at once: at every range with
+    [range_ok], the ideal MPFR of [MpfrIdeal.v] satisfies all of them. It
+    does not show that the MPFR that the Rust code links satisfies them. *)
 
 From Stdlib Require Import ZArith Reals Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
