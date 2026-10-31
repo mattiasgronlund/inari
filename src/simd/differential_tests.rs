@@ -531,9 +531,10 @@ fn mul_ru_tie() -> (f64, f64) {
 // stays tested when the random draw or `adversarial` changes. `differential`
 // checks these cases against the generic backend on every backend that it tests.
 // Except under AVX-512F, the backend under test mostly computes with the
-// algorithm of the generic one, so a mistake they share goes unnoticed there;
-// `mul_ru_tiny_generic` therefore also checks the cases of `mul_ru` against
-// `generic::mul1_ru_slow`.
+// algorithm of the generic one, so `differential` misses a mistake that they
+// share. `regressions_generic` therefore also checks every case in the generic
+// backend against its slow paths, which `rocq/theories/` proves correct for all
+// arguments, wherever `differential` runs.
 fn regressions() -> Vec<(&'static str, Vec<f64>)> {
     let p = pow2;
     let tie = mul_ru_tie();
@@ -546,8 +547,9 @@ fn regressions() -> Vec<(&'static str, Vec<f64>)> {
         // df2e1f8; not known to have failed. With its negation, as the rounding
         // is directed, and as a difference, by `sub_ru` and `sub1_ru`. Except
         // under AVX-512F, the backend under test hands these cases to the generic
-        // one, so there they check only that its own fast path, if it has one,
-        // rejects them.
+        // one, so there `differential` checks only that its own fast path, if it
+        // has one, rejects them, and `regressions_generic` checks the generic
+        // result against `generic::add1_ru_slow`.
         ("add_ru", vec![-f64::MAX, 3.0 * p(970)]),
         ("add_ru", vec![f64::MAX, -3.0 * p(970)]),
         ("sub_ru", vec![-f64::MAX, -3.0 * p(970)]),
@@ -557,7 +559,11 @@ fn regressions() -> Vec<(&'static str, Vec<f64>)> {
         // that reason, as does the `special_r` of `mul_add_ru` in `sse42` and
         // `wasm32`, and so did that of `fma::mul_add_ru` from 469f00b until
         // a6650cb removed it, as the FMA alone gives c there. Not known to have
-        // failed. With its negation.
+        // failed. With its negation. Both paths of the generic backend return
+        // `mul_add1_special` for these cases, so `regressions_generic` cannot see
+        // a mistake in it. `differential` can, under `fma` and `avx512f`, which
+        // take the result from the FMA alone, but not under `sse42` and `wasm32`
+        // if their `special_r` shares the mistake.
         ("mul_add_ru", vec![f64::MAX, 2.0, f64::NEG_INFINITY]),
         ("mul_add_ru", vec![-f64::MAX, 2.0, f64::INFINITY]),
         // `mul_ru_tie`: rs / 2^128 is a tie, -2^-1075, and rounds to the result,
@@ -586,15 +592,20 @@ fn regression_cases(name: &str, arity: usize) -> Vec<Vec<f64>> {
     cases
 }
 
-// The cases of `regression_cases`, each in both lanes, next to itself and next
-// to 1s, an ordinary case: the arguments of lane 0 and of lane 1.
+// The cases of `regression_cases` in lanes, as `in_lanes` gives them.
 fn regression_lanes(name: &str, arity: usize) -> Vec<(Vec<f64>, Vec<f64>)> {
-    let ones = vec![1.0; arity];
+    in_lanes(regression_cases(name, arity))
+}
+
+// Each of `cases` in both lanes, next to itself and next to 1s, an ordinary
+// case: the arguments of lane 0 and of lane 1.
+fn in_lanes(cases: Vec<Vec<f64>>) -> Vec<(Vec<f64>, Vec<f64>)> {
     let mut lanes = vec![];
-    for args in regression_cases(name, arity) {
+    for args in cases {
+        let ones = vec![1.0; args.len()];
         lanes.push((args.clone(), args.clone()));
         lanes.push((args.clone(), ones.clone()));
-        lanes.push((ones.clone(), args));
+        lanes.push((ones, args));
     }
     lanes
 }
@@ -834,6 +845,151 @@ fn mul_ru_tiny_generic() {
             summary,
             "{:18} {:>10} cases ({} tiny), {} mismatches",
             name, r.cases, tiny, r.mismatches
+        )
+        .unwrap();
+        summary += &r.examples;
+        total_mismatches += r.mismatches;
+    }
+
+    println!("{}", summary);
+    assert_eq!(total_mismatches, 0, "\n{}", summary);
+}
+
+type Slow = fn(f64, f64) -> f64;
+type Slow3 = fn(f64, f64, f64) -> f64;
+
+// The variants of the generic backend for the binary operations, named as in
+// `binary_ops`, each with the slow path that `rocq/theories/` proves correct
+// for all arguments: `add1_ru_slow_correct` in `AddRu.v`, `mul1_ru_slow_correct`
+// in `MulRu.v` and `div1_ru_slow_correct` in `DivRu.v`.
+fn binary_slow_paths() -> Vec<(&'static str, Binary, Slow)> {
+    vec![
+        ("add_ru", generic::add_ru, generic::add1_ru_slow),
+        ("sub_ru", generic::sub_ru, sub1_ru_slow),
+        ("sub1_ru", sub1_ru_as_binary_generic, sub1_ru_slow),
+        (
+            "mul_ru/fma",
+            generic::mul_ru_impl::<true>,
+            generic::mul1_ru_slow,
+        ),
+        (
+            "mul_ru/dekker",
+            generic::mul_ru_impl::<false>,
+            generic::mul1_ru_slow,
+        ),
+        (
+            "div_ru/fma",
+            generic::div_ru_impl::<true>,
+            generic::div1_ru_slow,
+        ),
+        (
+            "div_ru/dekker",
+            generic::div_ru_impl::<false>,
+            generic::div1_ru_slow,
+        ),
+    ]
+}
+
+// The slow path of `generic::sub1_ru` and `generic::sub_ru`, which add -y with
+// the code of `add_ru`: x - y is x + (-y) by IEEE 754, including the signs of
+// zeros (`Bminus_Bplus_Bopp` in `SubRu.v`).
+fn sub1_ru_slow(x: f64, y: f64) -> f64 {
+    generic::add1_ru_slow(x, -y)
+}
+
+// The same for the ternary operations, named as in `ternary_ops`:
+// `mul_add1_ru_slow_correct` in `MulAddRuSlow.v`.
+fn ternary_slow_paths() -> Vec<(&'static str, Ternary, Slow3)> {
+    vec![
+        (
+            "mul_add_ru/fma",
+            generic::mul_add_ru_impl::<true>,
+            generic::mul_add1_ru_slow,
+        ),
+        (
+            "mul_add_ru/dekker",
+            generic::mul_add_ru_impl::<false>,
+            generic::mul_add1_ru_slow,
+        ),
+    ]
+}
+
+// The cases of `regression_cases`, with each sign of each argument and with the
+// first two arguments in either order, as `mul_ru_tiny_generic` takes its cases.
+// The slow paths are correct for all arguments, so each of these is checked
+// against them as well.
+fn regression_variants(name: &str, arity: usize) -> Vec<Vec<f64>> {
+    let mut variants = vec![];
+    for args in regression_cases(name, arity) {
+        let mut swapped = args.clone();
+        swapped.swap(0, 1);
+        for case in [args, swapped] {
+            for signs in 0..1 << arity {
+                let flip = |(i, &x): (usize, &f64)| if (signs >> i) & 1 == 1 { -x } else { x };
+                variants.push(case.iter().enumerate().map(flip).collect());
+            }
+        }
+    }
+    variants
+}
+
+// The cases of `regressions`, with their sign flips and swaps, in the generic
+// backend, with and without an FMA, against its slow paths, which
+// `rocq/theories/` proves correct for all arguments, as `mul_ru_tiny_generic`
+// does for `mul_ru`. Except under AVX-512F, `differential` compares the generic
+// backend with backends that mostly compute with its algorithm, so a mistake
+// that they share would go unnoticed there. The slow paths are the oracle, so
+// this test does not see a mistake in what the generic backend runs on a case as
+// they do: a slow path that its fast path hands the case to, or a function that
+// both paths call (see the cases of `add_ru` and `mul_add_ru` in `regressions`).
+// This test has no `cfg` of its own, so it runs wherever `differential` does.
+#[test]
+fn regressions_generic() {
+    let mut summary = String::new();
+    let mut total_mismatches = 0;
+
+    // A case of `regressions` whose operation has no slow path here would be
+    // skipped without notice.
+    let names: Vec<&str> = binary_slow_paths()
+        .iter()
+        .map(|op| op.0)
+        .chain(ternary_slow_paths().iter().map(|op| op.0))
+        .collect();
+    for (op, args) in regressions() {
+        let checked = names.iter().any(|&name| operation(name) == op);
+        assert!(checked, "no slow path checks {}{:?}", op, args);
+    }
+
+    for (name, f, slow) in binary_slow_paths() {
+        let mut r = Report::default();
+        for (l0, l1) in in_lanes(regression_variants(name, 2)) {
+            let actual = f([l0[0], l1[0]], [l0[1], l1[1]]);
+            for (i, a) in [l0, l1].iter().enumerate() {
+                r.check(name, a, slow(a[0], a[1]), actual[i]);
+            }
+        }
+        writeln!(
+            summary,
+            "{:18} {:>10} cases, {} mismatches",
+            name, r.cases, r.mismatches
+        )
+        .unwrap();
+        summary += &r.examples;
+        total_mismatches += r.mismatches;
+    }
+
+    for (name, f, slow) in ternary_slow_paths() {
+        let mut r = Report::default();
+        for (l0, l1) in in_lanes(regression_variants(name, 3)) {
+            let actual = f([l0[0], l1[0]], [l0[1], l1[1]], [l0[2], l1[2]]);
+            for (i, a) in [l0, l1].iter().enumerate() {
+                r.check(name, a, slow(a[0], a[1], a[2]), actual[i]);
+            }
+        }
+        writeln!(
+            summary,
+            "{:18} {:>10} cases, {} mismatches",
+            name, r.cases, r.mismatches
         )
         .unwrap();
         summary += &r.examples;

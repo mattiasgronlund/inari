@@ -442,7 +442,7 @@ Definition sum_round_up (sx : bool) (mx ex : Z) (sy : bool) (my ey : Z) : option
     if sticky then None else Some zero
   else round_up_exact sx m ex sticky.
 
-(** [fn add1_ru_slow(x: f64, y: f64) -> f64] *)
+(** [pub(super) fn add1_ru_slow(x: f64, y: f64) -> f64] *)
 Definition add1_ru_slow (x y : f64) : option f64 :=
   if negb (is_finite x && is_finite y) || eq x zero || eq y zero then
     Some (add x y)
@@ -486,7 +486,7 @@ Definition mul1_ru_tiny (fma : bool) (x y : f64) : option f64 :=
       let q := mul rs two_pow_m128 in
       Some (if lt (mul q two_pow_128) rs then step_up q else q).
 
-(** [fn div1_ru_slow(x: f64, y: f64) -> f64] *)
+(** [pub(super) fn div1_ru_slow(x: f64, y: f64) -> f64] *)
 Definition div1_ru_slow (x y : f64) : option f64 :=
   if negb (is_finite x && is_finite y) || eq x zero || eq y zero then
     Some (div x y)
@@ -513,7 +513,7 @@ Definition div1_ru_slow (x y : f64) : option f64 :=
     (* [sx != sy] and [rem != 0] *)
     round_up_exact (negb (Bool.eqb sx sy)) q e (negb (rem =? 0)).
 
-(** [fn mul_add1_ru_slow(a: f64, b: f64, c: f64) -> f64] *)
+(** [pub(super) fn mul_add1_ru_slow(a: f64, b: f64, c: f64) -> f64] *)
 Definition mul_add1_ru_slow (a b c : f64) : option f64 :=
   if negb (is_finite a && is_finite b && is_finite c) || eq a zero || eq b zero then
     Some (mul_add1_special a b c)
