@@ -73,9 +73,10 @@ pub struct Interval {
     // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
     // `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
     // `rocq/theories/Sin.v`, `rocq/theories/Tan.v`, `rocq/theories/Pow.v`,
-    // `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, and of the conversions of
+    // `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, of the conversions of
     // `src/parse.rs` in `rocq/theories/ParseHull.v`, `rocq/theories/ParseExact.v` and
-    // `rocq/theories/ParseDec.v`.
+    // `rocq/theories/ParseDec.v`, and of the constants from `E` to `TAU` in
+    // `rocq/theories/ConstPi.v`, `ConstInv.v`, `ConstLn.v` and `ConstLog.v`.
     // `rocq/theories/Valid.v` proves that every `Interval` that the constructors and the
     // proved operations make is `valid`, and it relies on no code assigning to `rep`.
     pub(crate) rep: F64X2,
@@ -327,7 +328,9 @@ impl DecInterval {
         // `com` only if its interval is common (`rocq/theories/ComCommon.v`), and for the
         // proof that every `Interval` that the constructors and the proved operations make
         // is `valid` (`rocq/theories/Valid.v`), so a new caller needs a proof in both
-        // files.
+        // files. The proofs that the constants of `DecInterval` from `E` to `TAU` are the
+        // tightest intervals around their values (`rocq/theories/ConstPi.v`, `ConstInv.v`,
+        // `ConstLn.v` and `ConstLog.v`) use it too.
         Self { x, d }
     }
 }
@@ -541,9 +544,11 @@ macro_rules! const_interval {
         // `(Dec)Interval::acos`, `(Dec)Interval::acosh`, `(Dec)Interval::asin`,
         // `(Dec)Interval::atan2`, `(Dec)Interval::atanh`, `(Dec)Interval::cos`,
         // `(Dec)Interval::ln`, `(Dec)Interval::log10`, `(Dec)Interval::log2`,
-        // `(Dec)Interval::pow`, `(Dec)Interval::sin` and `(Dec)Interval::tan`, for the proof
-        // that every `DecInterval` is `com` only if its interval is common
-        // (`rocq/theories/ComCommon.v`), and this macro and its assertion
+        // `(Dec)Interval::pow`, `(Dec)Interval::sin` and `(Dec)Interval::tan`, for the proofs
+        // that the constants of `(Dec)Interval` from `E` to `TAU` are the tightest intervals
+        // around their values (`rocq/theories/ConstPi.v`, `ConstInv.v`, `ConstLn.v` and
+        // `ConstLog.v`), for the proof that every `DecInterval` is `com` only if its interval
+        // is common (`rocq/theories/ComCommon.v`), and this macro and its assertion
         // (`const_interval_ok`) for the proof that every `Interval` that the constructors
         // and the proved operations make is `valid` (`rocq/theories/Valid.v`).
         use ::std::{mem::transmute, primitive::*};

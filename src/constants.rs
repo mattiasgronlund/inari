@@ -20,6 +20,12 @@ impl Interval {
     // (`rocq/theories/Valid.v`).
     pub const ENTIRE: Self = const_interval!(f64::NEG_INFINITY, f64::INFINITY);
 
+    // Proved to be the tightest intervals around their values, from `E` to `TAU`, in
+    // `rocq/theories/ConstPi.v`, `ConstInv.v`, `ConstLn.v` and `ConstLog.v` (`E_tightest`
+    // and the others). `rocq/theories/Model.v` transcribes these constants for those proofs,
+    // by the bit patterns of their bounds, which the test `constants_bits` below checks, so
+    // it and the test have to be updated along with them.
+
     /// The tightest interval enclosing $\e$, the base of natural logarithms.
     pub const E: Self = const_interval!(2.718281828459045, 2.7182818284590455);
 
@@ -36,7 +42,7 @@ impl Interval {
     pub const FRAC_2_SQRT_PI: Self = const_interval!(1.1283791670955126, 1.1283791670955128);
 
     /// The tightest interval enclosing $π / 2$.
-    // `rocq/theories/Model.v` transcribes this constant for the proofs of
+    // `rocq/theories/Model.v` also transcribes this constant for the proofs of
     // `(Dec)Interval::atan2`, `(Dec)Interval::sin` and `(Dec)Interval::tan`, so it has to be
     // updated along with it. `FRAC_PI_2_const` in `rocq/theories/PiBounds.v` shows that it
     // encloses π/2, and `FRAC_PI_2_dn` and `FRAC_PI_2_up` in `rocq/theories/PiTight.v` that
@@ -74,7 +80,7 @@ impl Interval {
     pub const LOG2_E: Self = const_interval!(1.4426950408889634, 1.4426950408889636);
 
     /// The tightest interval enclosing $π$.
-    // `rocq/theories/Model.v` transcribes this constant for the proofs of
+    // `rocq/theories/Model.v` also transcribes this constant for the proofs of
     // `(Dec)Interval::atan2` and `(Dec)Interval::cos`, so it has to be updated along with it.
     // `PI_bounds` in `rocq/theories/PiBounds.v` shows that it encloses π, and `PI_dn` and
     // `PI_up` in `rocq/theories/PiTight.v` that its bounds are the floats next to π.
@@ -92,6 +98,10 @@ impl Interval {
 // bounds of `Interval::$c` to be finite, and for the proof that every `Interval` that the
 // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`), which
 // needs them to pass the assertion in `const_interval!`, as they do because it compiles.
+// It also transcribes each use of it below, from `def_com!(E)` to `def_com!(TAU)`, for the
+// proofs that these constants are the tightest intervals around their values
+// (`rocq/theories/ConstPi.v`, `ConstInv.v`, `ConstLn.v` and `ConstLog.v`), which show it
+// for `DecInterval::$c` as for `Interval::$c`, as both have the same interval.
 macro_rules! def_com {
     ($c:ident) => {
         #[doc = concat!("[`Interval::", stringify!($c), "`] decorated with [`Decoration::Com`].")]
@@ -182,5 +192,40 @@ mod tests {
         check!(PI);
         check!(SQRT_2);
         check!(TAU);
+    }
+
+    // `rocq/theories/Model.v` gives the bounds of these constants by their bit patterns, for
+    // the proofs in `rocq/theories/ConstPi.v`, `rocq/theories/ConstInv.v`,
+    // `rocq/theories/ConstLn.v` and `rocq/theories/ConstLog.v` that each is the tightest
+    // interval around its value. This checks that those are the bit patterns of the bounds of
+    // the constants here, so it has to be updated along with `Model.v`.
+    #[test]
+    fn constants_bits() {
+        macro_rules! check_bits {
+            ($c:ident, $a:expr, $b:expr) => {
+                assert_eq!(I::$c.inf().to_bits(), $a);
+                assert_eq!(I::$c.sup().to_bits(), $b);
+            };
+        }
+
+        check_bits!(E, 0x4005bf0a8b145769, 0x4005bf0a8b14576a);
+        check_bits!(FRAC_1_PI, 0x3fd45f306dc9c882, 0x3fd45f306dc9c883);
+        check_bits!(FRAC_1_SQRT_2, 0x3fe6a09e667f3bcc, 0x3fe6a09e667f3bcd);
+        check_bits!(FRAC_2_PI, 0x3fe45f306dc9c882, 0x3fe45f306dc9c883);
+        check_bits!(FRAC_2_SQRT_PI, 0x3ff20dd750429b6d, 0x3ff20dd750429b6e);
+        check_bits!(FRAC_PI_2, 0x3ff921fb54442d18, 0x3ff921fb54442d19);
+        check_bits!(FRAC_PI_3, 0x3ff0c152382d7365, 0x3ff0c152382d7366);
+        check_bits!(FRAC_PI_4, 0x3fe921fb54442d18, 0x3fe921fb54442d19);
+        check_bits!(FRAC_PI_6, 0x3fe0c152382d7365, 0x3fe0c152382d7366);
+        check_bits!(FRAC_PI_8, 0x3fd921fb54442d18, 0x3fd921fb54442d19);
+        check_bits!(LN_10, 0x40026bb1bbb55515, 0x40026bb1bbb55516);
+        check_bits!(LN_2, 0x3fe62e42fefa39ef, 0x3fe62e42fefa39f0);
+        check_bits!(LOG10_2, 0x3fd34413509f79fe, 0x3fd34413509f79ff);
+        check_bits!(LOG10_E, 0x3fdbcb7b1526e50e, 0x3fdbcb7b1526e50f);
+        check_bits!(LOG2_10, 0x400a934f0979a371, 0x400a934f0979a372);
+        check_bits!(LOG2_E, 0x3ff71547652b82fe, 0x3ff71547652b82ff);
+        check_bits!(PI, 0x400921fb54442d18, 0x400921fb54442d19);
+        check_bits!(SQRT_2, 0x3ff6a09e667f3bcc, 0x3ff6a09e667f3bcd);
+        check_bits!(TAU, 0x401921fb54442d18, 0x401921fb54442d19);
     }
 }

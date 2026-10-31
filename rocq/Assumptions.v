@@ -6,8 +6,8 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
   MulRevSets MulRev CancelSpec Cancel MpfrRound ClosedDom Elem Atanh Cosh PiBounds
   Cos Sin Tan Dom2 Pow Powi AtanReal PiTight Dec2Set Atan2 ParseFormat ParseRound
-  ParseHull ParseExact ParseDec ValidMake ValidSetOp ValidOps ValidDecOps ValidElem
-  Valid.
+  ParseHull ParseExact ParseDec ConstPi ConstInv ConstLn ConstLog ValidMake ValidSetOp
+  ValidOps ValidDecOps ValidElem Valid.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -157,6 +157,25 @@ Print Assumptions from_dec_ninterval_correct.
 Print Assumptions from_dec_ninterval_overflow.
 Print Assumptions from_ninterval_correct.
 Print Assumptions from_ninterval_new.
+Print Assumptions E_tightest.
+Print Assumptions FRAC_1_PI_tightest.
+Print Assumptions FRAC_1_SQRT_2_tightest.
+Print Assumptions FRAC_2_PI_tightest.
+Print Assumptions FRAC_2_SQRT_PI_tightest.
+Print Assumptions FRAC_PI_2_tightest.
+Print Assumptions FRAC_PI_3_tightest.
+Print Assumptions FRAC_PI_4_tightest.
+Print Assumptions FRAC_PI_6_tightest.
+Print Assumptions FRAC_PI_8_tightest.
+Print Assumptions LN_10_tightest.
+Print Assumptions LN_2_tightest.
+Print Assumptions LOG10_2_tightest.
+Print Assumptions LOG10_E_tightest.
+Print Assumptions LOG2_10_tightest.
+Print Assumptions LOG2_E_tightest.
+Print Assumptions PI_tightest.
+Print Assumptions SQRT_2_tightest.
+Print Assumptions TAU_tightest.
 Print Assumptions new_com_common.
 Print Assumptions set_dec_com_common.
 Print Assumptions constants_com_common.

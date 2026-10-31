@@ -1269,14 +1269,101 @@ Definition const_interval_ok (a b : f64) : bool :=
 Definition ENTIRE : Interval :=
   const_interval (B754_infinity true) (B754_infinity false).
 
-(** [pub const PI: Self] and [pub const FRAC_PI_2: Self] in
-    [src/constants.rs]: [const_interval!(3.141592653589793,
-    3.1415926535897936)] and [const_interval!(1.5707963267948966,
-    1.5707963267948968)], with the [f64]s as their bit patterns. *)
-Definition PI : Interval :=
-  const_interval (from_bits 0x400921fb54442d18) (from_bits 0x400921fb54442d19).
+(** The other constants of [Interval] in [src/constants.rs], from [E] to
+    [TAU]. Each is [const_interval!(a, b)] for two decimal literals [a] and
+    [b], which rustc rounds to the nearest [f64]s. They are given here by
+    the bit patterns of those [f64]s, and the test [constants_bits] in
+    [src/constants.rs] checks that the bounds of the Rust constants have
+    these bit patterns. *)
+
+(** [pub const E: Self = const_interval!(2.718281828459045, 2.7182818284590455)] *)
+Definition E : Interval :=
+  const_interval (from_bits 0x4005bf0a8b145769) (from_bits 0x4005bf0a8b14576a).
+
+(** [pub const FRAC_1_PI: Self =
+    const_interval!(0.31830988618379064, 0.3183098861837907)] *)
+Definition FRAC_1_PI : Interval :=
+  const_interval (from_bits 0x3fd45f306dc9c882) (from_bits 0x3fd45f306dc9c883).
+
+(** [pub const FRAC_1_SQRT_2: Self =
+    const_interval!(0.7071067811865475, 0.7071067811865476)] *)
+Definition FRAC_1_SQRT_2 : Interval :=
+  const_interval (from_bits 0x3fe6a09e667f3bcc) (from_bits 0x3fe6a09e667f3bcd).
+
+(** [pub const FRAC_2_PI: Self =
+    const_interval!(0.6366197723675813, 0.6366197723675814)] *)
+Definition FRAC_2_PI : Interval :=
+  const_interval (from_bits 0x3fe45f306dc9c882) (from_bits 0x3fe45f306dc9c883).
+
+(** [pub const FRAC_2_SQRT_PI: Self =
+    const_interval!(1.1283791670955126, 1.1283791670955128)] *)
+Definition FRAC_2_SQRT_PI : Interval :=
+  const_interval (from_bits 0x3ff20dd750429b6d) (from_bits 0x3ff20dd750429b6e).
+
+(** [pub const FRAC_PI_2: Self =
+    const_interval!(1.5707963267948966, 1.5707963267948968)] *)
 Definition FRAC_PI_2 : Interval :=
   const_interval (from_bits 0x3ff921fb54442d18) (from_bits 0x3ff921fb54442d19).
+
+(** [pub const FRAC_PI_3: Self =
+    const_interval!(1.0471975511965976, 1.0471975511965979)] *)
+Definition FRAC_PI_3 : Interval :=
+  const_interval (from_bits 0x3ff0c152382d7365) (from_bits 0x3ff0c152382d7366).
+
+(** [pub const FRAC_PI_4: Self =
+    const_interval!(0.7853981633974483, 0.7853981633974484)] *)
+Definition FRAC_PI_4 : Interval :=
+  const_interval (from_bits 0x3fe921fb54442d18) (from_bits 0x3fe921fb54442d19).
+
+(** [pub const FRAC_PI_6: Self =
+    const_interval!(0.5235987755982988, 0.5235987755982989)] *)
+Definition FRAC_PI_6 : Interval :=
+  const_interval (from_bits 0x3fe0c152382d7365) (from_bits 0x3fe0c152382d7366).
+
+(** [pub const FRAC_PI_8: Self =
+    const_interval!(0.39269908169872414, 0.3926990816987242)] *)
+Definition FRAC_PI_8 : Interval :=
+  const_interval (from_bits 0x3fd921fb54442d18) (from_bits 0x3fd921fb54442d19).
+
+(** [pub const LN_10: Self = const_interval!(2.3025850929940455, 2.302585092994046)] *)
+Definition LN_10 : Interval :=
+  const_interval (from_bits 0x40026bb1bbb55515) (from_bits 0x40026bb1bbb55516).
+
+(** [pub const LN_2: Self = const_interval!(0.6931471805599453, 0.6931471805599454)] *)
+Definition LN_2 : Interval :=
+  const_interval (from_bits 0x3fe62e42fefa39ef) (from_bits 0x3fe62e42fefa39f0).
+
+(** [pub const LOG10_2: Self =
+    const_interval!(0.30102999566398114, 0.3010299956639812)] *)
+Definition LOG10_2 : Interval :=
+  const_interval (from_bits 0x3fd34413509f79fe) (from_bits 0x3fd34413509f79ff).
+
+(** [pub const LOG10_E: Self =
+    const_interval!(0.4342944819032518, 0.43429448190325187)] *)
+Definition LOG10_E : Interval :=
+  const_interval (from_bits 0x3fdbcb7b1526e50e) (from_bits 0x3fdbcb7b1526e50f).
+
+(** [pub const LOG2_10: Self =
+    const_interval!(3.321928094887362, 3.3219280948873626)] *)
+Definition LOG2_10 : Interval :=
+  const_interval (from_bits 0x400a934f0979a371) (from_bits 0x400a934f0979a372).
+
+(** [pub const LOG2_E: Self =
+    const_interval!(1.4426950408889634, 1.4426950408889636)] *)
+Definition LOG2_E : Interval :=
+  const_interval (from_bits 0x3ff71547652b82fe) (from_bits 0x3ff71547652b82ff).
+
+(** [pub const PI: Self = const_interval!(3.141592653589793, 3.1415926535897936)] *)
+Definition PI : Interval :=
+  const_interval (from_bits 0x400921fb54442d18) (from_bits 0x400921fb54442d19).
+
+(** [pub const SQRT_2: Self = const_interval!(1.414213562373095, 1.4142135623730951)] *)
+Definition SQRT_2 : Interval :=
+  const_interval (from_bits 0x3ff6a09e667f3bcc) (from_bits 0x3ff6a09e667f3bcd).
+
+(** [pub const TAU: Self = const_interval!(6.283185307179586, 6.283185307179587)] *)
+Definition TAU : Interval :=
+  const_interval (from_bits 0x401921fb54442d18) (from_bits 0x401921fb54442d19).
 
 (** [pub(crate) fn with_infsup_raw(a: f64, b: f64) -> Self] *)
 Definition with_infsup_raw (a b : f64) : Interval :=
@@ -2347,6 +2434,31 @@ Definition ENTIRE : DecInterval := new_unchecked Interval.ENTIRE Dac.
     [const_interval!(a, b)] for two float literals [a] and [b]. *)
 Definition def_com (a b : f64) : DecInterval :=
   new_unchecked (Interval.const_interval a b) Com.
+
+(** [def_com!(E)] to [def_com!(TAU)] in [src/constants.rs]:
+    [pub const C: Self = Self::new_unchecked(Interval::C, Decoration::Com)]
+    for each constant [C] of [Interval] other than [EMPTY] and [ENTIRE].
+    Each is [def_com a b], up to unfolding, where [Interval.C] is
+    [const_interval a b]. *)
+Definition E : DecInterval := new_unchecked Interval.E Com.
+Definition FRAC_1_PI : DecInterval := new_unchecked Interval.FRAC_1_PI Com.
+Definition FRAC_1_SQRT_2 : DecInterval := new_unchecked Interval.FRAC_1_SQRT_2 Com.
+Definition FRAC_2_PI : DecInterval := new_unchecked Interval.FRAC_2_PI Com.
+Definition FRAC_2_SQRT_PI : DecInterval := new_unchecked Interval.FRAC_2_SQRT_PI Com.
+Definition FRAC_PI_2 : DecInterval := new_unchecked Interval.FRAC_PI_2 Com.
+Definition FRAC_PI_3 : DecInterval := new_unchecked Interval.FRAC_PI_3 Com.
+Definition FRAC_PI_4 : DecInterval := new_unchecked Interval.FRAC_PI_4 Com.
+Definition FRAC_PI_6 : DecInterval := new_unchecked Interval.FRAC_PI_6 Com.
+Definition FRAC_PI_8 : DecInterval := new_unchecked Interval.FRAC_PI_8 Com.
+Definition LN_10 : DecInterval := new_unchecked Interval.LN_10 Com.
+Definition LN_2 : DecInterval := new_unchecked Interval.LN_2 Com.
+Definition LOG10_2 : DecInterval := new_unchecked Interval.LOG10_2 Com.
+Definition LOG10_E : DecInterval := new_unchecked Interval.LOG10_E Com.
+Definition LOG2_10 : DecInterval := new_unchecked Interval.LOG2_10 Com.
+Definition LOG2_E : DecInterval := new_unchecked Interval.LOG2_E Com.
+Definition PI : DecInterval := new_unchecked Interval.PI Com.
+Definition SQRT_2 : DecInterval := new_unchecked Interval.SQRT_2 Com.
+Definition TAU : DecInterval := new_unchecked Interval.TAU Com.
 
 (** [pub fn convex_hull(self, rhs: Self) -> Self] and
     [pub fn intersection(self, rhs: Self) -> Self], which [impl_dec!] in

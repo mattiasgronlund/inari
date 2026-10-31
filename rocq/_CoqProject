@@ -125,6 +125,12 @@ theories/ParseRound.v
 theories/ParseHull.v
 theories/ParseExact.v
 theories/ParseDec.v
+theories/ConstTight.v
+theories/ExpSeries.v
+theories/ConstPi.v
+theories/ConstInv.v
+theories/ConstLn.v
+theories/ConstLog.v
 theories/ValidMake.v
 theories/ValidSetOp.v
 theories/ValidOps.v
