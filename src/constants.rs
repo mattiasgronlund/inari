@@ -93,11 +93,13 @@ impl Interval {
     pub const TAU: Self = const_interval!(6.283185307179586, 6.283185307179587);
 }
 
-// `rocq/theories/Model.v` transcribes this macro for the proof that every `DecInterval` is
-// `com` only if its interval is common (`rocq/theories/ComCommon.v`), which needs the
-// bounds of `Interval::$c` to be finite, and for the proof that every `Interval` that the
-// constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`), which
-// needs them to pass the assertion in `const_interval!`, as they do because it compiles.
+// `rocq/theories/Model.v` transcribes this macro, and its assertion as `def_com_ok`, for the
+// proof that every `DecInterval` is `com` only if its interval is common
+// (`rocq/theories/ComCommon.v`), which needs the bounds of `Interval::$c` to be finite,
+// and for the proof that every `Interval` that the constructors and the proved operations
+// make is `valid` (`rocq/theories/Valid.v`), which needs them to pass the assertion in
+// `const_interval!`. Its own assertion makes a use compile only if both hold
+// (`def_com_ok_bounds` in `ComCommon.v`), so `Model.v` has to be updated along with it.
 // It also transcribes each use of it below, from `def_com!(E)` to `def_com!(TAU)`, for the
 // proofs that these constants are the tightest intervals around their values
 // (`rocq/theories/ConstPi.v`, `ConstInv.v`, `ConstLn.v` and `ConstLog.v`), which show it
@@ -105,7 +107,18 @@ impl Interval {
 macro_rules! def_com {
     ($c:ident) => {
         #[doc = concat!("[`Interval::", stringify!($c), "`] decorated with [`Decoration::Com`].")]
-        pub const $c: Self = Self::new_unchecked(Interval::$c, Decoration::Com);
+        pub const $c: Self = {
+            // An interval [a, b] is stored as [-a; b]. This fails to compile unless
+            // -∞ < a <= b < +∞, so that both bounds are finite, which also rules out the
+            // empty interval [NaN; NaN], as a comparison with NaN is false. The assertion is
+            // in a `const` item, which is evaluated even if nothing uses it, rather than in
+            // the body of `$c`, as an associated constant is evaluated only where it is used.
+            const _: () = {
+                let [na, b] = unsafe { transmute::<Interval, [f64; 2]>(Interval::$c) };
+                assert!(f64::NEG_INFINITY < -na && -na <= b && b < f64::INFINITY);
+            };
+            Self::new_unchecked(Interval::$c, Decoration::Com)
+        };
     };
 }
 

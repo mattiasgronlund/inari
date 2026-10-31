@@ -185,6 +185,7 @@ Print Assumptions new_com_common.
 Print Assumptions set_dec_com_common.
 Print Assumptions constants_com_common.
 Print Assumptions def_com_com_common.
+Print Assumptions def_com_ok_bounds.
 Print Assumptions set_op_com_common.
 Print Assumptions try_from_bytes_com_common.
 Print Assumptions const_dec_interval_com_common.

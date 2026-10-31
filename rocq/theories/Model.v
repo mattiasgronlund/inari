@@ -2489,14 +2489,26 @@ Definition ENTIRE : DecInterval := new_unchecked Interval.ENTIRE Dac.
 
 (** A constant that [def_com!(C)] in [src/constants.rs] defines,
     [new_unchecked(Interval::C, Decoration::Com)], where [Interval::C] is
-    [const_interval!(a, b)] for two float literals [a] and [b]. *)
+    [const_interval!(a, b)] for two float literals [a] and [b]. Whatever
+    made [Interval::C], [def_com!(C)] compiles only if it passes the
+    assertion [def_com_ok] below, and then it is [const_interval a b] for
+    finite floats [a] and [b] ([def_com_ok_bounds] in [ComCommon.v]). *)
 Definition def_com (a b : f64) : DecInterval :=
   new_unchecked (Interval.const_interval a b) Com.
 
+(** [f64::NEG_INFINITY < -na && -na <= b && b < f64::INFINITY] for the
+    lanes [[na; b]] of [Interval::C], which [def_com!(C)] [transmute]s into
+    an array and asserts in a [const], so that it does not compile unless
+    this is [true]. Its [&&] gives the same value as Rocq's. *)
+Definition def_com_ok (x : Interval) : bool :=
+  let (na, b) := rep x in
+  lt (B754_infinity true) (opp na) && le (opp na) b && lt b (B754_infinity false).
+
 (** [def_com!(E)] to [def_com!(TAU)] in [src/constants.rs]:
-    [pub const C: Self = Self::new_unchecked(Interval::C, Decoration::Com)]
-    for each constant [C] of [Interval] other than [EMPTY] and [ENTIRE].
-    Each is [def_com a b], up to unfolding, where [Interval.C] is
+    [pub const C: Self = { const _: () = { ... }; Self::new_unchecked(Interval::C, Decoration::Com) }]
+    for each constant [C] of [Interval] other than [EMPTY] and [ENTIRE],
+    where the [const] item asserts [def_com_ok Interval.C] and makes no
+    interval. Each is [def_com a b], up to unfolding, where [Interval.C] is
     [const_interval a b]. *)
 Definition E : DecInterval := new_unchecked Interval.E Com.
 Definition FRAC_1_PI : DecInterval := new_unchecked Interval.FRAC_1_PI Com.

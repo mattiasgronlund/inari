@@ -186,7 +186,8 @@ com-unchecked src/classify.rs: // `transmute` gets the discriminant of a variant
 com-unchecked src/classify.rs: unsafe { transmute(((self.classify() as u8) << 4) | rhs.classify() as u8) }
 com-unchecked src/classify.rs: unsafe { transmute((le_zero << 2) | ge_zero) }
 com-unchecked src/classify.rs: use std::mem::transmute;
-com-unchecked src/constants.rs: pub const $c: Self = Self::new_unchecked(Interval::$c, Decoration::Com);
+com-unchecked src/constants.rs: Self::new_unchecked(Interval::$c, Decoration::Com)
+com-unchecked src/constants.rs: let [na, b] = unsafe { transmute::<Interval, [f64; 2]>(Interval::$c) };
 com-unchecked src/constants.rs: pub const EMPTY: Self = Self::new_unchecked(Interval::EMPTY, Decoration::Trv);
 com-unchecked src/constants.rs: pub const EMPTY: Self = unsafe { transmute([f64::NAN, f64::NAN]) };
 com-unchecked src/constants.rs: pub const ENTIRE: Self = Self::new_unchecked(Interval::ENTIRE, Decoration::Dac);
@@ -239,6 +240,7 @@ valid-raw src/classify.rs: // `transmute` gets the discriminant of a variant whe
 valid-raw src/classify.rs: unsafe { transmute(((self.classify() as u8) << 4) | rhs.classify() as u8) }
 valid-raw src/classify.rs: unsafe { transmute((le_zero << 2) | ge_zero) }
 valid-raw src/classify.rs: use std::mem::transmute;
+valid-raw src/constants.rs: let [na, b] = unsafe { transmute::<Interval, [f64; 2]>(Interval::$c) };
 valid-raw src/constants.rs: pub const EMPTY: Self = unsafe { transmute([f64::NAN, f64::NAN]) };
 valid-raw src/constants.rs: use std::mem::transmute;
 valid-raw src/elementary.rs: && (Interval::with_infsup_raw(b, b) / c).inf_raw().floor() == qb

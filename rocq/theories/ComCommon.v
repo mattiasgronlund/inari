@@ -19,7 +19,8 @@
     - [DecInterval::set_dec] ([set_dec_com_common]), for any interval and
       decoration, so for every caller, such as [x * y];
     - the constants [EMPTY], [NAI] and [ENTIRE] ([constants_com_common]),
-      and those that [def_com!] defines ([def_com_com_common]);
+      and those that [def_com!] defines ([def_com_com_common], with
+      [def_com_ok_bounds] for its hypotheses);
     - [convex_hull] and [intersection] ([set_op_com_common]);
     - [try_from_be_bytes], [try_from_le_bytes] and [try_from_ne_bytes]
       ([try_from_bytes_com_common]);
@@ -90,8 +91,8 @@ repeat split; apply new_unchecked_com_common; discriminate.
 Qed.
 
 (** A constant that [def_com!] decorates [com] is common if its bounds are
-    finite, which they are: each is a decimal literal between 0.3 and 6.3,
-    which Rust rounds to a finite float. *)
+    finite, which they are, as the assertion in [def_com!] implies
+    ([def_com_ok_bounds] below). *)
 Theorem def_com_com_common :
   forall a b, is_finite a = true -> is_finite b = true ->
   com_common (DecInterval.def_com a b).
@@ -100,6 +101,28 @@ intros a b Ha Hb _. unfold DecInterval.def_com. cbn [itv DecInterval.new_uncheck
 rewrite is_common_interval_lt, infinity_eq. cbn [Interval.const_interval rep fst snd].
 destruct a as [[|]|[|]| |sa ma ea Ea], b as [[|]|[|]| |sb mb eb Eb];
   try discriminate; reflexivity.
+Qed.
+
+(** [def_com!(C)] compiles only if [Interval::C] passes its assertion
+    [def_com_ok], and then [Interval::C] is [const_interval a b] for finite
+    floats [a <= b], so that
+    [new_unchecked(Interval::C, Decoration::Com)] is [def_com a b] with the
+    hypotheses of [def_com_com_common] and of [dmade_def_com] in
+    [Valid.v]. *)
+Theorem def_com_ok_bounds :
+  forall x, DecInterval.def_com_ok x = true ->
+  exists a b, x = Interval.const_interval a b /\
+    is_finite a = true /\ is_finite b = true /\
+    Interval.const_interval_ok a b = true.
+Proof.
+intros [[na b]] H. unfold DecInterval.def_com_ok in H. cbn [rep] in H.
+exists (opp na), b. split.
+{ unfold Interval.const_interval, opp. now rewrite Bopp_involutive. }
+generalize (opp na) H. clear na H. intros a H.
+apply andb_prop in H as [H Hb]. apply andb_prop in H as [Ha Hab].
+unfold Interval.const_interval_ok. rewrite Hab.
+destruct a as [[|]|[|]| |sa ma ea Ea], b as [[|]|[|]| |sb mb eb Eb];
+  try discriminate; repeat split; reflexivity.
 Qed.
 
 (** [convex_hull] and [intersection] of [DecInterval]s are [trv] or
