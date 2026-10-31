@@ -69,7 +69,13 @@ pub struct Interval {
     // `(Dec)Interval::mul_add`, `(Dec)Interval::mul_rev_to_pair`, `(Dec)Interval::neg`,
     // `(Dec)Interval::recip`, `(Dec)Interval::round`, `(Dec)Interval::round_ties_even`,
     // `(Dec)Interval::sign`, `(Dec)Interval::sqr`, `(Dec)Interval::sqrt`,
-    // `(Dec)Interval::sub` and `(Dec)Interval::trunc`.
+    // `(Dec)Interval::sub` and `(Dec)Interval::trunc`, of the functions of
+    // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
+    // `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
+    // `rocq/theories/Sin.v`, `rocq/theories/Tan.v`, `rocq/theories/Pow.v`,
+    // `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, and of the conversions of
+    // `src/parse.rs` in `rocq/theories/ParseHull.v`, `rocq/theories/ParseExact.v` and
+    // `rocq/theories/ParseDec.v`.
     // `rocq/theories/Valid.v` proves that every `Interval` that the constructors and the
     // proved operations make is `valid`, and it relies on no code assigning to `rep`.
     pub(crate) rep: F64X2,
@@ -119,8 +125,10 @@ impl Interval {
         // `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
         // `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v`,
         // `rocq/theories/Tan.v`, `rocq/theories/Pow.v`, `rocq/theories/Powi.v` and
-        // `rocq/theories/Atan2.v`, for the proof that every `DecInterval` is `com` only if its
-        // interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
+        // `rocq/theories/Atan2.v`, of the conversions of `src/parse.rs` in
+        // `rocq/theories/ParseHull.v`, `rocq/theories/ParseExact.v` and
+        // `rocq/theories/ParseDec.v`, for the proof that every `DecInterval` is `com` only if
+        // its interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
         // `Interval` that the constructors and the proved operations make is `valid`
         // (`rocq/theories/Valid.v`).
         Self {
@@ -157,8 +165,10 @@ impl TryFrom<(f64, f64)> for Interval {
     type Error = IntervalError;
 
     fn try_from((a, b): (f64, f64)) -> Result<Self> {
-        // `rocq/theories/Model.v` transcribes this function for the proof that every
-        // `Interval` that the constructors and the proved operations make is `valid`
+        // `rocq/theories/Model.v` transcribes this function for the proofs of the
+        // conversions of `src/parse.rs` in `rocq/theories/ParseHull.v`,
+        // `rocq/theories/ParseExact.v` and `rocq/theories/ParseDec.v`, and for the proof that
+        // every `Interval` that the constructors and the proved operations make is `valid`
         // (`rocq/theories/Valid.v`), so it has to be updated along with it.
         if a <= b && a != f64::INFINITY && b != f64::NEG_INFINITY {
             Ok(Self::with_infsup_raw(a, b))
@@ -186,10 +196,10 @@ pub enum Decoration {
     // `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
     // `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v`,
     // `rocq/theories/Tan.v`, `rocq/theories/Pow.v`, `rocq/theories/Powi.v` and
-    // `rocq/theories/Atan2.v`, for the proof that every `DecInterval` is `com` only if its
-    // interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
-    // `Interval` that the constructors and the proved operations make is `valid`
-    // (`rocq/theories/Valid.v`).
+    // `rocq/theories/Atan2.v`, of `From<DecNInterval>` in `rocq/theories/ParseDec.v`, for
+    // the proof that every `DecInterval` is `com` only if its interval is common
+    // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
+    // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
     /// The “ill-formed” decoration.
     Ill = 0,
     /// The “trivial” decoration.
@@ -240,7 +250,8 @@ impl DecInterval {
     /// | Unbounded            | [`Decoration::Dac`] |
     /// | Empty                | [`Decoration::Trv`] |
     pub fn new(x: Interval) -> Self {
-        // `rocq/theories/Model.v` transcribes this function for the proof that every
+        // `rocq/theories/Model.v` transcribes this function for `from_ninterval_new` in
+        // `rocq/theories/ParseDec.v`, for the proof that every
         // `DecInterval` is `com` only if its interval is common
         // (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
         // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`),
@@ -278,10 +289,11 @@ impl DecInterval {
         // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
         // `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
         // `rocq/theories/Sin.v`, `rocq/theories/Tan.v`, `rocq/theories/Pow.v`,
-        // `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, for the proof that every
-        // `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`),
-        // and for the proof that every `Interval` that the constructors and the proved
-        // operations make is `valid` (`rocq/theories/Valid.v`).
+        // `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, of `From<DecNInterval>` in
+        // `rocq/theories/ParseDec.v`, for the proof that every `DecInterval` is `com` only if
+        // its interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`).
         use Decoration::*;
 
         if d == Ill {

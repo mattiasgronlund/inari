@@ -37,7 +37,10 @@
     hypotheses of [Mpfr.v]: [range_ok], [get_d_ok], and the function's own
     hypothesis, such as [exp_ok]. Those of [powi] also assume that the
     exponent is an [i32] ([is_i32] in [Model.v]), and those of [tan] that
-    π is irrational ([pi_irrational] in [Elementary.v]). *)
+    π is irrational ([pi_irrational] in [Elementary.v]). Those of
+    [try_from_ninterval_exact] and [From<DecNInterval>] hold for any MPFR
+    [m], as any floats that MPFR returns for the bounds make a [valid]
+    interval. *)
 
 From Inari Require Import Model Elementary Mpfr ValidMake ValidSetOp ValidOps
   ValidDecOps ValidElem.
@@ -53,7 +56,7 @@ Inductive made : Interval -> Prop :=
   | made_try_from_bytes :
       forall a b x, Interval.try_from_bytes a b = Some x -> made x
   | made_try_from_ninterval_exact :
-      forall a b i x, Interval.try_from_ninterval_exact a b i = Some x -> made x
+      forall m x y, Interval.try_from_ninterval_exact m x = Some y -> made y
   | made_itv : forall d, dmade d -> made (itv d)
   | made_abs : forall x y, made x -> Interval.abs x = Some y -> made y
   | made_ceil : forall x, made x -> made (Interval.ceil x)
@@ -188,7 +191,7 @@ with dmade : DecInterval -> Prop :=
   | dmade_try_from_bytes :
       forall a b c z, DecInterval.try_from_bytes a b c = Some z -> dmade z
   | dmade_from_dec_ninterval :
-      forall a b o d, dmade (DecInterval.from_dec_ninterval a b o d)
+      forall m x, dmade (DecInterval.from_dec_ninterval m x)
   | dmade_abs : forall x z, dmade x -> DecInterval.abs x = Some z -> dmade z
   | dmade_ceil : forall x, dmade x -> dmade (DecInterval.ceil x)
   | dmade_floor : forall x, dmade x -> dmade (DecInterval.floor x)

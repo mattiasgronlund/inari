@@ -120,6 +120,11 @@ theories/Atan2Right.v
 theories/Atan2Lower.v
 theories/Atan2Left.v
 theories/Atan2.v
+theories/ParseFormat.v
+theories/ParseRound.v
+theories/ParseHull.v
+theories/ParseExact.v
+theories/ParseDec.v
 theories/ValidMake.v
 theories/ValidSetOp.v
 theories/ValidOps.v

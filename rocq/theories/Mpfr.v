@@ -1,7 +1,8 @@
 (** * What the theorems assume of MPFR
 
-    [Model.v] leaves the MPFR functions that [src/elementary.rs] calls
-    abstract, as the fields of a record [m : mpfr]. This file states what
+    [Model.v] leaves the MPFR functions that [src/elementary.rs] and
+    [src/parse.rs] call abstract, as the fields of a record [m : mpfr].
+    This file states what
     the theorems assume of them: what the MPFR manual documents. Like
     [Model.v] and [Ieee1788.v], it has to be checked by reading, against
     the MPFR manual: its sections on rounding, on the exponent range, on
@@ -10,11 +11,14 @@
     each function for finite arguments in its domain, and only the special
     values that the Rust code passes.
 
-    MPFR's exponent range, [emin] and [emax], is global state that the
-    Rust code does not set. The theorems hold for every range that
-    contains that of [f64] ([range_ok]), as MPFR's default range does. *)
+    MPFR's exponent range, [emin] and [emax], is global state that
+    [src/elementary.rs] does not set. The theorems about its functions
+    hold for every range that contains that of [f64] ([range_ok]), as
+    MPFR's default range does. [rational_to_f64] in [src/parse.rs] sets the
+    range around its calls, and the hypotheses about them, in the last
+    section, are stated at the range that it sets. *)
 
-From Stdlib Require Import ZArith Reals.
+From Stdlib Require Import ZArith Reals Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Elementary.
 
@@ -271,3 +275,60 @@ Definition tanh_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct emin emax real_dom tanh (mpfr_tanh m) /\
   mpfr_tanh m RNDD (MInf true) = MNum (-1) /\
   mpfr_tanh m RNDU (MInf false) = MNum 1.
+
+(** ** The conversions of [src/parse.rs]
+
+    [rational_to_f64] sets MPFR's exponent range to [emin = -1073] and
+    [emax = 1024] around its calls to [mpfr_set_q], [mpfr_subnormalize]
+    and [mpfr_get_d], the range of the example in §5.13 of the MPFR
+    manual, after the entry of [mpfr_subnormalize], of how to emulate
+    IEEE 754 binary64 arithmetic with MPFR. *)
+
+(** The ternary value [t] of an MPFR result [v] for the exact result [r]
+    (§4.4 "Rounding"): 0 if [v] is [r], positive if [v] is above [r], and
+    negative if below. An infinity is above or below every real, so its
+    ternary value is not 0 here, as for an infinity that a function
+    returns by overflow, and no NaN is the result for a real. *)
+Definition ternary_ok (r : R) (v : mpfr_t) (t : Z) : Prop :=
+  match v with
+  | MNaN => False
+  | MInf s => if s then (t < 0)%Z else (0 < t)%Z
+  | MZero _ => ((t < 0)%Z <-> 0 < r) /\ (t = 0%Z <-> r = 0)
+  | MNum y => ((t < 0)%Z <-> y < r) /\ (t = 0%Z <-> y = r)
+  end.
+
+(** [mpfr_set_q] (§5.2 "Assignment Functions"): the rational [q] rounded
+    in the direction [rnd] to an MPFR number of 53 bits, and its ternary
+    value. The entry says that [mpfr_set_q] might fail if the numerator or
+    the denominator of [q] cannot be represented as an [mpfr_t], which this
+    leaves out: it assumes the rounding for every [q]. *)
+Definition set_q_ok (emin emax : Z) (m : mpfr) : Prop :=
+  forall rnd q,
+  mpfr_round (mpfr_format emin emax) rnd (Q2R q) (fst (mpfr_set_q m emin emax rnd q)) /\
+  ternary_ok (Q2R q) (fst (mpfr_set_q m emin emax rnd q))
+    (snd (mpfr_set_q m emin emax rnd q)).
+
+(** The reals that [mpfr_subnormalize] rounds to: the MPFR numbers of 53
+    bits that are integer multiples of [2^(emin - 1)]. That is all of
+    those whose MPFR exponent [e] is at least [emin + 52], and below that,
+    in what the manual calls the subnormal exponent range, those with
+    [e - emin + 1] bits. *)
+Definition sub_format (emin emax : Z) (y : R) : Prop :=
+  mpfr_format emin emax y /\ generic_format radix2 (FLT_exp (emin - 1) 53) y.
+
+(** [mpfr_subnormalize] (§5.13 "Exception Related Functions"): if [x] is
+    the real [r] rounded in the direction [rnd] to an MPFR number of 53
+    bits, with the ternary value [t], it rounds [r] in the direction [rnd]
+    to [sub_format], and returns the ternary value of that against [r],
+    not against [x], as the manual says. *)
+Definition subnormalize_ok (emin emax : Z) (m : mpfr) : Prop :=
+  forall rnd r x t,
+  mpfr_round (mpfr_format emin emax) rnd r x -> ternary_ok r x t ->
+  mpfr_round (sub_format emin emax) rnd r (fst (mpfr_subnormalize m emin emax rnd x t)) /\
+  ternary_ok r (fst (mpfr_subnormalize m emin emax rnd x t))
+    (snd (mpfr_subnormalize m emin emax rnd x t)).
+
+(** What the theorems about [rational_to_f64] assume of MPFR: [set_q_ok],
+    [subnormalize_ok] and [get_d_ok] at the exponent range that it sets. *)
+Definition parse_ok (m : mpfr) : Prop :=
+  set_q_ok (-1073) 1024 m /\ subnormalize_ok (-1073) 1024 m /\ get_d_ok (-1073) 1024 m.

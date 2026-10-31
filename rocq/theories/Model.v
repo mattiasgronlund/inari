@@ -52,7 +52,7 @@
     it may make, and returns [None] if it would make more. If it returns
     [Some r] for any number, the Rust function returns [r]. *)
 
-From Stdlib Require Import ZArith Rdefinitions.
+From Stdlib Require Import ZArith Rdefinitions QArith_base.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Flocq Require IEEE754.Binary IEEE754.Bits.
 
@@ -798,12 +798,14 @@ End Generic.
 (** ** MPFR
 
     [src/elementary.rs] computes the bounds of [exp] and the other
-    elementary functions with MPFR, through [rug] and [gmp_mpfr_sys]. The
-    model leaves MPFR's functions abstract: an MPFR number is an [mpfr_t],
-    and the MPFR functions that [elementary.rs] calls are the fields of a
-    record [mpfr], which the elementary functions below take as their first
-    argument [m]. [Mpfr.v] states what the MPFR manual says of them, and
-    the theorems about these functions assume it. *)
+    elementary functions with MPFR, through [rug] and [gmp_mpfr_sys], and
+    [src/parse.rs] rounds the bounds of an interval literal to [f64]s with
+    it. The model leaves MPFR's functions abstract: an MPFR number is an
+    [mpfr_t], and the MPFR functions that [elementary.rs] and [parse.rs]
+    call are the fields of a record [mpfr], which the elementary functions
+    and the conversions of [parse.rs] below take as their first argument
+    [m]. [Mpfr.v] states what the MPFR manual says of them, and the
+    theorems about these functions assume it. *)
 
 (** [mpfr::rnd_t::RNDD] and [mpfr::rnd_t::RNDU], rounding toward -inf and
     toward +inf. *)
@@ -843,7 +845,20 @@ Definition with_val (x : f64) : mpfr_t :=
     [mpfr::pow(x.as_raw_mut(), x.as_raw(), y.as_raw(), rnd)] to
     [mpfr_pow rnd x y], and
     [mpfr::pow_si(x.as_raw_mut(), x.as_raw(), n, rnd)] to
-    [mpfr_pow_si rnd x n]. *)
+    [mpfr_pow_si rnd x n].
+
+    The last two fields are the MPFR functions that [rational_to_f64] in
+    [src/parse.rs] calls, which return the ternary value as well, an
+    integer here: [mpfr::set_q(f.as_raw_mut(), r.as_raw(), rnd)] sets the
+    MPFR number [f] of 53 bits to [fst (mpfr_set_q emin emax rnd r)] for
+    the rational [r] and returns [snd (mpfr_set_q emin emax rnd r)], and
+    [mpfr::subnormalize(f.as_raw_mut(), t, rnd)] sets [f] to
+    [fst (mpfr_subnormalize emin emax rnd f t)] and returns
+    [snd (mpfr_subnormalize emin emax rnd f t)]. Their first two arguments
+    are MPFR's exponent range, [emin] and [emax], during the call, which
+    [rational_to_f64] sets around them. The other fields do not take it, as
+    [src/elementary.rs] does not set it, and [Mpfr.v] states what it
+    assumes of them for any range that contains that of [f64]. *)
 Record mpfr : Type := {
   mpfr_get_d : mpfr_rnd -> mpfr_t -> f64;
   mpfr_acos : mpfr_rnd -> mpfr_t -> mpfr_t;
@@ -866,7 +881,9 @@ Record mpfr : Type := {
   mpfr_sin : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_sinh : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_tan : mpfr_rnd -> mpfr_t -> mpfr_t;
-  mpfr_tanh : mpfr_rnd -> mpfr_t -> mpfr_t
+  mpfr_tanh : mpfr_rnd -> mpfr_t -> mpfr_t;
+  mpfr_set_q : Z -> Z -> mpfr_rnd -> Q -> mpfr_t * Z;
+  mpfr_subnormalize : Z -> Z -> mpfr_rnd -> mpfr_t -> Z -> mpfr_t * Z
 }.
 
 (** The body [mpfr_fn!($mpfr_f(x, rnd))] of the functions that [mpfr_fn!]
@@ -1004,7 +1021,10 @@ Definition rem_euclid_2 (x : f64) : f64 :=
     [try_from_be_bytes] and its siblings of [Interval], [convex_hull] and
     [intersection] of [Interval], and the conversions in [src/parse.rs]
     that [FromStr] and [interval_exact!] call. [convex_hull] and
-    [intersection] call the backend's [max] and [min]. *)
+    [intersection] call the backend's [max] and [min]. The conversions in
+    [parse.rs] round the bounds of an interval literal with MPFR, in
+    [number_to_f64] and [rational_to_f64], which [Parse*.v] prove correct
+    given the MPFR hypotheses of [Mpfr.v]. *)
 
 (** [pub struct Interval], whose only field is [rep: F64X2]. *)
 Record Interval : Type := { rep : Generic.F64X2 }.
@@ -1102,6 +1122,129 @@ Definition transmute_class2 (c : Z) : option (IntervalClass * IntervalClass) :=
   let* y := transmute_class (c mod 16) in
   Some (x, y).
 
+(** The types and functions of [src/parse.rs] that turn the bounds of an
+    interval literal into [f64]s. The [nom] grammar of [parse.rs], which
+    reads the literal and computes its bounds as exact rationals, is not
+    modelled. Rust's [Rational], an exact GMP rational, is Stdlib's [Q]
+    here. A [Q] need not be in lowest terms, as a [Rational] is, but the
+    definitions below and [Mpfr.v] look at a [Q] only through its value. *)
+
+(** [enum InfSup { Inf, Sup }], which says whether a bound is the lower or
+    the upper one, and its [fn as_rnd_t(self) -> mpfr::rnd_t]. *)
+Inductive InfSup : Type := Inf | Sup.
+
+Definition as_rnd_t (infsup : InfSup) : mpfr_rnd :=
+  match infsup with Inf => RNDD | Sup => RNDU end.
+
+(** [enum Number { NegInfinity, Rational(Rational), Infinity }], and
+    [fn neg(self) -> Self] of [impl Neg for Number]. *)
+Inductive Number : Type := NegInfinity | Rational (r : Q) | Infinity.
+
+Definition number_neg (n : Number) : Number :=
+  match n with
+  | NegInfinity => Infinity
+  | Rational r => Rational (Qopp r)
+  | Infinity => NegInfinity
+  end.
+
+(** [a <= b] for [Number]s, by the derived [PartialOrd], which compares
+    the variants in the order of their declaration, and two [Rational]s by
+    their values. *)
+Definition number_le (a b : Number) : Prop :=
+  match a, b with
+  | NegInfinity, _ => True
+  | Rational p, Rational q => Qle p q
+  | Rational _, Infinity => True
+  | Infinity, Infinity => True
+  | _, _ => False
+  end.
+
+(** [enum NInterval { InfSup(Number, Number), Point(Number) }], with the
+    variants as [NInfSup] and [NPoint], as [InfSup] is the type above, and
+    its [fn inf(&self) -> &Number], [fn sup(&self) -> &Number] and
+    [fn is_common_interval(&self) -> bool]. *)
+Inductive NInterval : Type := NInfSup (a b : Number) | NPoint (a : Number).
+
+Definition ninf (x : NInterval) : Number :=
+  match x with NInfSup a _ => a | NPoint a => a end.
+
+Definition nsup (x : NInterval) : Number :=
+  match x with NInfSup _ b => b | NPoint a => a end.
+
+Definition nis_common_interval (x : NInterval) : bool :=
+  match ninf x, nsup x with Rational _, Rational _ => true | _, _ => false end.
+
+(** [x == NInterval::EMPTY], by the derived [PartialEq], where
+    [NInterval::EMPTY] is [Self::InfSup(Number::Infinity, Number::NegInfinity)]. *)
+Definition nis_empty (x : NInterval) : bool :=
+  match x with NInfSup Infinity NegInfinity => true | _ => false end.
+
+(** What the grammar guarantees of the [NInterval]s that it returns,
+    which is not proved: [x] is [NInterval::EMPTY], or its lower bound is
+    at most its upper bound, the lower bound is not [Infinity] and the
+    upper bound is not [NegInfinity]. [infsup_interval] tests the latter
+    before it returns [InfSup(a, b)], and the other rules return
+    [NInterval::EMPTY], [NInterval::ENTIRE], a [Point] of a [Rational], or,
+    in [uncertain_interval], bounds that are [center - radius] or [center],
+    and [center + radius] or [center], for a radius that is not negative,
+    or [NegInfinity] and [Infinity]. *)
+Definition ninterval_ok (x : NInterval) : Prop :=
+  nis_empty x = true \/
+  (number_le (ninf x) (nsup x) /\ ninf x <> Infinity /\ nsup x <> NegInfinity).
+
+(** [struct DecNInterval { x: NInterval, d: Decoration }], with its fields
+    as [nx] and [nd], and its [fn new(x: NInterval) -> Self]. *)
+Record DecNInterval : Type := { nx : NInterval; nd : Decoration }.
+
+Definition dn_new (x : NInterval) : DecNInterval :=
+  let d :=
+    if nis_empty x then Trv
+    else if negb (nis_common_interval x) then Dac
+    else Com in
+  {| nx := x; nd := d |}.
+
+(** [struct F64 { f: f64, inexact: bool, overflow: bool }], with its fields
+    as [f64_f], [f64_inexact] and [f64_overflow]. *)
+Record F64 : Type := { f64_f : f64; f64_inexact : bool; f64_overflow : bool }.
+
+(** [f64::is_infinite] *)
+Definition f64_is_infinite (x : f64) : bool :=
+  match x with B754_infinity _ => true | _ => false end.
+
+(** [fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64]. [f] is
+    [Float::new(f64::MANTISSA_DIGITS)], an MPFR number of 53 bits, which
+    [mpfr::set_q] sets before anything reads it. The code saves MPFR's
+    exponent range, sets [emin] to
+    [f64::MIN_EXP - (f64::MANTISSA_DIGITS as i32) + 1], which is
+    [-1021 - 53 + 1 = -1073], and [emax] to [f64::MAX_EXP], which is
+    [1024], calls [set_q], [subnormalize] and [get_d], and restores the
+    range. The model passes that range to [mpfr_set_q] and
+    [mpfr_subnormalize], and [parse_ok] in [Mpfr.v] assumes [get_d_ok] of
+    [mpfr_get_d] at it. The save and the restore are left out: the
+    range is the same after the call as before it, which is the range that
+    [Mpfr.v] assumes for the other MPFR functions. MPFR's exponent range is
+    global state, and whether another thread can change it between these
+    calls is out of scope. [ternary_to_ordering(t) != Ordering::Equal] is
+    [t != 0], and [f.is_infinite()] is [f64_is_infinite f]. *)
+Definition rational_to_f64 (m : mpfr) (r : Q) (infsup : InfSup) : F64 :=
+  let rnd := as_rnd_t infsup in
+  let '(f, t) := mpfr_set_q m (-1073) 1024 rnd r in
+  let '(f, t) := mpfr_subnormalize m (-1073) 1024 rnd f t in
+  let f := mpfr_get_d m rnd f in
+  {| f64_f := f; f64_inexact := negb (t =? 0); f64_overflow := f64_is_infinite f |}.
+
+(** [fn number_to_f64(n: &Number, infsup: InfSup) -> F64], where
+    [f64::NEG_INFINITY] and [f64::INFINITY] are [B754_infinity true] and
+    [B754_infinity false]. *)
+Definition number_to_f64 (m : mpfr) (n : Number) (infsup : InfSup) : F64 :=
+  match n with
+  | NegInfinity =>
+      {| f64_f := B754_infinity true; f64_inexact := false; f64_overflow := false |}
+  | Rational r => rational_to_f64 m r infsup
+  | Infinity =>
+      {| f64_f := B754_infinity false; f64_inexact := false; f64_overflow := false |}
+  end.
+
 Module Interval.
 
 (** [pub const EMPTY: Self], i.e. [[NaN; NaN]]. *)
@@ -1171,15 +1314,14 @@ Definition try_from_bytes (a b : f64) : option Interval :=
   else None.
 
 (** [fn try_from_ninterval_exact(x: NInterval) -> Result<Self>] in
-    [src/parse.rs], with [Ok(x)] as [Some x] and the [Err] as [None]. [a]
-    and [b] are the floats [a.f] and [b.f] that [number_to_f64] computes
-    from the bounds of [x] with MPFR, and [inexact] is
-    [a.inexact || b.inexact]. The model takes them as arguments, and the
-    theorems hold for any. [unwrap_or(Self::EMPTY)] is the [match]. *)
-Definition try_from_ninterval_exact (a b : f64) (inexact : bool) :
+    [src/parse.rs], with [Ok(x)] as [Some x] and the [Err] as [None].
+    [unwrap_or(Self::EMPTY)] is the [match]. *)
+Definition try_from_ninterval_exact (m : mpfr) (x : NInterval) :
     option Interval :=
-  let x := match try_from a b with Some x => x | None => EMPTY end in
-  if inexact then None else Some x.
+  let a := number_to_f64 m (ninf x) Inf in
+  let b := number_to_f64 m (nsup x) Sup in
+  let x := match try_from (f64_f a) (f64_f b) with Some x => x | None => EMPTY end in
+  if f64_inexact a || f64_inexact b then None else Some x.
 
 (** [pub fn is_common_interval(self) -> bool] *)
 Definition is_common_interval (self : Interval) : bool :=
@@ -2177,20 +2319,25 @@ Definition try_from (a b : f64) : option DecInterval :=
 
 (** [fn from(DecNInterval { x, d }: DecNInterval) -> Self] of
     [impl From<DecNInterval> for DecInterval] in [src/parse.rs], which
-    [FromStr] for [DecInterval] calls. [From<NInterval> for Interval],
-    which [FromStr] for [Interval] calls, returns the [x] of its result for
-    the [d] that [DecNInterval::new] picks. [a] and [b] are the floats
-    [a.f] and [b.f] that [number_to_f64] computes from the bounds of [x]
-    with MPFR, and [overflow] is [a.overflow || b.overflow]. The model
-    takes them as arguments, and the theorems hold for any.
-    [unwrap_or(Interval::EMPTY)] is the [match], and [d.min(Decoration::Dac)]
-    is [dec_min d Dac]. *)
-Definition from_dec_ninterval (a b : f64) (overflow : bool) (d : Decoration) :
-    DecInterval :=
-  let x :=
-    match Interval.try_from a b with Some x => x | None => Interval.EMPTY end in
-  let d := if overflow then dec_min d Dac else d in
-  set_dec x d.
+    [FromStr] for [DecInterval] calls, with the argument as [x] and its
+    fields as [nx x] and [nd x]. [unwrap_or(Interval::EMPTY)] is the
+    [match], and [d.min(Decoration::Dac)] is [dec_min (nd x) Dac]. *)
+Definition from_dec_ninterval (m : mpfr) (x : DecNInterval) : DecInterval :=
+  let a := number_to_f64 m (ninf (nx x)) Inf in
+  let b := number_to_f64 m (nsup (nx x)) Sup in
+  let y :=
+    match Interval.try_from (f64_f a) (f64_f b) with
+    | Some y => y
+    | None => Interval.EMPTY
+    end in
+  let d := if f64_overflow a || f64_overflow b then dec_min (nd x) Dac else nd x in
+  set_dec y d.
+
+(** [fn from(x: NInterval) -> Self] of [impl From<NInterval> for Interval]
+    in [src/parse.rs], which [FromStr] for [Interval] calls:
+    [DecInterval::from(DecNInterval::new(x)).x]. *)
+Definition from_ninterval (m : mpfr) (x : NInterval) : Interval :=
+  itv (from_dec_ninterval m (dn_new x)).
 
 (** [pub const ENTIRE: Self] *)
 Definition ENTIRE : DecInterval := new_unchecked Interval.ENTIRE Dac.

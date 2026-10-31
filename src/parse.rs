@@ -34,6 +34,10 @@ enum InfSup {
 
 impl InfSup {
     fn as_rnd_t(self) -> mpfr::rnd_t {
+        // `rocq/theories/Model.v` transcribes this enum and this function for the proofs of
+        // the conversions of this file in `rocq/theories/ParseRound.v`,
+        // `rocq/theories/ParseHull.v`, `rocq/theories/ParseExact.v` and
+        // `rocq/theories/ParseDec.v`, so it has to be updated along with them.
         match self {
             Self::Inf => mpfr::rnd_t::RNDD,
             Self::Sup => mpfr::rnd_t::RNDU,
@@ -44,6 +48,11 @@ impl InfSup {
 /// An extended rational number.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Number {
+    // `rocq/theories/Model.v` transcribes this enum, with `Rational` as Stdlib's `Q`, and
+    // its derived `PartialOrd` for the proofs of the conversions of this file in
+    // `rocq/theories/ParseRound.v`, `rocq/theories/ParseHull.v`,
+    // `rocq/theories/ParseExact.v` and `rocq/theories/ParseDec.v`, so it has to be
+    // updated along with them.
     NegInfinity,
     Rational(Rational),
     Infinity,
@@ -53,6 +62,9 @@ impl std::ops::Neg for Number {
     type Output = Self;
 
     fn neg(self) -> Self {
+        // `rocq/theories/Model.v` transcribes this function as `number_neg`, and
+        // `number_neg_correct` in `rocq/theories/ParseRound.v` shows that it negates the
+        // reals that a bound bounds, so it has to be updated along with them.
         use Number::*;
 
         match self {
@@ -65,6 +77,10 @@ impl std::ops::Neg for Number {
 
 #[derive(Debug, Eq, PartialEq)]
 enum NInterval {
+    // `rocq/theories/Model.v` transcribes this enum, its derived `PartialEq` with `EMPTY`,
+    // and `inf`, `sup` and `is_common_interval` below for the proofs of the conversions of
+    // this file in `rocq/theories/ParseHull.v`, `rocq/theories/ParseExact.v` and
+    // `rocq/theories/ParseDec.v`, so it has to be updated along with them.
     InfSup(Number, Number),
     Point(Number),
 }
@@ -97,6 +113,10 @@ impl NInterval {
 
 #[derive(Debug, Eq, PartialEq)]
 struct DecNInterval {
+    // `rocq/theories/Model.v` transcribes this struct and `new` below for the proofs of
+    // `From<DecNInterval>` and `From<NInterval>` in `rocq/theories/ParseDec.v`, so it has
+    // to be updated along with them. `set_dec` below, which only the grammar calls, is
+    // not transcribed.
     x: NInterval,
     d: Decoration,
 }
@@ -362,6 +382,11 @@ fn infsup_interval(s: &str) -> IResult<&str, Result<NInterval>> {
         |(na, nb)| {
             let a = parse_opt_number(na, InfSup::Inf)?;
             let b = parse_opt_number(nb, InfSup::Sup)?;
+            // `ninterval_ok` in `rocq/theories/Model.v` states what this test and the other
+            // rules of the grammar guarantee of the `NInterval`s that they return. It is
+            // checked by reading, not proved, and the proofs of `From<DecNInterval>` and
+            // `From<NInterval>` in `rocq/theories/ParseHull.v` and `rocq/theories/ParseDec.v`
+            // assume it, so it has to be updated along with the grammar.
             if a <= b && a != Number::Infinity && b != Number::NegInfinity {
                 Ok(NInterval::InfSup(a, b))
             } else {
@@ -499,11 +524,21 @@ fn decorated_interval(s: &str) -> IResult<&str, Result<DecNInterval>> {
 
 #[derive(Debug)]
 struct F64 {
+    // `rocq/theories/Model.v` transcribes this struct for the proofs of the conversions of
+    // this file, so it has to be updated along with them.
     f: f64,
     inexact: bool,
     overflow: bool,
 }
 
+// Proved correct in `rocq/theories/ParseRound.v` (`rational_to_f64_correct`), assuming what
+// `rocq/theories/Mpfr.v` says of `mpfr::set_q`, `mpfr::subnormalize` and `mpfr::get_d` at
+// the exponent range that this function sets (`parse_ok`): `f` is `r` rounded toward -∞
+// for `Inf` and toward +∞ for `Sup` to an `f64`, `inexact` is false exactly when `r` is the
+// value of a finite `f64`, and `overflow` is true exactly when `f` is infinite.
+// `rocq/theories/Model.v` transcribes this function, with the MPFR functions abstract, so
+// it has to be updated along with it. MPFR's exponent range is global state, and whether
+// another thread can change it between the calls below is out of the scope of the proof.
 fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64 {
     fn ternary_to_ordering(t: i32) -> Ordering {
         t.cmp(&0)
@@ -530,6 +565,10 @@ fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64 {
     }
 }
 
+// Proved correct in `rocq/theories/ParseRound.v` (`number_to_f64_correct`), under the
+// assumptions of `rational_to_f64`: it returns `rational_to_f64` of a `Rational`, and an
+// infinity as it is, neither inexact nor overflowed. `rocq/theories/Model.v` transcribes
+// this function, so it has to be updated along with it.
 fn number_to_f64(n: &Number, infsup: InfSup) -> F64 {
     match n {
         Number::NegInfinity => F64 {
@@ -548,8 +587,13 @@ fn number_to_f64(n: &Number, infsup: InfSup) -> F64 {
 
 impl From<NInterval> for Interval {
     fn from(x: NInterval) -> Self {
-        // `rocq/theories/Model.v` transcribes this function as the `x` of
-        // `DecInterval.from_dec_ninterval` for the proof that every `Interval` that the
+        // Proved correct in `rocq/theories/ParseDec.v` (`from_ninterval_correct`) for the
+        // portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR (`parse_ok`)
+        // and that `x` is what the grammar can return (`ninterval_ok`): the tightest
+        // interval that contains the reals of `x`. `from_ninterval_new` shows that
+        // `From<DecNInterval>` of `DecNInterval::new(x)` is `DecInterval::new` of it.
+        // `rocq/theories/Model.v` transcribes this function as
+        // `DecInterval.from_ninterval`, also for the proof that every `Interval` that the
         // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`),
         // so it has to be updated along with it.
         DecInterval::from(DecNInterval::new(x)).x
@@ -558,11 +602,18 @@ impl From<NInterval> for Interval {
 
 impl From<DecNInterval> for DecInterval {
     fn from(DecNInterval { x, d }: DecNInterval) -> Self {
+        // Proved correct in `rocq/theories/ParseDec.v` (`from_dec_ninterval_correct`) for
+        // the portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR
+        // (`parse_ok`) and that `x` is what the grammar can return (`ninterval_ok`): NaI if
+        // `d` is `ill`, and otherwise the tightest interval that contains the reals of `x`,
+        // decorated `trv` if `x` has none, and otherwise `d`, but `dac` in place of `com`
+        // if the result is not common, as IEEE 1788's textToInterval asks.
+        // `from_dec_ninterval_overflow` shows that for a common `x` and a `d` other than
+        // `ill`, the result is not common exactly when a bound overflowed.
         // `rocq/theories/Model.v` transcribes this function as
-        // `DecInterval.from_dec_ninterval` for the proof that every `Interval` that the
-        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`),
-        // so it has to be updated along with it. The transcription takes the floats that
-        // `number_to_f64` computes with MPFR as arguments, and the proof holds for any.
+        // `DecInterval.from_dec_ninterval`, also for the proof that every `Interval` that
+        // the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`), so it has to be updated along with it.
         let a = number_to_f64(x.inf(), InfSup::Inf);
         let b = number_to_f64(x.sup(), InfSup::Sup);
         // The empty interval cannot be constructed with `Interval::try_from`.
@@ -611,11 +662,14 @@ impl FromStr for DecInterval {
 
 impl Interval {
     fn try_from_ninterval_exact(x: NInterval) -> Result<Self> {
-        // `rocq/theories/Model.v` transcribes this function for the proof that every
-        // `Interval` that the constructors and the proved operations make is `valid`
-        // (`rocq/theories/Valid.v`), so it has to be updated along with it. The
-        // transcription takes the floats that `number_to_f64` computes with MPFR as
-        // arguments, and the proof holds for any.
+        // Proved correct in `rocq/theories/ParseExact.v` (`try_from_ninterval_exact_correct`)
+        // for the portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR
+        // (`parse_ok`), for any `x`: `Ok` exactly when each bound of `x` is an infinity or
+        // the value of a finite `f64`, and then of the interval that holds exactly the reals
+        // of `x`, which is the tightest one, and `Err` otherwise. `rocq/theories/Model.v`
+        // transcribes this function, also for the proof that every `Interval` that the
+        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`),
+        // so it has to be updated along with it.
         let a = number_to_f64(x.inf(), InfSup::Inf);
         let b = number_to_f64(x.sup(), InfSup::Sup);
         let x = Self::try_from((a.f, b.f)).unwrap_or(Self::EMPTY);

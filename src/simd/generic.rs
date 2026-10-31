@@ -93,8 +93,9 @@ pub(crate) fn add_ru(x: F64X2, y: F64X2) -> F64X2 {
 // `rocq/theories/Tan.v`, `rocq/theories/Pow.v`, `rocq/theories/Powi.v` and
 // `rocq/theories/Atan2.v`, and of `Interval::acos`, `Interval::acosh`, `Interval::asin`,
 // `Interval::atanh`, `Interval::ln`, `Interval::log10`, `Interval::log2` and
-// `Interval::pow`, for the proof that every `DecInterval` is `com` only if its interval is
-// common (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
+// `Interval::pow`, of `From<DecNInterval>` in `rocq/theories/ParseDec.v`, for the proof
+// that every `DecInterval` is `com` only if its interval is common
+// (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
 // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
 pub(crate) fn all(x: F64X2) -> bool {
     bitmask(x) == 3
@@ -142,10 +143,12 @@ pub(crate) fn ceil(x: F64X2) -> F64X2 {
 // and of the functions of `src/elementary.rs` in `rocq/theories/Elem.v`,
 // `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`,
 // `rocq/theories/Cos.v`, `rocq/theories/Sin.v`, `rocq/theories/Tan.v`,
-// `rocq/theories/Pow.v`, `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, for the proof
-// that every `DecInterval` is `com` only if its interval is common
-// (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
-// constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
+// `rocq/theories/Pow.v`, `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, of the
+// conversions of `src/parse.rs` in `rocq/theories/ParseHull.v`,
+// `rocq/theories/ParseExact.v` and `rocq/theories/ParseDec.v`, for the proof that every
+// `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`), and
+// for the proof that every `Interval` that the constructors and the proved operations make
+// is `valid` (`rocq/theories/Valid.v`).
 pub(crate) fn constant(x: f64, y: f64) -> F64X2 {
     [x, y]
 }
@@ -183,9 +186,10 @@ pub(crate) fn extract(x: F64X2) -> [f64; 2] {
 // `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
 // `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v`,
 // `rocq/theories/Tan.v`, `rocq/theories/Pow.v`, `rocq/theories/Powi.v` and
-// `rocq/theories/Atan2.v`, for the proof that every `DecInterval` is `com` only if its
-// interval is common (`rocq/theories/ComCommon.v`), and for the proof that every `Interval`
-// that the constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
+// `rocq/theories/Atan2.v`, of `From<DecNInterval>` in `rocq/theories/ParseDec.v`, for the
+// proof that every `DecInterval` is `com` only if its interval is common
+// (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
+// constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
 pub(crate) fn extract0(x: F64X2) -> f64 {
     x[0]
 }
@@ -251,10 +255,10 @@ pub(crate) fn le(x: F64X2, y: F64X2) -> F64X2 {
 // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
 // `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
 // `rocq/theories/Sin.v`, `rocq/theories/Tan.v`, `rocq/theories/Pow.v`,
-// `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, for the proof that every `DecInterval`
-// is `com` only if its interval is common (`rocq/theories/ComCommon.v`), and for the proof
-// that every `Interval` that the constructors and the proved operations make is `valid`
-// (`rocq/theories/Valid.v`).
+// `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, of `From<DecNInterval>` in
+// `rocq/theories/ParseDec.v`, for the proof that every `DecInterval` is `com` only if its
+// interval is common (`rocq/theories/ComCommon.v`), and for the proof that every `Interval`
+// that the constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
 pub(crate) fn lt(x: F64X2, y: F64X2) -> F64X2 {
     [mask(x[0] < y[0]), mask(x[1] < y[1])]
 }
@@ -395,8 +399,9 @@ pub(crate) fn shuffle13(x: F64X2, y: F64X2) -> F64X2 {
 // `rocq/theories/Sin.v`, `rocq/theories/Tan.v`, `rocq/theories/Pow.v`,
 // `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, and of `Interval::atan2`,
 // `Interval::atanh`, `Interval::ln`, `Interval::log10`, `Interval::log2`, `Interval::pow` and
-// `Interval::powi`, for the proof that every `DecInterval` is `com` only if its interval is
-// common (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
+// `Interval::powi`, of `From<DecNInterval>` in `rocq/theories/ParseDec.v`, for the proof
+// that every `DecInterval` is `com` only if its interval is common
+// (`rocq/theories/ComCommon.v`), and for the proof that every `Interval` that the
 // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`).
 pub(crate) fn splat(x: f64) -> F64X2 {
     [x, x]

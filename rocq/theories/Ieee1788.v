@@ -21,7 +21,7 @@
     product of [div_dom1] and [div_dom2]. The point function [fma] is
     [Rfma] below. *)
 
-From Stdlib Require Import Reals.
+From Stdlib Require Import Reals Qreals.
 From Flocq Require Import Core.Raux Core.Generic_fmt Core.Round_NE.
 From Inari Require Import Model.
 
@@ -467,3 +467,25 @@ Definition cancel_result (X Y : R -> Prop) (z : Interval) : Prop :=
      forall z', valid z' -> sum_superset Y (fun t => mem t z') X ->
        forall r, mem r z -> mem r z') /\
   (~ cancel_defined X Y -> z = Interval.ENTIRE).
+
+(** ** Interval literals
+
+    IEEE 1788's textToInterval(s) of a valid interval literal [s] is the
+    tightest interval that contains the set of reals that [s] denotes. The
+    grammar of [src/parse.rs], which is not modelled, returns that set as
+    an [NInterval] [x], whose set is [ninterval_set x]: the reals [r] with
+    [a <= r <= b] for the bounds [a] and [b] of [x], where a lower bound
+    [NegInfinity] or an upper bound [Infinity] bounds nothing on its side,
+    and a lower bound [Infinity] or an upper bound [NegInfinity] leaves no
+    real, as in [NInterval::EMPTY]. *)
+
+(** [r] is at or above the lower bound [a]. *)
+Definition above_num (a : Number) (r : R) : Prop :=
+  match a with NegInfinity => True | Rational q => Q2R q <= r | Infinity => False end.
+
+(** [r] is at or below the upper bound [b]. *)
+Definition below_num (b : Number) (r : R) : Prop :=
+  match b with NegInfinity => False | Rational q => r <= Q2R q | Infinity => True end.
+
+Definition ninterval_set (x : NInterval) : R -> Prop :=
+  fun r => above_num (ninf x) r /\ below_num (nsup x) r.

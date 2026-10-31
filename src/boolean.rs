@@ -144,10 +144,11 @@ impl Interval {
         // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
         // `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
         // `rocq/theories/Sin.v`, `rocq/theories/Tan.v`, `rocq/theories/Pow.v`,
-        // `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, for the proof that every
-        // `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`),
-        // and for the proof that every `Interval` that the constructors and the proved
-        // operations make is `valid` (`rocq/theories/Valid.v`).
+        // `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, of `From<DecNInterval>` in
+        // `rocq/theories/ParseDec.v`, for the proof that every `DecInterval` is `com` only if
+        // its interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`).
         // -∞ < a  ∧  b < +∞
         all(lt(self.rep, splat(f64::INFINITY)))
     }
@@ -174,10 +175,11 @@ impl Interval {
         // `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
         // `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
         // `rocq/theories/Sin.v`, `rocq/theories/Tan.v`, `rocq/theories/Pow.v`,
-        // `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, for the proof that every
-        // `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`),
-        // and for the proof that every `Interval` that the constructors and the proved
-        // operations make is `valid` (`rocq/theories/Valid.v`).
+        // `rocq/theories/Powi.v` and `rocq/theories/Atan2.v`, of `From<DecNInterval>` in
+        // `rocq/theories/ParseDec.v`, for the proof that every `DecInterval` is `com` only if
+        // its interval is common (`rocq/theories/ComCommon.v`), and for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`).
         extract0(self.rep).is_nan()
     }
 
