@@ -5,9 +5,9 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign
   Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
   MulRevSets MulRev CancelSpec Cancel MpfrRound ClosedDom Elem Atanh Cosh PiBounds
-  PiIrrational Cos Sin Tan Dom2 Pow Powi AtanReal PiTight Dec2Set Atan2 ParseFormat
-  ParseRound ParseHull ParseExact ParseDec ConstPi ConstInv ConstLn ConstLog ValidMake
-  ValidSetOp ValidOps ValidDecOps ValidElem Valid.
+  PiIrrational TrigQuad TrigCount TrigCert Cos Sin Tan Dom2 Pow Powi AtanReal PiTight
+  Dec2Set Atan2 ParseFormat ParseRound ParseHull ParseExact ParseDec ConstPi ConstInv
+  ConstLn ConstLog ValidMake ValidSetOp ValidOps ValidDecOps ValidElem Valid.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -116,6 +116,10 @@ Print Assumptions cosh_correct.
 Print Assumptions dec_cosh_correct.
 Print Assumptions PI_bounds.
 Print Assumptions pi_irrational.
+Print Assumptions quadrant_correct.
+Print Assumptions quadrants_correct.
+Print Assumptions floors_exact_ok.
+Print Assumptions trig_wide.
 Print Assumptions cos_encloses.
 Print Assumptions cos_correct.
 Print Assumptions dec_cos_correct.

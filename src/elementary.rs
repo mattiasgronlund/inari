@@ -6,8 +6,10 @@ use rug::Float;
 // of an abstract MPFR function, for the proofs of the functions of this file in
 // `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
 // `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
-// `rocq/theories/Tan.v`, so it has to be updated along with it. `rocq/theories/Mpfr.v`
-// states what those proofs assume of the MPFR functions and of `mpfr::get_d`.
+// `rocq/theories/Tan.v`, and of `quadrant`, which calls `sin_rd` and `cos_ru`, in
+// `rocq/theories/TrigQuad.v`, so it has to be updated along with it.
+// `rocq/theories/Mpfr.v` states what those proofs assume of the MPFR functions and of
+// `mpfr::get_d`.
 macro_rules! mpfr_fn {
     ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
         fn $f_rd(x: f64) -> f64 {
@@ -114,6 +116,61 @@ fn rem_euclid_2(x: f64) -> f64 {
     } else {
         1.0
     }
+}
+
+// `rocq/theories/Model.v` transcribes this function for the proofs of `(Dec)Interval::cos`,
+// `(Dec)Interval::sin` and `(Dec)Interval::tan`, so it has to be updated along with it.
+// `quadrant_correct` in `rocq/theories/TrigQuad.v` shows that it returns
+// `floor(x / (π/2)) mod 4` for a finite `x`.
+//
+// Returns the quadrant `floor(x / (π/2)) mod 4` of a finite `x`, from the signs of `sin(x)`
+// and `cos(x)`: `[0, π/2)` has `sin(x) >= 0` and `cos(x) > 0`, `[π/2, π)` has `sin(x) >= 0`
+// and `cos(x) <= 0`, and so on, modulo 2π. MPFR rounds correctly, so `sin_rd(x) < 0.0`
+// exactly when `sin(x) < 0`, and `cos_ru(x) > 0.0` exactly when `cos(x) > 0`, however close
+// `x` is to a multiple of π/2. As π is irrational, no float is a multiple of π/2 other than
+// 0, so `sin(x)` and `cos(x)` are never 0 where the quadrant would then be wrong.
+fn quadrant(x: f64) -> f64 {
+    let sin_neg = sin_rd(x) < 0.0;
+    let cos_pos = cos_ru(x) > 0.0;
+    match (sin_neg, cos_pos) {
+        (false, true) => 0.0,
+        (false, false) => 1.0,
+        (true, false) => 2.0,
+        (true, true) => 3.0,
+    }
+}
+
+// `rocq/theories/Model.v` transcribes this function for the proofs of `(Dec)Interval::cos`,
+// `(Dec)Interval::sin` and `(Dec)Interval::tan`, so it has to be updated along with it.
+// `quadrants_correct` in `rocq/theories/TrigCount.v` shows what it returns.
+//
+// For finite `a <= b`, returns `(qa, n)`, where `qa` is `ka mod 4` and `n` is `kb - ka` if
+// that is less than 4, and at least 4 otherwise, with `ka = floor(a / (π/2))` and
+// `kb = floor(b / (π/2))`. The quadrants give `d = (kb - ka) mod 4`, so `kb - ka` is `d` or
+// at least `d + 4`. In the first case, `b - a < (d + 1)π/2`, and in the second,
+// `b - a > (d + 3)π/2`, and `2d + 3` lies between the two for `d <= 3`, more than 0.4 away
+// from each, so `b - a`, rounded to nearest, tells them apart.
+fn quadrants(a: f64, b: f64) -> (f64, f64) {
+    let qa = quadrant(a);
+    let d = (quadrant(b) - qa).rem_euclid(4.0);
+    let n = if b - a <= 2.0 * d + 3.0 { d } else { d + 4.0 };
+    (qa, n)
+}
+
+// `rocq/theories/Model.v` transcribes this function for the proofs of `(Dec)Interval::cos`,
+// `(Dec)Interval::sin` and `(Dec)Interval::tan`, so it has to be updated along with it.
+// `floors_exact_ok` in `rocq/theories/TrigCert.v` shows what it returns.
+//
+// For finite `a` and `b`, the floors `qa` and `qb` of the bounds of `[a, b] / c`, and a
+// constant `c` (`Interval::PI` or `Interval::FRAC_PI_2`) that contains the number `c`,
+// returns `true` only if `qa` and `qb` are `floor(a / c)` and `floor(b / c)`. It may
+// return `false` when they are, if `a / c` or `b / c` is close to an integer. As
+// `[a, b] / c` contains every `r / c`, `qa <= floor(a / c)`, and as `[a, a] / c` does too,
+// `floor(a / c)` is at most the floor of its upper bound, so the two are equal if that is
+// `qa`, and the same for `qb`.
+fn floors_exact(a: f64, b: f64, qa: f64, qb: f64, c: Interval) -> bool {
+    (Interval::with_infsup_raw(a, a) / c).sup_raw().floor() == qa
+        && (Interval::with_infsup_raw(b, b) / c).inf_raw().floor() == qb
 }
 
 // Proved correct in `rocq/theories/Elem.v`, from `rocq/theories/LogDom.v`, for the portable
@@ -477,25 +534,19 @@ impl Interval {
     /// | Domain | Range       |
     /// | ------ | ----------- |
     /// | $\R$   | $\[-1, 1\]$ |
-    ///
-    /// The result always contains the image of `self`. It is the tightest such interval if
-    /// `self` is a singleton or at least $2π$ wide. Otherwise it may be wider, as the function
-    /// locates the multiples of $π$ in `self` with the interval division by [`Interval::PI`],
-    /// which only encloses the quotient by $π$. This can happen when a bound of `self` is
-    /// close to a multiple of $π$ relative to its magnitude: the cosine of
-    /// `[-134241567.2736211, -134241567.27362108]` is computed as `[0.9999999999999989, 1]`,
-    /// while the tightest result is `[0.9999999999999989, 0.9999999999999999]`.
     #[must_use]
     pub fn cos(self) -> Self {
         // Proved, with `DecInterval::cos`, in `rocq/theories/Cos.v` for the portable backend,
-        // assuming what `rocq/theories/Mpfr.v` says of MPFR: the result contains the image of
-        // `self`, and it is the tightest such interval if `trig_tight` in
-        // `rocq/theories/TrigSpec.v` holds, and `DecInterval::cos` decorates it as IEEE 1788
+        // assuming what `rocq/theories/Mpfr.v` says of MPFR, also of `mpfr::sin`, which
+        // `quadrant` calls: the result is the tightest interval that contains the image of
+        // `self`, and `DecInterval::cos` decorates it as IEEE 1788
         // asks if `self` is `com` only when `self.x` is common, which
         // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
-        // `rocq/theories/Model.v` transcribes this function, so it has to be updated along
-        // with it. `max` and `min` may return either zero if both arguments are zeros, so the
-        // model takes which one they return as an argument.
+        // `rocq/theories/TrigQuad.v`, `rocq/theories/TrigCount.v` and
+        // `rocq/theories/TrigCert.v` prove what `quadrant`, `quadrants` and `floors_exact`
+        // return. `rocq/theories/Model.v` transcribes this function, so it has to be updated
+        // along with it. `max` and `min` may return either zero if both arguments are zeros,
+        // so the model takes which one they return as an argument.
         if self.is_empty() {
             return self;
         }
@@ -513,8 +564,18 @@ impl Interval {
             qb - qa
         };
         let q = rem_euclid_2(qa);
+        // `qa` and `qb` are at most and at least the floors of `a / π` and `b / π`. They are
+        // those floors if `qa == qb`, or if `floors_exact` says so. If `a == b`, `n` is 0,
+        // and either monotone result is the tightest, whatever `qa` is. If `b - a >= 8.0`,
+        // `self` is at least 2π wide, so that the result is `[-1, 1]` in any case. Otherwise,
+        // `q` and `n` come from the quadrants, as `floor(r / π) = floor(floor(r / (π/2)) / 2)`.
+        let (q, n) = if n == 0.0 || b - a >= 8.0 || floors_exact(a, b, qa, qb, Self::PI) {
+            (q, n)
+        } else {
+            let (qa, n) = quadrants(a, b);
+            ((qa / 2.0).floor(), ((qa % 2.0 + n) / 2.0).floor())
+        };
 
-        // Overestimation is fine.
         if n == 0.0 {
             if q == 0.0 {
                 // monotonically decreasing
@@ -831,26 +892,19 @@ impl Interval {
     /// | Domain | Range       |
     /// | ------ | ----------- |
     /// | $\R$   | $\[-1, 1\]$ |
-    ///
-    /// The result always contains the image of `self`. It is the tightest such interval if
-    /// `self` is a singleton or at least $2π$ wide. Otherwise it may be wider, as the function
-    /// locates the multiples of $π/2$ in `self` with the interval division by
-    /// [`Interval::FRAC_PI_2`], which only encloses the quotient by $π/2$. This can happen
-    /// when a bound of `self` is close to a multiple of $π/2$ relative to its magnitude: the
-    /// sine of `[134246318.93250957, 134246318.9325096]` is computed as
-    /// `[0.9999999999999988, 1]`, while the tightest result is
-    /// `[0.9999999999999988, 0.9999999999999999]`.
     #[must_use]
     pub fn sin(self) -> Self {
         // Proved, with `DecInterval::sin`, in `rocq/theories/Sin.v` for the portable backend,
-        // assuming what `rocq/theories/Mpfr.v` says of MPFR: the result contains the image of
-        // `self`, and it is the tightest such interval if `trig_tight` in
-        // `rocq/theories/TrigSpec.v` holds, and `DecInterval::sin` decorates it as IEEE 1788
-        // asks if `self` is `com` only when `self.x` is common, which
-        // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
-        // `rocq/theories/Model.v` transcribes this function, so it has to be updated along
-        // with it. `max` and `min` may return either zero if both arguments are zeros, so the
-        // model takes which one they return as an argument.
+        // assuming what `rocq/theories/Mpfr.v` says of MPFR, also of `mpfr::cos`, which
+        // `quadrant` calls: the result is the tightest interval that contains the image of
+        // `self`, and `DecInterval::sin` decorates it as IEEE 1788 asks if `self` is `com`
+        // only when `self.x` is common, which `rocq/theories/ComCommon.v` proves of every
+        // `DecInterval` that the library makes. `rocq/theories/TrigQuad.v`,
+        // `rocq/theories/TrigCount.v` and `rocq/theories/TrigCert.v` prove what `quadrant`,
+        // `quadrants` and `floors_exact` return. `rocq/theories/Model.v` transcribes this
+        // function, so it has to be updated along with it. `max` and `min` may return either
+        // zero if both arguments are zeros, so the model takes which one they return as an
+        // argument.
         if self.is_empty() {
             return self;
         }
@@ -862,6 +916,12 @@ impl Interval {
         let qb = q_nowrap.sup_raw();
         let n = if a == b { 0.0 } else { qb - qa };
         let q = qa.rem_euclid(4.0);
+        // As in `Interval::cos`, with π/2 in place of π.
+        let (q, n) = if n == 0.0 || b - a >= 8.0 || floors_exact(a, b, qa, qb, Self::FRAC_PI_2) {
+            (q, n)
+        } else {
+            quadrants(a, b)
+        };
 
         if q == 0.0 && n < 1.0 || q == 3.0 && n < 2.0 {
             // monotonically increasing
@@ -900,16 +960,6 @@ impl Interval {
     /// | Domain                            | Range |
     /// | --------------------------------- | ----- |
     /// | $\R ∖ \set{(n + 1/2) π ∣ n ∈ \Z}$ | $\R$  |
-    ///
-    /// The result always contains the image of `self`. It is the tightest such interval if
-    /// `self` is a singleton or at least $π$ wide. Otherwise it may be wider, as the function
-    /// locates the poles in `self` with the interval division by [`Interval::FRAC_PI_2`],
-    /// which only encloses the quotient by $π/2$. This can happen when a bound of `self` is
-    /// close to a pole relative to its magnitude: the tangent of
-    /// `[7.853981633974484, 7.853981633974485]`, just above the pole $5π/2$, is computed as
-    /// $\[-∞, +∞\]$, which [`DecInterval::tan`] decorates [`Decoration::Trv`], while the
-    /// tightest result is `[-1718163698371049.0, -680181816043107.0]`, and
-    /// [`Decoration::Com`] holds for it.
     #[must_use]
     pub fn tan(self) -> Self {
         self.tan_impl().0
@@ -917,11 +967,13 @@ impl Interval {
 
     fn tan_impl(self) -> (Self, Decoration) {
         // Proved, with `Interval::tan` and `DecInterval::tan`, in `rocq/theories/Tan.v` for
-        // the portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR: the result
-        // contains the image of `self`, the decoration that `DecInterval::tan` gives holds,
-        // and both are the tightest and the strongest if `trig_tight` in
-        // `rocq/theories/TrigSpec.v` holds. `rocq/theories/Model.v` transcribes this function
-        // and `Interval::tan`, so it has to be updated along with them.
+        // the portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR, also of
+        // `mpfr::sin` and `mpfr::cos`, which `quadrant` calls: the result is the tightest
+        // interval that contains the image of `self`, and `DecInterval::tan` decorates it as
+        // IEEE 1788 asks. `rocq/theories/TrigQuad.v`,
+        // `rocq/theories/TrigCount.v` and `rocq/theories/TrigCert.v` prove what `quadrant`,
+        // `quadrants` and `floors_exact` return. `rocq/theories/Model.v` transcribes this
+        // function and `Interval::tan`, so it has to be updated along with them.
         if self.is_empty() {
             return (self, Decoration::Trv);
         }
@@ -936,6 +988,17 @@ impl Interval {
 
         let cont =
             qb != f64::INFINITY && b <= (Self::with_infsup_raw(qb, qb) * Self::FRAC_PI_2).inf_raw();
+        // As in `Interval::cos`, with π/2 in place of π, and `self` at least π wide if
+        // `b - a >= 4.0`. In the branches that read `cont`, `qb` is odd, so `cont` can be true
+        // there only if `qb` is above the floor of `b / (π/2)`, and it is false for the floors
+        // that come from the quadrants.
+        let (q, n, cont) =
+            if n == 0.0 || b - a >= 4.0 || floors_exact(a, b, qa, qb, Self::FRAC_PI_2) {
+                (q, n, cont)
+            } else {
+                let (qa, n) = quadrants(a, b);
+                (qa % 2.0, n, false)
+            };
         if q == 0.0 && (n < 1.0 || n == 1.0 && cont) || q == 1.0 && (n < 2.0 || n == 2.0 && cont) {
             // In case of overflow, the decoration must be corrected by the caller.
             (Self::with_infsup_raw(tan_rd(a), tan_ru(b)), Decoration::Com)
@@ -1072,6 +1135,68 @@ mod tests {
         assert!(DI::NAI.sinh().is_nai());
         assert!(DI::NAI.tan().is_nai());
         assert!(DI::NAI.tanh().is_nai());
+    }
+
+    // Arguments with a bound close to a multiple of π/2 relative to its magnitude, as every
+    // bound above 2^53 is. For the first three and the narrow ones above 2^53, `sin`, `cos`
+    // and `tan` were not the tightest before they reduced the argument exactly. The expected
+    // bounds are the tightest, computed with MPFR at 2400 bits.
+    #[test]
+    fn trig_tightest() {
+        let x = interval!(-134241567.2736211, -134241567.27362108).unwrap();
+        assert_eq!(
+            x.cos(),
+            interval!(0.9999999999999989, 0.9999999999999999).unwrap()
+        );
+
+        let x = interval!(134246318.93250957, 134246318.9325096).unwrap();
+        assert_eq!(
+            x.sin(),
+            interval!(0.9999999999999988, 0.9999999999999999).unwrap()
+        );
+
+        // Just above the pole 5π/2, and just below it and the pole 12345π/2.
+        for (a, b, c, d) in [
+            (
+                7.853981633974484,
+                7.853981633974485,
+                -1718163698371049.0,
+                -680181816043107.0,
+            ),
+            (
+                7.853981633974482,
+                7.853981633974483,
+                837282432101130.8,
+                3266247870639074.0,
+            ),
+            (
+                19391.480654282994,
+                19391.480654282997,
+                200727993957.24622,
+                744109987747.2866,
+            ),
+        ] {
+            let x = DI::new(interval!(a, b).unwrap());
+            let y = x.tan();
+            assert_eq!(y.interval(), Some(interval!(c, d).unwrap()));
+            assert_eq!(y.decoration(), Decoration::Com);
+        }
+
+        // Narrow arguments above 2^53, where the quadrants decide. They were `[-1, 1]`, and
+        // `[-∞, +∞]` decorated `trv` for `tan`.
+        let a = 2f64.powi(54);
+        let x = interval!(a, a + 4.0).unwrap();
+        assert_eq!(x.cos(), interval!(-1.0, 0.9675911762612261).unwrap());
+        assert_eq!(x.sin(), interval!(-1.0, 0.8973347529975926).unwrap());
+        let x = interval!(-a - 4.0, -a).unwrap();
+        assert_eq!(x.sin(), interval!(-0.8973347529975926, 1.0).unwrap());
+        let x = DI::new(interval!(15219727576813158.0, 15219727576813160.0).unwrap());
+        let y = x.tan();
+        assert_eq!(
+            y.interval(),
+            Some(interval!(-17.427922104255032, 0.5289263571245032).unwrap())
+        );
+        assert_eq!(y.decoration(), Decoration::Com);
     }
 
     #[test]

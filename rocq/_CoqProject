@@ -95,10 +95,12 @@ theories/NivenAlt.v
 theories/NivenSym.v
 theories/PiIrrational.v
 theories/TrigPieces.v
-theories/TrigSpec.v
 theories/TrigQuot.v
 theories/TrigReduce.v
 theories/TrigBranch.v
+theories/TrigQuad.v
+theories/TrigCount.v
+theories/TrigCert.v
 theories/Cos.v
 theories/Sin.v
 theories/Tan.v

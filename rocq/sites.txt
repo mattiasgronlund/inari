@@ -241,6 +241,8 @@ valid-raw src/classify.rs: unsafe { transmute((le_zero << 2) | ge_zero) }
 valid-raw src/classify.rs: use std::mem::transmute;
 valid-raw src/constants.rs: pub const EMPTY: Self = unsafe { transmute([f64::NAN, f64::NAN]) };
 valid-raw src/constants.rs: use std::mem::transmute;
+valid-raw src/elementary.rs: && (Interval::with_infsup_raw(b, b) / c).inf_raw().floor() == qb
+valid-raw src/elementary.rs: (Interval::with_infsup_raw(a, a) / c).sup_raw().floor() == qa
 valid-raw src/elementary.rs: (Self::with_infsup_raw(pow_rd(a, c), pow_ru(b, d)), dec)
 valid-raw src/elementary.rs: (Self::with_infsup_raw(pow_rd(a, d), pow_ru(b, c)), dec)
 valid-raw src/elementary.rs: (Self::with_infsup_raw(pow_rd(a, d), pow_ru(b, d)), dec)

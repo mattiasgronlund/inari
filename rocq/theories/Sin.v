@@ -1,4 +1,4 @@
-(** * [sin] of intervals encloses the image, and when it is tightest
+(** * [sin] of intervals is the tightest
 
     As [Cos.v], for [Interval::sin], which reduces by [FRAC_PI_2] and
     reads [q = qa mod 4] ([rem_euclid_4_int] in [TrigReduce.v]). On the
@@ -6,18 +6,23 @@
     [k mod 4] = 0 or 3 and decreases for 1 or 2, with its maximum 1 at
     [k mod 4 = 1] and its minimum -1 at [k mod 4 = 3]. The branches join
     quarters: [q = 3, n < 2] covers quarters 3 and 0, where [sin]
-    increases throughout, and so on. Each branch encloses the image
-    ([sin_encloses]); the result is the tightest under [trig_tight]
-    ([sin_correct]), but not for every [x]: [[134246318.93250957,
-    134246318.9325096]] gives an upper bound 1, where the tightest is
-    [0.9999999999999999]. The decoration is as for [cos]
-    ([dec_sin_correct]). *)
+    increases throughout, and so on. Each branch encloses the image, and
+    it is the tightest if [x] holds two reals [2 * PI] apart or if the
+    tests on [q] and [n] are those on the exact floors of [a / (PI / 2)]
+    and [b / (PI / 2)] ([sn_pick]). The fast [(q, n)] from [q_nowrap] are
+    kept for a singleton, for [n = 0], for [b - a >= 8] (then [x] holds
+    two reals [2 * PI] apart, [trig_wide] in [TrigCert.v]) and when
+    [floors_exact] certifies the floors ([floors_exact_ok]); otherwise
+    [quadrants] reads the exact quadrants from the signs of [sin_rd] and
+    [cos_ru] ([quadrants_correct] in [TrigCount.v]). So the result is the
+    tightest for every [x] ([sin_correct]). The decoration is as for
+    [cos] ([dec_sin_correct]). *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr ComCommon Integer
-  PiBounds TrigPieces TrigSpec TrigReduce TrigBranch DecBinary AddSub MonoInc
-  Sqrt ElemDec.
+  PiBounds TrigPieces TrigReduce TrigBranch TrigQuad TrigCount TrigCert DecBinary AddSub
+  MonoInc Sqrt ElemDec.
 
 Open Scope R_scope.
 
@@ -587,120 +592,218 @@ destruct Hab as [Ea|Eb].
 - right. destruct Hhi as [(_ & ->) | (Fb & _)]; [reflexivity | rewrite Eb in Fb; discriminate Fb].
 Qed.
 
-(** Both theorems on [Interval::sin] at once. *)
+(** An infinite bound makes [b - a] +inf. *)
+Lemma sn_ba_inf :
+  forall c a b qa qb, red_lo c a qa -> red_hi c b qb ->
+  a = B754_infinity true \/ b = B754_infinity false ->
+  Model.sub b a = B754_infinity false.
+Proof.
+intros c a b qa qb Hlo Hhi Hab.
+assert (Na : is_nan a = false /\ a <> B754_infinity false).
+{ destruct Hlo as [(-> & _) | (Fa & _)]; [split; [reflexivity | discriminate]|].
+  destruct a; try discriminate Fa; split; first [reflexivity | discriminate]. }
+assert (Nb : is_nan b = false /\ b <> B754_infinity true).
+{ destruct Hhi as [(-> & _) | (Fb & _)]; [split; [reflexivity | discriminate]|].
+  destruct b; try discriminate Fb; split; first [reflexivity | discriminate]. }
+apply n_inf; tauto.
+Qed.
+
+Lemma sn_eq00 : Model.eq Model.zero Model.zero = true.
+Proof. vm_compute. reflexivity. Qed.
+Lemma sn_le8_pinf : Model.le (of_u64 8) (B754_infinity false) = true.
+Proof. vm_compute. reflexivity. Qed.
+
+(** [2 * PI <= 8 - 1], for [trig_wide] with [w = 8]. *)
+Lemma sn_2PI_7 : 2 * PI <= IZR 8 - 1.
+Proof.
+destruct PI_bounds as [_ H].
+let v := eval vm_compute in (Interval.sup_raw Interval.PI) in
+change (Interval.sup_raw Interval.PI) with v in H.
+unfold B2R, F2R in H. cbn [Fnum Fexp bpow radix_val radix2 cond_Zopp] in H. lra.
+Qed.
+
+(** The tests of the quadrant [quad_f (k mod 4)] that [quadrants] returns
+    are those of [k mod 4]. *)
+Lemma sn_quad_tests :
+  forall k,
+  Model.eq (quad_f (k mod 4)) Model.zero = (k mod 4 =? 0)%Z /\
+  Model.eq (quad_f (k mod 4)) (of_u64 1) = (k mod 4 =? 1)%Z /\
+  Model.eq (quad_f (k mod 4)) (of_u64 2) = (k mod 4 =? 2)%Z /\
+  Model.eq (quad_f (k mod 4)) (of_u64 3) = (k mod 4 =? 3)%Z.
+Proof.
+intros k.
+assert (Hq : (k mod 4 = 0 \/ k mod 4 = 1 \/ k mod 4 = 2 \/ k mod 4 = 3)%Z)
+  by (pose proof (Z.mod_pos_bound k 4); lia).
+destruct Hq as [Hq|[Hq|[Hq|Hq]]]; rewrite Hq; vm_compute; repeat split.
+Qed.
+
+(** The count that [quadrants] returns is [kb - ka] when that is below 4,
+    and at least 4 otherwise, so its tests [n < j] for [j <= 4] are those
+    of [kb - ka]. *)
+Lemma sn_count_tests :
+  forall ka kb j, (ka <= kb)%Z -> (1 <= j <= 4)%Z ->
+  Model.lt (count_f (ka mod 4) (kb mod 4) (4 <=? kb - ka)%Z) (of_u64 j) = (kb - ka <? j)%Z.
+Proof.
+intros ka kb j Hk Hj.
+destruct (count_f_val (ka mod 4) (kb mod 4) (4 <=? kb - ka)%Z) as (Fn & Rn);
+  [pose proof (Z.mod_pos_bound ka 4); lia | pose proof (Z.mod_pos_bound kb 4); lia |].
+destruct (int_tests _ _ Fn Rn) as (_ & Ht).
+rewrite (proj1 (Ht j Hj)), <- Zminus_mod.
+pose proof (Z.mod_pos_bound (kb - ka) 4 ltac:(lia)) as Hm.
+destruct (Z.leb_spec 4 (kb - ka)) as [H4|H4]; cbv beta iota.
+- apply Bool.eq_true_iff_eq. rewrite !Z.ltb_lt. split; intros; lia.
+- rewrite Z.add_0_r, Z.mod_small by lia. reflexivity.
+Qed.
+
+(** The result is the tightest for every [x]: the [(q, n)] that the
+    branches test come from exact floors of [a / (PI / 2)] and
+    [b / (PI / 2)] ([floors_exact_ok] in [TrigCert.v], or [n = 0]), from
+    the quadrants ([quadrants_correct] in [TrigCount.v]), or [x] is a
+    singleton, or at least [2 * PI] wide ([trig_wide]), or unbounded. *)
 Lemma sn_main :
   forall emin emax m has_fma first x,
-  range_ok emin emax -> get_d_ok emin emax m -> sin_ok emin emax m -> valid x ->
+  range_ok emin emax -> get_d_ok emin emax m -> sin_ok emin emax m -> cos_ok emin emax m ->
+  valid x ->
   exists y, Interval.sin m has_fma first x = Some y /\
-    encloses (image_dom real_dom sin x) y /\
-    (trig_tight has_fma Interval.FRAC_PI_2 (PI / 2) (2 * PI) x ->
-     is_tightest (image_dom real_dom sin x) y).
+    is_tightest (image_dom real_dom sin x) y.
 Proof.
-intros emin emax m has_fma first x Hrange Hget Hs Hx.
+intros emin emax m has_fma first x Hrange Hget Hs Hc Hx.
 unfold Interval.sin.
 destruct (Interval.is_empty x) eqn:Hn.
 { (* An empty interval has an empty image. *)
-  exists x. split; [reflexivity|]. split; [split; [exact Hx|]|].
-  - intros s (r & Hr & _). destruct (mem_empty x r Hx Hn Hr).
-  - intros _. rewrite (valid_empty_eq x Hx Hn). apply tightest_empty.
-    intros u (r & Hr & _). exact (mem_nan Interval.EMPTY r eq_refl Hr). }
-assert (Hc : 0 < PI / 2) by (pose proof PI_RGT_0; lra).
+  exists x. split; [reflexivity|].
+  rewrite (valid_empty_eq x Hx Hn). apply tightest_empty.
+  intros u (r & Hr & _). exact (mem_nan Interval.EMPTY r eq_refl Hr). }
+assert (HPI2 : 0 < PI / 2) by (pose proof PI_RGT_0; lra).
 destruct (trig_reduce has_fma Interval.FRAC_PI_2 (PI / 2) x FRAC_PI_2_const Hx Hn)
   as (z & Hz & Hlo & Hhi).
 cbv beta iota zeta. rewrite Hz. cbv beta iota zeta.
+set (qa := Interval.inf_raw (Interval.floor z)) in *.
+set (qb := Interval.sup_raw (Interval.floor z)) in *.
+clearbody qa qb.
 assert (Hfin :
   (is_finite (Interval.inf_raw x) = true /\ is_finite (Interval.sup_raw x) = true) \/
   (Interval.inf_raw x = B754_infinity true \/ Interval.sup_raw x = B754_infinity false)).
 { destruct Hlo as [(Ea & _)|(Fa & _)], Hhi as [(Eb & _)|(Fb & _)]; tauto. }
 destruct Hfin as [(Fa & Fb) | Hinf].
-2: { (* An infinite bound: [n] is +inf, every test fails, and [x] holds
-        two reals [2 * PI] apart. *)
+2: { (* An infinite bound: [n] and [b - a] are +inf, so the fast [(q, n)]
+        are kept, every test fails, and [x] holds two reals [2 * PI]
+        apart. *)
   assert (Eab : Model.eq (Interval.inf_raw x) (Interval.sup_raw x) = false).
   { destruct (Model.eq _ _) eqn:E; [|reflexivity].
     destruct (bounds_eq_finite x Hx Hn E) as (Fa & Fb & _).
     destruct Hinf as [Ea|Eb]; [rewrite Ea in Fa | rewrite Eb in Fb]; discriminate. }
   rewrite Eab. cbv beta iota.
-  rewrite (sn_n_inf _ _ _ _ _ Hlo Hhi Hinf), !sn_lt_pinf, !Bool.andb_false_r. cbn [orb].
-  eexists. split; [reflexivity|]. split; [apply sn_full_encl|].
-  intros _. exact (sn_full_wide x (sn_unbounded_wide x Hx Hn Hinf)). }
+  rewrite (sn_n_inf _ _ _ _ _ Hlo Hhi Hinf), (sn_ba_inf _ _ _ _ _ Hlo Hhi Hinf), sn_le8_pinf,
+    Bool.orb_true_r.
+  cbv beta iota.
+  rewrite !sn_lt_pinf, !Bool.andb_false_r. cbn [orb].
+  eexists. split; [reflexivity|].
+  exact (sn_full_wide x (sn_unbounded_wide x Hx Hn Hinf)). }
 destruct Hlo as [(Ea & _) | (_ & Fqa & ka & Eka & Hka & _)];
   [rewrite Ea in Fa; discriminate Fa|].
 destruct Hhi as [(Eb & _) | (_ & Fqb & kb & Ekb & Hkb)];
   [rewrite Eb in Fb; discriminate Fb|].
 assert (Hfx : finite_itv x) by (split; [exact Hx|]; split; [exact Hn|]; split; assumption).
+pose proof (sn_le x Hfx) as Hab.
 pose proof (rem_euclid_4_int _ ka Fqa Eka) as Hq. cbv zeta in Hq.
 destruct Hq as (Ht0 & Ht1 & Ht2 & Ht3).
 destruct (Model.eq (Interval.inf_raw x) (Interval.sup_raw x)) eqn:Eab.
-- (* [a == b]: [n] is 0. *)
+{ (* [a == b]: [n] is 0, so the fast [(q, n)] are kept. *)
+  cbv beta iota. rewrite sn_eq00. cbn [orb]. cbv beta iota.
   destruct (bounds_eq_finite x Hx Hn Eab) as (_ & _ & EAB).
   destruct (sn_single emin emax m Hrange Hget Hs first x ka _ _ _ _ _ _ _ _ Hfx EAB
-    Ht0 Ht1 Ht2 Ht3 sn_lt0_1 sn_lt0_2 sn_lt0_3 sn_lt0_4) as (y & Ey & He & Ht).
-  exists y. split; [exact Ey|]. split; [exact He | intros _; exact Ht].
-- (* [n = qb - qa], whose tests decide [kb - ka]. *)
-  pose proof (sn_k_le x ka kb Hfx Hka Hkb) as Hk.
-  pose proof (n_small _ _ ka kb Fqa Fqb Eka Ekb Hk) as Hns. cbv zeta in Hns.
-  destruct Hns as (_ & Hns).
-  destruct (Hns 1%Z ltac:(lia)) as (Hl1 & _ & _).
-  destruct (Hns 2%Z ltac:(lia)) as (Hl2 & _ & _).
-  destruct (Hns 3%Z ltac:(lia)) as (Hl3 & _ & _).
-  destruct (Hns 4%Z ltac:(lia)) as (Hl4 & _ & _).
+    Ht0 Ht1 Ht2 Ht3 sn_lt0_1 sn_lt0_2 sn_lt0_3 sn_lt0_4) as (y & Ey & _ & Ht).
+  exists y. split; [exact Ey | exact Ht]. }
+cbv beta iota.
+(* [n = qb - qa], whose tests decide [kb - ka]. *)
+pose proof (sn_k_le x ka kb Hfx Hka Hkb) as Hk.
+pose proof (n_small _ _ ka kb Fqa Fqb Eka Ekb Hk) as Hns. cbv zeta in Hns.
+destruct Hns as (Hn0 & Hns).
+destruct (Hns 1%Z ltac:(lia)) as (Hl1 & _ & _).
+destruct (Hns 2%Z ltac:(lia)) as (Hl2 & _ & _).
+destruct (Hns 3%Z ltac:(lia)) as (Hl3 & _ & _).
+destruct (Hns 4%Z ltac:(lia)) as (Hl4 & _ & _).
+destruct (Model.eq (Model.sub qb qa) Model.zero
+          || Model.le (of_u64 8) (Model.sub (Interval.sup_raw x) (Interval.inf_raw x)))
+  eqn:Ew.
+- (* The fast [(q, n)] are kept: [n = 0] makes [kb = ka], and [b - a >= 8]
+     puts two reals [2 * PI] apart in [x]. *)
+  cbv beta iota.
   destruct (sn_pick emin emax m Hrange Hget Hs first x ka kb _ _ _ _ _ _ _ _ Hfx Hka Hkb
-    Ht0 Ht1 Ht2 Ht3 Hl1 Hl2 Hl3 Hl4) as (y & Ey & He & Ht).
-  exists y. split; [exact Ey|]. split; [exact He|].
-  intros [Hsing | [Hw | Hex]].
-  + (* Two different bounds hold two different reals. *)
-    apply (bounds_eq x Hx Hn) in Hsing. rewrite Hsing in Eab. discriminate Eab.
-  + apply Ht. right. exact Hw.
-  + apply Ht. left.
-    destruct (trig_reduce_exact has_fma _ _ x z FRAC_PI_2_const Hx Hn Hz (Hex z Hz))
-      as (Ea & Eb).
-    specialize (Ea Fa). specialize (Eb Fb). rewrite Eka in Ea. rewrite Ekb in Eb.
-    pose proof (floor_div_bounds (PI / 2) (B2R (Interval.inf_raw x)) Hc) as Ha'.
-    pose proof (floor_div_bounds (PI / 2) (B2R (Interval.sup_raw x)) Hc) as Hb'.
-    rewrite <- Ea in Ha'. rewrite <- Eb in Hb'. split; lra.
+    Ht0 Ht1 Ht2 Ht3 Hl1 Hl2 Hl3 Hl4) as (y & Ey & _ & Ht).
+  exists y. split; [exact Ey|]. apply Ht.
+  apply Bool.orb_true_iff in Ew. destruct Ew as [E0|E8].
+  + left. rewrite Hn0 in E0. apply Z.eqb_eq in E0.
+    assert (E1 : kb = ka) by lia. subst kb. split; lra.
+  + right. apply (trig_wide x 8 (2 * PI) Hx Hn); [lia | exact sn_2PI_7 | exact E8].
+- cbv beta iota.
+  destruct (floors_exact_ok has_fma Interval.FRAC_PI_2 (PI / 2) _ _ qa qb ka kb
+    FRAC_PI_2_const Fa Fb Fqa Eka Fqb Ekb) as (e & Ee & He).
+  rewrite Ee. cbv beta iota.
+  destruct e; cbv beta iota.
+  + (* [floors_exact] certifies that [ka] and [kb] are the exact floors. *)
+    destruct (sn_pick emin emax m Hrange Hget Hs first x ka kb _ _ _ _ _ _ _ _ Hfx Hka Hkb
+      Ht0 Ht1 Ht2 Ht3 Hl1 Hl2 Hl3 Hl4) as (y & Ey & _ & Ht).
+    exists y. split; [exact Ey|]. apply Ht. left. exact (He eq_refl).
+  + (* The quadrants of [a] and [b] give the tests of the exact floors
+       [ka'] and [kb']. *)
+    pose proof (floor_div_bounds (PI / 2) (B2R (Interval.inf_raw x)) HPI2) as Ha'.
+    pose proof (floor_div_bounds (PI / 2) (B2R (Interval.sup_raw x)) HPI2) as Hb'.
+    unfold Rfloor in Ha', Hb'.
+    set (ka' := Zfloor (B2R (Interval.inf_raw x) / (PI / 2))) in *.
+    set (kb' := Zfloor (B2R (Interval.sup_raw x) / (PI / 2))) in *.
+    clearbody ka' kb'.
+    rewrite (quadrants_correct emin emax m _ _ ka' kb' Hrange Hget Hs Hc Fa Fb Hab Ha' Hb').
+    cbv beta iota.
+    assert (Hk' : (ka' <= kb')%Z) by (apply (sn_k_le x ka' kb' Hfx); lra).
+    destruct (sn_quad_tests ka') as (Hu0 & Hu1 & Hu2 & Hu3).
+    destruct (sn_pick emin emax m Hrange Hget Hs first x ka' kb' _ _ _ _ _ _ _ _ Hfx
+      (proj1 Ha') (proj2 Hb') Hu0 Hu1 Hu2 Hu3
+      (sn_count_tests ka' kb' 1 Hk' ltac:(lia)) (sn_count_tests ka' kb' 2 Hk' ltac:(lia))
+      (sn_count_tests ka' kb' 3 Hk' ltac:(lia)) (sn_count_tests ka' kb' 4 Hk' ltac:(lia)))
+      as (y & Ey & _ & Ht).
+    exists y. split; [exact Ey|]. apply Ht. left. split; lra.
 Qed.
 
 Theorem sin_encloses :
   forall emin emax m has_fma first x,
-  range_ok emin emax -> get_d_ok emin emax m -> sin_ok emin emax m -> valid x ->
+  range_ok emin emax -> get_d_ok emin emax m -> sin_ok emin emax m -> cos_ok emin emax m ->
+  valid x ->
   exists y, Interval.sin m has_fma first x = Some y /\
     encloses (image_dom real_dom sin x) y.
 Proof.
-intros emin emax m has_fma first x Hrange Hget Hs Hx.
-destruct (sn_main emin emax m has_fma first x Hrange Hget Hs Hx) as (y & Ey & He & _).
-exists y. split; [exact Ey | exact He].
+intros emin emax m has_fma first x Hrange Hget Hs Hc Hx.
+destruct (sn_main emin emax m has_fma first x Hrange Hget Hs Hc Hx) as (y & Ey & (Hy & Hi & _)).
+exists y. split; [exact Ey | exact (conj Hy Hi)].
 Qed.
 
 Theorem sin_correct :
   forall emin emax m has_fma first x,
-  range_ok emin emax -> get_d_ok emin emax m -> sin_ok emin emax m -> valid x ->
-  trig_tight has_fma Interval.FRAC_PI_2 (PI / 2) (2 * PI) x ->
+  range_ok emin emax -> get_d_ok emin emax m -> sin_ok emin emax m -> cos_ok emin emax m ->
+  valid x ->
   exists y, Interval.sin m has_fma first x = Some y /\
     is_tightest (image_dom real_dom sin x) y.
-Proof.
-intros emin emax m has_fma first x Hrange Hget Hs Hx Htt.
-destruct (sn_main emin emax m has_fma first x Hrange Hget Hs Hx) as (y & Ey & _ & Ht).
-exists y. split; [exact Ey | exact (Ht Htt)].
-Qed.
+Proof. exact sn_main. Qed.
 
 (** [sin] is defined and continuous everywhere, so the decoration of [x]
     is kept ([e = Com] in [trig_set_dec_correct]); a [com] [x] is
     bounded by [com_common]. *)
 Theorem dec_sin_correct :
   forall emin emax m has_fma first x,
-  range_ok emin emax -> get_d_ok emin emax m -> sin_ok emin emax m ->
+  range_ok emin emax -> get_d_ok emin emax m -> sin_ok emin emax m -> cos_ok emin emax m ->
   valid (itv x) -> com_common x ->
   exists y, DecInterval.sin m has_fma first x = Some y /\
     if DecInterval.is_nai x then y = DecInterval.NAI
     else
-      encloses (image_dom real_dom sin (itv x)) (itv y) /\
-      (trig_tight has_fma Interval.FRAC_PI_2 (PI / 2) (2 * PI) (itv x) ->
-       is_tightest (image_dom real_dom sin (itv x)) (itv y)) /\
+      is_tightest (image_dom real_dom sin (itv x)) (itv y) /\
       exists d, strongest_dom real_dom d sin (itv x) (itv y) /\
         dec y = dec_min d (dec x).
 Proof.
-intros emin emax m has_fma first x Hrange Hget Hs Hx Hcc.
-destruct (sn_main emin emax m has_fma first (itv x) Hrange Hget Hs Hx) as (y0 & Ey0 & He & Ht).
+intros emin emax m has_fma first x Hrange Hget Hs Hc Hx Hcc.
+destruct (sn_main emin emax m has_fma first (itv x) Hrange Hget Hs Hc Hx) as (y0 & Ey0 & Ht).
+assert (He : encloses (image_dom real_dom sin (itv x)) y0)
+  by (destruct Ht as (Hy & Hi & _); exact (conj Hy Hi)).
 exists (DecInterval.set_dec y0 (dec x)).
 split; [unfold DecInterval.sin; rewrite Ey0; reflexivity|].
 destruct (DecInterval.is_nai x) eqn:Hnai.
@@ -716,7 +819,7 @@ destruct (DecInterval.is_nai x) eqn:Hnai.
     (fun r _ _ => continuity_pt_continue_in sin real_dom r (continuity_sin r))
     (or_intror (conj eq_refl (conj (fun _ _ => I) (fun Hd _ => common_bounded _ (Hcc Hd))))))
     as H. cbv zeta in H. rewrite dec_min_Com_r in H.
-  destruct H as (H1 & H2 & _ & H4).
-  split; [exact H1|]. split; [intros Htt; exact (H2 (Ht Htt))|].
+  destruct H as (_ & H2 & _ & H4).
+  split; [exact (H2 Ht)|].
   apply H4. intros E. discriminate E.
 Qed.

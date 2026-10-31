@@ -202,8 +202,6 @@ b. Documentation of behavior
 
    Unless otherwise noted, all operations return the tightest results.
 
-   [`Interval::cos`], [`Interval::sin`] and [`Interval::tan`], and their decorated versions, return valid results. They are the tightest if the argument is a singleton or at least 2π wide (π for `tan`), but may be wider otherwise, for example when a bound of the argument is close to a multiple of π/2 relative to its magnitude (see their documentation). [`DecInterval::tan`] may then also return a weaker decoration than the strongest one that holds.
-
 3. Under what conditions is a constructor unable to determine whether a Level 1 value exists that corresponds to the supplied inputs?
 
    [`interval!(s)`](`interval!`) and [`dec_interval!(s)`](`dec_interval!`) return an [`Err`] with [`IntervalErrorKind::PossiblyUndefinedOperation`] when the exponent does not fit within the range of [`i32`], or the mantissa has impractically many digits after the decimal point.

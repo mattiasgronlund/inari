@@ -979,6 +979,24 @@ Definition fmin (first : bool) (x y : f64) : f64 :=
 Definition rem_euclid_2 (x : f64) : f64 :=
   if eq (mul (of_u64 2) (ffloor (div x (of_u64 2)))) x then zero else of_u64 1.
 
+(** [fn quadrant(x: f64) -> f64] in [src/elementary.rs], with
+    [sin_rd(x) < 0.0] as [lt (sin_rd m x) zero], [cos_ru(x) > 0.0] as
+    [lt zero (cos_ru m x)], and the [match] on the two as [if]s. *)
+Definition quadrant (m : mpfr) (x : f64) : f64 :=
+  let sin_neg := lt (sin_rd m x) zero in
+  let cos_pos := lt zero (cos_ru m x) in
+  if sin_neg then (if cos_pos then of_u64 3 else of_u64 2)
+  else (if cos_pos then zero else of_u64 1).
+
+(** [fn quadrants(a: f64, b: f64) -> (f64, f64)] in [src/elementary.rs],
+    with [(..).rem_euclid(4.0)] as [rem_euclid _ (of_u64 4)]. *)
+Definition quadrants (m : mpfr) (a b : f64) : f64 * f64 :=
+  let qa := quadrant m a in
+  let d := rem_euclid (sub (quadrant m b) qa) (of_u64 4) in
+  let n := if le (sub b a) (add (mul (of_u64 2) d) (of_u64 3)) then d
+           else add d (of_u64 4) in
+  (qa, n).
+
 (** ** Intervals
 
     The parts of [src/interval.rs], [src/boolean.rs], [src/classify.rs],
@@ -2153,6 +2171,19 @@ Definition atanh_impl (m : mpfr) (self : Interval) : Interval * Decoration :=
     (y, d).
 Definition atanh (m : mpfr) (self : Interval) : Interval := fst (atanh_impl m self).
 
+(** [fn floors_exact(a: f64, b: f64, qa: f64, qb: f64, c: Interval) ->
+    bool] in [src/elementary.rs]. Its [/] is [div], so [has_fma] is an
+    argument and the result an [option], [f64::floor] is [ffloor], and
+    Rust's [&&] does not evaluate its right side, with the second [div],
+    when the left one is false. *)
+Definition floors_exact (has_fma : bool) (a b qa qb : f64) (c : Interval) :
+    option bool :=
+  let* za := div has_fma (with_infsup_raw a a) c in
+  if Model.eq (ffloor (sup_raw za)) qa then
+    let* zb := div has_fma (with_infsup_raw b b) c in
+    Some (Model.eq (ffloor (inf_raw zb)) qb)
+  else Some false.
+
 (** [pub fn cos(self) -> Self]. Its [self / Self::PI] is [div] and its
     [(..).floor()] is [floor] of intervals, so [has_fma] is an argument, as
     for [div], and the result is an [option], [None] where [div] would be.
@@ -2163,7 +2194,13 @@ Definition atanh (m : mpfr) (self : Interval) : Interval := fst (atanh_impl m se
     [n <= 1.0] is [Model.le], [qb - qa] is [Model.sub], [0.0] is
     [Model.zero], [1.0] is [of_u64 1] and [-1.0] is [opp (of_u64 1)]
     ([Model.] avoids the [sub] and [zero] of intervals). [return] is as in
-    [log_impl]. *)
+    [log_impl]. The [(q, n)] that the branches test is the one above if
+    [exact] holds, and otherwise one from [quadrants], as in Rust: [b - a >= 8.0]
+    is [Model.le (of_u64 8) (Model.sub b a)], [(qa / 2.0).floor()] is
+    [ffloor (Model.div qa (of_u64 2))], [qa % 2.0] is
+    [frem qa (of_u64 2)], and Rust's [||] does not evaluate
+    [floors_exact], whose [div]s make it an [option], when a test before it
+    holds, so it is under an [if]. *)
 Definition cos (m : mpfr) (has_fma first : bool) (self : Interval) :
     option Interval :=
   if is_empty self then Some self
@@ -2176,6 +2213,15 @@ Definition cos (m : mpfr) (has_fma first : bool) (self : Interval) :
     let qb := sup_raw q_nowrap in
     let n := if Model.eq a b then Model.zero else Model.sub qb qa in
     let q := rem_euclid_2 qa in
+    let* exact :=
+      if Model.eq n Model.zero || Model.le (of_u64 8) (Model.sub b a) then Some true
+      else floors_exact has_fma a b qa qb PI in
+    let '(q, n) :=
+      if exact then (q, n)
+      else
+        let '(qa, n) := quadrants m a b in
+        (ffloor (Model.div qa (of_u64 2)),
+         ffloor (Model.div (Model.add (frem qa (of_u64 2)) n) (of_u64 2))) in
     if Model.eq n Model.zero then
       if Model.eq q Model.zero then Some (with_infsup_raw (cos_rd m b) (cos_ru m a))
       else Some (with_infsup_raw (cos_rd m a) (cos_ru m b))
@@ -2311,6 +2357,10 @@ Definition sin (m : mpfr) (has_fma first : bool) (self : Interval) :
     let qb := sup_raw q_nowrap in
     let n := if Model.eq a b then Model.zero else Model.sub qb qa in
     let q := rem_euclid qa (of_u64 4) in
+    let* exact :=
+      if Model.eq n Model.zero || Model.le (of_u64 8) (Model.sub b a) then Some true
+      else floors_exact has_fma a b qa qb FRAC_PI_2 in
+    let '(q, n) := if exact then (q, n) else quadrants m a b in
     if Model.eq q Model.zero && Model.lt n (of_u64 1)
        || Model.eq q (of_u64 3) && Model.lt n (of_u64 2) then
       Some (with_infsup_raw (sin_rd m a) (sin_ru m b))
@@ -2350,6 +2400,14 @@ Definition tan_impl (m : mpfr) (has_fma : bool) (self : Interval) :
         let* p := mul has_fma (with_infsup_raw qb qb) FRAC_PI_2 in
         Some (Model.le b (inf_raw p))
       else Some false in
+    let* exact :=
+      if Model.eq n Model.zero || Model.le (of_u64 4) (Model.sub b a) then Some true
+      else floors_exact has_fma a b qa qb FRAC_PI_2 in
+    let '(q, n, cont) :=
+      if exact then (q, n, cont)
+      else
+        let '(qa, n) := quadrants m a b in
+        (frem qa (of_u64 2), n, false) in
     if Model.eq q Model.zero
          && (Model.lt n (of_u64 1) || Model.eq n (of_u64 1) && cont)
        || Model.eq q (of_u64 1)

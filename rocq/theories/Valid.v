@@ -128,7 +128,7 @@ Inductive made : Interval -> Prop :=
       atanh_ok emin emax m -> made x -> made (Interval.atanh m x)
   | made_cos :
       forall emin emax m has_fma first x y, range_ok emin emax ->
-      get_d_ok emin emax m -> cos_ok emin emax m -> made x ->
+      get_d_ok emin emax m -> cos_ok emin emax m -> sin_ok emin emax m -> made x ->
       Interval.cos m has_fma first x = Some y -> made y
   | made_cosh :
       forall emin emax m first x, range_ok emin emax -> get_d_ok emin emax m ->
@@ -161,14 +161,14 @@ Inductive made : Interval -> Prop :=
       Interval.powi m n x = Some y -> made y
   | made_sin :
       forall emin emax m has_fma first x y, range_ok emin emax ->
-      get_d_ok emin emax m -> sin_ok emin emax m -> made x ->
+      get_d_ok emin emax m -> sin_ok emin emax m -> cos_ok emin emax m -> made x ->
       Interval.sin m has_fma first x = Some y -> made y
   | made_sinh :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       sinh_ok emin emax m -> made x -> made (Interval.sinh m x)
   | made_tan :
       forall emin emax m has_fma x y, range_ok emin emax -> get_d_ok emin emax m ->
-      tan_ok emin emax m -> made x ->
+      tan_ok emin emax m -> sin_ok emin emax m -> cos_ok emin emax m -> made x ->
       Interval.tan m has_fma x = Some y -> made y
   | made_tanh :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
@@ -270,7 +270,7 @@ with dmade : DecInterval -> Prop :=
       atanh_ok emin emax m -> dmade x -> dmade (DecInterval.atanh m x)
   | dmade_cos :
       forall emin emax m has_fma first x y, range_ok emin emax ->
-      get_d_ok emin emax m -> cos_ok emin emax m -> dmade x ->
+      get_d_ok emin emax m -> cos_ok emin emax m -> sin_ok emin emax m -> dmade x ->
       DecInterval.cos m has_fma first x = Some y -> dmade y
   | dmade_cosh :
       forall emin emax m first x, range_ok emin emax -> get_d_ok emin emax m ->
@@ -303,14 +303,14 @@ with dmade : DecInterval -> Prop :=
       DecInterval.powi m n x = Some y -> dmade y
   | dmade_sin :
       forall emin emax m has_fma first x y, range_ok emin emax ->
-      get_d_ok emin emax m -> sin_ok emin emax m -> dmade x ->
+      get_d_ok emin emax m -> sin_ok emin emax m -> cos_ok emin emax m -> dmade x ->
       DecInterval.sin m has_fma first x = Some y -> dmade y
   | dmade_sinh :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       sinh_ok emin emax m -> dmade x -> dmade (DecInterval.sinh m x)
   | dmade_tan :
       forall emin emax m has_fma x y, range_ok emin emax -> get_d_ok emin emax m ->
-      tan_ok emin emax m -> dmade x ->
+      tan_ok emin emax m -> sin_ok emin emax m -> cos_ok emin emax m -> dmade x ->
       DecInterval.tan m has_fma x = Some y -> dmade y
   | dmade_tanh :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
@@ -373,8 +373,8 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (atan2_valid emin emax m y x z Hr Hg Ho Hy Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (atanh_valid emin emax m x Hr Hg Ho Hx).
-- intros emin emax m f first x y Hr Hg Ho _ Hx E.
-  exact (cos_valid emin emax m f first x y Hr Hg Ho Hx E).
+- intros emin emax m f first x y Hr Hg Ho Ho2 _ Hx E.
+  exact (cos_valid emin emax m f first x y Hr Hg Ho Ho2 Hx E).
 - intros emin emax m first x Hr Hg Ho _ Hx.
   exact (cosh_valid emin emax m first x Hr Hg Ho Hx).
 - intros emin emax m x Hr Hg Ho _ Hx.
@@ -393,12 +393,12 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (pow_valid emin emax m f1 f2 x y Hr Hg Ho Hx Hy).
 - intros emin emax m n x y Hr Hg Ho Hn _ Hx E.
   exact (powi_valid emin emax m n x y Hr Hg Ho Hn Hx E).
-- intros emin emax m f first x y Hr Hg Ho _ Hx E.
-  exact (sin_valid emin emax m f first x y Hr Hg Ho Hx E).
+- intros emin emax m f first x y Hr Hg Ho Ho2 _ Hx E.
+  exact (sin_valid emin emax m f first x y Hr Hg Ho Ho2 Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (sinh_valid emin emax m x Hr Hg Ho Hx).
-- intros emin emax m f x y Hr Hg Ho _ Hx E.
-  exact (tan_valid emin emax m f x y Hr Hg Ho Hx E).
+- intros emin emax m f x y Hr Hg Ho Hs Hc _ Hx E.
+  exact (tan_valid emin emax m f x y Hr Hg Ho Hs Hc Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (tanh_valid emin emax m x Hr Hg Ho Hx).
 - exact (proj1 dec_constants_valid).
@@ -451,8 +451,8 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (dec_atan2_valid emin emax m y x w Hr Hg Ho Hy Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (dec_atanh_valid emin emax m x Hr Hg Ho Hx).
-- intros emin emax m f first x y Hr Hg Ho _ Hx E.
-  exact (dec_cos_valid emin emax m f first x y Hr Hg Ho Hx E).
+- intros emin emax m f first x y Hr Hg Ho Ho2 _ Hx E.
+  exact (dec_cos_valid emin emax m f first x y Hr Hg Ho Ho2 Hx E).
 - intros emin emax m first x Hr Hg Ho _ Hx.
   exact (dec_cosh_valid emin emax m first x Hr Hg Ho Hx).
 - intros emin emax m x Hr Hg Ho _ Hx.
@@ -471,12 +471,12 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (dec_pow_valid emin emax m f1 f2 x y Hr Hg Ho Hx Hy).
 - intros emin emax m n x y Hr Hg Ho Hn _ Hx E.
   exact (dec_powi_valid emin emax m n x y Hr Hg Ho Hn Hx E).
-- intros emin emax m f first x y Hr Hg Ho _ Hx E.
-  exact (dec_sin_valid emin emax m f first x y Hr Hg Ho Hx E).
+- intros emin emax m f first x y Hr Hg Ho Ho2 _ Hx E.
+  exact (dec_sin_valid emin emax m f first x y Hr Hg Ho Ho2 Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (dec_sinh_valid emin emax m x Hr Hg Ho Hx).
-- intros emin emax m f x y Hr Hg Ho _ Hx E.
-  exact (dec_tan_valid emin emax m f x y Hr Hg Ho Hx E).
+- intros emin emax m f x y Hr Hg Ho Hs Hc _ Hx E.
+  exact (dec_tan_valid emin emax m f x y Hr Hg Ho Hs Hc Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (dec_tanh_valid emin emax m x Hr Hg Ho Hx).
 Qed.
