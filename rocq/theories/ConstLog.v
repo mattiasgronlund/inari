@@ -6,8 +6,9 @@
     ([LN_2_Q] and [LN_10_Q]), all positive, bound these quotients by
     quotients of rationals, which [vm_compute] compares with the bounds of
     each constant. Each theorem also covers the [DecInterval] constant that
-    [def_com!] makes from the [Interval] one, whose interval is the
-    same. *)
+    [def_com!] makes from the [Interval] one, whose interval is the same,
+    and shows that its decoration, [com], is the strongest ([strongest0]),
+    as its interval is common ([const_strongest0] in [ConstTight.v]). *)
 
 From Stdlib Require Import ZArith Reals Lra QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -59,7 +60,8 @@ Qed.
 
 Theorem LOG10_2_tightest :
   is_tightest (fun r => r = Rlog10 2) Interval.LOG10_2 /\
-  is_tightest (fun r => r = Rlog10 2) (itv DecInterval.LOG10_2).
+  is_tightest (fun r => r = Rlog10 2) (itv DecInterval.LOG10_2) /\
+  strongest0 (dec DecInterval.LOG10_2) (Rlog10 2) (itv DecInterval.LOG10_2).
 Proof.
   assert (H : is_tightest (fun r => r = Rlog10 2) Interval.LOG10_2).
   { apply (const_tightest_Q _ _ _ (ln2_lo / ln10_hi) (ln2_hi / ln10_lo)).
@@ -72,12 +74,14 @@ Proof.
       rewrite !Q2R_div by (apply Q_nonzero; vm_compute; reflexivity).
       pose proof LN_2_Q; pose proof LN_10_Q; pose proof LN_Q_pos.
       apply div_bounds; lra. }
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem LOG10_E_tightest :
   is_tightest (fun r => r = Rlog10 (exp 1)) Interval.LOG10_E /\
-  is_tightest (fun r => r = Rlog10 (exp 1)) (itv DecInterval.LOG10_E).
+  is_tightest (fun r => r = Rlog10 (exp 1)) (itv DecInterval.LOG10_E) /\
+  strongest0 (dec DecInterval.LOG10_E) (Rlog10 (exp 1)) (itv DecInterval.LOG10_E).
 Proof.
   assert (H : is_tightest (fun r => r = Rlog10 (exp 1)) Interval.LOG10_E).
   { apply (const_tightest_Q _ _ _ (/ ln10_hi) (/ ln10_lo)).
@@ -91,12 +95,14 @@ Proof.
       rewrite !Q2R_inv by (apply Q_nonzero; vm_compute; reflexivity).
       pose proof LN_2_Q; pose proof LN_10_Q; pose proof LN_Q_pos.
       apply inv_bounds; lra. }
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem LOG2_10_tightest :
   is_tightest (fun r => r = Rlog2 10) Interval.LOG2_10 /\
-  is_tightest (fun r => r = Rlog2 10) (itv DecInterval.LOG2_10).
+  is_tightest (fun r => r = Rlog2 10) (itv DecInterval.LOG2_10) /\
+  strongest0 (dec DecInterval.LOG2_10) (Rlog2 10) (itv DecInterval.LOG2_10).
 Proof.
   assert (H : is_tightest (fun r => r = Rlog2 10) Interval.LOG2_10).
   { apply (const_tightest_Q _ _ _ (ln10_lo / ln2_hi) (ln10_hi / ln2_lo)).
@@ -109,12 +115,14 @@ Proof.
       rewrite !Q2R_div by (apply Q_nonzero; vm_compute; reflexivity).
       pose proof LN_2_Q; pose proof LN_10_Q; pose proof LN_Q_pos.
       apply div_bounds; lra. }
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem LOG2_E_tightest :
   is_tightest (fun r => r = Rlog2 (exp 1)) Interval.LOG2_E /\
-  is_tightest (fun r => r = Rlog2 (exp 1)) (itv DecInterval.LOG2_E).
+  is_tightest (fun r => r = Rlog2 (exp 1)) (itv DecInterval.LOG2_E) /\
+  strongest0 (dec DecInterval.LOG2_E) (Rlog2 (exp 1)) (itv DecInterval.LOG2_E).
 Proof.
   assert (H : is_tightest (fun r => r = Rlog2 (exp 1)) Interval.LOG2_E).
   { apply (const_tightest_Q _ _ _ (/ ln2_hi) (/ ln2_lo)).
@@ -128,5 +136,6 @@ Proof.
       rewrite !Q2R_inv by (apply Q_nonzero; vm_compute; reflexivity).
       pose proof LN_2_Q; pose proof LN_10_Q; pose proof LN_Q_pos.
       apply inv_bounds; lra. }
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.

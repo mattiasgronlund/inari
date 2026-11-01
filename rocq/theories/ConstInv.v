@@ -8,7 +8,9 @@
     [lo^2 < 2 < hi^2], and [lo < 1 / sqrt 2 < hi] if
     [2 * lo^2 < 1 < 2 * hi^2], all bounds being positive. Each theorem
     also covers the [DecInterval] constant that [def_com!] makes from the
-    [Interval] one, whose interval is the same. *)
+    [Interval] one, whose interval is the same, and shows that its
+    decoration, [com], is the strongest ([strongest0]), as its interval is
+    common ([const_strongest0] in [ConstTight.v]). *)
 
 From Stdlib Require Import ZArith Reals Lra QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -71,7 +73,8 @@ Qed.
 
 Theorem FRAC_1_PI_tightest :
   is_tightest (fun r => r = / PI) Interval.FRAC_1_PI /\
-  is_tightest (fun r => r = / PI) (itv DecInterval.FRAC_1_PI).
+  is_tightest (fun r => r = / PI) (itv DecInterval.FRAC_1_PI) /\
+  strongest0 (dec DecInterval.FRAC_1_PI) (/ PI) (itv DecInterval.FRAC_1_PI).
 Proof.
   assert (H : is_tightest (fun r => r = / PI) Interval.FRAC_1_PI).
   { apply (const_tightest_Q _ _ _ ((1 # 1) / pi_hi) ((1 # 1) / pi_lo)).
@@ -82,12 +85,14 @@ Proof.
     - vm_compute; reflexivity.
     - (* [1 / π] is [/ π]. *)
       pose proof (div_PI_Q 1 eq_refl) as Hd. lra. }
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem FRAC_2_PI_tightest :
   is_tightest (fun r => r = 2 / PI) Interval.FRAC_2_PI /\
-  is_tightest (fun r => r = 2 / PI) (itv DecInterval.FRAC_2_PI).
+  is_tightest (fun r => r = 2 / PI) (itv DecInterval.FRAC_2_PI) /\
+  strongest0 (dec DecInterval.FRAC_2_PI) (2 / PI) (itv DecInterval.FRAC_2_PI).
 Proof.
   assert (H : is_tightest (fun r => r = 2 / PI) Interval.FRAC_2_PI).
   { apply (const_tightest_Q _ _ _ ((2 # 1) / pi_hi) ((2 # 1) / pi_lo)).
@@ -97,12 +102,14 @@ Proof.
     - vm_compute; reflexivity.
     - vm_compute; reflexivity.
     - exact (div_PI_Q 2 eq_refl). }
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem FRAC_2_SQRT_PI_tightest :
   is_tightest (fun r => r = 2 / sqrt PI) Interval.FRAC_2_SQRT_PI /\
-  is_tightest (fun r => r = 2 / sqrt PI) (itv DecInterval.FRAC_2_SQRT_PI).
+  is_tightest (fun r => r = 2 / sqrt PI) (itv DecInterval.FRAC_2_SQRT_PI) /\
+  strongest0 (dec DecInterval.FRAC_2_SQRT_PI) (2 / sqrt PI) (itv DecInterval.FRAC_2_SQRT_PI).
 Proof.
   (* [2 / sqrt π = sqrt 4 / sqrt π = sqrt (4 / π)], and [4 / π] lies
      between [4 / pi_hi] and [4 / pi_lo]. Comparing [lo^2] with
@@ -121,12 +128,14 @@ Proof.
     - vm_compute; reflexivity.
     - vm_compute; reflexivity.
     - exact (div_PI_Q 4 eq_refl). }
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem SQRT_2_tightest :
   is_tightest (fun r => r = sqrt 2) Interval.SQRT_2 /\
-  is_tightest (fun r => r = sqrt 2) (itv DecInterval.SQRT_2).
+  is_tightest (fun r => r = sqrt 2) (itv DecInterval.SQRT_2) /\
+  strongest0 (dec DecInterval.SQRT_2) (sqrt 2) (itv DecInterval.SQRT_2).
 Proof.
   assert (H : is_tightest (fun r => r = sqrt 2) Interval.SQRT_2).
   { apply (const_tightest_sqrt _ _ _ (2 # 1) (2 # 1)).
@@ -138,12 +147,14 @@ Proof.
     - vm_compute; reflexivity.
     - vm_compute; reflexivity.
     - rewrite Q2R_Z. lra. }
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem FRAC_1_SQRT_2_tightest :
   is_tightest (fun r => r = / sqrt 2) Interval.FRAC_1_SQRT_2 /\
-  is_tightest (fun r => r = / sqrt 2) (itv DecInterval.FRAC_1_SQRT_2).
+  is_tightest (fun r => r = / sqrt 2) (itv DecInterval.FRAC_1_SQRT_2) /\
+  strongest0 (dec DecInterval.FRAC_1_SQRT_2) (/ sqrt 2) (itv DecInterval.FRAC_1_SQRT_2).
 Proof.
   (* [/ sqrt 2 = sqrt (1 / 2)], so [lo^2 < 1 / 2 < hi^2] suffices, that
      is [2 * lo^2 < 1 < 2 * hi^2]. *)
@@ -159,5 +170,6 @@ Proof.
     - vm_compute; reflexivity.
     - assert (Hh : Q2R (1 # 2) = / 2) by (unfold Q2R; cbn [Qnum Qden]; field).
       rewrite Hh. lra. }
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.

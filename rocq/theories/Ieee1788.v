@@ -111,6 +111,41 @@ Definition p (d : Decoration) (f : R -> R) (x : Interval) : Prop :=
 Definition strongest (d : Decoration) (f : R -> R) (x : Interval) : Prop :=
   p d f x /\ forall e, p e f x -> (discriminant e <= discriminant d)%Z.
 
+(** ** Functions of no arguments
+
+    The standard defines the decorations for a function whose domain is a
+    subset of Rⁿ, for any [n >= 0]. For [n = 0], R⁰ has one point, the
+    empty tuple, so a function of no arguments is either defined on it,
+    the constant function [c()] of a real [c], or defined nowhere, the
+    standard's NaN, whose interval version is NaI (Annex B1 of the draft
+    P1788/D9.5). The only box of R⁰ is R⁰ itself, which is nonempty,
+    bounded and the domain of [c()], and [c()] is continuous on it, as
+    every function on one point is. *)
+
+(** The predicate [p_d(c(), R⁰)] that the decoration [d] asserts, with the
+    computed interval [z]:
+
+    - [com]: [z] is bounded, which the standard asks of the computed
+      interval, as in [p2].
+    - [dac], [def] and [trv]: always true.
+    - [ill] is only for NaN, never the result of evaluating [c()].
+
+    Annex B1 says the same: an interval [z] that contains [c] may be
+    decorated [com], [dac], [def] or [trv] if [z] is bounded, and [dac],
+    [def] or [trv] otherwise, never [ill]. [c] does not occur in the body,
+    as no decoration of [c()] depends on its value. *)
+Definition p0 (d : Decoration) (c : R) (z : Interval) : Prop :=
+  match d with
+  | Ill => False
+  | Trv | Def | Dac => True
+  | Com => bounded (fun s => mem s z)
+  end.
+
+(** [strongest d f x] for the constant function [c()] with the computed
+    interval [z]. *)
+Definition strongest0 (d : Decoration) (c : R) (z : Interval) : Prop :=
+  p0 d c z /\ forall e, p0 e c z -> (discriminant e <= discriminant d)%Z.
+
 (** ** Functions of one real with a domain
 
     A point function of IEEE 1788 may be defined only on a set of reals,

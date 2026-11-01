@@ -8,7 +8,9 @@
     [FRAC_PI_8] lie strictly between the bounds of the constant, which
     [vm_compute] checks, and [const_tightest_Q] concludes. Each theorem
     also covers the [DecInterval] constant that [def_com!] makes from the
-    [Interval] one, whose interval is the same. *)
+    [Interval] one, whose interval is the same, and shows that its
+    decoration, [com], is the strongest ([strongest0]), as its interval is
+    common ([const_strongest0] in [ConstTight.v]). *)
 
 From Stdlib Require Import ZArith Reals Lra QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -37,7 +39,8 @@ Qed.
 
 Theorem PI_tightest :
   is_tightest (fun r => r = PI) Interval.PI /\
-  is_tightest (fun r => r = PI) (itv DecInterval.PI).
+  is_tightest (fun r => r = PI) (itv DecInterval.PI) /\
+  strongest0 (dec DecInterval.PI) PI (itv DecInterval.PI).
 Proof.
   assert (H : is_tightest (fun r => r = PI) Interval.PI).
   { apply (const_tightest_Q _ _ _ pi_lo pi_hi).
@@ -48,12 +51,14 @@ Proof.
     - vm_compute; reflexivity.
     - pose proof PI_Q; lra. }
   (* [DecInterval.PI] is [new_unchecked Interval.PI Com]. *)
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem TAU_tightest :
   is_tightest (fun r => r = 2 * PI) Interval.TAU /\
-  is_tightest (fun r => r = 2 * PI) (itv DecInterval.TAU).
+  is_tightest (fun r => r = 2 * PI) (itv DecInterval.TAU) /\
+  strongest0 (dec DecInterval.TAU) (2 * PI) (itv DecInterval.TAU).
 Proof.
   assert (H : is_tightest (fun r => r = 2 * PI) Interval.TAU).
   { apply (const_tightest_Q _ _ _ (2 * pi_lo)%Q (2 * pi_hi)%Q).
@@ -66,12 +71,14 @@ Proof.
       replace (Q2R 2) with 2 by (unfold Q2R; simpl; lra).
       lra. }
   (* [DecInterval.TAU] is [new_unchecked Interval.TAU Com]. *)
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem FRAC_PI_2_tightest :
   is_tightest (fun r => r = PI / 2) Interval.FRAC_PI_2 /\
-  is_tightest (fun r => r = PI / 2) (itv DecInterval.FRAC_PI_2).
+  is_tightest (fun r => r = PI / 2) (itv DecInterval.FRAC_PI_2) /\
+  strongest0 (dec DecInterval.FRAC_PI_2) (PI / 2) (itv DecInterval.FRAC_PI_2).
 Proof.
   assert (H : is_tightest (fun r => r = PI / 2) Interval.FRAC_PI_2).
   { apply (const_tightest_Q _ _ _ (pi_lo * (1 # 2))%Q (pi_hi * (1 # 2))%Q).
@@ -84,12 +91,14 @@ Proof.
       replace (Q2R (1 # 2)) with (/ 2) by (unfold Q2R; simpl; lra).
       lra. }
   (* [DecInterval.FRAC_PI_2] is [new_unchecked Interval.FRAC_PI_2 Com]. *)
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem FRAC_PI_3_tightest :
   is_tightest (fun r => r = PI / 3) Interval.FRAC_PI_3 /\
-  is_tightest (fun r => r = PI / 3) (itv DecInterval.FRAC_PI_3).
+  is_tightest (fun r => r = PI / 3) (itv DecInterval.FRAC_PI_3) /\
+  strongest0 (dec DecInterval.FRAC_PI_3) (PI / 3) (itv DecInterval.FRAC_PI_3).
 Proof.
   assert (H : is_tightest (fun r => r = PI / 3) Interval.FRAC_PI_3).
   { apply (const_tightest_Q _ _ _ (pi_lo * (1 # 3))%Q (pi_hi * (1 # 3))%Q).
@@ -102,12 +111,14 @@ Proof.
       replace (Q2R (1 # 3)) with (/ 3) by (unfold Q2R; simpl; lra).
       lra. }
   (* [DecInterval.FRAC_PI_3] is [new_unchecked Interval.FRAC_PI_3 Com]. *)
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem FRAC_PI_4_tightest :
   is_tightest (fun r => r = PI / 4) Interval.FRAC_PI_4 /\
-  is_tightest (fun r => r = PI / 4) (itv DecInterval.FRAC_PI_4).
+  is_tightest (fun r => r = PI / 4) (itv DecInterval.FRAC_PI_4) /\
+  strongest0 (dec DecInterval.FRAC_PI_4) (PI / 4) (itv DecInterval.FRAC_PI_4).
 Proof.
   assert (H : is_tightest (fun r => r = PI / 4) Interval.FRAC_PI_4).
   { apply (const_tightest_Q _ _ _ (pi_lo * (1 # 4))%Q (pi_hi * (1 # 4))%Q).
@@ -120,12 +131,14 @@ Proof.
       replace (Q2R (1 # 4)) with (/ 4) by (unfold Q2R; simpl; lra).
       lra. }
   (* [DecInterval.FRAC_PI_4] is [new_unchecked Interval.FRAC_PI_4 Com]. *)
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem FRAC_PI_6_tightest :
   is_tightest (fun r => r = PI / 6) Interval.FRAC_PI_6 /\
-  is_tightest (fun r => r = PI / 6) (itv DecInterval.FRAC_PI_6).
+  is_tightest (fun r => r = PI / 6) (itv DecInterval.FRAC_PI_6) /\
+  strongest0 (dec DecInterval.FRAC_PI_6) (PI / 6) (itv DecInterval.FRAC_PI_6).
 Proof.
   assert (H : is_tightest (fun r => r = PI / 6) Interval.FRAC_PI_6).
   { apply (const_tightest_Q _ _ _ (pi_lo * (1 # 6))%Q (pi_hi * (1 # 6))%Q).
@@ -138,12 +151,14 @@ Proof.
       replace (Q2R (1 # 6)) with (/ 6) by (unfold Q2R; simpl; lra).
       lra. }
   (* [DecInterval.FRAC_PI_6] is [new_unchecked Interval.FRAC_PI_6 Com]. *)
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem FRAC_PI_8_tightest :
   is_tightest (fun r => r = PI / 8) Interval.FRAC_PI_8 /\
-  is_tightest (fun r => r = PI / 8) (itv DecInterval.FRAC_PI_8).
+  is_tightest (fun r => r = PI / 8) (itv DecInterval.FRAC_PI_8) /\
+  strongest0 (dec DecInterval.FRAC_PI_8) (PI / 8) (itv DecInterval.FRAC_PI_8).
 Proof.
   assert (H : is_tightest (fun r => r = PI / 8) Interval.FRAC_PI_8).
   { apply (const_tightest_Q _ _ _ (pi_lo * (1 # 8))%Q (pi_hi * (1 # 8))%Q).
@@ -156,5 +171,6 @@ Proof.
       replace (Q2R (1 # 8)) with (/ 8) by (unfold Q2R; simpl; lra).
       lra. }
   (* [DecInterval.FRAC_PI_8] is [new_unchecked Interval.FRAC_PI_8 Com]. *)
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.

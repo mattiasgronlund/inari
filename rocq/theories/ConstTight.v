@@ -1,4 +1,4 @@
-(** * A constant between two consecutive floats is the tightest interval around it
+(** * A constant between two consecutive floats is the tightest interval around it, and [com] its strongest decoration
 
     Each constant [C] of [Interval] other than [EMPTY] and [ENTIRE] is
     [const_interval a b] for two finite floats [a] and [b], where [b] is
@@ -8,11 +8,17 @@
     [PiTight.v]), so [[a, b]] is the tightest interval around [c]
     ([const_tightest], by [tightest_lanes] in [AddSub.v]). [B2Q] gives the
     value of a float as a rational, so that [vm_compute] can compare the
-    bounds with rational bounds of [c] ([const_tightest_Q]). *)
+    bounds with rational bounds of [c] ([const_tightest_Q]).
 
-From Stdlib Require Import ZArith Reals Lra QArith Qreals.
+    [com] is the strongest decoration of a constant function whose
+    computed interval is bounded ([com_strongest0]), as no decoration is
+    stronger, and a common interval is bounded ([const_strongest0], by
+    [common_bounded] in [DecBinary.v]). *)
+
+From Stdlib Require Import ZArith Lia Reals Lra QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Integer MaxMin AddSub PiTight.
+From Inari Require DecBinary.
 
 Open Scope R_scope.
 
@@ -82,4 +88,22 @@ intros a b c l u Fa Fb Hs Hl Hu Hc.
 apply (const_tightest a b c Fa Fb Hs).
 rewrite !B2Q_correct.
 apply Qlt_Rlt in Hl. apply Qlt_Rlt in Hu. lra.
+Qed.
+
+(** [com] is the strongest decoration of the constant function [c()] if
+    the computed interval [z] is bounded: [p0 Com c z] is then true, and
+    no decoration is above [com]. *)
+Theorem com_strongest0 :
+  forall c z, bounded (fun s => mem s z) -> strongest0 Com c z.
+Proof.
+intros c z Hz. split; [exact Hz|].
+intros [] _; cbn [discriminant]; lia.
+Qed.
+
+(** The same for a common interval [z], which [vm_compute] decides for
+    the constants. *)
+Lemma const_strongest0 :
+  forall c z, Interval.is_common_interval z = true -> strongest0 Com c z.
+Proof.
+intros c z Hz. exact (com_strongest0 c z (DecBinary.common_bounded z Hz)).
 Qed.

@@ -43,8 +43,9 @@ impl DecInterval {
         // and for the proof that every `Interval` that the constructors and the proved
         // operations make is `valid` (`rocq/theories/Valid.v`), so a new caller needs a proof
         // in both files. The proofs that the constants of `DecInterval` from `E` to `TAU` are
-        // the tightest intervals around their values (`rocq/theories/ConstPi.v`,
-        // `ConstInv.v`, `ConstLn.v` and `ConstLog.v`) use it too.
+        // the tightest intervals around their values and that `com` is their strongest
+        // decoration (`rocq/theories/ConstPi.v`, `ConstInv.v`, `ConstLn.v` and `ConstLog.v`)
+        // use it too.
         Self { x, d }
     }
 

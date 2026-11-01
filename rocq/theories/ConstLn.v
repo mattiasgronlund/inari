@@ -10,7 +10,9 @@
     [Interval::LN_10] lie strictly outside these rationals, which
     [vm_compute] checks. Each theorem also covers the [DecInterval]
     constant that [def_com!] makes from the [Interval] one, whose interval
-    is the same. *)
+    is the same, and shows that its decoration, [com], is the strongest
+    ([strongest0]), as its interval is common ([const_strongest0] in
+    [ConstTight.v]). *)
 
 From Stdlib Require Import ZArith Reals Lra QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -119,7 +121,8 @@ Qed.
 
 Theorem E_tightest :
   is_tightest (fun r => r = exp 1) Interval.E /\
-  is_tightest (fun r => r = exp 1) (itv DecInterval.E).
+  is_tightest (fun r => r = exp 1) (itv DecInterval.E) /\
+  strongest0 (dec DecInterval.E) (exp 1) (itv DecInterval.E).
 Proof.
   destruct (exp_Q_bounds 1 13) as [El Eu].
   { apply Qle_bool_imp_le; vm_compute; reflexivity. }
@@ -135,12 +138,14 @@ Proof.
     - vm_compute; reflexivity.
     - split; assumption. }
   (* [DecInterval.E] is [Interval.E] decorated [com]. *)
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem LN_2_tightest :
   is_tightest (fun r => r = ln 2) Interval.LN_2 /\
-  is_tightest (fun r => r = ln 2) (itv DecInterval.LN_2).
+  is_tightest (fun r => r = ln 2) (itv DecInterval.LN_2) /\
+  strongest0 (dec DecInterval.LN_2) (ln 2) (itv DecInterval.LN_2).
 Proof.
   assert (H : is_tightest (fun r => r = ln 2) Interval.LN_2).
   { apply (const_tightest_Q _ _ _ ln2_lo ln2_hi).
@@ -150,12 +155,14 @@ Proof.
     - vm_compute; reflexivity.
     - vm_compute; reflexivity.
     - pose proof LN_2_Q; lra. }
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
 
 Theorem LN_10_tightest :
   is_tightest (fun r => r = ln 10) Interval.LN_10 /\
-  is_tightest (fun r => r = ln 10) (itv DecInterval.LN_10).
+  is_tightest (fun r => r = ln 10) (itv DecInterval.LN_10) /\
+  strongest0 (dec DecInterval.LN_10) (ln 10) (itv DecInterval.LN_10).
 Proof.
   assert (H : is_tightest (fun r => r = ln 10) Interval.LN_10).
   { apply (const_tightest_Q _ _ _ ln10_lo ln10_hi).
@@ -165,5 +172,6 @@ Proof.
     - vm_compute; reflexivity.
     - vm_compute; reflexivity.
     - pose proof LN_10_Q; lra. }
-  split; exact H.
+  split; [exact H | split; [exact H |]].
+  apply const_strongest0; vm_compute; reflexivity.
 Qed.
