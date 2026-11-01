@@ -2397,9 +2397,7 @@ Definition sinh (m : mpfr) : Interval -> Interval :=
   mono_inc (sinh_rd m) (sinh_ru m).
 
 (** [fn tan_impl(self) -> (Self, Decoration)] and [pub fn tan(self) ->
-    Self], written as [cos] is. In [cont], Rust's [&&] does not evaluate
-    its right side when [qb] is +inf, so the [mul] of intervals is under an
-    [if]; [qb != f64::INFINITY] is [!(qb == f64::INFINITY)]. *)
+    Self], written as [cos] and [sin] are. *)
 Definition tan_impl (m : mpfr) (has_fma : bool) (self : Interval) :
     option (Interval * Decoration) :=
   if is_empty self then Some (self, Trv)
@@ -2412,23 +2410,16 @@ Definition tan_impl (m : mpfr) (has_fma : bool) (self : Interval) :
     let qb := sup_raw q_nowrap in
     let n := if Model.eq a b then Model.zero else Model.sub qb qa in
     let q := rem_euclid_2 qa in
-    let* cont :=
-      if negb (Model.eq qb (B754_infinity false)) then
-        let* p := mul has_fma (with_infsup_raw qb qb) FRAC_PI_2 in
-        Some (Model.le b (inf_raw p))
-      else Some false in
     let* exact :=
       if Model.eq n Model.zero || Model.le (of_u64 4) (Model.sub b a) then Some true
       else floors_exact has_fma a b qa qb FRAC_PI_2 in
-    let '(q, n, cont) :=
-      if exact then (q, n, cont)
+    let '(q, n) :=
+      if exact then (q, n)
       else
         let '(qa, n) := quadrants m a b in
-        (frem qa (of_u64 2), n, false) in
-    if Model.eq q Model.zero
-         && (Model.lt n (of_u64 1) || Model.eq n (of_u64 1) && cont)
-       || Model.eq q (of_u64 1)
-         && (Model.lt n (of_u64 2) || Model.eq n (of_u64 2) && cont) then
+        (frem qa (of_u64 2), n) in
+    if Model.eq q Model.zero && Model.lt n (of_u64 1)
+       || Model.eq q (of_u64 1) && Model.lt n (of_u64 2) then
       Some (with_infsup_raw (tan_rd m a) (tan_ru m b), Com)
     else Some (ENTIRE, Trv).
 Definition tan (m : mpfr) (has_fma : bool) (self : Interval) : option Interval :=

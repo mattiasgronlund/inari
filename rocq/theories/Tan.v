@@ -4,17 +4,15 @@
     and reads the parity [q] of [qa]. The poles of [tan] are the odd
     multiples of [PI / 2], and it increases between two of them
     ([TrigPieces.v]). It returns [[tan_rd(a), tan_ru(b)]] with [com] when
-    [x] lies between two poles: for even [qa], if [n = 0], or [n = 1] and
-    [cont], i.e. [b] is at most the lower bound of [qb * FRAC_PI_2], so
-    below the pole [qb * (PI / 2)]; for odd [qa], if [n <= 1], or [n = 2]
-    and [cont]. Otherwise it returns [[-inf, +inf]] with [trv]. If
+    [x] lies between two poles: for even [qa], if [n = 0], and for odd
+    [qa], if [n <= 1]. Otherwise it returns [[-inf, +inf]] with [trv]. If
     [a == b], [n] is 0 whatever [q] is, so the first case is taken whether
     or not [a] is a pole. The proofs derive that it is not from the
     irrationality of π ([pi_irrational] in [PiIrrational.v]).
 
-    The [(q, n, cont)] that the branches test come from one of two
-    places. The floors [qa] and [qb] of the bounds of [x / FRAC_PI_2] are
-    kept if [n = 0], if [b - a], rounded to nearest, is at least 4, or if
+    The [(q, n)] that the branches test come from one of two places. The
+    floors [qa] and [qb] of the bounds of [x / FRAC_PI_2] are kept if
+    [n = 0], if [b - a], rounded to nearest, is at least 4, or if
     [floors_exact] certifies them as the floors of [a / (PI / 2)] and
     [b / (PI / 2)] ([floors_exact_ok] in [TrigCert.v]). Every real of [x]
     lies in [[qa * (PI / 2), (qb + 1) * (PI / 2))], and [qa * (PI / 2)] is
@@ -24,8 +22,8 @@
     holds an odd multiple of [PI / 2], or [x] is more than [PI] wide.
     Otherwise [quadrants] gives the exact floors modulo 4 and a count [n]
     that is [kb - ka] below 4 and at least 4 otherwise
-    ([quadrants_correct] in [TrigCount.v]), and [cont] is false; the
-    branches read the same from those. So the result is the tightest for
+    ([quadrants_correct] in [TrigCount.v]); the branches read the same
+    from those. So the result is the tightest for
     every [x] ([tan_correct]), [com] holds when it is returned, and [trv]
     is returned only if [x] is empty or holds a pole, so the decoration is
     the strongest ([dec_tan_correct]). *)
@@ -33,7 +31,7 @@
 From Stdlib Require Import ZArith Reals Lra Lia QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr ComCommon Integer Encoding
-  Decompose PiBounds TrigPieces TrigReduce TrigBranch TrigQuad TrigCount TrigCert Mul
+  Decompose PiBounds TrigPieces TrigReduce TrigBranch TrigQuad TrigCount TrigCert
   DecBinary MonoInc Sqrt.
 
 Open Scope R_scope.
@@ -46,9 +44,7 @@ Lemma tn_consts :
   Model.eq (of_u64 1) Model.zero = false /\ Model.eq (of_u64 1) (of_u64 1) = true /\
   Model.lt Model.zero (of_u64 1) = true /\ Model.lt Model.zero (of_u64 2) = true /\
   Model.lt (B754_infinity false) (of_u64 1) = false /\
-  Model.eq (B754_infinity false) (of_u64 1) = false /\
   Model.lt (B754_infinity false) (of_u64 2) = false /\
-  Model.eq (B754_infinity false) (of_u64 2) = false /\
   Model.eq (B754_infinity false) Model.zero = false /\
   Model.le (of_u64 4) (B754_infinity false) = true.
 Proof.
@@ -60,93 +56,9 @@ Proof.
 intros [s|s| |s mw ew Hw] F; try discriminate F; reflexivity.
 Qed.
 
-Lemma tn_le_fin :
-  forall u v, is_finite u = true -> is_finite v = true -> Model.le u v = true ->
-  B2R u <= B2R v.
-Proof.
-intros u v Fu Fv. unfold Model.le. rewrite Bleb_correct by assumption.
-case Rle_bool_spec; [intros H _; exact H | intros _ E; discriminate E].
-Qed.
-
-(** If a finite [b] is at most the lower bound [w] of an interval that
-    holds [r], it is at most [r]: [w] is not NaN then, and if infinite it
-    is -inf, which no finite [b] is at most. *)
-Lemma tn_le_lower :
-  forall (b : f64) z r, is_finite b = true -> Model.le b (Interval.inf_raw z) = true ->
-  mem r z -> B2R b <= r.
-Proof.
-intros b z r Fb Hle [Hm _]. revert Hle Hm. unfold Interval.inf_raw.
-destruct (opp (fst (rep z))) as [s|[|]| |s mw ew Hw]; intros Hle Hm.
-- pose proof (tn_le_fin b (B754_zero s) Fb eq_refl Hle). lra.
-- destruct b; try discriminate Fb; discriminate Hle.
-- discriminate Hm.
-- destruct Hm.
-- pose proof (tn_le_fin b (B754_finite s mw ew Hw) Fb eq_refl Hle). lra.
-Qed.
-
-Lemma tn_with_valid :
-  forall q, is_finite q = true -> valid (Interval.with_infsup_raw q q).
-Proof.
-intros q Fq. unfold valid, Interval.with_infsup_raw, Generic.constant. cbn [rep].
-right. unfold opp. rewrite Bopp_involutive. split; [|split].
-- rewrite Bleb_correct by exact Fq. apply Rle_bool_true, Rle_refl.
-- destruct q; try discriminate Fq; discriminate.
-- destruct q; try discriminate Fq; discriminate.
-Qed.
-
-Lemma tn_mem_with :
-  forall q, is_finite q = true -> mem (B2R q) (Interval.with_infsup_raw q q).
-Proof.
-intros q Fq. unfold mem, Interval.with_infsup_raw, Generic.constant. cbn [rep fst snd].
-unfold opp. rewrite Bopp_involutive.
-destruct q; try discriminate Fq; split; apply Rle_refl.
-Qed.
-
 Lemma tn_mul_le : forall u v w, 0 < w -> u <= v -> u * w <= v * w.
 Proof.
 intros u v w Hw H. apply Rmult_le_compat_r; lra.
-Qed.
-
-(** [cont] in [Interval::tan_impl] is computed, and if it is true for a
-    finite [qb = k] with [k <> 0], then [b < k * (PI / 2)]: [b] is at most
-    the lower bound of [[qb, qb] * FRAC_PI_2], which is at most [k * lo]
-    for [k > 0] and [k * hi] for [k < 0], where [lo] and [hi] are the
-    bounds of [FRAC_PI_2], and both are below [k * (PI / 2)] as
-    [lo < PI / 2 < hi]. *)
-Lemma tn_cont :
-  forall has_fma (qb b : f64), qb = B754_infinity false \/ is_finite qb = true ->
-  exists cb,
-    (if negb (Model.eq qb (B754_infinity false)) then
-       let* p := Interval.mul has_fma (Interval.with_infsup_raw qb qb) Interval.FRAC_PI_2 in
-       Some (Model.le b (Interval.inf_raw p))
-     else Some false) = Some cb /\
-    (cb = true -> is_finite qb = true -> is_finite b = true ->
-     forall k, B2R qb = IZR k -> k <> 0%Z -> B2R b < IZR k * (PI / 2)).
-Proof.
-intros has_fma qb b [->|Fq].
-- exists false. split; [reflexivity|]. intros E; discriminate E.
-- assert (E : Model.eq qb (B754_infinity false) = false)
-    by (destruct qb; try discriminate Fq; reflexivity).
-  rewrite E. cbn [negb].
-  destruct FRAC_PI_2_const as (HC & HCn & Flo & Fhi & H1 & Hlo & Hhi).
-  destruct (mul_correct has_fma (Interval.with_infsup_raw qb qb) Interval.FRAC_PI_2
-    (tn_with_valid qb Fq) HC) as (p & Ep & Hp).
-  rewrite Ep. eexists. split; [reflexivity|].
-  intros Hle _ Fb k Hk Hk0.
-  assert (Ht : exists t, mem t Interval.FRAC_PI_2 /\ IZR k * t < IZR k * (PI / 2)).
-  { destruct (Z.lt_ge_cases 0 k) as [Kp|Kn].
-    - exists (B2R (Interval.inf_raw Interval.FRAC_PI_2)).
-      split; [exact (mono_mem_inf _ HC HCn Flo)|].
-      apply Rmult_lt_compat_l; [apply IZR_lt; exact Kp | exact Hlo].
-    - exists (B2R (Interval.sup_raw Interval.FRAC_PI_2)).
-      split; [exact (mono_mem_sup _ HC HCn Fhi)|].
-      assert (IZR k < 0) by (apply IZR_lt; lia). nra. }
-  destruct Ht as (t & Ht & Hkt).
-  assert (Hm : mem (B2R qb * t) p).
-  { apply (proj1 (proj2 Hp)). exists (B2R qb), t.
-    split; [exact (tn_mem_with qb Fq)|]. split; [exact Ht | reflexivity]. }
-  rewrite Hk in Hm.
-  pose proof (tn_le_lower b _ _ Fb Hle Hm). lra.
 Qed.
 
 (** An interval that holds [[r, t]] with [t - r >= PI] holds a pole, and
@@ -329,11 +241,10 @@ split; [exact Ht|].
 intros _ (_ & HD). exact (ND HD).
 Qed.
 
-(** The branches of [Interval::tan_impl] on [(q, n, cont)]. *)
-Definition tn_br (m : mpfr) (a b q n : f64) (cont : bool) :
-    option (Interval * Decoration) :=
-  if Model.eq q Model.zero && (Model.lt n (of_u64 1) || Model.eq n (of_u64 1) && cont)
-     || Model.eq q (of_u64 1) && (Model.lt n (of_u64 2) || Model.eq n (of_u64 2) && cont)
+(** The branches of [Interval::tan_impl] on [(q, n)]. *)
+Definition tn_br (m : mpfr) (a b q n : f64) : option (Interval * Decoration) :=
+  if Model.eq q Model.zero && Model.lt n (of_u64 1)
+     || Model.eq q (of_u64 1) && Model.lt n (of_u64 2)
   then Some (Interval.with_infsup_raw (tan_rd m a) (tan_ru m b), Com)
   else Some (Interval.ENTIRE, Trv).
 
@@ -435,27 +346,24 @@ Qed.
     [x] in [[ka * (PI / 2), (kb + 1) * (PI / 2))], [a] above
     [ka * (PI / 2)] for an odd [ka], [q] the parity of [ka], [n] tests as
     an integer [N] that is [kb - ka] below 4 and implies [kb - ka >= 4]
-    otherwise, and a true [cont] putting [b] below [kb * (PI / 2)] for an
-    odd [kb]. Each [com] case puts [x] between two poles ([tn_piece]); the
+    otherwise. Each [com] case puts [x] between two poles ([tn_piece]); the
     [trv] case has an odd [j] with [ka < j <= kb], so [Ent] says when it
     is the tightest. *)
 Lemma tn_br_spec :
-  forall x q n cont ka kb N, finite_itv x -> (ka <= kb)%Z ->
+  forall x q n ka kb N, finite_itv x -> (ka <= kb)%Z ->
   IZR ka * (PI / 2) <= B2R (Interval.inf_raw x) ->
   (Z.odd ka = true -> IZR ka * (PI / 2) < B2R (Interval.inf_raw x)) ->
   B2R (Interval.sup_raw x) < (IZR kb + 1) * (PI / 2) ->
   Model.eq q Model.zero = Z.even ka -> Model.eq q (of_u64 1) = negb (Z.even ka) ->
-  Model.lt n (of_u64 1) = (N <? 1)%Z -> Model.eq n (of_u64 1) = (N =? 1)%Z ->
-  Model.lt n (of_u64 2) = (N <? 2)%Z -> Model.eq n (of_u64 2) = (N =? 2)%Z ->
+  Model.lt n (of_u64 1) = (N <? 1)%Z -> Model.lt n (of_u64 2) = (N <? 2)%Z ->
   ((N < 4)%Z -> N = (kb - ka)%Z) -> ((4 <= N)%Z -> (4 <= kb - ka)%Z) ->
-  (cont = true -> Z.odd kb = true -> B2R (Interval.sup_raw x) < IZR kb * (PI / 2)) ->
   (forall j, Z.odd j = true -> (ka < j <= kb)%Z ->
    is_tightest (image_dom tan_dom tan x) Interval.ENTIRE /\
    ~ (forall s, mem s x -> tan_dom s)) ->
-  exists y e, tn_br m (Interval.inf_raw x) (Interval.sup_raw x) q n cont = Some (y, e) /\
+  exists y e, tn_br m (Interval.inf_raw x) (Interval.sup_raw x) q n = Some (y, e) /\
     tn_spec x y e.
 Proof using Hrange Hget Htan.
-intros x q n cont ka kb N Hf Hle Ha1 Ha2 Hb Q0 Q1 L1 E1 L2 E2 HN1 HN2 Hc Ent.
+intros x q n ka kb N Hf Hle Ha1 Ha2 Hb Q0 Q1 L1 L2 HN1 HN2 Ent.
 pose proof PI_RGT_0 as Hpi.
 pose proof Hf as (Hx & Hn & _ & _).
 assert (Hk1 : (1 <= N)%Z -> (ka + 1 <= kb)%Z)
@@ -464,10 +372,10 @@ assert (Hk1 : (1 <= N)%Z -> (ka + 1 <= kb)%Z)
 assert (Hk2 : (2 <= N)%Z -> (ka + 2 <= kb)%Z)
   by (intros H; destruct (Z.lt_ge_cases N 4) as [H'|H'];
       [specialize (HN1 H') | specialize (HN2 H')]; lia).
-unfold tn_br. rewrite Q0, Q1, L1, E1, L2, E2.
+unfold tn_br. rewrite Q0, Q1, L1, L2.
 destruct (Z.even ka) eqn:Ev; cbn [andb orb negb]; rewrite ?Bool.orb_false_r.
 - (* [ka] is even: the piece is [((ka - 1) * c, (ka + 1) * c)], with [b]
-     below its end if [N = 0], or [N = 1] and [cont]. *)
+     below its end if [N = 0]. *)
   assert (Od : Z.odd (ka - 1) = true) by (rewrite Z.sub_1_r, Z.odd_pred; exact Ev).
   assert (Od1 : Z.odd (ka + 1) = true) by (rewrite Z.add_1_r, Z.odd_succ; exact Ev).
   destruct (N <? 1)%Z eqn:D0; cbn [orb].
@@ -477,20 +385,12 @@ destruct (Z.even ka) eqn:Ev; cbn [andb orb negb]; rewrite ?Bool.orb_false_r.
       [rewrite minus_IZR; lra | rewrite minus_IZR; lra|].
     eexists _, _. split; [reflexivity|]. exact (tn_res_com x _ Hf HD Ht). }
   apply Z.ltb_ge in D0.
-  destruct ((N =? 1)%Z && cont) eqn:D1.
-  { apply andb_prop in D1. destruct D1 as (D1 & ->). apply Z.eqb_eq in D1.
-    assert (Ek : kb = (ka + 1)%Z) by (specialize (HN1 ltac:(lia)); lia).
-    pose proof (Hc eq_refl ltac:(rewrite Ek; exact Od1)) as Hb2.
-    rewrite Ek, plus_IZR in Hb2.
-    destruct (tn_piece x (ka - 1) Hf Od) as (HD & Ht);
-      [rewrite minus_IZR; lra | rewrite minus_IZR; lra|].
-    eexists _, _. split; [reflexivity|]. exact (tn_res_com x _ Hf HD Ht). }
   (* Otherwise [N >= 1], so [kb >= ka + 1]. *)
   eexists _, _. split; [reflexivity|].
   apply (tn_res_entire x Hx Hn).
   apply (Ent (ka + 1)%Z Od1). specialize (Hk1 D0). lia.
 - (* [ka] is odd, and [a > ka * c]: the piece is [(ka * c, (ka + 2) * c)],
-     with [b] below its end if [N <= 1], or [N = 2] and [cont]. *)
+     with [b] below its end if [N <= 1]. *)
   assert (Od : Z.odd ka = true) by (rewrite <- Z.negb_even, Ev; reflexivity).
   assert (Od2 : Z.odd (ka + 2) = true).
   { replace (ka + 2)%Z with (Z.succ (Z.succ ka)) by lia.
@@ -505,13 +405,6 @@ destruct (Z.even ka) eqn:Ev; cbn [andb orb negb]; rewrite ?Bool.orb_false_r.
     destruct (tn_piece x ka Hf Od) as (HD & Ht); [lra | lra|].
     eexists _, _. split; [reflexivity|]. exact (tn_res_com x _ Hf HD Ht). }
   apply Z.ltb_ge in D0.
-  destruct ((N =? 2)%Z && cont) eqn:D1.
-  { apply andb_prop in D1. destruct D1 as (D1 & ->). apply Z.eqb_eq in D1.
-    assert (Ek : kb = (ka + 2)%Z) by (specialize (HN1 ltac:(lia)); lia).
-    pose proof (Hc eq_refl ltac:(rewrite Ek; exact Od2)) as Hb2.
-    rewrite Ek, plus_IZR in Hb2.
-    destruct (tn_piece x ka Hf Od) as (HD & Ht); [lra | lra|].
-    eexists _, _. split; [reflexivity|]. exact (tn_res_com x _ Hf HD Ht). }
   (* Otherwise [N >= 2], so [kb >= ka + 2]. *)
   eexists _, _. split; [reflexivity|].
   apply (tn_res_entire x Hx Hn).
@@ -523,12 +416,11 @@ Qed.
     or [com] for a bounded [x] in the domain, and [trv] only if [x] is
     empty or holds a pole. A singleton gives the [com] form
     ([tn_single]), and an unbounded [x] [[-inf, +inf]] ([tn_unb_wide]).
-    Otherwise the [(q, n, cont)] of the floors [qa] and [qb] are kept when
+    Otherwise the [(q, n)] of the floors [qa] and [qb] are kept when
     [n = 0], when [b - a] rounds to at least 4, so [x] is more than [PI]
     wide ([tn_sub_wide]), and when they are exact ([floors_exact_ok]);
     else [quadrants] gives them from the exact floors
-    ([quadrants_correct]), with [cont] false. [tn_br_spec] covers all
-    four. *)
+    ([quadrants_correct]). [tn_br_spec] covers all four. *)
 Lemma tn_impl :
   forall x, valid x ->
   exists y e, Interval.tan_impl m has_fma x = Some (y, e) /\
@@ -556,10 +448,7 @@ set (a := Interval.inf_raw x) in *.
 set (b := Interval.sup_raw x) in *.
 set (qa := Interval.inf_raw (Interval.floor z)) in *.
 set (qb := Interval.sup_raw (Interval.floor z)) in *.
-assert (Qb : qb = B754_infinity false \/ is_finite qb = true)
-  by (destruct Hhi as [(_ & E)|(_ & F & _)]; [left; exact E | right; exact F]).
-destruct (tn_cont has_fma qb b Qb) as (cb & Ecb & Hcb). rewrite Ecb.
-destruct tn_consts as (EZZ & EZ1 & E1Z & E11 & LZ1 & LZ2 & LI1 & EI1 & LI2 & EI2 & EIZ & LI4).
+destruct tn_consts as (EZZ & EZ1 & E1Z & E11 & LZ1 & LZ2 & LI1 & LI2 & EIZ & LI4).
 pose proof PI_RGT_0 as Hpi0.
 assert (La : a = B754_infinity true \/ is_finite a = true)
   by (destruct Hlo as [(E & _)|(F & _)]; [left | right]; assumption).
@@ -583,7 +472,7 @@ match goal with |- ?G => assert (Unb : a = B754_infinity true \/ b = B754_infini
   cbv beta iota.
   rewrite (n_inf qa qb (proj1 Nqa) (proj1 Nqb) (proj2 Nqa) (proj2 Nqb) Hq).
   rewrite EIZ, LI4. cbv beta iota. cbn [orb]. cbv beta iota.
-  rewrite LI1, EI1, LI2, EI2. cbn [orb andb]. rewrite !Bool.andb_false_r. cbn [orb].
+  rewrite LI1, LI2. rewrite !Bool.andb_false_r. cbn [orb].
   eexists _, _. split; [reflexivity|].
   destruct (tn_unb_wide x Hx Hn Hab) as (r & t & Hw & Hm).
   exact (tn_res_entire x Hx Hn (tn_wide x r t Hw Hm)). }
@@ -616,22 +505,20 @@ destruct (Model.eq a b) eqn:Eab.
 cbv beta iota.
 pose proof (n_small qa qb ka kb Fqa Fqb Hka Hkb Hle) as HN. cbv zeta in HN.
 destruct HN as (N0 & Nj).
-destruct (Nj 1%Z ltac:(lia)) as (L1 & _ & E1).
-destruct (Nj 2%Z ltac:(lia)) as (L2 & _ & E2).
+destruct (Nj 1%Z ltac:(lia)) as (L1 & _).
+destruct (Nj 2%Z ltac:(lia)) as (L2 & _).
 (* The floors [qa] and [qb] kept, for which [Ent] says when the [trv]
    case is the tightest. *)
 assert (Fast : (forall j, Z.odd j = true -> (ka < j <= kb)%Z ->
     is_tightest (image_dom tan_dom tan x) Interval.ENTIRE /\
     ~ (forall s, mem s x -> tan_dom s)) ->
   exists y e, tn_br m a b (if Z.even ka then Model.zero else of_u64 1)
-    (Model.sub qb qa) cb = Some (y, e) /\ tn_spec x y e).
+    (Model.sub qb qa) = Some (y, e) /\ tn_spec x y e).
 { intros Ent.
   assert (Ha2 : Z.odd ka = true -> IZR ka * (PI / 2) < B2R a).
   { intros Od. apply Hka2. intros E. rewrite E in Od. discriminate Od. }
-  assert (Hc : cb = true -> Z.odd kb = true -> B2R b < IZR kb * (PI / 2)).
-  { intros Ec Od. apply (Hcb Ec Fqb Fb kb Hkb). intros E. rewrite E in Od. discriminate Od. }
-  exact (tn_br_spec x _ _ cb ka kb (kb - ka)%Z Hf Hle Hka1 Ha2 Hkb1 (proj1 Hq) (proj2 Hq)
-    L1 E1 L2 E2 (fun _ => eq_refl) (fun H => H) Hc Ent). }
+  exact (tn_br_spec x _ _ ka kb (kb - ka)%Z Hf Hle Hka1 Ha2 Hkb1 (proj1 Hq) (proj2 Hq)
+    L1 L2 (fun _ => eq_refl) (fun H => H) Ent). }
 rewrite N0.
 destruct (kb - ka =? 0)%Z eqn:D0; cbn [orb]; cbv beta iota.
 { (* [n = 0]: [x] lies in one piece. *)
@@ -649,7 +536,7 @@ destruct e.
   apply Fast. destruct (He eq_refl) as (Xa & Xb).
   exact (tn_ent_exact x ka kb Hf Xa Xb). }
 (* [quadrants] gives the exact floors [ka'] and [kb'] modulo 4. *)
-clear Fast Hq N0 Nj L1 E1 L2 E2 He Ee W D0 Eab Hcb Ecb.
+clear Fast Hq N0 Nj L1 L2 He Ee W D0 Eab.
 pose proof (floor_div_bounds (PI / 2) (B2R a) ltac:(lra)) as Ba.
 pose proof (floor_div_bounds (PI / 2) (B2R b) ltac:(lra)) as Bb.
 unfold Rfloor in Ba, Bb.
@@ -668,16 +555,14 @@ rewrite tn_even_mod4 in Q0, Q1.
 destruct (count_f_val (ka' mod 4) (kb' mod 4) (4 <=? kb' - ka')%Z ltac:(lia) ltac:(lia))
   as (Fn & Vn).
 destruct (int_tests _ _ Fn Vn) as (_ & Tj).
-destruct (Tj 1%Z ltac:(lia)) as (L1 & _ & E1).
-destruct (Tj 2%Z ltac:(lia)) as (L2 & _ & E2).
+destruct (Tj 1%Z ltac:(lia)) as (L1 & _).
+destruct (Tj 2%Z ltac:(lia)) as (L2 & _).
 destruct (tn_count ka' kb' Hle') as (HN1 & HN2).
 assert (Ha2 : Z.odd ka' = true -> IZR ka' * (PI / 2) < B2R a).
 { intros Od. destruct (Rle_lt_or_eq_dec _ _ (proj1 Ba)) as [H|H]; [exact H|].
   exfalso. apply (tan_pole ka' Od). rewrite H. exact (tan_dom_f64 a Fa). }
-assert (Hc : false = true -> Z.odd kb' = true -> B2R b < IZR kb' * (PI / 2))
-  by (intros E; discriminate E).
-exact (tn_br_spec x _ _ false ka' kb' _ Hf Hle' (proj1 Ba) Ha2 (proj2 Bb) Q0 Q1
-  L1 E1 L2 E2 HN1 HN2 Hc (tn_ent_exact x ka' kb' Hf (proj2 Ba) (proj1 Bb))).
+exact (tn_br_spec x _ _ ka' kb' _ Hf Hle' (proj1 Ba) Ha2 (proj2 Bb) Q0 Q1
+  L1 L2 HN1 HN2 (tn_ent_exact x ka' kb' Hf (proj2 Ba) (proj1 Bb))).
 Qed.
 
 End TnImpl.

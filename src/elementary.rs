@@ -986,20 +986,15 @@ impl Interval {
         let n = if a == b { 0.0 } else { qb - qa };
         let q = rem_euclid_2(qa);
 
-        let cont =
-            qb != f64::INFINITY && b <= (Self::with_infsup_raw(qb, qb) * Self::FRAC_PI_2).inf_raw();
         // As in `Interval::cos`, with π/2 in place of π, and `self` at least π wide if
-        // `b - a >= 4.0`. In the branches that read `cont`, `qb` is odd, so `cont` can be true
-        // there only if `qb` is above the floor of `b / (π/2)`, and it is false for the floors
-        // that come from the quadrants.
-        let (q, n, cont) =
-            if n == 0.0 || b - a >= 4.0 || floors_exact(a, b, qa, qb, Self::FRAC_PI_2) {
-                (q, n, cont)
-            } else {
-                let (qa, n) = quadrants(a, b);
-                (qa % 2.0, n, false)
-            };
-        if q == 0.0 && (n < 1.0 || n == 1.0 && cont) || q == 1.0 && (n < 2.0 || n == 2.0 && cont) {
+        // `b - a >= 4.0`.
+        let (q, n) = if n == 0.0 || b - a >= 4.0 || floors_exact(a, b, qa, qb, Self::FRAC_PI_2) {
+            (q, n)
+        } else {
+            let (qa, n) = quadrants(a, b);
+            (qa % 2.0, n)
+        };
+        if q == 0.0 && n < 1.0 || q == 1.0 && n < 2.0 {
             // In case of overflow, the decoration must be corrected by the caller.
             (Self::with_infsup_raw(tan_rd(a), tan_ru(b)), Decoration::Com)
         } else {

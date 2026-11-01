@@ -121,7 +121,6 @@ valid-raw src/elementary.rs: let y = Self::with_infsup_raw(acos_rd(x.sup_raw()),
 valid-raw src/elementary.rs: let y = Self::with_infsup_raw(acosh_rd(x.inf_raw()), acosh_ru(x.sup_raw()));
 valid-raw src/elementary.rs: let y = Self::with_infsup_raw(asin_rd(x.inf_raw()), asin_ru(x.sup_raw()));
 valid-raw src/elementary.rs: let y = Self::with_infsup_raw(atanh_rd(a), atanh_ru(b));
-valid-raw src/elementary.rs: qb != f64::INFINITY && b <= (Self::with_infsup_raw(qb, qb) * Self::FRAC_PI_2).inf_raw();
 valid-raw src/interval.rs: // The only `transmute` into a `DecInterval`. The macro expands outside
 valid-raw src/interval.rs: Ok(Self::with_infsup_raw(a, b))
 valid-raw src/interval.rs: pub(crate) fn with_infsup_raw(a: f64, b: f64) -> Self {

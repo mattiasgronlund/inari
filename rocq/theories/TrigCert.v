@@ -23,9 +23,7 @@ Open Scope R_scope.
 
 (** ** The singleton [[q, q]]
 
-    [[q, q]] of a finite [q] is valid and holds [q]. These are
-    [tn_with_valid] and [tn_mem_with] of [Tan.v], which builds after this
-    file. *)
+    [[q, q]] of a finite [q] is valid and holds [q]. *)
 
 Lemma tc_with_valid :
   forall q, is_finite q = true -> valid (Interval.with_infsup_raw q q).
