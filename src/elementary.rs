@@ -1200,6 +1200,20 @@ mod tests {
             Some(interval!(-17.427922104255032, 0.5289263571245032).unwrap())
         );
         assert_eq!(y.decoration(), Decoration::Com);
+
+        // The example in §7.5.3 of the draft P1788/D9.5: `a` is within 2.6e-16 of the pole
+        // 136308121570117π/2, and only one of `[a - 1, a]` and `[a, a + 1]` holds it. The pole
+        // is above `a`, by about 2.59e-16.
+        let a = 214112296674652.0;
+        let y = DI::new(interval!(a - 1.0, a).unwrap()).tan();
+        assert_eq!(
+            y.interval(),
+            Some(interval!(0.6420926159343303, 3855691461342749.5).unwrap())
+        );
+        assert_eq!(y.decoration(), Decoration::Com);
+        let y = DI::new(interval!(a, a + 1.0).unwrap()).tan();
+        assert_eq!(y.interval(), Some(I::ENTIRE));
+        assert_eq!(y.decoration(), Decoration::Trv);
     }
 
     #[test]
