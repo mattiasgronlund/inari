@@ -11,12 +11,21 @@
     each function for finite arguments in its domain, and only the special
     values that the Rust code passes.
 
-    MPFR's exponent range, [emin] and [emax], is global state that
-    [src/elementary.rs] does not set. The theorems about its functions
-    hold for every range that contains that of [f64] ([range_ok]), as
-    MPFR's default range does. [rational_to_f64] in [src/parse.rs] sets the
-    range around its calls, and the hypotheses about them, in the last
-    section, are stated at the range that it sets.
+    [src/elementary.rs] does not set MPFR's exponent range, [emin] and
+    [emax]. The theorems about its functions hold for every range that
+    contains that of [f64] ([range_ok]), as MPFR's default range does.
+    [rational_to_f64] in [src/parse.rs] sets the range around its calls,
+    and the hypotheses about them, in the last section, are stated at the
+    range that it sets.
+
+    The range is per thread in an MPFR built thread-safe, as
+    [gmp-mpfr-sys] builds it, and global in one built without
+    thread-local storage (§4.7 "Memory Handling" of the MPFR manual).
+    [range_per_thread] in [src/elementary/mpfr_tests.rs] tests that the
+    linked MPFR keeps it per thread, so that no other thread can change
+    it while [rational_to_f64] has it set. A system MPFR built without
+    thread-local storage, which the feature [use-system-libs] of
+    [gmp-mpfr-sys] can link, fails that test.
 
     [mpfr_ok_consistent] in [MpfrConsistent.v] shows that the hypotheses
     on [m] that the theorems take can all hold at once: at every range with

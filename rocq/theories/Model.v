@@ -1250,9 +1250,10 @@ Definition f64_is_infinite (x : f64) : bool :=
     [mpfr_subnormalize], and [parse_ok] in [Mpfr.v] assumes [get_d_ok] of
     [mpfr_get_d] at it. The save and the restore are left out: the
     range is the same after the call as before it, which is the range that
-    [Mpfr.v] assumes for the other MPFR functions. MPFR's exponent range is
-    global state, and whether another thread can change it between these
-    calls is out of scope. [ternary_to_ordering(t) != Ordering::Equal] is
+    [Mpfr.v] assumes for the other MPFR functions. No other thread can
+    change the range between these calls where MPFR keeps it per thread,
+    as the MPFR that [gmp-mpfr-sys] builds does (see the comment at the
+    top of [Mpfr.v]). [ternary_to_ordering(t) != Ordering::Equal] is
     [t != 0], and [f.is_infinite()] is [f64_is_infinite f]. *)
 Definition rational_to_f64 (m : mpfr) (r : Q) (infsup : InfSup) : F64 :=
   let rnd := as_rnd_t infsup in

@@ -11,8 +11,10 @@
 // of either sign, the check compares `Float`s or `f64`s with `==`, which does not tell the
 // zeros apart.
 //
-// MPFR's exponent range is per thread, as `gmp-mpfr-sys` builds MPFR thread-safe. The tests
-// read it with `mpfr::get_emin` and `mpfr::get_emax` rather than assume MPFR's default, and
+// MPFR's exponent range is per thread in an MPFR built thread-safe, as `gmp-mpfr-sys` builds
+// it, which `range_per_thread` tests, so that `at_parse_range` in one test does not change the
+// range that a test running at the same time in another thread reads. The tests read it with
+// `mpfr::get_emin` and `mpfr::get_emax` rather than assume MPFR's default, and
 // `at_parse_range` restores it.
 
 use crate::*;
@@ -197,6 +199,27 @@ fn range_ok() {
     let (emin, emax) = range();
     assert!(emin <= -1073, "{emin}");
     assert!(1024 <= emax, "{emax}");
+}
+
+// MPFR keeps its exponent range per thread, as the comment at the top of
+// `rocq/theories/Mpfr.v` says, so that no other thread can change it between the calls of
+// `rational_to_f64` in `src/parse.rs`: MPFR is built thread-safe (`mpfr_buildopt_tls_p`,
+// §5.12 "Miscellaneous Functions" of the MPFR manual), and a range set in another thread
+// leaves this thread's as it was. A system MPFR built without thread-local storage, which
+// the feature `use-system-libs` of `gmp-mpfr-sys` can link, fails this test.
+#[test]
+fn range_per_thread() {
+    assert_ne!(unsafe { mpfr::buildopt_tls_p() }, 0);
+    let (emin, emax) = range();
+    // A new thread sets its `emin` to one above this thread's, and ends with it set.
+    let other = std::thread::spawn(move || {
+        assert_eq!(unsafe { mpfr::set_emin((emin + 1).into()) }, 0);
+        range().0
+    })
+    .join()
+    .unwrap();
+    assert_eq!(other, emin + 1);
+    assert_eq!(range(), (emin, emax));
 }
 
 // `with_val` of `rocq/theories/Model.v`, which `Mpfr.v` relies on to read the arguments:

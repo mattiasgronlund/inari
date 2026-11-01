@@ -537,8 +537,12 @@ struct F64 {
 // for `Inf` and toward +∞ for `Sup` to an `f64`, `inexact` is false exactly when `r` is the
 // value of a finite `f64`, and `overflow` is true exactly when `f` is infinite.
 // `rocq/theories/Model.v` transcribes this function, with the MPFR functions abstract, so
-// it has to be updated along with it. MPFR's exponent range is global state, and whether
-// another thread can change it between the calls below is out of the scope of the proof.
+// it has to be updated along with it. The proof takes MPFR's exponent range to stay as this
+// function sets it until it restores it. No other thread can change it in between where
+// MPFR keeps it per thread, as the MPFR that `gmp-mpfr-sys` builds does, which
+// `range_per_thread` in `src/elementary/mpfr_tests.rs` tests. A system MPFR built without
+// thread-local storage, which the feature `use-system-libs` of `gmp-mpfr-sys` can link,
+// keeps it global instead, and fails that test.
 fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64 {
     fn ternary_to_ordering(t: i32) -> Ordering {
         t.cmp(&0)
