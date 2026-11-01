@@ -1,5 +1,12 @@
 (** The axioms that the theorems depend on. [make] fails if this prints
-    any axiom that is not listed in [AXIOMS] in the [Makefile]. *)
+    any axiom that is not listed in [AXIOMS] in the [Makefile].
+
+    The [Example]s of [MpfrExamples.v] are not printed: each one applies a
+    theorem printed here, or a constructor of [made] or [dmade], of which
+    [made_valid] is printed here, to [ideal emin emax] and to proofs that
+    the tactic [mpfr_example] builds from [range_ok] and [ideal_mpfr_ok],
+    which is printed here too. At the end, two [Search]es write the names
+    from which [make] takes those that must have an [Example] there. *)
 
 From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign
@@ -323,3 +330,10 @@ Print Assumptions ideal_parse_ok.
 Print Assumptions ideal_mpfr_ok.
 Print Assumptions mpfr_ok_consistent.
 Print Assumptions mpfr_ok_default.
+
+(** The names whose types quantify over an MPFR anywhere, and those of
+    them that [Valid.v] declares, for the check of [MpfrExamples.v] in the
+    [Makefile]. They are searched here, as this file imports every module
+    whose theorems it prints, so that [Search] gives their short names. *)
+Redirect "MpfrSearch" Search (forall _ : Model.mpfr, _).
+Redirect "MpfrSearchValid" Search (forall _ : Model.mpfr, _) inside Valid.

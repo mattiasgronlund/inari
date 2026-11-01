@@ -4,7 +4,10 @@
     that the theorems take, besides [range_ok emin emax]: [get_d_ok], the
     21 [<f>_ok] of the functions of [src/elementary.rs], and [parse_ok] for
     [src/parse.rs]. No theorem takes [mpfr_ok] itself: they keep their own
-    hypotheses on [m], all of them among these. The generic theorems from
+    hypotheses on [m], all of them among these. [MpfrExamples.v] checks
+    this in the build for the theorems that [Assumptions.v] prints and the
+    constructors of [made] and [dmade], and its header says which
+    hypotheses the check misses. The generic theorems from
     which those about the functions are proved, such as [mono_inc_correct],
     also take hypotheses on an MPFR function [g], such as
     [mpfr_correct], which those proofs derive from the [<f>_ok] for the

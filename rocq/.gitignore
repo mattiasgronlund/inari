@@ -11,3 +11,6 @@ RocqMakefile
 RocqMakefile.conf
 .RocqMakefile.d
 Assumptions.out
+MpfrSearch.out
+MpfrSearchValid.out
+MpfrExamples.out
