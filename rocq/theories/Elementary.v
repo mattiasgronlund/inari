@@ -1,9 +1,10 @@
 (** * The point functions of [src/elementary.rs]
 
-    The real functions and their domains that the theorems in [Elem.v],
-    [Atanh.v], [ClosedDom.v], [Cosh.v], [Cos.v], [Sin.v], [Tan.v],
-    [Pow.v], [Powi.v] and [Atan2.v] are stated with. Like
-    [Ieee1788.v], this file has to be checked by reading, against the
+    The real functions and their domains that the theorems about the
+    elementary functions of intervals and decorated intervals, those of
+    [ConstLog.v] about the constants [LOG10_2], [LOG10_E], [LOG2_10] and
+    [LOG2_E], and the hypotheses about MPFR in [Mpfr.v] are stated with.
+    Like [Ieee1788.v], this file has to be checked by reading, against the
     elementary functions of IEEE Std 1788-2015, which its table of required
     forward elementary functions names [pown], [pow], [exp], [exp2],
     [exp10], [log], [log2], [log10], [sin], [cos], [tan], [sinh], [cosh],

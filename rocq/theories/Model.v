@@ -2,21 +2,19 @@
 
     Each definition in [Generic] transcribes the function of the same name
     in [src/simd/generic.rs], line by line, so that the two can be compared
-    side by side. The section on intervals at the end does the same for the
-    parts of [src/interval.rs], [src/interval/dec_interval.rs],
-    [src/boolean.rs], [src/classify.rs], [src/integer.rs],
-    [src/absmax.rs], [src/arith.rs] and [src/basic.rs]
-    that [abs], [cancel_minus], [cancel_plus], [ceil], [floor], [max],
-    [min], [mul_add], [mul_rev_to_pair], [recip], [round],
-    [round_ties_even], [sign], [sqr], [sqrt], [trunc], [neg], [add], [sub],
-    [mul] and [div] of intervals use, for each place in
-    [src/interval.rs], [src/interval/dec_interval.rs], [src/constants.rs],
-    [src/set_op.rs] and [src/bytes.rs] that makes a [DecInterval], and for
-    each place in those files and in [src/parse.rs] that makes an
-    [Interval] other than by an operation that is not proved here. This
-    file is the only one that has to be checked against the Rust code, and
-    [Ieee1788.v] the only one that has to be checked against IEEE 1788; the
-    other files prove properties of the definitions here.
+    side by side. The section on intervals at the end, with the one on
+    MPFR before it, does the same for the operations of intervals and
+    decorated intervals that it lists, the elementary functions among
+    them, with the parts of the Rust code outside [generic.rs] that they
+    use, for each place in [src/interval.rs],
+    [src/interval/dec_interval.rs], [src/constants.rs], [src/set_op.rs]
+    and [src/bytes.rs] that makes a [DecInterval], and for each place in
+    those files and in [src/parse.rs] that makes an [Interval] other than
+    by an operation that is not proved here. This file is the only one
+    that has to be checked against the Rust code, and [Ieee1788.v] and
+    [Elementary.v] the only ones that have to be checked against
+    IEEE 1788. [Mpfr.v] has to be checked against the MPFR manual, and
+    the other files prove properties of the definitions in these four.
 
     Rust's [f64] is Flocq's IEEE 754 binary64 type, and its [+], [-], [*]
     and [/] are Flocq's [Bplus], [Bminus], [Bmult] and [Bdiv] rounded to

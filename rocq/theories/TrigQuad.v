@@ -73,9 +73,10 @@ case Rlt_bool_spec; intros Hw; split; intros E; try reflexivity; try discriminat
 - lra.
 Qed.
 
-(** No finite [f64] is a nonzero integer multiple of π, as no finite
-    [f64] is a pole of [tan] ([tan_dom_f64] in [TrigPieces.v]): it is a
-    dyadic rational, and π is irrational. *)
+(** No finite [f64] is a nonzero integer multiple of π: it is a rational
+    [n / d] with [d > 0] ([tp_B2R_rat] in [TrigPieces.v]), so
+    [k * PI = n / d] would make π the rational [n / (d * k)], which
+    [pi_irrational] in [PiIrrational.v] excludes. *)
 Lemma qd_not_kpi :
   forall w : f64, is_finite w = true -> forall k : Z, k <> 0%Z -> B2R w <> IZR k * PI.
 Proof.
