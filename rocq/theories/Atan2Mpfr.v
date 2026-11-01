@@ -130,7 +130,7 @@ destruct (is_finite y) eqn:Fy.
       rewrite (at_val_x_pinf y Fy). cbn [with_val].
       assert (E : exists s, mpfr_atan2 m rnd (with_val y) (MInf false) = MZero s).
       { destruct (Req_dec (B2R y) 0) as [E|E].
-        - destruct (am_with_val_zero y Fy E) as (s & ->). exists s. apply H3.
+        - destruct (am_with_val_zero y Fy E) as (s & ->). exact (H3 rnd s).
         - rewrite (with_val_finite y Fy E).
           destruct (Rlt_dec 0 (B2R y)) as [Hp|Hn].
           + exists false. apply H1. exact Hp.

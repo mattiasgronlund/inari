@@ -1,7 +1,8 @@
 (** * [atan2] of the ideal MPFR
 
     [ideal_atan2_ok]: the [mpfr_atan2] of the ideal MPFR satisfies
-    [atan2_ok], with the sign of the zero [atan2(±0, +inf) = ±0]. *)
+    [atan2_ok]. Its [atan2(±0, +inf)] is the zero [y] itself, with its
+    sign, as MPFR's is, which is more than [atan2_ok] asks. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -36,7 +37,7 @@ repeat match goal with |- _ /\ _ => split end.
 - intros rnd y Hy. cbn [ideal_atan2].
   destruct (Rlt_dec 0 y); [(exfalso; lra) | reflexivity].
 - (* the zero [y] itself, with its sign *)
-  intros rnd s. reflexivity.
+  intros rnd s. exists s. reflexivity.
 - intros rnd y Hy. cbn [ideal_atan2].
   destruct (Rlt_dec 0 y); [|(exfalso; lra)]. apply round_mpfr_correct, Hr.
 - intros rnd y Hy. cbn [ideal_atan2].

@@ -140,16 +140,24 @@ Definition atan_ok (emin emax : Z) (m : mpfr) : Prop :=
     leaves out [y = 0, x <= 0]. The
     special values below are those of the [mpfr_atan2] entry of the MPFR
     manual at the points that the code passes, one infinity and a finite
-    number. [atan2(±0, +inf) = ±0] is its [atan2(±0, x) = ±0] for
-    [x > 0]. The zeros are exact, so they are stated for both directions,
-    and [PI] and [PI / 2] are rounded. *)
+    number, except that [atan2(±0, +inf)] is only assumed to be a zero, of
+    either sign. The entry gives ±0 there by its [atan2(±0, x) = ±0] for
+    [x > 0] if that [x] can be +inf. If it cannot, no bullet of the entry
+    names that point, and the rule of §4.5 "Floating-Point Values on
+    Special Numbers" for a point outside the domain but in its closure
+    gives the limit, 0. That leaves aside the ISO C99 and IEEE 754
+    standards, which the entry cites for its special values and which are
+    not read here. The proofs use no sign there, as [get_d_ok] says
+    only that [mpfr_get_d] converts a zero to a zero. The zeros are
+    exact, so they are stated for both directions, and [PI] and [PI / 2]
+    are rounded. *)
 Definition atan2_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct2 emin emax (fun y x => y <> 0 \/ 0 < x) Ratan2 (mpfr_atan2 m) /\
-  (* [atan2(y, +inf)] is +0 for [y > 0] and -0 for [y < 0], and
-     [atan2(±0, +inf) = ±0] *)
+  (* [atan2(y, +inf)] is +0 for [y > 0] and -0 for [y < 0], and a zero
+     for [y] = ±0 *)
   (forall rnd y, 0 < y -> mpfr_atan2 m rnd (MNum y) (MInf false) = MZero false) /\
   (forall rnd y, y < 0 -> mpfr_atan2 m rnd (MNum y) (MInf false) = MZero true) /\
-  (forall rnd s, mpfr_atan2 m rnd (MZero s) (MInf false) = MZero s) /\
+  (forall rnd s, exists s', mpfr_atan2 m rnd (MZero s) (MInf false) = MZero s') /\
   (* [atan2(y, -inf)] is [PI] for [y > 0] and [-PI] for [y < 0] *)
   (forall rnd y, 0 < y ->
    mpfr_round (mpfr_format emin emax) rnd PI (mpfr_atan2 m rnd (MNum y) (MInf true))) /\

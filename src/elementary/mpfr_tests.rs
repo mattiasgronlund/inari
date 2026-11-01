@@ -9,7 +9,9 @@
 // in `rocq/theories/Model.v` has it, so that a special value is checked with the sign of a
 // zero. Where `Mpfr.v` states a rounding (`mpfr_round`), which gives a result of 0 as a zero
 // of either sign, the check compares `Float`s or `f64`s with `==`, which does not tell the
-// zeros apart.
+// zeros apart. `atan2_ok` states `atan2(±0, +∞)` only as a zero of some sign, which its check
+// matches with `Zero(_)`. A second check there tests more than `Mpfr.v` assumes, the sign of
+// that zero, and its comment says so.
 //
 // MPFR's exponent range is per thread in an MPFR built thread-safe, as `gmp-mpfr-sys` builds
 // it, which `range_per_thread` tests, so that `at_parse_range` in one test does not change the
@@ -301,14 +303,13 @@ fn atan2_ok() {
             );
         }
 
-        // `forall rnd s, mpfr_atan2 m rnd (MZero s) (MInf false) = MZero s`, with the sign of
-        // `y`, as MPFR's `src/atan2.c` gives it (review AT2)
         for y in [0.0f64, -0.0] {
-            assert_eq!(
-                value(&call2!(atan2(y, inf, rnd))),
-                Zero(y.is_sign_negative()),
-                "{y:e}, {rnd:?}"
-            );
+            let v = value(&call2!(atan2(y, inf, rnd)));
+            // `forall rnd s, exists s', mpfr_atan2 m rnd (MZero s) (MInf false) = MZero s'`
+            assert!(matches!(v, Zero(_)), "{y:e}, {rnd:?}: {v:?}");
+            // More than `atan2_ok` assumes: the zero has the sign of `y`, as MPFR's
+            // `src/atan2.c` gives it.
+            assert_eq!(v, Zero(y.is_sign_negative()), "{y:e}, {rnd:?}");
         }
     }
 

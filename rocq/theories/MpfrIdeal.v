@@ -159,11 +159,12 @@ Definition tanh_inf (_ : mpfr_rnd) (s : bool) : mpfr_t :=
 (** ** The functions of two arguments *)
 
 (** [atan2(y, x)]: at two finite numbers, [Ratan2] rounded, and at one
-    infinity, the special values that [atan2_ok] states: [atan2(y, +inf)]
-    is +0 for [y > 0], -0 for [y < 0] and the zero [y] itself for a zero
-    [y], [atan2(y, -inf)] is [PI] rounded for [y > 0] and [-PI] rounded for
-    [y < 0], and [atan2(+inf, x)] and [atan2(-inf, x)] are [PI/2] and
-    [-PI/2] rounded. NaN elsewhere. *)
+    infinity, the special values of [atan2_ok]: [atan2(y, +inf)] is +0
+    for [y > 0], -0 for [y < 0] and the zero [y] itself for a zero [y],
+    where [atan2_ok] asks only for a zero, [atan2(y, -inf)] is [PI]
+    rounded for [y > 0] and [-PI] rounded for [y < 0], and
+    [atan2(+inf, x)] and [atan2(-inf, x)] are [PI/2] and [-PI/2] rounded.
+    NaN elsewhere. *)
 Definition ideal_atan2 (emin emax : Z) (rnd : mpfr_rnd) (y x : mpfr_t) : mpfr_t :=
   match y, x with
   | MZero s, MInf false => MZero s
