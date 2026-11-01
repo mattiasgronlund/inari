@@ -4,10 +4,14 @@
     [Interval::sin] and [Interval::tan] by [Interval::FRAC_PI_2]. The
     theorems about them need only that each is an interval [[lo, hi]] of
     finite floats with [1 <= lo < c < hi] for [c] = π or π/2
-    ([trig_const]). The bounds of π come from Hutton's formula
-    [PI / 4 = 2 * atan (/3) + atan (/7)], a Machin-like formula, and the
-    alternating series of [atan] ([PI_2_3_7_ineq] in Stdlib's
-    [Machin.v]). *)
+    ([trig_const]). [PI_Q] bounds π by two rationals [10^-18] apart, from
+    Hutton's formula [PI / 4 = 2 * atan (/3) + atan (/7)], a Machin-like
+    formula, and the alternating series of [atan] ([PI_2_3_7_ineq] in
+    Stdlib's [Machin.v]). These rationals lie strictly between the bounds
+    of [Interval::PI], so the bounds are below and above π
+    ([PI_bounds]). [ConstPi.v] and [ConstInv.v] use [PI_Q] for [TAU],
+    [FRAC_PI_3] to [FRAC_PI_8], [FRAC_1_PI], [FRAC_2_PI] and
+    [FRAC_2_SQRT_PI]. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -27,7 +31,7 @@ Definition trig_const (C : Interval) (c : R) : Prop :=
     [PI_2_3_7_ineq] bounds [PI / 4] by partial sums of
     [tg_alt PI_2_3_7_tg], whose terms are real powers and quotients. Their
     copies below are in [Q], where [vm_compute] decides the comparisons
-    with the bounds of [Interval::PI], and [Q2R] maps them back term by
+    with the rational bounds of π, and [Q2R] maps them back term by
     term. *)
 
 Fixpoint pb_powQ (q : Q) (n : nat) : Q :=
@@ -85,6 +89,30 @@ Proof.
   - rewrite Q2R_plus, IH, pb_altQ_R; reflexivity.
 Qed.
 
+(** ** π between two rationals
+
+    [pi_lo] and [pi_hi] are π to 18 decimals, below and above. The partial
+    sums for [N = 9] in [PI_2_3_7_ineq], times 4, are each within 4 times
+    their first omitted term of π, at most [4 * PI_2_3_7_tg 19 < 10^-19],
+    while [pi_lo] and [pi_hi] are more than [4 * 10^-19] from π. *)
+Definition pi_lo : Q := 3141592653589793238 # 1000000000000000000.
+Definition pi_hi : Q := 3141592653589793239 # 1000000000000000000.
+
+Lemma PI_Q : Q2R pi_lo < PI < Q2R pi_hi.
+Proof.
+  (* [PI_2_3_7_ineq 9] puts PI / 4 between the partial sums of that series
+     up to the terms 19 and 18, which [pb_sumQ_R] computes in [Q]. *)
+  destruct (PI_2_3_7_ineq 9) as [H1 H2].
+  change (S (2 * 9)) with 19%nat in H1; change (2 * 9)%nat with 18%nat in H2.
+  rewrite <- pb_sumQ_R in H1, H2.
+  assert (H3 : (pi_lo < 4 * pb_sumQ pb_altQ 19)%Q) by (vm_compute; reflexivity).
+  assert (H4 : (4 * pb_sumQ pb_altQ 18 < pi_hi)%Q) by (vm_compute; reflexivity).
+  apply Qlt_Rlt in H3, H4.
+  rewrite Q2R_mult in H3, H4.
+  replace (Q2R 4) with 4 in H3, H4 by (unfold Q2R; simpl; lra).
+  lra.
+Qed.
+
 (** ** The bounds of [Interval::PI] as rationals
 
     They are [7074237752028440 * 2^-51] and [7074237752028441 * 2^-51].
@@ -109,29 +137,18 @@ Proof.
   lra.
 Qed.
 
-(** The partial sums for [N = 9] in [PI_2_3_7_ineq], times 4. Each is
-    within 4 times its first omitted term of π, at most
-    [4 * PI_2_3_7_tg 19 < 10^-19], while the bounds of [Interval::PI] are
-    more than [10^-16] from π. *)
-
-Lemma pb_sum_lo :
-  (7074237752028440 # 2251799813685248 < 4 * pb_sumQ pb_altQ 19)%Q.
-Proof. vm_compute; reflexivity. Qed.
-
-Lemma pb_sum_hi :
-  (4 * pb_sumQ pb_altQ 18 < 7074237752028441 # 2251799813685248)%Q.
-Proof. vm_compute; reflexivity. Qed.
-
-(** The bounds of [Interval::PI] are below and above π. *)
+(** The bounds of [Interval::PI] are below and above π, as [pi_lo] and
+    [pi_hi] lie strictly between them, which [vm_compute] checks: the
+    bounds are more than [10^-16] from π. *)
 Lemma PI_bounds :
   B2R (Interval.inf_raw Interval.PI) < PI < B2R (Interval.sup_raw Interval.PI).
 Proof.
-  destruct (PI_2_3_7_ineq 9) as [H1 H2].
-  change (S (2 * 9)) with 19%nat in H1; change (2 * 9)%nat with 18%nat in H2.
-  rewrite <- pb_sumQ_R in H1, H2.
-  pose proof (Qlt_Rlt _ _ pb_sum_lo) as H3; pose proof (Qlt_Rlt _ _ pb_sum_hi) as H4.
-  rewrite Q2R_mult in H3, H4.
-  replace (Q2R 4) with 4 in H3, H4 by (unfold Q2R; simpl; lra).
+  assert (H1 : (7074237752028440 # 2251799813685248 < pi_lo)%Q)
+    by (vm_compute; reflexivity).
+  assert (H2 : (pi_hi < 7074237752028441 # 2251799813685248)%Q)
+    by (vm_compute; reflexivity).
+  apply Qlt_Rlt in H1, H2.
+  pose proof PI_Q.
   rewrite pb_lo_R, pb_hi_R; lra.
 Qed.
 

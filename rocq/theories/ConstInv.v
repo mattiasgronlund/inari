@@ -1,7 +1,7 @@
 (** * [Interval::FRAC_1_PI], [FRAC_2_PI], [FRAC_2_SQRT_PI], [SQRT_2] and [FRAC_1_SQRT_2] are the tightest intervals around their values
 
     1 and 2 divided by the rational bounds [pi_lo] and [pi_hi] of π
-    ([PI_Q] in [ConstPi.v]) bound [1 / π] and [2 / π]. The bounds [lo] and
+    ([PI_Q] in [PiBounds.v]) bound [1 / π] and [2 / π]. The bounds [lo] and
     [hi] of the other constants are compared with their values through
     squares, which [vm_compute] computes exactly: [lo < 2 / sqrt π < hi]
     if [lo^2 * pi_hi < 4 < hi^2 * pi_lo], [lo < sqrt 2 < hi] if
@@ -14,7 +14,7 @@
 
 From Stdlib Require Import ZArith Reals Lra QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Ieee1788 ConstTight ConstPi.
+From Inari Require Import Model Ieee1788 PiBounds ConstTight.
 
 Open Scope R_scope.
 

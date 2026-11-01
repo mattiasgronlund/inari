@@ -76,7 +76,8 @@ intros z [Fz| ->] Hz.
 - intros s _. exact I.
 Qed.
 
-(** The bounds of [Interval::PI] and [Interval::FRAC_PI_2], decoded. *)
+(** The bounds of [Interval::PI] and [Interval::FRAC_PI_2], decoded.
+    [PI_tightest] and [FRAC_PI_2_tightest] in [ConstPi.v] use them too. *)
 Lemma pt_PI_facts :
   is_finite (Interval.inf_raw Interval.PI) = true /\
   is_finite (Interval.sup_raw Interval.PI) = true /\

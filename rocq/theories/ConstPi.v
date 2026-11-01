@@ -1,41 +1,25 @@
 (** * [Interval::PI], [TAU] and [FRAC_PI_2] to [FRAC_PI_8] are the tightest intervals around their values
 
-    [PI_Q] bounds π by two rationals [10^-18] apart, from the partial sums
-    of the series of the Machin-like formula
-    [PI / 4 = 2 * atan (/3) + atan (/7)] in [PiBounds.v] ([PI_2_3_7_ineq]
-    in Stdlib's [Machin.v]). These rationals for [PI], twice them for
-    [TAU], and them divided by 2, 3, 4, 6 or 8 for [FRAC_PI_2] to
-    [FRAC_PI_8] lie strictly between the bounds of the constant, which
-    [vm_compute] checks, and [const_tightest_Q] concludes. Each theorem
-    also covers the [DecInterval] constant that [def_com!] makes from the
-    [Interval] one, whose interval is the same, and shows that its
-    decoration, [com], is the strongest ([strongest0]), as its interval is
-    common ([const_strongest0] in [ConstTight.v]). *)
+    The bounds of [Interval::PI] and [Interval::FRAC_PI_2] are finite and
+    adjacent floats ([pt_PI_facts] and [pt_FRAC_PI_2_facts] in
+    [PiTight.v]), below and above π and π/2 ([PI_bounds], [pb_frac_lo]
+    and [pb_frac_hi] in [PiBounds.v]), and [const_tightest] concludes.
+    For the other constants, [PI_Q] in [PiBounds.v] bounds π by two
+    rationals [10^-18] apart. [vm_compute] checks that the bounds of each
+    constant are finite and adjacent floats, and that twice these
+    rationals for [TAU], and these divided by 3, 4, 6 or 8 for
+    [FRAC_PI_3] to [FRAC_PI_8], lie strictly between those bounds, and
+    [const_tightest_Q] concludes. Each theorem also covers the
+    [DecInterval] constant that [def_com!] makes from the [Interval] one,
+    whose interval is the same, and shows that its decoration, [com], is
+    the strongest ([strongest0]), as its interval is common
+    ([const_strongest0] in [ConstTight.v]). *)
 
 From Stdlib Require Import ZArith Reals Lra QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Ieee1788 PiBounds ConstTight.
+From Inari Require Import Model Ieee1788 PiBounds PiTight ConstTight.
 
 Open Scope R_scope.
-
-(** π to 18 decimals, below and above. *)
-Definition pi_lo : Q := 3141592653589793238 # 1000000000000000000.
-Definition pi_hi : Q := 3141592653589793239 # 1000000000000000000.
-
-Lemma PI_Q : Q2R pi_lo < PI < Q2R pi_hi.
-Proof.
-  (* [PI_2_3_7_ineq 9] puts PI / 4 between the partial sums of that series
-     up to the terms 19 and 18, which [pb_sumQ_R] computes in [Q]. *)
-  destruct (PI_2_3_7_ineq 9) as [H1 H2].
-  change (S (2 * 9)) with 19%nat in H1; change (2 * 9)%nat with 18%nat in H2.
-  rewrite <- pb_sumQ_R in H1, H2.
-  assert (H3 : (pi_lo < 4 * pb_sumQ pb_altQ 19)%Q) by (vm_compute; reflexivity).
-  assert (H4 : (4 * pb_sumQ pb_altQ 18 < pi_hi)%Q) by (vm_compute; reflexivity).
-  apply Qlt_Rlt in H3, H4.
-  rewrite Q2R_mult in H3, H4.
-  replace (Q2R 4) with 4 in H3, H4 by (unfold Q2R; simpl; lra).
-  lra.
-Qed.
 
 Theorem PI_tightest :
   is_tightest (fun r => r = PI) Interval.PI /\
@@ -43,13 +27,11 @@ Theorem PI_tightest :
   strongest0 (dec DecInterval.PI) PI (itv DecInterval.PI).
 Proof.
   assert (H : is_tightest (fun r => r = PI) Interval.PI).
-  { apply (const_tightest_Q _ _ _ pi_lo pi_hi).
-    - vm_compute; reflexivity.
-    - vm_compute; reflexivity.
-    - apply B2SF_inj; vm_compute; reflexivity.
-    - vm_compute; reflexivity.
-    - vm_compute; reflexivity.
-    - pose proof PI_Q; lra. }
+  { (* [const_tightest] is about the [const_interval] of the bounds of
+       [Interval.PI], which computes to [Interval.PI]: [inf_raw] negates
+       the first lane, and [const_interval] negates it back. *)
+    destruct pt_PI_facts as (F0 & F1 & Hs).
+    exact (const_tightest _ _ PI F0 F1 Hs PI_bounds). }
   (* [DecInterval.PI] is [new_unchecked Interval.PI Com]. *)
   split; [exact H | split; [exact H |]].
   apply const_strongest0; vm_compute; reflexivity.
@@ -81,15 +63,11 @@ Theorem FRAC_PI_2_tightest :
   strongest0 (dec DecInterval.FRAC_PI_2) (PI / 2) (itv DecInterval.FRAC_PI_2).
 Proof.
   assert (H : is_tightest (fun r => r = PI / 2) Interval.FRAC_PI_2).
-  { apply (const_tightest_Q _ _ _ (pi_lo * (1 # 2))%Q (pi_hi * (1 # 2))%Q).
-    - vm_compute; reflexivity.
-    - vm_compute; reflexivity.
-    - apply B2SF_inj; vm_compute; reflexivity.
-    - vm_compute; reflexivity.
-    - vm_compute; reflexivity.
-    - pose proof PI_Q; rewrite !Q2R_mult.
-      replace (Q2R (1 # 2)) with (/ 2) by (unfold Q2R; simpl; lra).
-      lra. }
+  { (* As for [PI_tightest], the [const_interval] of the bounds of
+       [Interval.FRAC_PI_2] computes to [Interval.FRAC_PI_2]. *)
+    destruct pt_FRAC_PI_2_facts as (F0 & F1 & Hs).
+    apply (const_tightest _ _ (PI / 2) F0 F1 Hs).
+    rewrite pb_frac_lo, pb_frac_hi. pose proof PI_bounds. lra. }
   (* [DecInterval.FRAC_PI_2] is [new_unchecked Interval.FRAC_PI_2 Com]. *)
   split; [exact H | split; [exact H |]].
   apply const_strongest0; vm_compute; reflexivity.
