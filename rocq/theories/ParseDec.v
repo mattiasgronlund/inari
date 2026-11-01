@@ -1,19 +1,18 @@
 (** * [From<DecNInterval> for DecInterval] and [From<NInterval> for Interval]
 
-    For an [NInterval] that the grammar can return ([ninterval_ok]),
+    For a [DecNInterval] that the grammar can return ([dec_ninterval_ok]),
     [From<DecNInterval>] returns NaI for the decoration [ill], and
     otherwise the tightest interval that contains the reals that the
-    literal denotes, decorated [trv] if it holds none, and otherwise with
-    the literal's decoration, except [dac] in place of [com] when the
-    result is not common, as IEEE 1788's textToInterval asks.
-    [from_dec_ninterval_overflow] shows that for a common literal with a
-    decoration other than [ill], the result is not common exactly when a
-    bound overflowed. [From<NInterval>]
-    returns the same interval, and [from_ninterval_new] shows that
-    [From<DecNInterval>] of [DecNInterval::new(x)] is [DecInterval::new] of
-    it, for any MPFR. *)
+    literal denotes, with the literal's decoration, except [dac] in place
+    of [com] when overflow occurred, that is, the literal is bounded and
+    the result is not, as IEEE 1788's textToInterval asks
+    ([from_dec_ninterval_correct]). For a [com] literal, that is exactly
+    when the conversion of a bound overflowed. [From<NInterval>] returns
+    the same interval for an [NInterval] with [ninterval_ok], and
+    [from_ninterval_new] shows that [From<DecNInterval>] of
+    [DecNInterval::new(x)] is [DecInterval::new] of it, for any MPFR. *)
 
-From Stdlib Require Import ZArith Reals Qreals.
+From Stdlib Require Import ZArith Reals Qreals Lra.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Mpfr MpfrRound ParseRound ParseHull
   Integer DecBinary ValidMake.
@@ -248,9 +247,14 @@ Proof.
 intros [] H; first [reflexivity|discriminate H].
 Qed.
 
-(** ** The theorems *)
+(** ** The decoration that [set_dec] gives *)
 
-Theorem from_dec_ninterval_correct :
+(** What [From<DecNInterval>] returns for any [x] whose [nx x] has
+    [ninterval_ok], with the decoration as [set_dec] gives it: NaI for
+    [ill], and otherwise [trv] if the literal holds no real, and the
+    literal's decoration if it holds one, except [dac] in place of [com]
+    when the result is not common. *)
+Lemma from_dec_ninterval_set_dec :
   forall m x, parse_ok m -> ninterval_ok (nx x) ->
   let y := DecInterval.from_dec_ninterval m x in
   if dec_eqb (nd x) Ill then y = DecInterval.NAI else
@@ -286,7 +290,11 @@ destruct (dec_eqb (nd x) Ill) eqn:Hd; cbv beta iota.
       end; reflexivity.
 Qed.
 
-Theorem from_dec_ninterval_overflow :
+(** For a common literal with [ninterval_ok] and a decoration other than
+    [ill], the result is not common exactly when the conversion of a bound
+    overflowed. Without [ninterval_ok], [[2, 1]] would be common, and its
+    result [Interval::EMPTY] not common, with no bound overflowed. *)
+Lemma from_dec_ninterval_not_common :
   forall m x, parse_ok m -> ninterval_ok (nx x) -> dec_eqb (nd x) Ill = false ->
   nis_common_interval (nx x) = true ->
   (Interval.is_common_interval (itv (DecInterval.from_dec_ninterval m x)) = false <->
@@ -320,6 +328,112 @@ destruct (Interval.try_from (f64_f (number_to_f64 m (ninf (nx x)) Inf))
 - change (Interval.is_common_interval y = false) in Hnc.
   rewrite (try_from_finite _ _ y E Fa Fb) in Hnc. discriminate Hnc.
 - discriminate Hne.
+Qed.
+
+(** ** The theorems *)
+
+(** A literal whose bounds are both [Rational]s denotes a bounded set. *)
+Lemma nis_common_bounded :
+  forall n, nis_common_interval n = true -> bounded (ninterval_set n).
+Proof.
+intros n Hc. destruct (nis_common_rational n Hc) as [[qa Ea] [qb Eb]].
+(* [qa <= r <= qb] puts [|r|] below [|qa| + |qb|]. *)
+exists (Rabs (Q2R qa) + Rabs (Q2R qb)). intros r [Ha Hb].
+rewrite Ea in Ha. rewrite Eb in Hb. cbn [above_num below_num] in Ha, Hb.
+pose proof (Rle_abs (Q2R qb)) as Hqb. pose proof (Rle_abs (- Q2R qa)) as Hqa.
+rewrite Rabs_Ropp in Hqa.
+pose proof (Rabs_pos (Q2R qa)). pose proof (Rabs_pos (Q2R qb)).
+apply Rabs_le. lra.
+Qed.
+
+(** For an [x] with [ninterval_ok], [DecNInterval::new(x)] has
+    [dec_ninterval_ok], which the grammar is checked by reading to return.
+    The decoration that [new] gives meets the two conjuncts on [nd] for
+    any [x], and the first conjunct is [ninterval_ok x] itself. *)
+Lemma dn_new_ok : forall x, ninterval_ok x -> dec_ninterval_ok (dn_new x).
+Proof.
+intros x Hok. unfold dec_ninterval_ok, dn_new. cbv zeta. cbn [nx nd].
+split; [exact Hok|].
+destruct (nis_empty x), (nis_common_interval x); cbn [negb];
+  split; intros H; first [discriminate H|reflexivity|left; reflexivity].
+Qed.
+
+Theorem from_dec_ninterval_correct :
+  forall m x, parse_ok m -> dec_ninterval_ok x ->
+  let y := DecInterval.from_dec_ninterval m x in
+  let overflow :=
+    bounded (ninterval_set (nx x)) /\ ~ bounded (fun r => mem r (itv y)) in
+  (if dec_eqb (nd x) Ill then y = DecInterval.NAI
+   else is_tightest (ninterval_set (nx x)) (itv y)) /\
+  (nd x = Com /\ overflow -> dec y = Dac) /\
+  (~ (nd x = Com /\ overflow) -> dec y = nd x) /\
+  (nd x = Com ->
+   (overflow <->
+    f64_overflow (number_to_f64 m (ninf (nx x)) Inf) ||
+    f64_overflow (number_to_f64 m (nsup (nx x)) Sup) = true)).
+Proof.
+(* [NInterval::EMPTY] has the lower bound +inf, so it holds no real. *)
+assert (Hno : forall n, nis_empty n = true -> forall r, ~ ninterval_set n r).
+{ intros n He r [Ha _].
+  destruct n as [[| |] b|a]; cbn [nis_empty] in He; try discriminate He.
+  exact Ha. }
+intros m x Hm (Hok & Hcom & Hemp). cbv zeta.
+pose proof (from_dec_ninterval_set_dec m x Hm Hok) as Hsd. cbv zeta in Hsd.
+pose proof (from_dec_ninterval_not_common m x Hm Hok) as Hnc.
+set (y := DecInterval.from_dec_ninterval m x) in *. clearbody y.
+destruct x as [n d]. cbn [nx nd] in *.
+(* Either the literal holds no real and is decorated [trv] or [ill], or
+   it holds a real. *)
+assert (Hcase : ((forall r, ~ ninterval_set n r) /\ (d = Trv \/ d = Ill)) \/
+                exists r, ninterval_set n r).
+{ revert Hemp. destruct (nis_empty n) eqn:He; intros Hemp.
+  - left. exact (conj (Hno n He) (Hemp eq_refl)).
+  - right. exact (ninterval_ok_set n Hok He). }
+destruct d; cbn [dec_eqb discriminant Z.eqb Pos.eqb andb negb] in Hsd |- *.
+(* Goals 2-4 are [trv], [def] and [dac]. The result has the literal's
+   decoration if the literal holds a real, and [trv] if it holds none,
+   which [Hcase] then makes the literal's decoration. *)
+2-4: destruct Hsd as (Ht & Htrv & Hd); split; [exact Ht|split; [|split]];
+  [ intros [H _]; discriminate H
+  | intros _; destruct Hcase as [[Hn [H|H]]|Hr];
+      first [discriminate H|exact (Htrv Hn)|exact (Hd Hr)]
+  | intros H; discriminate H ].
+- (* [ill] gives NaI, and the other conjuncts are about [com]. *)
+  split; [exact Hsd|split; [|split]].
+  + intros [H _]. discriminate H.
+  + intros _. rewrite Hsd. reflexivity.
+  + intros H. discriminate H.
+- (* [com]: the literal is common, so it is bounded and holds a real,
+     which the tightest interval holds too. *)
+  pose proof (Hcom eq_refl) as Hc. clear Hcase.
+  destruct Hsd as (Ht & _ & Hd). pose proof Ht as (Hv & Hin & _).
+  destruct (ninterval_ok_set n Hok (common_not_empty n Hc)) as (r & Hr).
+  pose proof (Hd (ex_intro _ r Hr)) as Hdy.
+  pose proof (mem_not_empty (itv y) r Hv (Hin r Hr)) as Hne.
+  pose proof (nis_common_bounded n Hc) as Hb.
+  specialize (Hnc eq_refl Hc).
+  revert Hdy Hnc.
+  destruct (Interval.is_common_interval (itv y)) eqn:Ec; cbn [negb];
+    intros Hdy Hnc.
+  + (* A common result is bounded, so no overflow occurred. *)
+    pose proof (common_bounded (itv y) Ec) as HbY.
+    split; [exact Ht|split; [|split]].
+    * intros (_ & _ & HnbY). destruct (HnbY HbY).
+    * intros _. exact Hdy.
+    * intros _. split.
+      -- intros (_ & HnbY). destruct (HnbY HbY).
+      -- intros Hf. apply Hnc in Hf. discriminate Hf.
+  + (* A nonempty result that is not common is unbounded. *)
+    assert (HnbY : ~ bounded (fun r => mem r (itv y))).
+    { intros HbY. rewrite (bounded_common (itv y) Hv Hne HbY) in Ec.
+      discriminate Ec. }
+    split; [exact Ht|split; [|split]].
+    * intros _. exact Hdy.
+    * intros Hn. exfalso. apply Hn.
+      split; [reflexivity|split; [exact Hb|exact HnbY]].
+    * intros _. split.
+      -- intros _. apply Hnc. reflexivity.
+      -- intros _. split; [exact Hb|exact HnbY].
 Qed.
 
 Theorem from_ninterval_correct :

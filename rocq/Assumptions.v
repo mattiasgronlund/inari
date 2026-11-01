@@ -159,8 +159,8 @@ Print Assumptions number_neg_correct.
 Print Assumptions ninterval_ok_set.
 Print Assumptions bounds_tightest.
 Print Assumptions try_from_ninterval_exact_correct.
+Print Assumptions dn_new_ok.
 Print Assumptions from_dec_ninterval_correct.
-Print Assumptions from_dec_ninterval_overflow.
 Print Assumptions from_ninterval_correct.
 Print Assumptions from_ninterval_new.
 Print Assumptions E_tightest.

@@ -116,7 +116,8 @@ struct DecNInterval {
     // `rocq/theories/Model.v` transcribes this struct and `new` below for the proofs of
     // `From<DecNInterval>` and `From<NInterval>` in `rocq/theories/ParseDec.v`, so it has
     // to be updated along with them. `set_dec` below, which only the grammar calls, is
-    // not transcribed.
+    // not transcribed, but `dec_ninterval_ok` in `rocq/theories/Model.v` states what
+    // `decorated_interval` gives with it.
     x: NInterval,
     d: Decoration,
 }
@@ -503,6 +504,14 @@ fn decorated_interval(s: &str) -> IResult<&str, Result<DecNInterval>> {
                 (Ok(x), None) => Ok(DecNInterval::new(x)),
                 (Ok(x), Some(d)) => {
                     let xd = DecNInterval::set_dec(x, d);
+                    // `dec_ninterval_ok` in `rocq/theories/Model.v` states what this test,
+                    // `DecNInterval::new` and `DecNInterval::NAI` guarantee of the
+                    // decorations of the `DecNInterval`s that the grammar returns: `com`
+                    // only for an `x` whose bounds are both rationals, and only `trv` or
+                    // `ill` for `NInterval::EMPTY`. It is checked by reading, not proved,
+                    // except for `DecNInterval::new` (`dn_new_ok`), and the proof of
+                    // `From<DecNInterval>` in `rocq/theories/ParseDec.v` assumes it, so it
+                    // has to be updated along with the grammar.
                     if xd.d == d {
                         Ok(xd)
                     } else {
@@ -627,12 +636,13 @@ impl From<DecNInterval> for DecInterval {
     fn from(DecNInterval { x, d }: DecNInterval) -> Self {
         // Proved correct in `rocq/theories/ParseDec.v` (`from_dec_ninterval_correct`) for
         // the portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR
-        // (`parse_ok`) and that `x` is what the grammar can return (`ninterval_ok`): NaI if
-        // `d` is `ill`, and otherwise the tightest interval that contains the reals of `x`,
-        // decorated `trv` if `x` has none, and otherwise `d`, but `dac` in place of `com`
-        // if the result is not common, as IEEE 1788's textToInterval asks.
-        // `from_dec_ninterval_overflow` shows that for a common `x` and a `d` other than
-        // `ill`, the result is not common exactly when a bound overflowed.
+        // (`parse_ok`) and that `x` and `d` are what the grammar can return
+        // (`dec_ninterval_ok`): NaI if `d` is `ill`, and otherwise the tightest interval
+        // that contains the reals of `x`, decorated `d`, except `dac` in place of `com` if
+        // overflow occurred, that is, `x` is bounded and the result is not, as IEEE 1788's
+        // textToInterval asks (§12.12.7 of the draft P1788/D9.5, §6.7.5 of the draft
+        // P1788.1/D9.8). For a `com` literal, that holds exactly when
+        // `a.overflow || b.overflow`.
         // `rocq/theories/Model.v` transcribes this function as
         // `DecInterval.from_dec_ninterval`, also for the proof that every `Interval` that
         // the constructors and the proved operations make is `valid`
@@ -836,5 +846,43 @@ mod tests {
             interval_exact!("[123e2147483648]").unwrap_err().kind(),
             PossiblyUndefinedOperation
         );
+    }
+
+    #[test]
+    fn decorated_literal_decorations() {
+        // Tests the paths of `decorated_interval` that `dec_ninterval_ok` in
+        // `rocq/theories/Model.v` relies on: it decorates a literal `com` only if both its
+        // bounds are rationals, and an empty one only `trv`, or `ill` for `[nai]`.
+        for s in [
+            "[1,inf]_com",
+            "[-inf,1]_com",
+            "[entire]_com",
+            "[empty]_com",
+            "[]_com",
+            "1.0??u_com",
+            "[empty]_dac",
+            "[empty]_def",
+            "[]_dac",
+            "[]_def",
+        ] {
+            assert_eq!(
+                dec_interval!(s).map_err(|e| e.kind()),
+                Err(UndefinedOperation),
+                "{s}"
+            );
+        }
+
+        assert_eq!(
+            dec_interval!("[1,2]_com").unwrap().decoration(),
+            Decoration::Com
+        );
+        assert_eq!(
+            dec_interval!("[1,inf]_dac").unwrap().decoration(),
+            Decoration::Dac
+        );
+        let x = dec_interval!("[empty]_trv").unwrap();
+        assert!(x.is_empty());
+        assert_eq!(x.decoration(), Decoration::Trv);
+        assert!(dec_interval!("[nai]").unwrap().is_nai());
     }
 }

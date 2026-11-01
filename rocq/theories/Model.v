@@ -1231,6 +1231,23 @@ Definition dn_new (x : NInterval) : DecNInterval :=
     else Com in
   {| nx := x; nd := d |}.
 
+(** What the grammar guarantees of each [DecNInterval] [x] that it
+    returns: [nx x] has [ninterval_ok], [nd x] is [com] only if both bounds
+    of [nx x] are [Rational]s, and [NInterval::EMPTY] is decorated only
+    [trv] or [ill]. This is not proved, except that [dn_new_ok] in
+    [ParseDec.v] proves it of [dn_new n] for an [n] with [ninterval_ok].
+    [decorated_interval] returns [DecNInterval::NAI], whose [x] is
+    [NInterval::EMPTY] and whose [d] is [ill], for [[nai]],
+    [DecNInterval::new(x)] for a literal without a decoration, and for one
+    with a decoration [d], [DecNInterval::set_dec(x, d)] only if its
+    decoration is [d]. [set_dec], which is not transcribed, decorates
+    [NInterval::EMPTY] [trv] for any [d] other than [ill], and lowers [com]
+    to [dac] for an [x] that is not common. *)
+Definition dec_ninterval_ok (x : DecNInterval) : Prop :=
+  ninterval_ok (nx x) /\
+  (nd x = Com -> nis_common_interval (nx x) = true) /\
+  (nis_empty (nx x) = true -> nd x = Trv \/ nd x = Ill).
+
 (** [struct F64 { f: f64, inexact: bool, overflow: bool }], with its fields
     as [f64_f], [f64_inexact] and [f64_overflow]. *)
 Record F64 : Type := { f64_f : f64; f64_inexact : bool; f64_overflow : bool }.
