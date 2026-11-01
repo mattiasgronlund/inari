@@ -849,17 +849,19 @@ Definition with_val (x : f64) : mpfr_t :=
     [mpfr_pow_si rnd x n].
 
     The last two fields are the MPFR functions that [rational_to_f64] in
-    [src/parse.rs] calls, which return the ternary value as well, an
-    integer here: [mpfr::set_q(f.as_raw_mut(), r.as_raw(), rnd)] sets the
-    MPFR number [f] of 53 bits to [fst (mpfr_set_q emin emax rnd r)] for
-    the rational [r] and returns [snd (mpfr_set_q emin emax rnd r)], and
+    [src/parse.rs] calls through [round_rational]. They return the ternary
+    value as well, an integer here:
+    [mpfr::set_q(f.as_raw_mut(), r.as_raw(), rnd)] sets the MPFR number
+    [f] of 53 bits to [fst (mpfr_set_q emin emax rnd r)] for the rational
+    [r] and returns [snd (mpfr_set_q emin emax rnd r)], and
     [mpfr::subnormalize(f.as_raw_mut(), t, rnd)] sets [f] to
     [fst (mpfr_subnormalize emin emax rnd f t)] and returns
     [snd (mpfr_subnormalize emin emax rnd f t)]. Their first two arguments
     are MPFR's exponent range, [emin] and [emax], during the call, which
-    [rational_to_f64] sets around them. The other fields do not take it, as
-    [src/elementary.rs] does not set it, and [Mpfr.v] states what it
-    assumes of them for any range that contains that of [f64].
+    [with_parse_range] in [src/parse.rs] sets around them. The other
+    fields do not take it, as [src/elementary.rs] does not set it, and
+    [Mpfr.v] states what it assumes of them for any range that contains
+    that of [f64].
 
     [ideal] in [MpfrIdeal.v] is a record of this type, which
     [MpfrConsistent.v] shows satisfies those hypotheses, so a change to
@@ -891,27 +893,28 @@ Record mpfr : Type := {
   mpfr_subnormalize : Z -> Z -> mpfr_rnd -> mpfr_t -> Z -> mpfr_t * Z
 }.
 
-(** The body [mpfr_fn!($mpfr_f(x, rnd))] of the functions that [mpfr_fn!]
-    defines, for the MPFR function [f]: [x] as an MPFR number of 53 bits,
-    set to [f] of it rounded in the direction [rnd], and then converted to
-    an [f64] in the same direction. *)
+(** The body [mpfr_fn!(let x = $mpfr_f(x, rnd)); get_d(&x, rnd)] of the
+    functions that [mpfr_fn!] defines, for the MPFR function [f]: [x] as
+    an MPFR number of 53 bits, set to [f] of it rounded in the direction
+    [rnd], and then converted to an [f64] in the same direction by
+    [get_d], which calls [mpfr::get_d]. *)
 Definition mpfr_fn (m : mpfr) (f : mpfr_rnd -> mpfr_t -> mpfr_t)
     (rnd : mpfr_rnd) (x : f64) : f64 :=
   mpfr_get_d m rnd (f rnd (with_val x)).
 
-(** The body [mpfr_fn2!($mpfr_f(x, y, rnd))] of the functions that
-    [mpfr_fn2!] defines, for the MPFR function [f] of two numbers: [x] and
-    [y] as MPFR numbers of 53 bits, [x] set to [f] of them rounded in the
-    direction [rnd], and then converted to an [f64] in the same
-    direction. *)
+(** The body [mpfr_fn2!(let x = $mpfr_f(x, y, rnd)); get_d(&x, rnd)] of
+    the functions that [mpfr_fn2!] defines, for the MPFR function [f] of
+    two numbers: [x] and [y] as MPFR numbers of 53 bits, [x] set to [f] of
+    them rounded in the direction [rnd], and then converted to an [f64] in
+    the same direction by [get_d]. *)
 Definition mpfr_fn2 (m : mpfr) (f : mpfr_rnd -> mpfr_t -> mpfr_t -> mpfr_t)
     (rnd : mpfr_rnd) (x y : f64) : f64 :=
   mpfr_get_d m rnd (f rnd (with_val x) (with_val y)).
 
-(** The body [mpfr_fn_si!($mpfr_f(x, y, rnd))] of the functions that
-    [mpfr_fn_si!] defines, for the MPFR function [f] of a number and a
-    [c_long], with the [i32] [y] as the integer [n], which [y.into()]
-    converts to a [c_long] exactly. *)
+(** The body [mpfr_fn_si!(let x = $mpfr_f(x, y, rnd)); get_d(&x, rnd)] of
+    the functions that [mpfr_fn_si!] defines, for the MPFR function [f] of
+    a number and a [c_long], with the [i32] [y] as the integer [n], which
+    [y.into()] converts to a [c_long] exactly. *)
 Definition mpfr_fn_si (m : mpfr) (f : mpfr_rnd -> mpfr_t -> Z -> mpfr_t)
     (rnd : mpfr_rnd) (x : f64) (n : Z) : f64 :=
   mpfr_get_d m rnd (f rnd (with_val x) n).
@@ -1256,23 +1259,29 @@ Record F64 : Type := { f64_f : f64; f64_inexact : bool; f64_overflow : bool }.
 Definition f64_is_infinite (x : f64) : bool :=
   match x with B754_infinity _ => true | _ => false end.
 
-(** [fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64]. [f] is
-    [Float::new(f64::MANTISSA_DIGITS)], an MPFR number of 53 bits, which
+(** [fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64], with
+    [round_rational] and [with_parse_range] of [src/parse.rs] inlined. [f]
+    is [Float::new(f64::MANTISSA_DIGITS)], an MPFR number of 53 bits, which
     [mpfr::set_q] sets before anything reads it on the targets that inari
     compiles for with the feature [gmp] (see [set_q_ok] in [Mpfr.v]).
-    The code saves MPFR's exponent range, sets [emin] to
-    [f64::MIN_EXP - (f64::MANTISSA_DIGITS as i32) + 1], which is
-    [-1021 - 53 + 1 = -1073], and [emax] to [f64::MAX_EXP], which is
-    [1024], calls [set_q], [subnormalize] and [get_d], and restores the
-    range. The model passes that range to [mpfr_set_q] and
-    [mpfr_subnormalize], and [parse_ok] in [Mpfr.v] assumes [get_d_ok] of
-    [mpfr_get_d] at it. The save and the restore are left out: the
-    range is the same after the call as before it, which is the range that
-    [Mpfr.v] assumes for the other MPFR functions. No other thread can
-    change the range between these calls where MPFR keeps it per thread,
-    as the MPFR that [gmp-mpfr-sys] builds does (see the comment at the
-    top of [Mpfr.v]). [ternary_to_ordering(t) != Ordering::Equal] is
-    [t != 0], and [f.is_infinite()] is [f64_is_infinite f]. *)
+    [round_rational] calls [mpfr::set_q], [mpfr::subnormalize] and
+    [get_d], which calls [mpfr::get_d], in a closure that it passes to
+    [with_parse_range]. [with_parse_range] saves MPFR's exponent range,
+    sets [emin] to [f64::MIN_EXP - (f64::MANTISSA_DIGITS as i32) + 1],
+    which is [-1021 - 53 + 1 = -1073], and [emax] to [f64::MAX_EXP], which
+    is [1024], calls the closure, and restores the range. The model passes
+    that range to [mpfr_set_q] and [mpfr_subnormalize], and [parse_ok] in
+    [Mpfr.v] assumes [get_d_ok] of [mpfr_get_d] at it. The save and the
+    restore are left out: the range is the same after the call as before
+    it, which is the range that [Mpfr.v] assumes for the other MPFR
+    functions. No other thread can change the range between these calls
+    where MPFR keeps it per thread, as the MPFR that [gmp-mpfr-sys] builds
+    does (see the comment at the top of [Mpfr.v]). [after_set_q], which
+    [round_rational] calls after [mpfr::set_q] and which [rational_to_f64]
+    passes as [|_, _| ()], does nothing and is left out, as is the MPFR
+    number [f] that [round_rational] returns and [rational_to_f64] drops.
+    [ternary_to_ordering(t) != Ordering::Equal] is [t != 0], and
+    [f.is_infinite()], of the [f64] [f], is [f64_is_infinite f]. *)
 Definition rational_to_f64 (m : mpfr) (r : Q) (infsup : InfSup) : F64 :=
   let rnd := as_rnd_t infsup in
   let '(f, t) := mpfr_set_q m (-1073) 1024 rnd r in

@@ -1,7 +1,9 @@
 // Tests the linked MPFR against what `rocq/theories/Mpfr.v` assumes of it: the special
 // values of the `<f>_ok` definitions, `get_d_ok` at its edges, and the conversions of
-// `parse_ok`. MPFR is called as `mpfr_fn!`, `mpfr_fn2!`, `mpfr_fn_si!` and
-// `rational_to_f64` call it.
+// `parse_ok`. It calls the MPFR functions that `Mpfr.v` states hypotheses about through the
+// code: the arms of `mpfr_fn!`, `mpfr_fn2!` and `mpfr_fn_si!` that give the MPFR number that
+// the functions they define convert with `get_d`, and `get_d`, in `src/elementary.rs`, and
+// `round_rational` and `with_parse_range`, which `rational_to_f64` calls, in `src/parse.rs`.
 //
 // Each check names, in a comment, the definition of `Mpfr.v` and the clause of it that it
 // checks. A clause stated `forall rnd` is checked with `RNDD` and with `RNDU`. The checks
@@ -14,12 +16,16 @@
 // that zero, and its comment says so.
 //
 // MPFR's exponent range is per thread in an MPFR built thread-safe, as `gmp-mpfr-sys` builds
-// it, which `range_per_thread` tests, so that `at_parse_range` in one test does not change the
-// range that a test running at the same time in another thread reads. The tests read it with
-// `mpfr::get_emin` and `mpfr::get_emax` rather than assume MPFR's default, and
-// `at_parse_range` restores it.
+// it, which `range_per_thread` tests, so that `with_parse_range` in one test does not change
+// the range that a test running at the same time in another thread reads. The tests read it
+// with `mpfr::get_emin` and `mpfr::get_emax` rather than assume MPFR's default, and
+// `with_parse_range` restores it.
 
-use crate::*;
+use super::get_d;
+use crate::{
+    parse::{round_rational, with_parse_range},
+    *,
+};
 use gmp_mpfr_sys::mpfr::{
     self,
     rnd_t::{RNDD, RNDU},
@@ -112,71 +118,6 @@ fn least() -> Float {
     float(1, emin - 1)
 }
 
-// The MPFR number that `mpfr_fn!($mpfr_f(x, rnd))` in `src/elementary.rs` passes to
-// `mpfr::get_d`, made the same way.
-macro_rules! call {
-    ($mpfr_f:ident($x:expr, $rnd:expr)) => {{
-        let x: f64 = $x;
-        let mut x = Float::with_val(f64::MANTISSA_DIGITS, x);
-        let rnd = $rnd;
-        unsafe {
-            mpfr::$mpfr_f(x.as_raw_mut(), x.as_raw(), rnd);
-        }
-        x
-    }};
-}
-
-// The same for `mpfr_fn2!($mpfr_f(x, y, rnd))`.
-macro_rules! call2 {
-    ($mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {{
-        let (x, y): (f64, f64) = ($x, $y);
-        let mut x = Float::with_val(f64::MANTISSA_DIGITS, x);
-        let y = Float::with_val(f64::MANTISSA_DIGITS, y);
-        let rnd = $rnd;
-        unsafe {
-            mpfr::$mpfr_f(x.as_raw_mut(), x.as_raw(), y.as_raw(), rnd);
-        }
-        x
-    }};
-}
-
-// The same for `mpfr_fn_si!($mpfr_f(x, y, rnd))`.
-macro_rules! call_si {
-    ($mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {{
-        let (x, y): (f64, i32) = ($x, $y);
-        let mut x = Float::with_val(f64::MANTISSA_DIGITS, x);
-        let rnd = $rnd;
-        unsafe {
-            mpfr::$mpfr_f(x.as_raw_mut(), x.as_raw(), y.into(), rnd);
-        }
-        x
-    }};
-}
-
-// `mpfr::get_d` of the MPFR number `x`, rounded in the direction `rnd`.
-fn get_d(x: &Float, rnd: mpfr::rnd_t) -> f64 {
-    unsafe { mpfr::get_d(x.as_raw(), rnd) }
-}
-
-// `f()` at the exponent range that `rational_to_f64` in `src/parse.rs` sets, `emin = -1073`
-// and `emax = 1024`, set and restored as it does.
-fn at_parse_range<T>(f: impl FnOnce() -> T) -> T {
-    let (orig_emin, orig_emax) = unsafe { (mpfr::get_emin(), mpfr::get_emax()) };
-    unsafe {
-        assert_eq!(
-            mpfr::set_emin((f64::MIN_EXP - (f64::MANTISSA_DIGITS as i32) + 1).into()),
-            0
-        );
-        assert_eq!(mpfr::set_emax(f64::MAX_EXP.into()), 0);
-    }
-    let r = f();
-    unsafe {
-        mpfr::set_emin(orig_emin);
-        mpfr::set_emax(orig_emax);
-    }
-    r
-}
-
 // `ternary_ok r v t` of `Mpfr.v`: `t` is the ternary value of the MPFR result `v` for the
 // exact result `r`.
 fn ternary_ok(r: &Rational, v: &Value, t: i32) -> bool {
@@ -250,15 +191,15 @@ fn with_val() {
 // `acosh_ok`, `mpfr_acosh m RNDU (MInf false) = MInf false`.
 #[test]
 fn acosh_ok() {
-    assert_eq!(value(&call!(acosh(f64::INFINITY, RNDU))), Inf(false));
+    assert_eq!(value(&mpfr_fn!(acosh(f64::INFINITY, RNDU))), Inf(false));
 }
 
 // `asinh_ok`, `mpfr_asinh m RNDD (MInf true) = MInf true` and
 // `mpfr_asinh m RNDU (MInf false) = MInf false`.
 #[test]
 fn asinh_ok() {
-    assert_eq!(value(&call!(asinh(f64::NEG_INFINITY, RNDD))), Inf(true));
-    assert_eq!(value(&call!(asinh(f64::INFINITY, RNDU))), Inf(false));
+    assert_eq!(value(&mpfr_fn!(asinh(f64::NEG_INFINITY, RNDD))), Inf(true));
+    assert_eq!(value(&mpfr_fn!(asinh(f64::INFINITY, RNDU))), Inf(false));
 }
 
 // `atan_ok`, `mpfr_round (mpfr_format emin emax) RNDD (- (PI / 2)) (mpfr_atan m RNDD (MInf
@@ -268,18 +209,18 @@ fn asinh_ok() {
 #[test]
 fn atan_ok() {
     assert_eq!(
-        value(&call!(atan(f64::NEG_INFINITY, RNDD))),
+        value(&mpfr_fn!(atan(f64::NEG_INFINITY, RNDD))),
         num(-I::FRAC_PI_2.sup())
     );
     assert_eq!(
-        value(&call!(atan(f64::INFINITY, RNDU))),
+        value(&mpfr_fn!(atan(f64::INFINITY, RNDU))),
         num(I::FRAC_PI_2.sup())
     );
 }
 
 // `atan2_ok`, the seven special values, in both directions. `mpfr_atan2 m rnd y x` is
-// `call2!(atan2(y, x, rnd))`. The bounds of `Interval::PI` and `Interval::FRAC_PI_2` are π and
-// π/2 rounded down and up (`rocq/theories/ConstPi.v`).
+// `mpfr_fn2!(atan2(y, x, rnd))`. The bounds of `Interval::PI` and `Interval::FRAC_PI_2` are
+// π and π/2 rounded down and up (`rocq/theories/ConstPi.v`).
 #[test]
 fn atan2_ok() {
     let inf = f64::INFINITY;
@@ -290,13 +231,13 @@ fn atan2_ok() {
         for y in ys {
             // `forall rnd y, 0 < y -> mpfr_atan2 m rnd (MNum y) (MInf false) = MZero false`
             assert_eq!(
-                value(&call2!(atan2(y, inf, rnd))),
+                value(&mpfr_fn2!(atan2(y, inf, rnd))),
                 Zero(false),
                 "{y:e}, {rnd:?}"
             );
             // `forall rnd y, y < 0 -> mpfr_atan2 m rnd (MNum y) (MInf false) = MZero true`
             assert_eq!(
-                value(&call2!(atan2(-y, inf, rnd))),
+                value(&mpfr_fn2!(atan2(-y, inf, rnd))),
                 Zero(true),
                 "{:e}, {rnd:?}",
                 -y
@@ -304,7 +245,7 @@ fn atan2_ok() {
         }
 
         for y in [0.0f64, -0.0] {
-            let v = value(&call2!(atan2(y, inf, rnd)));
+            let v = value(&mpfr_fn2!(atan2(y, inf, rnd)));
             // `forall rnd s, exists s', mpfr_atan2 m rnd (MZero s) (MInf false) = MZero s'`
             assert!(matches!(v, Zero(_)), "{y:e}, {rnd:?}: {v:?}");
             // More than `atan2_ok` assumes: the zero has the sign of `y`, as MPFR's
@@ -321,14 +262,14 @@ fn atan2_ok() {
             // `forall rnd y, 0 < y -> mpfr_round (mpfr_format emin emax) rnd PI
             // (mpfr_atan2 m rnd (MNum y) (MInf true))`
             assert_eq!(
-                value(&call2!(atan2(y, -inf, rnd))),
+                value(&mpfr_fn2!(atan2(y, -inf, rnd))),
                 num(pi_rnd),
                 "{y:e}, {rnd:?}"
             );
             // `forall rnd y, y < 0 -> mpfr_round (mpfr_format emin emax) rnd (- PI)
             // (mpfr_atan2 m rnd (MNum y) (MInf true))`
             assert_eq!(
-                value(&call2!(atan2(-y, -inf, rnd))),
+                value(&mpfr_fn2!(atan2(-y, -inf, rnd))),
                 num(neg_pi_rnd),
                 "{:e}, {rnd:?}",
                 -y
@@ -344,14 +285,14 @@ fn atan2_ok() {
             // `forall rnd (x : f64), is_finite x = true -> mpfr_round (mpfr_format emin emax)
             // rnd (PI / 2) (mpfr_atan2 m rnd (MInf false) (with_val x))`
             assert_eq!(
-                value(&call2!(atan2(inf, x, rnd))),
+                value(&mpfr_fn2!(atan2(inf, x, rnd))),
                 num(frac_pi_2_rnd),
                 "{x:e}, {rnd:?}"
             );
             // `forall rnd (x : f64), is_finite x = true -> mpfr_round (mpfr_format emin emax)
             // rnd (- (PI / 2)) (mpfr_atan2 m rnd (MInf true) (with_val x))`
             assert_eq!(
-                value(&call2!(atan2(-inf, x, rnd))),
+                value(&mpfr_fn2!(atan2(-inf, x, rnd))),
                 num(neg_frac_pi_2_rnd),
                 "{x:e}, {rnd:?}"
             );
@@ -363,15 +304,15 @@ fn atan2_ok() {
 // `mpfr_atanh m RNDU (MNum 1) = MInf false`.
 #[test]
 fn atanh_ok() {
-    assert_eq!(value(&call!(atanh(-1.0, RNDD))), Inf(true));
-    assert_eq!(value(&call!(atanh(1.0, RNDU))), Inf(false));
+    assert_eq!(value(&mpfr_fn!(atanh(-1.0, RNDD))), Inf(true));
+    assert_eq!(value(&mpfr_fn!(atanh(1.0, RNDU))), Inf(false));
 }
 
 // `cosh_ok`, `forall s, mpfr_cosh m RNDU (MInf s) = MInf false`.
 #[test]
 fn cosh_ok() {
-    assert_eq!(value(&call!(cosh(f64::NEG_INFINITY, RNDU))), Inf(false));
-    assert_eq!(value(&call!(cosh(f64::INFINITY, RNDU))), Inf(false));
+    assert_eq!(value(&mpfr_fn!(cosh(f64::NEG_INFINITY, RNDU))), Inf(false));
+    assert_eq!(value(&mpfr_fn!(cosh(f64::INFINITY, RNDU))), Inf(false));
 }
 
 // `exp_ok`, `exp10_ok` and `exp2_ok`, `mpfr_<f> m RNDD (MInf true) = MZero false` and
@@ -379,12 +320,12 @@ fn cosh_ok() {
 #[test]
 fn exp_ok() {
     let inf = f64::INFINITY;
-    assert_eq!(value(&call!(exp(-inf, RNDD))), Zero(false));
-    assert_eq!(value(&call!(exp(inf, RNDU))), Inf(false));
-    assert_eq!(value(&call!(exp10(-inf, RNDD))), Zero(false));
-    assert_eq!(value(&call!(exp10(inf, RNDU))), Inf(false));
-    assert_eq!(value(&call!(exp2(-inf, RNDD))), Zero(false));
-    assert_eq!(value(&call!(exp2(inf, RNDU))), Inf(false));
+    assert_eq!(value(&mpfr_fn!(exp(-inf, RNDD))), Zero(false));
+    assert_eq!(value(&mpfr_fn!(exp(inf, RNDU))), Inf(false));
+    assert_eq!(value(&mpfr_fn!(exp10(-inf, RNDD))), Zero(false));
+    assert_eq!(value(&mpfr_fn!(exp10(inf, RNDU))), Inf(false));
+    assert_eq!(value(&mpfr_fn!(exp2(-inf, RNDD))), Zero(false));
+    assert_eq!(value(&mpfr_fn!(exp2(inf, RNDU))), Inf(false));
 }
 
 // `ln_ok`, `log10_ok` and `log2_ok`, `forall s, mpfr_<f> m RNDD (MZero s) = MInf true` and
@@ -393,17 +334,17 @@ fn exp_ok() {
 fn ln_ok() {
     let inf = f64::INFINITY;
     for x in [0.0f64, -0.0] {
-        assert_eq!(value(&call!(log(x, RNDD))), Inf(true), "{x:e}");
-        assert_eq!(value(&call!(log10(x, RNDD))), Inf(true), "{x:e}");
-        assert_eq!(value(&call!(log2(x, RNDD))), Inf(true), "{x:e}");
+        assert_eq!(value(&mpfr_fn!(log(x, RNDD))), Inf(true), "{x:e}");
+        assert_eq!(value(&mpfr_fn!(log10(x, RNDD))), Inf(true), "{x:e}");
+        assert_eq!(value(&mpfr_fn!(log2(x, RNDD))), Inf(true), "{x:e}");
     }
-    assert_eq!(value(&call!(log(inf, RNDU))), Inf(false));
-    assert_eq!(value(&call!(log10(inf, RNDU))), Inf(false));
-    assert_eq!(value(&call!(log2(inf, RNDU))), Inf(false));
+    assert_eq!(value(&mpfr_fn!(log(inf, RNDU))), Inf(false));
+    assert_eq!(value(&mpfr_fn!(log10(inf, RNDU))), Inf(false));
+    assert_eq!(value(&mpfr_fn!(log2(inf, RNDU))), Inf(false));
 }
 
 // `pow_ok`, the fourteen special values, in both directions. `mpfr_pow m rnd x y` is
-// `call2!(pow(x, y, rnd))`; the clauses call the base `y` where it is a number.
+// `mpfr_fn2!(pow(x, y, rnd))`; the clauses call the base `y` where it is a number.
 #[test]
 fn pow_ok() {
     let inf = f64::INFINITY;
@@ -418,37 +359,57 @@ fn pow_ok() {
         for y in neg {
             // `forall rnd y, y < 0 -> mpfr_pow m rnd (MZero false) (MNum y) = MInf false`
             assert_eq!(
-                value(&call2!(pow(0.0, y, rnd))),
+                value(&mpfr_fn2!(pow(0.0, y, rnd))),
                 Inf(false),
                 "{y:e}, {rnd:?}"
             );
         }
         // `forall rnd, mpfr_pow m rnd (MZero false) (MInf true) = MInf false`
-        assert_eq!(value(&call2!(pow(0.0, -inf, rnd))), Inf(false), "{rnd:?}");
+        assert_eq!(
+            value(&mpfr_fn2!(pow(0.0, -inf, rnd))),
+            Inf(false),
+            "{rnd:?}"
+        );
         // `forall rnd, mpfr_pow m rnd (MZero false) (MInf false) = MZero false`
-        assert_eq!(value(&call2!(pow(0.0, inf, rnd))), Zero(false), "{rnd:?}");
+        assert_eq!(
+            value(&mpfr_fn2!(pow(0.0, inf, rnd))),
+            Zero(false),
+            "{rnd:?}"
+        );
 
         for s in [0.0f64, -0.0] {
             // `forall rnd s, mpfr_pow m rnd (MZero false) (MZero s) = MNum 1`
-            assert_eq!(value(&call2!(pow(0.0, s, rnd))), num(1.0), "{s:e}, {rnd:?}");
+            assert_eq!(
+                value(&mpfr_fn2!(pow(0.0, s, rnd))),
+                num(1.0),
+                "{s:e}, {rnd:?}"
+            );
             // `forall rnd s, mpfr_pow m rnd (MInf false) (MZero s) = MNum 1`
-            assert_eq!(value(&call2!(pow(inf, s, rnd))), num(1.0), "{s:e}, {rnd:?}");
+            assert_eq!(
+                value(&mpfr_fn2!(pow(inf, s, rnd))),
+                num(1.0),
+                "{s:e}, {rnd:?}"
+            );
         }
         for s in [-inf, inf] {
             // `forall rnd s, mpfr_pow m rnd (MNum 1) (MInf s) = MNum 1`
-            assert_eq!(value(&call2!(pow(1.0, s, rnd))), num(1.0), "{s:e}, {rnd:?}");
+            assert_eq!(
+                value(&mpfr_fn2!(pow(1.0, s, rnd))),
+                num(1.0),
+                "{s:e}, {rnd:?}"
+            );
         }
 
         for y in below_1 {
             // `forall rnd y, 0 < y < 1 -> mpfr_pow m rnd (MNum y) (MInf true) = MInf false`
             assert_eq!(
-                value(&call2!(pow(y, -inf, rnd))),
+                value(&mpfr_fn2!(pow(y, -inf, rnd))),
                 Inf(false),
                 "{y:e}, {rnd:?}"
             );
             // `forall rnd y, 0 < y < 1 -> mpfr_pow m rnd (MNum y) (MInf false) = MZero false`
             assert_eq!(
-                value(&call2!(pow(y, inf, rnd))),
+                value(&mpfr_fn2!(pow(y, inf, rnd))),
                 Zero(false),
                 "{y:e}, {rnd:?}"
             );
@@ -456,13 +417,13 @@ fn pow_ok() {
         for y in above_1 {
             // `forall rnd y, 1 < y -> mpfr_pow m rnd (MNum y) (MInf true) = MZero false`
             assert_eq!(
-                value(&call2!(pow(y, -inf, rnd))),
+                value(&mpfr_fn2!(pow(y, -inf, rnd))),
                 Zero(false),
                 "{y:e}, {rnd:?}"
             );
             // `forall rnd y, 1 < y -> mpfr_pow m rnd (MNum y) (MInf false) = MInf false`
             assert_eq!(
-                value(&call2!(pow(y, inf, rnd))),
+                value(&mpfr_fn2!(pow(y, inf, rnd))),
                 Inf(false),
                 "{y:e}, {rnd:?}"
             );
@@ -471,28 +432,32 @@ fn pow_ok() {
         for y in neg {
             // `forall rnd y, y < 0 -> mpfr_pow m rnd (MInf false) (MNum y) = MZero false`
             assert_eq!(
-                value(&call2!(pow(inf, y, rnd))),
+                value(&mpfr_fn2!(pow(inf, y, rnd))),
                 Zero(false),
                 "{y:e}, {rnd:?}"
             );
         }
         // `forall rnd, mpfr_pow m rnd (MInf false) (MInf true) = MZero false`
-        assert_eq!(value(&call2!(pow(inf, -inf, rnd))), Zero(false), "{rnd:?}");
+        assert_eq!(
+            value(&mpfr_fn2!(pow(inf, -inf, rnd))),
+            Zero(false),
+            "{rnd:?}"
+        );
         for y in pos {
             // `forall rnd y, 0 < y -> mpfr_pow m rnd (MInf false) (MNum y) = MInf false`
             assert_eq!(
-                value(&call2!(pow(inf, y, rnd))),
+                value(&mpfr_fn2!(pow(inf, y, rnd))),
                 Inf(false),
                 "{y:e}, {rnd:?}"
             );
         }
         // `forall rnd, mpfr_pow m rnd (MInf false) (MInf false) = MInf false`
-        assert_eq!(value(&call2!(pow(inf, inf, rnd))), Inf(false), "{rnd:?}");
+        assert_eq!(value(&mpfr_fn2!(pow(inf, inf, rnd))), Inf(false), "{rnd:?}");
     }
 }
 
 // `pown_ok`, the seven special values, in both directions, for `i32`s `n`. `mpfr_pow_si m rnd
-// x n` is `call_si!(pow_si(x, n, rnd))`.
+// x n` is `mpfr_fn_si!(pow_si(x, n, rnd))`.
 #[test]
 fn pown_ok() {
     let inf = f64::INFINITY;
@@ -507,7 +472,7 @@ fn pown_ok() {
                 // `forall rnd s n, is_i32 n -> (n < 0)%Z -> Z.even n = true ->
                 // mpfr_pow_si m rnd (MZero s) n = MInf false`
                 assert_eq!(
-                    value(&call_si!(pow_si(s, n, rnd))),
+                    value(&mpfr_fn_si!(pow_si(s, n, rnd))),
                     Inf(false),
                     "{s:e}, {n}, {rnd:?}"
                 );
@@ -516,7 +481,7 @@ fn pown_ok() {
                 // `forall rnd s n, is_i32 n -> (n < 0)%Z -> Z.odd n = true ->
                 // mpfr_pow_si m rnd (MZero s) n = MInf s`
                 assert_eq!(
-                    value(&call_si!(pow_si(s, n, rnd))),
+                    value(&mpfr_fn_si!(pow_si(s, n, rnd))),
                     Inf(s.is_sign_negative()),
                     "{s:e}, {n}, {rnd:?}"
                 );
@@ -527,18 +492,22 @@ fn pown_ok() {
             // `forall rnd n, is_i32 n -> (n < 0)%Z -> mpfr_pow_si m rnd (MInf false) n =
             // MZero false`
             assert_eq!(
-                value(&call_si!(pow_si(inf, n, rnd))),
+                value(&mpfr_fn_si!(pow_si(inf, n, rnd))),
                 Zero(false),
                 "{n}, {rnd:?}"
             );
         }
         // `forall rnd, mpfr_pow_si m rnd (MInf false) 0 = MNum 1`
-        assert_eq!(value(&call_si!(pow_si(inf, 0, rnd))), num(1.0), "{rnd:?}");
+        assert_eq!(
+            value(&mpfr_fn_si!(pow_si(inf, 0, rnd))),
+            num(1.0),
+            "{rnd:?}"
+        );
         for n in pos {
             // `forall rnd n, is_i32 n -> (0 < n)%Z -> mpfr_pow_si m rnd (MInf false) n =
             // MInf false`
             assert_eq!(
-                value(&call_si!(pow_si(inf, n, rnd))),
+                value(&mpfr_fn_si!(pow_si(inf, n, rnd))),
                 Inf(false),
                 "{n}, {rnd:?}"
             );
@@ -547,7 +516,7 @@ fn pown_ok() {
             // `forall rnd n, is_i32 n -> (n < 0)%Z -> Z.odd n = true ->
             // mpfr_pow_si m rnd (MInf true) n = MZero true`
             assert_eq!(
-                value(&call_si!(pow_si(-inf, n, rnd))),
+                value(&mpfr_fn_si!(pow_si(-inf, n, rnd))),
                 Zero(true),
                 "{n}, {rnd:?}"
             );
@@ -556,7 +525,7 @@ fn pown_ok() {
             // `forall rnd n, is_i32 n -> (0 < n)%Z -> Z.odd n = true ->
             // mpfr_pow_si m rnd (MInf true) n = MInf true`
             assert_eq!(
-                value(&call_si!(pow_si(-inf, n, rnd))),
+                value(&mpfr_fn_si!(pow_si(-inf, n, rnd))),
                 Inf(true),
                 "{n}, {rnd:?}"
             );
@@ -568,16 +537,16 @@ fn pown_ok() {
 // `mpfr_sinh m RNDU (MInf false) = MInf false`.
 #[test]
 fn sinh_ok() {
-    assert_eq!(value(&call!(sinh(f64::NEG_INFINITY, RNDD))), Inf(true));
-    assert_eq!(value(&call!(sinh(f64::INFINITY, RNDU))), Inf(false));
+    assert_eq!(value(&mpfr_fn!(sinh(f64::NEG_INFINITY, RNDD))), Inf(true));
+    assert_eq!(value(&mpfr_fn!(sinh(f64::INFINITY, RNDU))), Inf(false));
 }
 
 // `tanh_ok`, `mpfr_tanh m RNDD (MInf true) = MNum (-1)` and
 // `mpfr_tanh m RNDU (MInf false) = MNum 1`.
 #[test]
 fn tanh_ok() {
-    assert_eq!(value(&call!(tanh(f64::NEG_INFINITY, RNDD))), num(-1.0));
-    assert_eq!(value(&call!(tanh(f64::INFINITY, RNDU))), num(1.0));
+    assert_eq!(value(&mpfr_fn!(tanh(f64::NEG_INFINITY, RNDD))), num(-1.0));
+    assert_eq!(value(&mpfr_fn!(tanh(f64::INFINITY, RNDU))), num(1.0));
 }
 
 // The first clause of each `<f>_ok`, `mpfr_correct emin emax D f (mpfr_<f> m)` (or
@@ -589,52 +558,56 @@ fn tanh_ok() {
 fn exact() {
     for rnd in DIRS {
         for (f, y, v) in [
-            ("acos(1)", call!(acos(1.0, rnd)), 0.0),
-            ("acosh(1)", call!(acosh(1.0, rnd)), 0.0),
-            ("asin(-0)", call!(asin(-0.0, rnd)), 0.0),
-            ("asinh(+0)", call!(asinh(0.0, rnd)), 0.0),
-            ("atan(-0)", call!(atan(-0.0, rnd)), 0.0),
-            ("atan2(+0, 1)", call2!(atan2(0.0, 1.0, rnd)), 0.0),
-            ("atan2(-0, 5e-324)", call2!(atan2(-0.0, 5e-324, rnd)), 0.0),
-            ("atanh(+0)", call!(atanh(0.0, rnd)), 0.0),
-            ("cos(-0)", call!(cos(-0.0, rnd)), 1.0),
-            ("cosh(+0)", call!(cosh(0.0, rnd)), 1.0),
-            ("exp(-0)", call!(exp(-0.0, rnd)), 1.0),
-            ("exp10(2)", call!(exp10(2.0, rnd)), 100.0),
-            ("exp2(-1074)", call!(exp2(-1074.0, rnd)), 5e-324),
-            ("exp2(1023)", call!(exp2(1023.0, rnd)), 2f64.powi(1023)),
-            ("log(1)", call!(log(1.0, rnd)), 0.0),
-            ("log10(100)", call!(log10(100.0, rnd)), 2.0),
-            ("log2(5e-324)", call!(log2(5e-324, rnd)), -1074.0),
-            ("pow(4, 0.5)", call2!(pow(4.0, 0.5, rnd)), 2.0),
-            ("pow(2, -1074)", call2!(pow(2.0, -1074.0, rnd)), 5e-324),
-            ("pow(+0, 0.5)", call2!(pow(0.0, 0.5, rnd)), 0.0),
-            ("pow(-0, 3)", call2!(pow(-0.0, 3.0, rnd)), 0.0),
-            ("pow_si(-2, 3)", call_si!(pow_si(-2.0, 3, rnd)), -8.0),
-            ("pow_si(-0.5, -1)", call_si!(pow_si(-0.5, -1, rnd)), -2.0),
+            ("acos(1)", mpfr_fn!(acos(1.0, rnd)), 0.0),
+            ("acosh(1)", mpfr_fn!(acosh(1.0, rnd)), 0.0),
+            ("asin(-0)", mpfr_fn!(asin(-0.0, rnd)), 0.0),
+            ("asinh(+0)", mpfr_fn!(asinh(0.0, rnd)), 0.0),
+            ("atan(-0)", mpfr_fn!(atan(-0.0, rnd)), 0.0),
+            ("atan2(+0, 1)", mpfr_fn2!(atan2(0.0, 1.0, rnd)), 0.0),
+            (
+                "atan2(-0, 5e-324)",
+                mpfr_fn2!(atan2(-0.0, 5e-324, rnd)),
+                0.0,
+            ),
+            ("atanh(+0)", mpfr_fn!(atanh(0.0, rnd)), 0.0),
+            ("cos(-0)", mpfr_fn!(cos(-0.0, rnd)), 1.0),
+            ("cosh(+0)", mpfr_fn!(cosh(0.0, rnd)), 1.0),
+            ("exp(-0)", mpfr_fn!(exp(-0.0, rnd)), 1.0),
+            ("exp10(2)", mpfr_fn!(exp10(2.0, rnd)), 100.0),
+            ("exp2(-1074)", mpfr_fn!(exp2(-1074.0, rnd)), 5e-324),
+            ("exp2(1023)", mpfr_fn!(exp2(1023.0, rnd)), 2f64.powi(1023)),
+            ("log(1)", mpfr_fn!(log(1.0, rnd)), 0.0),
+            ("log10(100)", mpfr_fn!(log10(100.0, rnd)), 2.0),
+            ("log2(5e-324)", mpfr_fn!(log2(5e-324, rnd)), -1074.0),
+            ("pow(4, 0.5)", mpfr_fn2!(pow(4.0, 0.5, rnd)), 2.0),
+            ("pow(2, -1074)", mpfr_fn2!(pow(2.0, -1074.0, rnd)), 5e-324),
+            ("pow(+0, 0.5)", mpfr_fn2!(pow(0.0, 0.5, rnd)), 0.0),
+            ("pow(-0, 3)", mpfr_fn2!(pow(-0.0, 3.0, rnd)), 0.0),
+            ("pow_si(-2, 3)", mpfr_fn_si!(pow_si(-2.0, 3, rnd)), -8.0),
+            ("pow_si(-0.5, -1)", mpfr_fn_si!(pow_si(-0.5, -1, rnd)), -2.0),
             (
                 "pow_si(2, -1074)",
-                call_si!(pow_si(2.0, -1074, rnd)),
+                mpfr_fn_si!(pow_si(2.0, -1074, rnd)),
                 5e-324,
             ),
-            ("pow_si(-0, 3)", call_si!(pow_si(-0.0, 3, rnd)), 0.0),
-            ("sin(+0)", call!(sin(0.0, rnd)), 0.0),
-            ("sinh(-0)", call!(sinh(-0.0, rnd)), 0.0),
-            ("tan(+0)", call!(tan(0.0, rnd)), 0.0),
-            ("tanh(-0)", call!(tanh(-0.0, rnd)), 0.0),
+            ("pow_si(-0, 3)", mpfr_fn_si!(pow_si(-0.0, 3, rnd)), 0.0),
+            ("sin(+0)", mpfr_fn!(sin(0.0, rnd)), 0.0),
+            ("sinh(-0)", mpfr_fn!(sinh(-0.0, rnd)), 0.0),
+            ("tan(+0)", mpfr_fn!(tan(0.0, rnd)), 0.0),
+            ("tanh(-0)", mpfr_fn!(tanh(-0.0, rnd)), 0.0),
         ] {
             assert_eq!(y, v, "{f}, {rnd:?}");
         }
     }
 }
 
-// The overflow reading of `mpfr_round` (audit A6 of `elem-mono`). The manual's §4.6 gives the
-// result of an overflow only when it is rounded to nearest, and `mpfr_round` reads the
-// directed results from §4.4: a positive real above every MPFR number rounds down to the
-// largest one and up to +inf, and a positive real below every MPFR number other than 0 rounds
-// down to a zero and up to the least one, `2^(emin - 1)`. Checked through the first clauses
-// of `exp_ok` and `sinh_ok`, `mpfr_correct emin emax real_dom exp (mpfr_exp m)` and the same
-// for `sinh`, and then `get_d_ok` of the results, as `mpfr_fn!` converts them.
+// The overflow reading of `mpfr_round`. The manual's §4.6 gives the result of an overflow
+// only when it is rounded to nearest, and `mpfr_round` reads the directed results from §4.4:
+// a positive real above every MPFR number rounds down to the largest one and up to +inf, and
+// a positive real below every MPFR number other than 0 rounds down to a zero and up to the
+// least one, `2^(emin - 1)`. Checked through the first clauses of `exp_ok` and `sinh_ok`,
+// `mpfr_correct emin emax real_dom exp (mpfr_exp m)` and the same for `sinh`, and then
+// `get_d_ok` of the results, as `mpfr_fn!` converts them.
 #[test]
 fn overflow() {
     let largest = largest();
@@ -642,40 +615,40 @@ fn overflow() {
 
     // `mpfr_round`, `RNDD, MNum y => y <> 0 /\ Rnd_DN_pt F r y`, for `r = exp(MAX)`, with `y`
     // the largest MPFR number
-    let y = call!(exp(f64::MAX, RNDD));
+    let y = mpfr_fn!(exp(f64::MAX, RNDD));
     assert_eq!(value(&y), Num(largest.clone()));
     // `get_d_ok`, the first clause: `y` rounded down to `f64` is `f64::MAX`
     assert_eq!(get_d(&y, RNDD), f64::MAX);
 
     // `mpfr_round`, `RNDU, MInf false => forall g, F g -> g < r`, for `r = exp(MAX)`
-    let y = call!(exp(f64::MAX, RNDU));
+    let y = mpfr_fn!(exp(f64::MAX, RNDU));
     assert_eq!(value(&y), Inf(false));
     // `get_d_ok`, the third clause: `mpfr_get_d m rnd (MInf s) = B754_infinity s`
     assert_eq!(get_d(&y, RNDU), f64::INFINITY);
 
     // `mpfr_round`, `RNDU, MNum y => y <> 0 /\ Rnd_UP_pt F r y`, for `r = sinh(-MAX)`, with
     // `y` minus the largest MPFR number
-    let y = call!(sinh(-f64::MAX, RNDU));
+    let y = mpfr_fn!(sinh(-f64::MAX, RNDU));
     assert_eq!(value(&y), Num(-largest));
     // `get_d_ok`, the first clause
     assert_eq!(get_d(&y, RNDU), -f64::MAX);
 
     // `mpfr_round`, `RNDD, MInf true => forall g, F g -> r < g`, for `r = sinh(-MAX)`
-    let y = call!(sinh(-f64::MAX, RNDD));
+    let y = mpfr_fn!(sinh(-f64::MAX, RNDD));
     assert_eq!(value(&y), Inf(true));
     // `get_d_ok`, the third clause
     assert_eq!(get_d(&y, RNDD), f64::NEG_INFINITY);
 
     // `mpfr_round`, `RNDD, MZero _ => Rnd_DN_pt F r 0`, for `r = exp(-MAX)`: a zero of either
     // sign
-    let y = call!(exp(-f64::MAX, RNDD));
+    let y = mpfr_fn!(exp(-f64::MAX, RNDD));
     assert!(y.is_zero(), "{y}");
     // `get_d_ok`, the second clause: a zero converts to a zero of either sign
     assert_eq!(get_d(&y, RNDD), 0.0);
 
     // `mpfr_round`, `RNDU, MNum y => y <> 0 /\ Rnd_UP_pt F r y`, for `r = exp(-MAX)`, with
     // `y` the least MPFR number
-    let y = call!(exp(-f64::MAX, RNDU));
+    let y = mpfr_fn!(exp(-f64::MAX, RNDU));
     assert_eq!(value(&y), Num(least));
     // `get_d_ok`, the first clause: `2^(emin - 1)` rounds up to 2^-1074 and down to a zero
     assert_eq!(get_d(&y, RNDU), 5e-324);
@@ -756,7 +729,7 @@ fn get_d_ok() {
             assert!(is_f64(get_d(y, rnd), d), "{y}, {rnd:?}");
             if at_parse {
                 // The same in `get_d_ok (-1073) 1024` of `parse_ok`.
-                let e = at_parse_range(|| get_d(y, rnd));
+                let e = with_parse_range(|| get_d(y, rnd));
                 assert!(is_f64(e, d), "{y}, {rnd:?}");
             }
         }
@@ -768,26 +741,32 @@ fn get_d_ok() {
             // `get_d_ok`, the second clause: `forall rnd s, exists s', mpfr_get_d m rnd
             // (MZero s) = B754_zero s'`
             assert_eq!(get_d(&y, rnd), 0.0, "{x:e}, {rnd:?}");
-            assert_eq!(at_parse_range(|| get_d(&y, rnd)), 0.0, "{x:e}, {rnd:?}");
+            assert_eq!(with_parse_range(|| get_d(&y, rnd)), 0.0, "{x:e}, {rnd:?}");
         }
         for x in [inf, -inf] {
             let y = Float::with_val(PREC, x);
             // `get_d_ok`, the third clause: `forall rnd s, mpfr_get_d m rnd (MInf s) =
             // B754_infinity s`
             assert_eq!(get_d(&y, rnd), x, "{rnd:?}");
-            assert_eq!(at_parse_range(|| get_d(&y, rnd)), x, "{rnd:?}");
+            assert_eq!(with_parse_range(|| get_d(&y, rnd)), x, "{rnd:?}");
         }
     }
 }
 
-// `parse_ok`: `set_q_ok (-1073) 1024` and `subnormalize_ok (-1073) 1024`, with the calls of
-// `rational_to_f64` in `src/parse.rs`, and `get_d_ok (-1073) 1024` of the result. The
-// rationals are small (PF3 of the review of rows 14-18). `mpfr_set_q` aborts on an operand
-// wider than `MPFR_PREC_MAX` bits, but no GMP integer is that wide on the targets that the
-// `const` assertion before `rational_to_f64` in `src/parse.rs` lets inari compile for with
-// `gmp` (see `set_q_ok`).
+// `parse_ok`: `set_q_ok (-1073) 1024` and `subnormalize_ok (-1073) 1024`, through
+// `round_rational` in `src/parse.rs`, which `rational_to_f64` calls, and `get_d_ok (-1073)
+// 1024` of the result. The rationals are small. `mpfr_set_q` aborts on an operand wider than
+// `MPFR_PREC_MAX` bits, but no GMP integer is that wide on the targets that the `const`
+// assertion before `rational_to_f64` in `src/parse.rs` lets inari compile for with `gmp`
+// (see `set_q_ok`).
 #[test]
 fn parse_ok() {
+    // `with_parse_range` sets the range `[-1073, 1024]` that `parse_ok` states, and then
+    // restores this thread's.
+    let before = range();
+    assert_eq!(with_parse_range(range), (-1073, 1024));
+    assert_eq!(range(), before);
+
     let max = f64::MAX;
     let inf = f64::INFINITY;
     let one_3rd_dn = f64::from_bits(0x3fd5555555555555);
@@ -907,16 +886,11 @@ fn parse_ok() {
     });
 
     for (q, rnd, x_ok, y_ok) in cases {
-        // `rational_to_f64`, with the MPFR number and the ternary value after each call.
-        let mut f = Float::new(f64::MANTISSA_DIGITS);
-        let (x, t, y, u, d) = at_parse_range(|| {
-            let t = unsafe { mpfr::set_q(f.as_raw_mut(), q.as_raw(), rnd) };
-            let x = f.clone();
-            let u = unsafe { mpfr::subnormalize(f.as_raw_mut(), t, rnd) };
-            let y = f.clone();
-            let d = unsafe { mpfr::get_d(f.as_raw(), rnd) };
-            (x, t, y, u, d)
-        });
+        // `round_rational`, with the MPFR number and the ternary value after `mpfr::set_q`
+        // (`after_set_q`) and after `mpfr::subnormalize`.
+        let mut set_q = None;
+        let (y, u, d) = round_rational(&q, rnd, |x, t| set_q = Some((x.clone(), t)));
+        let (x, t) = set_q.unwrap();
 
         // `set_q_ok`: `mpfr_round (mpfr_format emin emax) rnd (Q2R q) (fst (mpfr_set_q m emin
         // emax rnd q))` and `ternary_ok (Q2R q) (fst ..) (snd ..)`

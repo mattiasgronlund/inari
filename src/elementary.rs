@@ -1,6 +1,24 @@
 use crate::{classify::*, const_interval, interval::*};
-use gmp_mpfr_sys::mpfr;
+use gmp_mpfr_sys::mpfr::{
+    self,
+    rnd_t::{RNDD, RNDU},
+};
 use rug::Float;
+
+// `mpfr::get_d` of the MPFR number `x`, rounded in the direction `rnd`. The functions that
+// `mpfr_fn!`, `mpfr_fn2!` and `mpfr_fn_si!` define, and `round_rational` in `src/parse.rs`,
+// convert their results with it, and `mpfr_tests` tests it. `rocq/theories/Model.v`
+// transcribes it as `mpfr_get_d m rnd` in `mpfr_fn`, `mpfr_fn2`, `mpfr_fn_si` and
+// `rational_to_f64`, so it has to be updated along with them. `rocq/theories/Mpfr.v` states
+// what the proofs assume of `mpfr::get_d` (`get_d_ok`). A release build can put `get_d` and
+// `round_rational` in different codegen units. Without `#[inline]`, LLVM then first
+// optimizes the call seeing only a declaration of `get_d`, so it cannot tell that the call
+// does not unwind, and the functions that call `number_to_f64` while they hold an
+// `NInterval` keep a landing pad that drops the `NInterval`.
+#[inline]
+pub(crate) fn get_d(x: &Float, rnd: mpfr::rnd_t) -> f64 {
+    unsafe { mpfr::get_d(x.as_raw(), rnd) }
+}
 
 // `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn`
 // of an abstract MPFR function, for the proofs of the functions of this file in
@@ -13,21 +31,31 @@ use rug::Float;
 macro_rules! mpfr_fn {
     ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
         fn $f_rd(x: f64) -> f64 {
-            mpfr_fn!($mpfr_f(x, RNDD))
+            mpfr_fn!(let x = $mpfr_f(x, RNDD));
+            get_d(&x, RNDD)
         }
 
         fn $f_ru(x: f64) -> f64 {
-            mpfr_fn!($mpfr_f(x, RNDU))
+            mpfr_fn!(let x = $mpfr_f(x, RNDU));
+            get_d(&x, RNDU)
         }
     };
 
-    ($mpfr_f:ident($x:ident, $rnd:ident)) => {{
-        let mut x = Float::with_val(f64::MANTISSA_DIGITS, $x);
-        let rnd = mpfr::rnd_t::$rnd;
+    // Binds `$z` to the MPFR number that the functions above convert with `get_d`: `x` as an
+    // MPFR number of 53 bits, set to `$mpfr_f` of it rounded in the direction `rnd`.
+    (let $z:ident = $mpfr_f:ident($x:expr, $rnd:expr)) => {
+        let x: f64 = $x;
+        let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
+        let rnd = $rnd;
         unsafe {
-            mpfr::$mpfr_f(x.as_raw_mut(), x.as_raw(), rnd);
-            mpfr::get_d(x.as_raw(), rnd)
+            mpfr::$mpfr_f($z.as_raw_mut(), $z.as_raw(), rnd);
         }
+    };
+
+    // That MPFR number as a value. `mpfr_tests` calls MPFR through this arm.
+    ($mpfr_f:ident($x:expr, $rnd:expr)) => {{
+        mpfr_fn!(let x = $mpfr_f($x, $rnd));
+        x
     }};
 }
 
@@ -39,22 +67,31 @@ macro_rules! mpfr_fn {
 macro_rules! mpfr_fn2 {
     ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
         fn $f_rd(x: f64, y: f64) -> f64 {
-            mpfr_fn2!($mpfr_f(x, y, RNDD))
+            mpfr_fn2!(let x = $mpfr_f(x, y, RNDD));
+            get_d(&x, RNDD)
         }
 
         fn $f_ru(x: f64, y: f64) -> f64 {
-            mpfr_fn2!($mpfr_f(x, y, RNDU))
+            mpfr_fn2!(let x = $mpfr_f(x, y, RNDU));
+            get_d(&x, RNDU)
         }
     };
 
-    ($mpfr_f:ident($x:ident, $y:ident, $rnd:ident)) => {{
-        let mut x = Float::with_val(f64::MANTISSA_DIGITS, $x);
-        let y = Float::with_val(f64::MANTISSA_DIGITS, $y);
-        let rnd = mpfr::rnd_t::$rnd;
+    // The same as for `mpfr_fn!`, with `y` as an MPFR number of 53 bits too. Like `$z`, it
+    // lives to the end of the caller's block, so the functions above clear it after `get_d`.
+    (let $z:ident = $mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {
+        let (x, y): (f64, f64) = ($x, $y);
+        let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
+        let y = Float::with_val(f64::MANTISSA_DIGITS, y);
+        let rnd = $rnd;
         unsafe {
-            mpfr::$mpfr_f(x.as_raw_mut(), x.as_raw(), y.as_raw(), rnd);
-            mpfr::get_d(x.as_raw(), rnd)
+            mpfr::$mpfr_f($z.as_raw_mut(), $z.as_raw(), y.as_raw(), rnd);
         }
+    };
+
+    ($mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {{
+        mpfr_fn2!(let x = $mpfr_f($x, $y, $rnd));
+        x
     }};
 }
 
@@ -66,21 +103,29 @@ macro_rules! mpfr_fn2 {
 macro_rules! mpfr_fn_si {
     ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
         fn $f_rd(x: f64, y: i32) -> f64 {
-            mpfr_fn_si!($mpfr_f(x, y, RNDD))
+            mpfr_fn_si!(let x = $mpfr_f(x, y, RNDD));
+            get_d(&x, RNDD)
         }
 
         fn $f_ru(x: f64, y: i32) -> f64 {
-            mpfr_fn_si!($mpfr_f(x, y, RNDU))
+            mpfr_fn_si!(let x = $mpfr_f(x, y, RNDU));
+            get_d(&x, RNDU)
         }
     };
 
-    ($mpfr_f:ident($x:ident, $y:ident, $rnd:ident)) => {{
-        let mut x = Float::with_val(f64::MANTISSA_DIGITS, $x);
-        let rnd = mpfr::rnd_t::$rnd;
+    // The same as for `mpfr_fn!`, with the `i32` `y` passed as a `c_long`.
+    (let $z:ident = $mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {
+        let (x, y): (f64, i32) = ($x, $y);
+        let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
+        let rnd = $rnd;
         unsafe {
-            mpfr::$mpfr_f(x.as_raw_mut(), x.as_raw(), $y.into(), rnd);
-            mpfr::get_d(x.as_raw(), rnd)
+            mpfr::$mpfr_f($z.as_raw_mut(), $z.as_raw(), y.into(), rnd);
         }
+    };
+
+    ($mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {{
+        mpfr_fn_si!(let x = $mpfr_f($x, $y, $rnd));
+        x
     }};
 }
 
