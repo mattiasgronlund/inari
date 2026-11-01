@@ -15,12 +15,13 @@
     boxes and constant results), [Atan2Right.v], [Atan2Lower.v] and
     [Atan2Left.v] (bounds that [atan2_rd] and [atan2_ru] compute at
     corners), and its decoration a case of one of [Atan2Dec.v]
-    ([at2_impl_dec]). *)
+    ([at2_impl_dec]). [elem_dec2_impl_correct] of [Dom2.v] gives
+    [dec_atan2_correct] from [atan2_correct] and [at2_impl_dec]. *)
 
 From Stdlib Require Import ZArith Reals Lra.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr Integer Abs Classify2 Classes
-  DecBinary ComCommon AtanReal Dec2Set Atan2Dec Atan2Const Atan2Right Atan2Lower
+  DecBinary ComCommon AtanReal Dom2 Atan2Dec Atan2Const Atan2Right Atan2Lower
   Atan2Left.
 
 Open Scope R_scope.
@@ -187,28 +188,13 @@ destruct (at2_impl_dec m (itv y) (itv x) Hy Hx) as (p & Ep & Hd).
 assert (Hz : fst p = z).
 { unfold Interval.atan2 in Ez. rewrite Ep in Ez. injection Ez as E. exact E. }
 subst z.
-exists (DecInterval.set_dec (fst p) (dec_min (dec y) (dec_min (dec x) (snd p)))).
-split; [unfold DecInterval.atan2; rewrite Ep; reflexivity|].
-destruct (DecInterval.is_nai y || DecInterval.is_nai x) eqn:N.
-- (* NaI has the decoration [ill], the least, so the minimum is [ill],
-     and [set_dec] returns NaI for it. *)
-  assert (Hm : dec_min (dec y) (dec_min (dec x) (snd p)) = Ill).
-  { unfold DecInterval.is_nai in N. apply Bool.orb_true_iff in N.
-    destruct (dec y), (dec x), (snd p); destruct N as [N|N];
-      cbn in N; try discriminate N; reflexivity. }
-  unfold DecInterval.set_dec. rewrite Hm. reflexivity.
-- apply Bool.orb_false_iff in N. destruct N as [Ny Nx].
-  assert (Dy : dec y <> Ill).
-  { intros E. unfold DecInterval.is_nai in Ny. now rewrite E in Ny. }
-  assert (Dx : dec x <> Ill).
-  { intros E. unfold DecInterval.is_nai in Nx. now rewrite E in Nx. }
-  apply (elem2_set_dec_strongest atan2_dom Ratan2 y x (fst p) (snd p) Hy Hx Dy Dx Ht).
-  + (* The image is in [(-PI, PI]], so [fst p] is common if it is not
-       empty. *)
-    apply (tightest_common _ _ Ht). intros s (r & t & _ & _ & Hd' & ->).
-    pose proof (Ratan2_range r t Hd'). pose proof PI_4. lra.
-  + exact Hd.
-  + (* A [com] argument is bounded, as it is common. *)
-    intros _ Ey Ex.
-    split; apply common_bounded; [exact (Cy Ey) | exact (Cx Ex)].
+(* [DecInterval::atan2] returns [Some] of [elem_dec2_impl] of the
+   interval function that returns [p] for every box. *)
+exists (DecInterval.elem_dec2_impl (fun _ _ => p) y x).
+split; [unfold DecInterval.atan2, DecInterval.elem_dec2_impl; rewrite Ep;
+        destruct p; reflexivity|].
+apply (elem_dec2_impl_correct atan2_dom Ratan2 (fun _ _ => p) y x Hy Hx Ht Hd).
+(* A [com] argument is bounded, as it is common. *)
+intros _ Ey Ex _.
+split; apply common_bounded; [exact (Cy Ey) | exact (Cx Ex)].
 Qed.

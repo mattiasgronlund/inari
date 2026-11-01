@@ -165,15 +165,16 @@ destruct (Interval.subset x dom_nonneg) eqn:Es.
     apply (pw_subset x Hx) in H. rewrite Es in H. discriminate H.
 Qed.
 
-(** The decoration of [Interval::pow] is [trv] only if the box is not in
-    the domain, and [com] only if it is, by the same case split as the
-    interval. *)
+(** The decoration that [Interval::pow_impl] returns is [trv] only if the
+    box is not a nonempty subset of the domain, and [com] only if it is,
+    by the same case split as the interval. *)
 Lemma pw_dec_cases :
   forall m first_min first_max x y, valid x -> valid y ->
   (snd (Interval.pow_impl m first_min first_max x y) = Trv /\
    ~ ((exists r, mem r x) /\ (exists t, mem t y) /\
       forall r t, mem r x -> mem t y -> pow_dom r t)) \/
   (snd (Interval.pow_impl m first_min first_max x y) = Com /\
+   (exists r, mem r x) /\ (exists t, mem t y) /\
    (forall r t, mem r x -> mem t y -> pow_dom r t)).
 Proof.
 intros m f1 f2 x y Hx Hy.
@@ -185,6 +186,23 @@ destruct (Interval.either_empty (Interval.intersection x dom_nonneg) y) eqn:Ee.
 - unfold Interval.either_empty in Ee. apply Bool.orb_false_iff in Ee.
   destruct Ee as (Ex & Ey).
   pose proof (pw_xok_inter x Hx Ex) as Hxok.
+  (* Neither the intersection nor [y] is empty, so the box is nonempty,
+     which the [com] side needs on top of what [pw_dec_interior] and
+     [pw_dec_subset] give. *)
+  assert (Nx : exists r, mem r x).
+  { destruct (nonempty_mem _ Hx' Ex) as (r & Hr). exists r.
+    exact (proj1 (proj1 (pw_inter_mem x r Hx) Hr)). }
+  pose proof (nonempty_mem y Hy Ey) as Ny.
+  assert (Lift : forall d,
+    (d = Trv /\ ~ ((exists r, mem r x) /\ (exists t, mem t y) /\
+                   forall r t, mem r x -> mem t y -> pow_dom r t)) \/
+    (d = Com /\ (forall r t, mem r x -> mem t y -> pow_dom r t)) ->
+    (d = Trv /\ ~ ((exists r, mem r x) /\ (exists t, mem t y) /\
+                   forall r t, mem r x -> mem t y -> pow_dom r t)) \/
+    (d = Com /\ (exists r, mem r x) /\ (exists t, mem t y) /\
+     (forall r t, mem r x -> mem t y -> pow_dom r t))).
+  { intros d [K | (Kc & Kd)]; [left; exact K|].
+    right. exact (conj Kc (conj Nx (conj Ny Kd))). }
   set (x' := Interval.intersection x dom_nonneg) in *.
   destruct (Model.le (Interval.sup_raw y) Model.zero) eqn:Ed.
   + destruct (Model.eq (Interval.sup_raw x') Model.zero) eqn:Eb.
@@ -198,11 +216,11 @@ destruct (Interval.either_empty (Interval.intersection x dom_nonneg) y) eqn:Ee.
         exists (B2R (Interval.sup_raw y)). exact (conj HD HD0). }
       pose proof (pw_dec_interior x y Hx Hty) as K.
       destruct (Model.lt (Interval.sup_raw x') (of_u64 1));
-        [|destruct (Model.gt (Interval.inf_raw x') (of_u64 1))]; exact K.
+        [|destruct (Model.gt (Interval.inf_raw x') (of_u64 1))]; exact (Lift _ K).
   + destruct (Model.gt (Interval.inf_raw y) Model.zero) eqn:Ec.
     * pose proof (pw_dec_subset x y Hx (pw_y_pos y Hy Ey Ec)) as K.
       destruct (Model.lt (Interval.sup_raw x') (of_u64 1));
-        [|destruct (Model.gt (Interval.inf_raw x') (of_u64 1))]; exact K.
+        [|destruct (Model.gt (Interval.inf_raw x') (of_u64 1))]; exact (Lift _ K).
     * destruct (Model.eq (Interval.sup_raw x') Model.zero) eqn:Eb.
       -- (* [x'] is [{0}], so 0 is in [x], and [y] has a real at most 0. *)
          left. split; [reflexivity|].
@@ -211,7 +229,7 @@ destruct (Interval.either_empty (Interval.intersection x dom_nonneg) y) eqn:Ee.
          apply (pw_inter_mem x r Hx) in Hr. destruct Hr as (Hr & Hr1).
          destruct (pw_y_le0 y Hy Ey Ec) as (t & Ht & Ht0).
          apply (pw_trv_pt x y r t Hr Ht). intros [H|[_ H]]; lra.
-      -- exact (pw_dec_interior x y Hx (pw_y_le0 y Hy Ey Ec)).
+      -- exact (Lift _ (pw_dec_interior x y Hx (pw_y_le0 y Hy Ey Ec))).
 Qed.
 
 (** ** The theorems *)
@@ -272,10 +290,21 @@ intros emin emax m f1 f2 x y Hrg Hg Hp Hx Hy Cx Cy.
 unfold DecInterval.pow.
 apply (elem_dec2_impl_correct pow_dom Rpow (Interval.pow_impl m f1 f2) x y Hx Hy).
 - exact (pow_correct emin emax m f1 f2 (itv x) (itv y) Hrg Hg Hp Hx Hy).
-- intros r t _ _ Hd. exact (Rpow_continuous r t Hd).
-- destruct (pw_dec_cases m f1 f2 (itv x) (itv y) Hx Hy) as [K | (Kc & Kd)];
-    [left; exact K|].
-  (* [com] needs both arguments bounded if they are [com]. *)
-  right. split; [exact Kc|]. split; [exact Kd|].
-  intros Ex Ey _. split; apply common_bounded; [exact (Cx Ex) | exact (Cy Ey)].
+- destruct (pw_dec_cases m f1 f2 (itv x) (itv y) Hx Hy)
+    as [(Kt & Kn) | (Kc & Nx & Ny & Kd)].
+  + (* [trv]: the box is not a nonempty subset of the domain, so [def]
+       does not hold. *)
+    rewrite Kt. exact Kn.
+  + (* [com]: [pow] is continuous relative to the domain at each point of
+       the box ([Rpow_continuous]), so relative to the box too, and [dac]
+       holds. *)
+    rewrite Kc.
+    assert (Hc : forall r t, mem r (itv x) -> mem t (itv y) ->
+                 continue_in2_set Rpow pow_dom r t)
+      by (intros r t Hr Ht; exact (Rpow_continuous r t (Kd r t Hr Ht))).
+    split; [|exact Hc].
+    split; [exact Nx|]. split; [exact Ny|]. split; [exact Kd|].
+    intros r t Hr Ht. exact (d2_continue_in2_sub Rpow pow_dom _ _ r t (Hc r t Hr Ht) Kd).
+- (* [com] needs both arguments bounded if they are [com]. *)
+  intros _ Ex Ey _. split; apply common_bounded; [exact (Cx Ex) | exact (Cy Ey)].
 Qed.

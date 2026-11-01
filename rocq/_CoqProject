@@ -119,7 +119,6 @@ theories/Powi.v
 theories/AtanReal.v
 theories/PiTight.v
 theories/Atan2Mpfr.v
-theories/Dec2Set.v
 theories/Atan2Dec.v
 theories/Atan2Const.v
 theories/Atan2Right.v

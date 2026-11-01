@@ -6,7 +6,7 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
   Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
   MulRevSets MulRev CancelSpec Cancel MpfrRound ClosedDom Elem Atanh Cosh PiBounds
   PiIrrational TrigQuad TrigCount TrigCert Cos Sin Tan Dom2 Pow Powi AtanReal PiTight
-  Dec2Set Atan2 ParseFormat ParseRound ParseHull ParseExact ParseDec ConstPi ConstInv
+  Atan2 ParseFormat ParseRound ParseHull ParseExact ParseDec ConstPi ConstInv
   ConstLn ConstLog ValidMake ValidSetOp ValidOps ValidDecOps ValidElem Valid
   MpfrIdeal IdealRound IdealGetD IdealParse IdealElem IdealPow IdealAtan2 MpfrConsistent.
 
@@ -137,6 +137,7 @@ Print Assumptions strongest2_set_prod.
 Print Assumptions image2_set_all.
 Print Assumptions p2_set_all.
 Print Assumptions strongest2_set_all.
+Print Assumptions elem2_set_dec_correct.
 Print Assumptions elem_dec2_impl_correct.
 Print Assumptions pow_correct.
 Print Assumptions dec_pow_correct.
@@ -149,7 +150,6 @@ Print Assumptions PI_up.
 Print Assumptions PI_dn.
 Print Assumptions FRAC_PI_2_up.
 Print Assumptions FRAC_PI_2_dn.
-Print Assumptions elem2_set_dec_strongest.
 Print Assumptions atan2_correct.
 Print Assumptions dec_atan2_correct.
 Print Assumptions sub_format_f64.

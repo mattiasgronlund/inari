@@ -8,7 +8,13 @@
     decorated versions that [impl_dec2!] in [src/elementary.rs] defines
     ([DecInterval.elem_dec2_impl]), that the result is NaI for NaI, and
     otherwise the tightest interval, decorated as IEEE 1788 asks, from what
-    the interval function returns ([elem_dec2_impl_correct]). *)
+    the interval function returns ([elem_dec2_impl_correct]). The
+    decoration that the interval function returns may be any of [trv],
+    [def], [dac] and [com], if it is the one that [dec_holds] describes for
+    the box, so the theorem gives [dec_pow_correct], for
+    [Interval::pow_impl], which returns [trv] or [com], and
+    [dec_atan2_correct], for [Interval::atan2_impl], which also returns
+    [dac] and [def], as [atan2] is not continuous on all of its domain. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia Classical_Prop.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -197,128 +203,157 @@ exists delta. split; [exact Hd|].
 intros r' t' Hr Ht. exact (H r' t' (HXY r' t' Hr Ht)).
 Qed.
 
+(** [dec_holds D f x y z e] says what the decoration [e] that the interval
+    function returns for the box [x × y] claims: [trv], that [def] does
+    not hold; [def], that [def] holds and [dac] does not; [dac], that
+    [dac] holds and [f] is not continuous relative to [D] at some point of
+    the box; and [com], that [dac] holds and [f] is continuous relative to
+    [D] at each point of the box. [com] then holds if the box and [z] are
+    bounded too, which [elem2_set_dec_correct] leaves to [set_dec] and to
+    its last hypothesis. [p2_set] asks nothing of [z] below [com], so
+    [dec_holds] does not depend on it. *)
+Definition dec_holds (D : R -> R -> Prop) (f : R -> R -> R) (x y z : Interval)
+    (e : Decoration) : Prop :=
+  match e with
+  | Ill => False
+  | Trv => ~ p2_set D Def f x y z
+  | Def => p2_set D Def f x y z /\ ~ p2_set D Dac f x y z
+  | Dac =>
+      p2_set D Dac f x y z /\
+      ~ (forall r t, mem r x -> mem t y -> continue_in2_set f D r t)
+  | Com =>
+      p2_set D Dac f x y z /\
+      (forall r t, mem r x -> mem t y -> continue_in2_set f D r t)
+  end.
+
+(** [dec_min] is associative and commutative. *)
+Lemma d2_dec_min_assoc :
+  forall a b e, dec_min a (dec_min b e) = dec_min e (dec_min a b).
+Proof.
+intros [] [] []; reflexivity.
+Qed.
+
 (** [set_dec] of the tightest interval [z] with the decoration [e] that
-    the interval function returns: [Trv] when the box is not a nonempty
-    subset of [D], and [Com] when it is a subset, if a box of two [com]
-    intervals is bounded when [z] is common. *)
+    the interval function returns, if [e] is the one that [dec_holds]
+    describes, and a box of two [com] intervals is bounded when [e] is
+    [com] and [z] is common. *)
 Theorem elem2_set_dec_correct :
   forall D f x y z e,
   valid (itv x) -> valid (itv y) -> dec x <> Ill -> dec y <> Ill ->
   is_tightest (image2_set D f (itv x) (itv y)) z ->
-  (forall r t, mem r (itv x) -> mem t (itv y) -> D r t -> continue_in2_set f D r t) ->
-  (e = Trv /\
-   ~ ((exists r, mem r (itv x)) /\ (exists t, mem t (itv y)) /\
-      forall r t, mem r (itv x) -> mem t (itv y) -> D r t)) \/
-  (e = Com /\ (forall r t, mem r (itv x) -> mem t (itv y) -> D r t) /\
-   (dec x = Com -> dec y = Com -> Interval.is_common_interval z = true ->
-    bounded (fun r => mem r (itv x)) /\ bounded (fun t => mem t (itv y)))) ->
+  dec_holds D f (itv x) (itv y) z e ->
+  (e = Com -> dec x = Com -> dec y = Com -> Interval.is_common_interval z = true ->
+   bounded (fun r => mem r (itv x)) /\ bounded (fun t => mem t (itv y))) ->
   let w := DecInterval.set_dec z (dec_min (dec x) (dec_min (dec y) e)) in
   is_tightest (image2_set D f (itv x) (itv y)) (itv w) /\
   exists d, strongest2_set D d f (itv x) (itv y) (itv w) /\
     dec w = dec_min d (dec_min (dec x) (dec y)).
 Proof.
-intros D f x y z e Hx Hy Hdx Hdy Ht Hc He. cbv zeta.
+intros D f x y z e Hx Hy Hdx Hdy Ht Hh Hb. cbv zeta.
 pose proof (proj1 Ht) as Hz.
-assert (Hm : dec_min (dec x) (dec y) <> Ill) by now apply dec_min_not_Ill.
-destruct He as [(Ee & Hnd) | (Ee & HD & Hb)]; subst e.
-- (* [e = trv]: the box is empty or has a point outside [D], so not even
-     [def] holds, and [set_dec] keeps [trv] for any [z]. *)
+assert (Hm3 : forall e', e' <> Ill -> dec_min (dec x) (dec_min (dec y) e') <> Ill).
+{ intros e' He'. apply dec_min_not_Ill; [exact Hdx|]. apply dec_min_not_Ill; assumption. }
+(* A nonempty box in [D] has a point whose image is in [z], so [z] is not
+   empty. *)
+assert (Hne : (exists r, mem r (itv x)) -> (exists t, mem t (itv y)) ->
+              (forall r t, mem r (itv x) -> mem t (itv y) -> D r t) ->
+              Interval.is_empty z = false).
+{ intros (r & Hr) (t & Htm) HD.
+  apply (mem_not_empty z (f r t) Hz). apply (proj1 (proj2 Ht)).
+  exists r, t. split; [exact Hr|]. split; [exact Htm|].
+  split; [exact (HD r t Hr Htm) | reflexivity]. }
+destruct e; cbn [dec_holds] in Hh.
+- destruct Hh.
+- (* [e = trv]: not even [def] holds, and [set_dec] keeps [trv] for any
+     [z]. *)
+  assert (Hm : dec_min (dec x) (dec y) <> Ill) by (apply dec_min_not_Ill; assumption).
   rewrite (ed_dec_min_Trv_r _ Hdy), (ed_dec_min_Trv_r _ Hdx).
   destruct (Interval.is_empty z) eqn:Ez0.
   + rewrite (set_dec_empty_any z Trv Ez0 ltac:(discriminate)).
     cbn [itv dec DecInterval.EMPTY]. rewrite <- (valid_empty_eq z Hz Ez0).
     split; [exact Ht|]. exists Trv.
-    split; [apply strongest2_set_Trv; exact Hnd|].
-    symmetry. now apply dec_min_Trv_l.
+    split; [apply strongest2_set_Trv; exact Hh|].
+    symmetry. apply dec_min_Trv_l. exact Hm.
   + assert (Hc0 : Trv = Com -> Interval.is_common_interval z = true)
       by (intros E; discriminate E).
     rewrite (set_dec_keep z Trv Ez0 ltac:(discriminate) Hc0).
     cbn [itv dec DecInterval.new_unchecked]. split; [exact Ht|]. exists Trv.
-    split; [apply strongest2_set_Trv; exact Hnd|].
-    symmetry. now apply dec_min_Trv_l.
-- (* [e = com]: the box is a subset of [D], and [set_dec] gets the
-     minimum of [dec x] and [dec y]. *)
-  rewrite (dec_min_Com_r (dec y)).
-  destruct (Interval.is_empty z) eqn:Ez0.
-  + (* [z] is empty, so the box has no point, as [f] maps one into [z]. *)
-    rewrite (set_dec_empty_any z _ Ez0 Hm).
-    cbn [itv dec DecInterval.EMPTY]. rewrite <- (valid_empty_eq z Hz Ez0).
-    split; [exact Ht|]. exists Trv.
-    split; [|symmetry; now apply dec_min_Trv_l].
-    apply strongest2_set_Trv. intros ((r & Hr) & (t & Htm) & _).
-    apply (mem_empty z (f r t) Hz Ez0). apply (proj1 (proj2 Ht)).
-    exists r, t. split; [exact Hr|]. split; [exact Htm|].
-    split; [exact (HD r t Hr Htm) | reflexivity].
-  + (* [z] is nonempty, so [x] and [y] are, as the image of the box is,
-       and [dac] holds: [f] is continuous relative to [D], so relative to
-       the box. *)
-    assert (Nx : exists r, mem r (itv x)).
-    { destruct (Interval.is_empty (itv x)) eqn:Ex;
-        [|exact (nonempty_mem _ Hx Ex)].
-      rewrite (no_mem_empty z Hz) in Ez0; [discriminate Ez0|].
-      apply (tightest_no_mem _ _ Ht). intros u (r & t & Hr & _).
-      exact (mem_empty _ r Hx Ex Hr). }
-    assert (Ny : exists t, mem t (itv y)).
-    { destruct (Interval.is_empty (itv y)) eqn:Ey;
-        [|exact (nonempty_mem _ Hy Ey)].
-      rewrite (no_mem_empty z Hz) in Ez0; [discriminate Ez0|].
-      apply (tightest_no_mem _ _ Ht). intros u (r & t & _ & Htm & _).
-      exact (mem_empty _ t Hy Ey Htm). }
-    assert (Hdac : p2_set D Dac f (itv x) (itv y) z).
-    { cbn [p2_set]. split; [exact Nx|]. split; [exact Ny|]. split; [exact HD|].
-      intros r t Hr Htm.
-      exact (d2_continue_in2_sub f D _ _ r t (Hc r t Hr Htm (HD r t Hr Htm)) HD). }
-    destruct (classic (dec x = Com /\ dec y = Com)) as [(Edx & Edy)|Nc].
-    * (* [x] and [y] are [com]: [com] holds if [z] is common, as the box
-         is then bounded, and otherwise [z] is unbounded, and [set_dec]
-         lowers [com] to [dac]. *)
-      rewrite Edx, Edy. change (dec_min Com Com) with Com.
-      destruct (Interval.is_common_interval z) eqn:Cz.
-      -- rewrite (set_dec_keep z Com Ez0 ltac:(discriminate) (fun _ => Cz)).
-         cbn [itv dec DecInterval.new_unchecked]. split; [exact Ht|].
-         exists Com. split; [|reflexivity].
-         apply strongest2_set_Com. cbn [p2_set].
-         destruct (Hb Edx Edy eq_refl) as [Bx By].
-         split; [exact Nx|]. split; [exact Ny|]. split; [exact HD|].
-         split; [exact Bx|]. split; [exact By|].
-         split; [intros r t Hr Htm; exact (Hc r t Hr Htm (HD r t Hr Htm))|].
-         exact (common_bounded z Cz).
-      -- rewrite (set_dec_lower z Com Ez0 Cz ltac:(discriminate)).
-         cbn [itv dec DecInterval.new_unchecked]. split; [exact Ht|].
-         exists Dac. split; [|reflexivity].
-         apply strongest2_set_Dac; [exact Hdac|].
-         intros (_ & _ & _ & _ & _ & _ & Bz).
-         rewrite (bounded_common z Hz Ez0 Bz) in Cz. discriminate Cz.
-    * (* [x] or [y] is not [com]: [set_dec] keeps the minimum [m] of their
-         decorations, which is [dec_min d m] for [d] either [com] or
-         [dac], so [d] is whichever of the two holds and is the
-         stronger. *)
-      assert (Nm : dec_min (dec x) (dec y) <> Com)
-        by (intros E; apply Nc; exact (dec_min_Com _ _ E)).
-      rewrite (set_dec_keep z _ Ez0 Hm (fun E => False_ind _ (Nm E))).
-      cbn [itv dec DecInterval.new_unchecked]. split; [exact Ht|].
-      destruct (classic (p2_set D Com f (itv x) (itv y) z)) as [Pc|Pc].
-      -- exists Com.
-         split; [now apply strongest2_set_Com | symmetry; apply dec_min_Com_l].
-      -- exists Dac.
-         split; [now apply strongest2_set_Dac|].
-         symmetry. now apply dec_min_Dac_l.
+    split; [apply strongest2_set_Trv; exact Hh|].
+    symmetry. apply dec_min_Trv_l. exact Hm.
+- (* [e = def]: [dac] does not hold, nor [com], which implies it. The
+     minimum is below [com], so [set_dec] keeps it. *)
+  destruct Hh as (Hdef & Nd).
+  destruct Hdef as (Nx & Ny & HD).
+  pose proof (Hne Nx Ny HD) as Ez0.
+  assert (N : dec_min (dec x) (dec_min (dec y) Def) <> Com).
+  { intros E. destruct (dec_min_Com _ _ E) as (_ & E1).
+    destruct (dec_min_Com _ _ E1) as (_ & E2). discriminate E2. }
+  rewrite (set_dec_keep z _ Ez0 (Hm3 Def ltac:(discriminate)) (fun E => False_ind _ (N E))).
+  cbn [itv dec DecInterval.new_unchecked]. split; [exact Ht|].
+  exists Def. split; [|apply d2_dec_min_assoc].
+  split; [split; [exact Nx|]; split; [exact Ny | exact HD]|].
+  intros [] He; cbn [discriminant]; try lia; exfalso; apply Nd.
+  + exact He.
+  + destruct He as (Hx' & Hy' & HD' & _ & _ & Hc & _).
+    split; [exact Hx'|]. split; [exact Hy'|]. split; [exact HD'|].
+    intros r t Hr Htm. exact (d2_continue_in2_sub f D _ _ r t (Hc r t Hr Htm) HD').
+- (* [e = dac]: [com] does not hold, and [set_dec] keeps the minimum,
+     which is below [com]. *)
+  destruct Hh as (Hdac & Nc).
+  pose proof Hdac as (Nx & Ny & HD & _).
+  pose proof (Hne Nx Ny HD) as Ez0.
+  assert (N : dec_min (dec x) (dec_min (dec y) Dac) <> Com).
+  { intros E. destruct (dec_min_Com _ _ E) as (_ & E1).
+    destruct (dec_min_Com _ _ E1) as (_ & E2). discriminate E2. }
+  rewrite (set_dec_keep z _ Ez0 (Hm3 Dac ltac:(discriminate)) (fun E => False_ind _ (N E))).
+  cbn [itv dec DecInterval.new_unchecked]. split; [exact Ht|].
+  exists Dac. split; [|apply d2_dec_min_assoc].
+  apply strongest2_set_Dac; [exact Hdac|].
+  intros (_ & _ & _ & _ & _ & Hc & _). exact (Nc Hc).
+- (* [e = com]: [set_dec] gets the minimum [m] of the decorations of [x]
+     and [y]. *)
+  destruct Hh as (Hdac & Hc).
+  pose proof Hdac as (Nx & Ny & HD & _).
+  pose proof (Hne Nx Ny HD) as Ez0.
+  rewrite (d2_dec_min_assoc (dec x) (dec y) Com), dec_min_Com_l.
+  assert (Hm : dec_min (dec x) (dec y) <> Ill) by (apply dec_min_not_Ill; assumption).
+  destruct (Interval.is_common_interval z) eqn:Cz.
+  + (* [z] is common: [set_dec] keeps [m], and [d] is [com] if it holds,
+       and otherwise [dac], which holds. [com] holds if [m] is [com], as
+       the box is then bounded. *)
+    rewrite (set_dec_keep z _ Ez0 Hm (fun _ => Cz)).
+    cbn [itv dec DecInterval.new_unchecked]. split; [exact Ht|].
+    destruct (classic (p2_set D Com f (itv x) (itv y) z)) as [Pc|Pc].
+    * exists Com.
+      split; [apply strongest2_set_Com; exact Pc | symmetry; apply dec_min_Com_l].
+    * exists Dac. split; [apply strongest2_set_Dac; [exact Hdac | exact Pc]|].
+      symmetry. apply dec_min_Dac_l. intros E. apply Pc.
+      destruct (dec_min_Com _ _ E) as (Edx & Edy).
+      destruct (Hb eq_refl Edx Edy eq_refl) as (Bx & By).
+      split; [exact Nx|]. split; [exact Ny|]. split; [exact HD|].
+      split; [exact Bx|]. split; [exact By|]. split; [exact Hc|].
+      exact (common_bounded z Cz).
+  + (* [z] is not common, so it is unbounded and [com] does not hold, and
+       [set_dec] lowers [m] to at most [dac]. *)
+    rewrite (set_dec_lower z _ Ez0 Cz Hm).
+    cbn [itv dec DecInterval.new_unchecked]. split; [exact Ht|].
+    exists Dac. split; [|reflexivity].
+    apply strongest2_set_Dac; [exact Hdac|].
+    intros (_ & _ & _ & _ & _ & _ & Bz).
+    rewrite (bounded_common z Hz Ez0 Bz) in Cz. discriminate Cz.
 Qed.
 
 (** [impl_dec2!($f, $f_impl)] for an interval function [h] that returns
-    the tightest interval and a decoration for its domain. *)
+    the tightest interval and a decoration that [dec_holds] describes, if
+    a box of two [com] intervals is bounded when that decoration is [com]
+    and the interval is common, as [elem2_set_dec_correct] asks. *)
 Theorem elem_dec2_impl_correct :
   forall D f h x y, valid (itv x) -> valid (itv y) ->
   is_tightest (image2_set D f (itv x) (itv y)) (fst (h (itv x) (itv y))) ->
-  (forall r t, mem r (itv x) -> mem t (itv y) -> D r t -> continue_in2_set f D r t) ->
-  (snd (h (itv x) (itv y)) = Trv /\
-   ~ ((exists r, mem r (itv x)) /\ (exists t, mem t (itv y)) /\
-      forall r t, mem r (itv x) -> mem t (itv y) -> D r t)) \/
-  (snd (h (itv x) (itv y)) = Com /\
-   (forall r t, mem r (itv x) -> mem t (itv y) -> D r t) /\
-   (dec x = Com -> dec y = Com ->
-    Interval.is_common_interval (fst (h (itv x) (itv y))) = true ->
-    bounded (fun r => mem r (itv x)) /\ bounded (fun t => mem t (itv y)))) ->
+  dec_holds D f (itv x) (itv y) (fst (h (itv x) (itv y))) (snd (h (itv x) (itv y))) ->
+  (snd (h (itv x) (itv y)) = Com -> dec x = Com -> dec y = Com ->
+   Interval.is_common_interval (fst (h (itv x) (itv y))) = true ->
+   bounded (fun r => mem r (itv x)) /\ bounded (fun t => mem t (itv y))) ->
   let w := DecInterval.elem_dec2_impl h x y in
   if DecInterval.is_nai x || DecInterval.is_nai y then w = DecInterval.NAI
   else
@@ -326,9 +361,9 @@ Theorem elem_dec2_impl_correct :
     exists d, strongest2_set D d f (itv x) (itv y) (itv w) /\
       dec w = dec_min d (dec_min (dec x) (dec y)).
 Proof.
-intros D f h x y Hx Hy Ht Hc He. cbv zeta.
-unfold DecInterval.elem_dec2_impl. revert Ht He.
-destruct (h (itv x) (itv y)) as [z e]. cbn [fst snd]. intros Ht He.
+intros D f h x y Hx Hy Ht Hh Hb. cbv zeta.
+unfold DecInterval.elem_dec2_impl. revert Ht Hh Hb.
+destruct (h (itv x) (itv y)) as [z e]. cbn [fst snd]. intros Ht Hh Hb.
 destruct (DecInterval.is_nai x || DecInterval.is_nai y) eqn:Hn.
 - (* NaI has the decoration [ill], the least, so the minimum is [ill],
      and [set_dec] returns NaI for it. *)
@@ -342,5 +377,5 @@ destruct (DecInterval.is_nai x || DecInterval.is_nai y) eqn:Hn.
   { intros E. unfold DecInterval.is_nai in Hnx. now rewrite E in Hnx. }
   assert (Hdy : dec y <> Ill).
   { intros E. unfold DecInterval.is_nai in Hny. now rewrite E in Hny. }
-  exact (elem2_set_dec_correct D f x y z e Hx Hy Hdx Hdy Ht Hc He).
+  exact (elem2_set_dec_correct D f x y z e Hx Hy Hdx Hdy Ht Hh Hb).
 Qed.
