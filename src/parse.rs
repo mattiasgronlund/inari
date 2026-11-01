@@ -531,6 +531,25 @@ struct F64 {
     overflow: bool,
 }
 
+// `set_q_ok` in `rocq/theories/Mpfr.v`, which the proof of `rational_to_f64` below assumes of
+// `mpfr::set_q`, fails for MPFR 4.2.2 where C `long`, MPFR's `mpfr_prec_t` and
+// `mpfr_exp_t`, has 32 bits, as on 32-bit targets and on 64-bit Windows. There,
+// `MPFR_PREC_MAX` is `2^31 - 257`, and `mpfr_set_q` fails on a rational whose numerator or
+// denominator has more bits than that, not counting its low zero limbs. MPFR's widest
+// exponent range is then `[1 - 2^30, 2^30 - 1]`. Where GMP limbs have 64 bits, as on 64-bit
+// Windows, `mpfr_set_q` can return the ternary value 0 for a rational that overflows or
+// underflows that range, and where they have 32 bits, as on most 32-bit targets, it can give
+// such a rational the sign of the number it overwrites rather than its own. So this refuses
+// to compile unless `long` and limbs have 64 bits, where none of these can happen (see
+// `set_q_ok`).
+const _: () = assert!(
+    std::mem::size_of::<mpfr::prec_t>() == 8 && gmp::NUMB_BITS == 64,
+    "the feature `gmp` of inari needs a target where C `long` and GMP limbs have 64 bits; \
+     where `long` has 32 bits, MPFR's `mpfr_set_q` fails on some rationals wider than \
+     about 2^30 bits, and where limbs have 32 bits too, it can give one of huge or tiny \
+     magnitude the wrong sign"
+);
+
 // Proved correct in `rocq/theories/ParseRound.v` (`rational_to_f64_correct`), assuming what
 // `rocq/theories/Mpfr.v` says of `mpfr::set_q`, `mpfr::subnormalize` and `mpfr::get_d` at
 // the exponent range that this function sets (`parse_ok`): `f` is `r` rounded toward -∞

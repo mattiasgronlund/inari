@@ -315,7 +315,31 @@ Definition ternary_ok (r : R) (v : mpfr_t) (t : Z) : Prop :=
     in the direction [rnd] to an MPFR number of 53 bits, and its ternary
     value. The entry says that [mpfr_set_q] might fail if the numerator or
     the denominator of [q] cannot be represented as an [mpfr_t], which this
-    leaves out: it assumes the rounding for every [q]. *)
+    leaves out: it assumes the rounding for every [q].
+
+    The [mpfr_set_q] of MPFR 4.2.2 (set_q.c) does fail for some [q] where
+    C [long], MPFR's [mpfr_prec_t] and [mpfr_exp_t], has 32 bits, as on
+    32-bit targets and on 64-bit Windows. There, [MPFR_PREC_MAX] is
+    [2^31 - 257]. If the numerator or the denominator has more bits than
+    that, not counting its low zero limbs, [mpfr_set_q] aborts, in an
+    assertion of [mpfr_init2], or, if its limbs without the low zero ones
+    hold at least [2^31] bits, overflows the [long] in which it computes
+    that width. MPFR's widest exponent range is then from [1 - 2^30] to
+    [2^30 - 1]. Where GMP limbs have 64 bits, as on 64-bit Windows,
+    [mpfr_set_q] scales the quotient by a power of 2 in that range, and
+    checks only in a build with assertions that this neither overflows nor
+    underflows. So it can return the ternary value 0 for a [q] that
+    overflows or underflows that range, such as +inf for [2^1100000000]
+    toward +inf. Where limbs have 32 bits, as on most 32-bit targets, it
+    can give such a [q] the sign of the number it overwrites. None of these
+    can happen where inari compiles with the feature [gmp], as a [const]
+    assertion in [src/parse.rs] requires C [long] and GMP limbs of 64 bits
+    there. [MPFR_PREC_MAX] is then [2^63 - 257], more than the at most
+    [(2^31 - 1) * 64] bits of a GMP integer, which counts its limbs in a C
+    [int]. The scaling changes the exponent by less than [2^37], which
+    keeps it in the widest exponent range, from [1 - 2^62] to [2^62 - 1].
+    And the code that gives the wrong sign is compiled only for limbs of at
+    most 32 bits. *)
 Definition set_q_ok (emin emax : Z) (m : mpfr) : Prop :=
   forall rnd q,
   mpfr_round (mpfr_format emin emax) rnd (Q2R q) (fst (mpfr_set_q m emin emax rnd q)) /\

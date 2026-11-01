@@ -781,8 +781,10 @@ fn get_d_ok() {
 
 // `parse_ok`: `set_q_ok (-1073) 1024` and `subnormalize_ok (-1073) 1024`, with the calls of
 // `rational_to_f64` in `src/parse.rs`, and `get_d_ok (-1073) 1024` of the result. The
-// rationals are small (PF3 of the review of rows 14-18): `mpfr_set_q` aborts on an operand
-// wider than `MPFR_PREC_MAX` bits, which `set_q_ok` leaves out.
+// rationals are small (PF3 of the review of rows 14-18). `mpfr_set_q` aborts on an operand
+// wider than `MPFR_PREC_MAX` bits, but no GMP integer is that wide on the targets that the
+// `const` assertion before `rational_to_f64` in `src/parse.rs` lets inari compile for with
+// `gmp` (see `set_q_ok`).
 #[test]
 fn parse_ok() {
     let max = f64::MAX;

@@ -232,9 +232,9 @@ Definition ternary (r : R) (v : mpfr_t) : Z :=
   end.
 
 (** [mpfr_set_q]: [q] rounded as the functions round, and its ternary
-    value. It never fails, unlike MPFR 4.2.2's, which aborts, in an
-    assertion of [mpfr_init2], if the numerator or the denominator has more
-    than [MPFR_PREC_MAX] bits, not counting its low zero limbs. *)
+    value. It never fails, unlike MPFR 4.2.2's on a target where C [long]
+    has 32 bits, which inari does not compile for with the feature [gmp]
+    (see [set_q_ok] in [Mpfr.v]). *)
 Definition ideal_set_q (emin emax : Z) (rnd : mpfr_rnd) (q : Q) : mpfr_t * Z :=
   let v := round_mpfr emin emax rnd (Q2R q) in (v, ternary (Q2R q) v).
 

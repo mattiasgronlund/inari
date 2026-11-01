@@ -1241,8 +1241,9 @@ Definition f64_is_infinite (x : f64) : bool :=
 
 (** [fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64]. [f] is
     [Float::new(f64::MANTISSA_DIGITS)], an MPFR number of 53 bits, which
-    [mpfr::set_q] sets before anything reads it. The code saves MPFR's
-    exponent range, sets [emin] to
+    [mpfr::set_q] sets before anything reads it on the targets that inari
+    compiles for with the feature [gmp] (see [set_q_ok] in [Mpfr.v]).
+    The code saves MPFR's exponent range, sets [emin] to
     [f64::MIN_EXP - (f64::MANTISSA_DIGITS as i32) + 1], which is
     [-1021 - 53 + 1 = -1073], and [emax] to [f64::MAX_EXP], which is
     [1024], calls [set_q], [subnormalize] and [get_d], and restores the
