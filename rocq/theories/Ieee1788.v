@@ -1,12 +1,13 @@
 (** * What IEEE 1788 asks of an interval version of a function
 
-    The theorems in [Abs.v], [AddSub.v], [Cancel.v], [CancelSpec.v],
-    [Div.v], [Integer.v], [MaxMin.v], [DecMaxMin.v], [Mul.v], [MulAdd.v],
-    [MulRev.v], [Neg.v], [Recip.v], [Round.v], [Sign.v], [Sqr.v], [Sqrt.v]
-    and [Trunc.v] are stated with the definitions here and the ones in
-    [Model.v]. Like [Model.v], this file has to be checked by reading:
-    against the standard, IEEE Std 1788-2015, rather than against the Rust
-    code, [two_output] against the doc comment of
+    The theorems that the constants, conversions and operations of
+    intervals and decorated intervals give what IEEE 1788 asks for, or what
+    their doc comments say, are stated with the definitions here and the
+    ones in [Model.v], and some also with those in [Elementary.v] and
+    [Mpfr.v], with [number_exact] in [ParseRound.v] or with the hypothesis
+    [com_common] in [ComCommon.v]. Like [Model.v], this file has to be
+    checked by reading: against the standard, IEEE Std 1788-2015, rather
+    than against the Rust code, [two_output] against the doc comment of
     [Interval::mul_rev_to_pair], and [cancel_result] against that of
     [Interval::cancel_minus]. Continuity of a
     function of one real is that of

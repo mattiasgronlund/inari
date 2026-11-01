@@ -41,8 +41,8 @@
     [m], as any floats that MPFR returns for the bounds make a [valid]
     interval. *)
 
-From Inari Require Import Model Elementary Mpfr ValidMake ValidSetOp ValidOps
-  ValidDecOps ValidElem.
+From Inari Require Import Model Mpfr ValidMake ValidSetOp ValidOps ValidDecOps
+  ValidElem.
 
 Inductive made : Interval -> Prop :=
   | made_EMPTY : made Interval.EMPTY

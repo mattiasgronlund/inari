@@ -4,9 +4,10 @@
     [Interval::sin] and [Interval::tan] by [Interval::FRAC_PI_2]. The
     theorems about them need only that each is an interval [[lo, hi]] of
     finite floats with [1 <= lo < c < hi] for [c] = π or π/2
-    ([trig_const]). The bounds of π come from Machin's formula
-    [PI / 4 = 2 * atan (/3) + atan (/7)] and the alternating series of
-    [atan] ([PI_2_3_7_ineq] in Stdlib's [Machin.v]). *)
+    ([trig_const]). The bounds of π come from Hutton's formula
+    [PI / 4 = 2 * atan (/3) + atan (/7)], a Machin-like formula, and the
+    alternating series of [atan] ([PI_2_3_7_ineq] in Stdlib's
+    [Machin.v]). *)
 
 From Stdlib Require Import ZArith Reals Lra Lia QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -21,7 +22,7 @@ Definition trig_const (C : Interval) (c : R) : Prop :=
   1 <= B2R (Interval.inf_raw C) /\ B2R (Interval.inf_raw C) < c /\
   c < B2R (Interval.sup_raw C).
 
-(** ** The partial sums of Machin's series, in [Q]
+(** ** The partial sums of the series of Hutton's formula, in [Q]
 
     [PI_2_3_7_ineq] bounds [PI / 4] by partial sums of
     [tg_alt PI_2_3_7_tg], whose terms are real powers and quotients. Their
