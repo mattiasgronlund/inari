@@ -23,8 +23,8 @@ impl Interval {
     // Proved to be the tightest intervals around their values, from `E` to `TAU`, in
     // `rocq/theories/ConstPi.v`, `ConstInv.v`, `ConstLn.v` and `ConstLog.v` (`E_tightest`
     // and the others). `rocq/theories/Model.v` transcribes these constants for those proofs,
-    // by the bit patterns of their bounds, which the test `constants_bits` below checks, so
-    // it and the test have to be updated along with them.
+    // by the bit patterns of their bounds, which the test `constants_bits` below and
+    // `rocq/check-sites.sh` check, so it and the test have to be updated along with them.
 
     /// The tightest interval enclosing $\e$, the base of natural logarithms.
     pub const E: Self = const_interval!(2.718281828459045, 2.7182818284590455);
@@ -211,8 +211,12 @@ mod tests {
     // `rocq/theories/Model.v` gives the bounds of these constants by their bit patterns, for
     // the proofs in `rocq/theories/ConstPi.v`, `rocq/theories/ConstInv.v`,
     // `rocq/theories/ConstLn.v` and `rocq/theories/ConstLog.v` that each is the tightest
-    // interval around its value. This checks that those are the bit patterns of the bounds of
-    // the constants here, so it has to be updated along with `Model.v`.
+    // interval around its value. This checks that the bounds of the constants here have the bit
+    // patterns of the `check_bits!` lines below, and `rocq/check-sites.sh`, which CI runs, that
+    // these lines give the same constants and bit patterns as `Model.v`. The script reads only
+    // lines of the form `check_bits!(C, 0x..., 0x...);`, on one line and with lowercase hex
+    // digits, and only definitions of the form that the comment above them in `Model.v` gives,
+    // so update this along with `Model.v` and keep both in those forms.
     #[test]
     fn constants_bits() {
         macro_rules! check_bits {

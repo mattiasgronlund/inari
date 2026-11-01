@@ -17,8 +17,11 @@ jobs:
       # The proofs in `Valid.v` and `ComCommon.v` rely on a list of the places
       # in `src` that make an `Interval` or a `DecInterval`, which the greps in
       # rocq/README.md, "What is assumed", find. This fails if the lines that
-      # they find change, also in a change to the Rust code alone.
-      - name: Check the places that make an interval
+      # they find change, also in a change to the Rust code alone. It also
+      # compares the bit patterns that rocq/theories/Model.v and the test
+      # `constants_bits` in src/constants.rs give the constants of `Interval`
+      # from `E` to `TAU`.
+      - name: Check the places that make an interval and the constants' bits
         run: rocq/check-sites.sh
 
       # The container runs as a user that does not own the checkout, and has
