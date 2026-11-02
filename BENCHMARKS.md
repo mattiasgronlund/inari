@@ -1,6 +1,6 @@
 # Benchmarks
 
-A comparison of the backends of inari, in five sittings:
+A comparison of the backends of inari, in six sittings:
 
 - 2026-09-22: `avx_fma`, then the default for x86-64, which set MXCSR around
   every instruction to make the hardware round, against the portable backend
@@ -15,6 +15,8 @@ A comparison of the backends of inari, in five sittings:
   and after the change that keeps them on its fast path, against inari 2.0.0.
 - 2026-10-30: the `mul_add_ru` rows of the `fma` section again, after
   `fma::mul_add_ru` stopped computing a separate result for its special cases.
+- 2026-11-02: `sin`, `cos` and `tan` of intervals with `fma`, before and after
+  the change that made them tightest.
 
 `avx_fma` is the base column of the first three x86-64 sections, so that the
 two explicit backends are measured against what they replaced, and against each
@@ -22,7 +24,8 @@ other. The fourth uses inari 2.0.0 instead, as `avx_fma` had been removed by
 then. The x86-64 backend of 2.0.0 is `avx_fma` as it was before its square root
 changed, so its multiplication is `avx_fma`'s. The fifth sitting, which replaces
 two rows of the `fma` section, builds `avx_fma` from `cc5e384`, the commit
-before its removal. No backend for x86-64 changes the rounding mode any more:
+before its removal. The sixth compares builds of three commits, all with `fma`,
+rather than backends. No backend for x86-64 changes the rounding mode any more:
 `avx512f` uses per-instruction embedded rounding, and the other two round by
 correcting a round-to-nearest result.
 
@@ -33,8 +36,10 @@ correcting a round-to-nearest result.
 - Linux 7.0, `schedutil` governor, rustc 1.96.0, criterion 0.7.0, wasmtime 49.0.
 - `lto = "fat"` and `codegen-units = 1`, so that the primitives are inlined into
   the benchmarks as they are within inari.
+- The trigonometric functions call MPFR. Their section links GMP 6.3.0 and
+  MPFR 4.2.2, as built by `gmp-mpfr-sys` 1.7.1.
 - Each run was pinned to one core with `taskset -c 11`, on an otherwise idle
-  machine (load average 1 to 3). Rounds measured on a loaded machine were
+  machine (load average below 3). Rounds measured on a loaded machine were
   discarded; see "Variance".
 
 Native configurations:
@@ -148,6 +153,23 @@ there is: against `avx_fma`, `fma` before `a6650cb` runs `sqrt1_ru/throughput`
 at 1.10× here and ran it at 1.00× in the first measurement, but runs both
 `mul_add_ru` rows at the same ratios as then. One comparison does not show how
 sensitive that loop is.
+
+The trigonometric section was measured on 2026-11-02 between 03:00 and 03:55.
+`ced0d5f`, the commit before `216e5f5`, `216e5f5` itself and `b2390de` were
+built with the `trig` benchmark of `db3ae6e` added, with
+`RUSTFLAGS=-Ctarget-cpu=haswell` and `--features gmp`, so with `fma`. Each
+benchmark took criterion's default 3 s of warm-up and 5 s of measurement, with
+flat sampling, as one iteration takes milliseconds. Nine rounds ran the three
+builds interleaved, in an order rotated from round to round, and were kept
+under the rule of the `mul_add_ru` rows above. All nine were, at a load average
+of at most 1.4 with the sibling at least 99.6% idle, and the rows report their
+medians. The ratios differ by at most 0.02 when the lowest of the nine or
+criterion's own median estimate is used instead. On `narrow`, the code that the
+three builds run differs only by the comparison that `216e5f5` adds, which finds
+the two floors equal, and by the two later changes that the section lists. There
+the later builds take 0.99–1.00 times as long as `ced0d5f`, and single rounds
+range from 0.97 to 1.01: that is how far these builds move on code they almost
+share.
 
 Composite benchmarks drift between sittings more than the primitives do: the
 `avx_fma` 3×3 determinant is 236 ns in the first section, 211 ns in the `sse42`
@@ -341,6 +363,64 @@ and on 481232f8 they agree. Against 10.9 ns, the 12.5–12.7 ns of `fma` would b
 1.14–1.17×. And 481232f8's `a * b` is 1.23 times 2.0.0's even with the exponent
 of every operand set to 0, so most of its remaining 1.44× is not caused by tiny
 products.
+
+### x86-64 with AVX and FMA, trigonometric functions
+
+`Interval::sin`, `cos` and `tan` locate the multiples of π/2 (of π for `cos`) in
+their argument [a, b] by dividing it by `Interval::FRAC_PI_2` (`Interval::PI`)
+and taking the floors of the bounds of the quotient. The division only encloses
+the exact quotient, so when a bound was close to such a multiple, relative to
+its magnitude, its floor could be wrong, and the result could then be wider than
+the tightest. `216e5f5` keeps the division as the fast path. Where the two floors
+differ, unless the argument is a singleton or at least 8 wide (4 for `tan`),
+`floors_exact` divides each bound alone to confirm them, and where it cannot,
+`quadrants` reads the quadrants of the bounds from the signs of `sin_rd` and
+`cos_ru` of each. That is four MPFR calls, where the result itself makes at
+most two.
+
+The `trig` benchmark times each function on the same 1024 intervals of each of
+four classes, drawn with a fixed seed:
+
+- `small`: `a` in [-100, 100) and `b - a` up to 0.5;
+- `narrow`: the same with `b - a` up to 10^-9;
+- `near`: one bound within 3 ulps of the float `k * FRAC_PI_2`, for an integer
+  0 < |k| ≤ 2^20, and `b - a` up to about 10^-6;
+- `big`: |a| in [2^30, 2^50) and `b - a` up to 1.
+
+How many of the 1024 intervals of each class reach `floors_exact` in
+`216e5f5` and `b2390de`, and how many of those go on to `quadrants`:
+
+| Class | `floors_exact`: sin / cos / tan | `quadrants`: sin / cos / tan |
+|---|--:|--:|
+| small | 153 / 74 / 153 | 0 / 0 / 0 |
+| narrow | 0 / 0 / 0 | 0 / 0 / 0 |
+| near | 626 / 336 / 626 | 245 / 119 / 245 |
+| big | 338 / 165 / 338 | 24 / 13 / 24 |
+
+The columns are `216e5f5^` (`ced0d5f`), `216e5f5` and `b2390de`, the main
+branch when this was measured. Times are in µs per interval operation, medians
+over nine rounds; see "Variance" above.
+
+| Benchmark | ced0d5f (µs) | 216e5f5 (µs) | ratio | b2390de (µs) | ratio | spread |
+|---|--:|--:|--:|--:|--:|--:|
+| sin/small | 2.41 | 2.40 | 1.00× | 2.40 | 1.00× | 2% |
+| cos/small | 1.86 | 1.84 | 0.99× | 1.85 | 0.99× | 2% |
+| tan/small | 2.47 | 2.45 | 0.99× | 2.45 | 0.99× | 3% |
+| sin/narrow | 2.44 | 2.43 | 1.00× | 2.44 | 1.00× | 3% |
+| cos/narrow | 1.84 | 1.82 | 0.99× | 1.83 | 0.99× | 2% |
+| tan/narrow | 2.69 | 2.67 | 0.99× | 2.67 | 0.99× | 3% |
+| sin/near | 6.54 | 9.16 | 1.40× | 9.18 | 1.40× | 2% |
+| cos/near | 3.62 | 4.59 | 1.27× | 4.61 | 1.27× | 3% |
+| tan/near | 5.85 | 8.94 | 1.53× | 9.02 | 1.54× | 3% |
+| sin/big | 2.58 | 2.70 | 1.05× | 2.70 | 1.05× | 3% |
+| cos/big | 1.99 | 2.05 | 1.03× | 2.05 | 1.03× | 2% |
+| tan/big | 2.50 | 2.64 | 1.06× | 2.65 | 1.06× | 3% |
+
+Of the commits between `216e5f5` and `b2390de`, two change the code that the
+benchmark runs: `eb67023` removed an interval multiplication that `tan` made on
+every interval of the benchmark, and `91b59e7` changed how the MPFR calls are
+written. `b2390de` takes 1.00–1.01 times as long as `216e5f5` on every row, which is
+within how far these builds move on `narrow` (see "Variance").
 
 ### x86-64 without AVX
 
@@ -538,6 +618,21 @@ its scalar square root matches the `generic, Nehalem` column exactly.
   branch round by itself removed the cost. As with `sqrt_rd_ru` above, the rare
   path cost the common one through the code the compiler generated around it,
   not through being taken.
+- Making `sin`, `cos` and `tan` of intervals tightest costs nothing measurable
+  on `small` and `narrow`, whose bounds are within about 100 of 0 and not chosen
+  near a multiple of π/2: all three take 0.99–1.00 times as long as before
+  there, the range within which builds of shared code move here.
+  `floors_exact` adds two interval divisions, which take about 7 ns each in the
+  `fma` section, to calls that take 1.8 µs or more, and `small`, which reaches it
+  on 7–15% of its intervals but never goes on to `quadrants`, does not show it.
+- Arguments with a bound near a multiple of π/2 pay for the new path: on
+  `near`, `sin` takes 1.40 times as long as before, `tan` 1.53 times and `cos`
+  1.27 times. `quadrants` runs on 24% of those intervals for `sin` and `tan`,
+  and on 12% for `cos`. Where `tan` used to return [-∞, +∞] there, which needs
+  no MPFR call, its tightest result may need two.
+- On `big`, where 1.3–2.3% of the intervals take `quadrants`, the three take
+  1.03–1.06 times as long, beyond the range of `narrow`. Whether that share
+  accounts for all of it has not been checked.
 
 ## Conclusion
 
@@ -596,6 +691,15 @@ RUSTFLAGS=-Ctarget-cpu=haswell cargo bench --features force-generic -- --baselin
 The 2.0.0 column of the tiny-products section comes from `benches/intervals.rs`
 copied into a package of its own that depends on `inari = "=2.0.0"` with
 `default-features = false`, with the same `[profile.bench]`.
+
+The trigonometric functions call MPFR, so their benchmark, `benches/trig.rs`,
+needs the package's `gmp` feature, which builds GMP and MPFR through
+`gmp-mpfr-sys`. Without it, `cargo bench` skips that benchmark.
+
+```bash
+cd bench
+RUSTFLAGS=-Ctarget-cpu=haswell cargo bench --features gmp --bench trig
+```
 
 For WebAssembly, with wasmtime on the path:
 
