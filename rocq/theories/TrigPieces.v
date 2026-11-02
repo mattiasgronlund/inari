@@ -429,8 +429,10 @@ Proof.
       * cbn [bpow radix_val radix2]; reflexivity.
 Qed.
 
-(** No finite [f64] is a pole: it is a dyadic rational, and π is
-    irrational ([pi_irrational] in [PiIrrational.v]). *)
+(** No finite [f64] is a pole: it is a rational [n / d] with [d > 0]
+    ([tp_B2R_rat] above), so [(k + 1/2) * PI = n / d] would make π the
+    rational [2 * n / (d * (2 * k + 1))], which [pi_irrational] in
+    [PiIrrational.v] excludes. *)
 Lemma tan_dom_f64 : forall w : f64, is_finite w = true -> tan_dom (B2R w).
 Proof.
   intros w Hw k Hk.

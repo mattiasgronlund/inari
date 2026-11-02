@@ -104,7 +104,8 @@ impl Interval {
 // proofs that these constants are the tightest intervals around their values
 // (`rocq/theories/ConstPi.v`, `ConstInv.v`, `ConstLn.v` and `ConstLog.v`), which show it
 // for `DecInterval::$c` as for `Interval::$c`, as both have the same interval, and that
-// `com` is the strongest decoration of `DecInterval::$c`, as that interval is bounded.
+// `com` is the strongest decoration of the constant whose interval `DecInterval::$c`
+// computes, as that interval is bounded.
 macro_rules! def_com {
     ($c:ident) => {
         #[doc = concat!("[`Interval::", stringify!($c), "`] decorated with [`Decoration::Com`].")]
