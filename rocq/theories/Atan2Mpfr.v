@@ -133,8 +133,8 @@ destruct (is_finite y) eqn:Fy.
         - destruct (am_with_val_zero y Fy E) as (s & ->). exact (H3 rnd s).
         - rewrite (with_val_finite y Fy E).
           destruct (Rlt_dec 0 (B2R y)) as [Hp|Hn].
-          + exists false. apply H1. exact Hp.
-          + exists true. apply H2. lra. }
+          + apply H1. exact Hp.
+          + apply H2. lra. }
       destruct E as (s & ->). exact (pm_get_zero _ _ _ Hget _ _).
 - (* [y] is an infinity, so [x] is finite. *)
   destruct Hfin as [Hfy|Fx]; [discriminate Hfy|].

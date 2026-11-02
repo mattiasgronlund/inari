@@ -1,8 +1,9 @@
 (** * [atan2] of the ideal MPFR
 
     [ideal_atan2_ok]: the [mpfr_atan2] of the ideal MPFR satisfies
-    [atan2_ok]. Its [atan2(±0, +inf)] is the zero [y] itself, with its
-    sign, as MPFR's is, which is more than [atan2_ok] asks. *)
+    [atan2_ok]. Its [atan2(y, +inf)] for a finite [y] is +0 for [y > 0],
+    -0 for [y < 0] and the zero [y] itself for a zero [y], as MPFR's is.
+    That is more than [atan2_ok] asks: only a zero, of either sign. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -32,9 +33,9 @@ split; [exact (ideal_atan2_correct2 emin emax Hr)|].
 (* [split] would also solve some equations by [eq_refl], which shifts the
    bullets, so only the conjunctions are split. *)
 repeat match goal with |- _ /\ _ => split end.
-- intros rnd y Hy. cbn [ideal_atan2].
+- intros rnd y Hy. exists false. cbn [ideal_atan2].
   destruct (Rlt_dec 0 y); [reflexivity | (exfalso; lra)].
-- intros rnd y Hy. cbn [ideal_atan2].
+- intros rnd y Hy. exists true. cbn [ideal_atan2].
   destruct (Rlt_dec 0 y); [(exfalso; lra) | reflexivity].
 - (* the zero [y] itself, with its sign *)
   intros rnd s. exists s. reflexivity.

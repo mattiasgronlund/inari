@@ -4,13 +4,14 @@
     real function in the direction asked to an MPFR number of 53 bits with
     the exponent range [emin], [emax], as [mpfr_round] with [mpfr_format]
     says, overflow and underflow included, and return at the special
-    arguments the values that [Mpfr.v] states. Its [mpfr_get_d] rounds
-    every real to an [f64] in the direction asked, with Flocq's
-    [binary_normalize]. Its [mpfr_set_q] and [mpfr_subnormalize] take the
-    range as their first two arguments, as the fields do. [MpfrConsistent.v]
-    shows that, at every range with [range_ok], it satisfies every
-    hypothesis on MPFR that the theorems take, so they can all hold at
-    once.
+    arguments the values that [Mpfr.v] states. Where [Mpfr.v] states a
+    special value only as a zero, they return one with the sign that MPFR
+    returns. Its [mpfr_get_d] rounds every real to an [f64] in the
+    direction asked, with Flocq's [binary_normalize]. Its [mpfr_set_q] and
+    [mpfr_subnormalize] take the range as their first two arguments, as
+    the fields do. [MpfrConsistent.v] shows that, at every range with
+    [range_ok], it satisfies every hypothesis on MPFR that the theorems
+    take, so they can all hold at once.
 
     It is a witness, not a model of the MPFR that the Rust code links: it
     has to agree with what [Mpfr.v] states, and nothing else. At the
@@ -159,12 +160,12 @@ Definition tanh_inf (_ : mpfr_rnd) (s : bool) : mpfr_t :=
 (** ** The functions of two arguments *)
 
 (** [atan2(y, x)]: at two finite numbers, [Ratan2] rounded, and at one
-    infinity, the special values of [atan2_ok]: [atan2(y, +inf)] is +0
+    infinity, the special values of [atan2_ok]. [atan2(y, +inf)] is +0
     for [y > 0], -0 for [y < 0] and the zero [y] itself for a zero [y],
-    where [atan2_ok] asks only for a zero, [atan2(y, -inf)] is [PI]
-    rounded for [y > 0] and [-PI] rounded for [y < 0], and
-    [atan2(+inf, x)] and [atan2(-inf, x)] are [PI/2] and [-PI/2] rounded.
-    NaN elsewhere. *)
+    where in all three cases [atan2_ok] asks only for a zero.
+    [atan2(y, -inf)] is [PI] rounded for [y > 0] and [-PI] rounded for
+    [y < 0], and [atan2(+inf, x)] and [atan2(-inf, x)] are [PI/2] and
+    [-PI/2] rounded. NaN elsewhere. *)
 Definition ideal_atan2 (emin emax : Z) (rnd : mpfr_rnd) (y x : mpfr_t) : mpfr_t :=
   match y, x with
   | MZero s, MInf false => MZero s
@@ -179,7 +180,8 @@ Definition ideal_atan2 (emin emax : Z) (rnd : mpfr_rnd) (y x : mpfr_t) : mpfr_t 
 
 (** [pow(x, y)]: at two finite numbers, [Rpow] rounded, except +inf at a
     zero [x] and [y < 0], and at the other points, the special values that
-    [pow_ok] states: [pow(+0, -inf) = +inf], [pow(+0, +inf) = +0],
+    [pow_ok] states, with +0 at each point where it asks only for a zero:
+    [pow(+0, -inf) = +inf], [pow(+0, +inf) = +0],
     [pow(+0, ±0) = pow(+inf, ±0) = 1], [pow(x, ±inf)] 1 for [x = 1], +inf
     or +0 for [x < 1] by the sign of the infinity, and +0 or +inf for
     [x > 1], and [pow(+inf, y)] +0 for [y] below 0 or -inf and +inf for
@@ -207,8 +209,10 @@ Definition ideal_pow (emin emax : Z) (rnd : mpfr_rnd) (x y : mpfr_t) : mpfr_t :=
     [powerRZ 0 n] rounded for [n >= 0], and for [n < 0], +inf for an even
     [n] and the infinity of the sign of the zero for an odd one; at an
     infinity, a zero for [n < 0], 1 for [n = 0] and an infinity for
-    [n > 0], negative for -inf and an odd [n] and positive otherwise, as
-    [pown_ok] states. *)
+    [n > 0], the zero and the infinity negative for -inf and an odd [n]
+    and positive otherwise. These agree with [pown_ok] where it states a
+    value. It states the sign of the infinities, but not that of the
+    zeros. *)
 Definition ideal_pow_si (emin emax : Z) (rnd : mpfr_rnd) (x : mpfr_t) (n : Z) : mpfr_t :=
   match x with
   | MNaN => MNaN

@@ -9,7 +9,11 @@
     special values and exceptions, the entry of [mpfr_get_d], and those of
     the functions. It assumes as little as the proofs use: the rounding of
     each function for finite arguments in its domain, and only the special
-    values that the Rust code passes.
+    values that the Rust code passes. A special value that is a zero is
+    assumed only to be a zero, of either sign: the code passes the result
+    of each function with special values here only to [mpfr_get_d], and
+    [get_d_ok] says only that it converts a zero to a zero, so the
+    theorems cannot use the sign.
 
     [src/elementary.rs] does not set MPFR's exponent range, [emin] and
     [emax]. The theorems about its functions hold for every range that
@@ -140,23 +144,29 @@ Definition atan_ok (emin emax : Z) (m : mpfr) : Prop :=
     leaves out [y = 0, x <= 0]. The
     special values below are those of the [mpfr_atan2] entry of the MPFR
     manual at the points that the code passes, one infinity and a finite
-    number, except that [atan2(±0, +inf)] is only assumed to be a zero, of
-    either sign. The entry gives ±0 there by its [atan2(±0, x) = ±0] for
-    [x > 0] if that [x] can be +inf. If it cannot, no bullet of the entry
-    names that point, and the rule of §4.5 "Floating-Point Values on
-    Special Numbers" for a point outside the domain but in its closure
-    gives the limit, 0. That leaves aside the ISO C99 and IEEE 754
-    standards, which the entry cites for its special values and which are
-    not read here. The proofs use no sign there, as [get_d_ok] says
-    only that [mpfr_get_d] converts a zero to a zero. The zeros are
-    exact, so they are stated for both directions, and [PI] and [PI / 2]
-    are rounded. *)
+    number, except that [atan2(y, +inf)] is only assumed to be a zero, of
+    either sign (see the header). For a finite [y > 0] the entry gives +0
+    there, and -0 for a finite [y < 0]. For [y] = ±0, it gives ±0 by its
+    [atan2(±0, x) = ±0] for [x > 0] if that [x] can be +inf. If it cannot,
+    no bullet of the entry names that point, and the rule of §4.5
+    "Floating-Point Values on Special Numbers" for a point outside the
+    domain but in its closure gives the limit, 0. The wording favours the
+    first reading: the bullets with one infinite argument say "for finite
+    x", "for finite y > 0" or "for finite y < 0", and those of
+    [atan2(±0, x) = ±0] say only "for x > 0". The entry cites the ISO C99
+    and IEEE 754 standards for its special values. MPFR's [src/atan2.c]
+    lists them in a comment (l.66-79 in MPFR 4.2.2) that names no source,
+    with a marker [313)], as of a footnote, at the end of its first
+    bullet. Its bullets for these points,
+    [atan2(±0, x) returns ±0, for x > 0] and
+    [atan2(±y, +oo) returns ±0, for finite y > 0], give the same two
+    readings and the same contrast. The zeros are exact, so they are
+    stated for both directions, and [PI] and [PI / 2] are rounded. *)
 Definition atan2_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct2 emin emax (fun y x => y <> 0 \/ 0 < x) Ratan2 (mpfr_atan2 m) /\
-  (* [atan2(y, +inf)] is +0 for [y > 0] and -0 for [y < 0], and a zero
-     for [y] = ±0 *)
-  (forall rnd y, 0 < y -> mpfr_atan2 m rnd (MNum y) (MInf false) = MZero false) /\
-  (forall rnd y, y < 0 -> mpfr_atan2 m rnd (MNum y) (MInf false) = MZero true) /\
+  (* [atan2(y, +inf)] is a zero for [y > 0], for [y < 0] and for [y] = ±0 *)
+  (forall rnd y, 0 < y -> exists s', mpfr_atan2 m rnd (MNum y) (MInf false) = MZero s') /\
+  (forall rnd y, y < 0 -> exists s', mpfr_atan2 m rnd (MNum y) (MInf false) = MZero s') /\
   (forall rnd s, exists s', mpfr_atan2 m rnd (MZero s) (MInf false) = MZero s') /\
   (* [atan2(y, -inf)] is [PI] for [y > 0] and [-PI] for [y < 0] *)
   (forall rnd y, 0 < y ->
@@ -189,21 +199,22 @@ Definition cosh_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct emin emax real_dom cosh (mpfr_cosh m) /\
   forall s, mpfr_cosh m RNDU (MInf s) = MInf false.
 
-(** [exp(-inf) = +0] and [exp(+inf) = +inf], and the same for [exp10] and
-    [exp2]. *)
+(** [exp(-inf)] is a zero and [exp(+inf) = +inf], and the same for [exp10]
+    and [exp2]. The rules of §4.5 give +0 at -inf, of which only a zero is
+    assumed (see the header). *)
 Definition exp_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct emin emax real_dom exp (mpfr_exp m) /\
-  mpfr_exp m RNDD (MInf true) = MZero false /\
+  (exists s, mpfr_exp m RNDD (MInf true) = MZero s) /\
   mpfr_exp m RNDU (MInf false) = MInf false.
 
 Definition exp10_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct emin emax real_dom Rexp10 (mpfr_exp10 m) /\
-  mpfr_exp10 m RNDD (MInf true) = MZero false /\
+  (exists s, mpfr_exp10 m RNDD (MInf true) = MZero s) /\
   mpfr_exp10 m RNDU (MInf false) = MInf false.
 
 Definition exp2_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct emin emax real_dom Rexp2 (mpfr_exp2 m) /\
-  mpfr_exp2 m RNDD (MInf true) = MZero false /\
+  (exists s, mpfr_exp2 m RNDD (MInf true) = MZero s) /\
   mpfr_exp2 m RNDU (MInf false) = MInf false.
 
 (** [log(+0) = log(-0) = -inf] and [log(+inf) = +inf], and the same for
@@ -228,28 +239,29 @@ Definition log2_ok (emin emax : Z) (m : mpfr) : Prop :=
     covers. The special values below are those of the [mpfr_pow] entry of
     the MPFR manual at the points that the code passes: [x] +0, 1 or +inf,
     or [y] a zero or an infinity, outside the domain or not finite. MPFR
-    returns them exactly, so they are stated for both directions. *)
+    returns them exactly, so they are stated for both directions. Where
+    the entry gives +0, only a zero is assumed (see the header). *)
 Definition pow_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct2 emin emax pow_dom Rpow (mpfr_pow m) /\
   (* [pow(+0, y) = +inf] for [y < 0], [-inf] included, as [y] is then not
-     an odd integer or [+0] is the zero; [pow(+0, +inf) = +0] *)
+     an odd integer or [+0] is the zero; [pow(+0, +inf)] is a zero *)
   (forall rnd y, y < 0 -> mpfr_pow m rnd (MZero false) (MNum y) = MInf false) /\
   (forall rnd, mpfr_pow m rnd (MZero false) (MInf true) = MInf false) /\
-  (forall rnd, mpfr_pow m rnd (MZero false) (MInf false) = MZero false) /\
+  (forall rnd, exists s, mpfr_pow m rnd (MZero false) (MInf false) = MZero s) /\
   (* [pow(x, ±0) = 1] for [x] +0 and +inf, and [pow(+1, ±inf) = 1] *)
   (forall rnd s, mpfr_pow m rnd (MZero false) (MZero s) = MNum 1) /\
   (forall rnd s, mpfr_pow m rnd (MInf false) (MZero s) = MNum 1) /\
   (forall rnd s, mpfr_pow m rnd (MNum 1) (MInf s) = MNum 1) /\
-  (* [pow(x, -inf)] is +inf for [0 < x < 1] and +0 for [x > 1], and
-     [pow(x, +inf)] is +0 for [0 < x < 1] and +inf for [x > 1] *)
+  (* [pow(x, -inf)] is +inf for [0 < x < 1] and a zero for [x > 1], and
+     [pow(x, +inf)] is a zero for [0 < x < 1] and +inf for [x > 1] *)
   (forall rnd y, 0 < y < 1 -> mpfr_pow m rnd (MNum y) (MInf true) = MInf false) /\
-  (forall rnd y, 1 < y -> mpfr_pow m rnd (MNum y) (MInf true) = MZero false) /\
-  (forall rnd y, 0 < y < 1 -> mpfr_pow m rnd (MNum y) (MInf false) = MZero false) /\
+  (forall rnd y, 1 < y -> exists s, mpfr_pow m rnd (MNum y) (MInf true) = MZero s) /\
+  (forall rnd y, 0 < y < 1 -> exists s, mpfr_pow m rnd (MNum y) (MInf false) = MZero s) /\
   (forall rnd y, 1 < y -> mpfr_pow m rnd (MNum y) (MInf false) = MInf false) /\
-  (* [pow(+inf, y)] is +0 for [y < 0] and +inf for [y > 0], infinities
+  (* [pow(+inf, y)] is a zero for [y < 0] and +inf for [y > 0], infinities
      included *)
-  (forall rnd y, y < 0 -> mpfr_pow m rnd (MInf false) (MNum y) = MZero false) /\
-  (forall rnd, mpfr_pow m rnd (MInf false) (MInf true) = MZero false) /\
+  (forall rnd y, y < 0 -> exists s, mpfr_pow m rnd (MInf false) (MNum y) = MZero s) /\
+  (forall rnd, exists s, mpfr_pow m rnd (MInf false) (MInf true) = MZero s) /\
   (forall rnd y, 0 < y -> mpfr_pow m rnd (MInf false) (MNum y) = MInf false) /\
   (forall rnd, mpfr_pow m rnd (MInf false) (MInf false) = MInf false).
 
@@ -258,7 +270,8 @@ Definition pow_ok (emin emax : Z) (m : mpfr) : Prop :=
     are those of the [mpfr_pow] entry of the MPFR manual, which covers
     [mpfr_pow_si], at the points that the code passes: a zero for [n < 0],
     and an infinity. MPFR returns them exactly, so they are stated for both
-    directions. *)
+    directions. Where the entry gives +0 or -0, only a zero is assumed (see
+    the header). *)
 Definition pown_ok (emin emax : Z) (m : mpfr) : Prop :=
   (forall rnd (x : f64) n, is_i32 n -> is_finite x = true -> pown_dom n (B2R x) ->
    mpfr_round (mpfr_format emin emax) rnd (powerRZ (B2R x) n)
@@ -269,14 +282,15 @@ Definition pown_ok (emin emax : Z) (m : mpfr) : Prop :=
    mpfr_pow_si m rnd (MZero s) n = MInf false) /\
   (forall rnd s n, is_i32 n -> (n < 0)%Z -> Z.odd n = true ->
    mpfr_pow_si m rnd (MZero s) n = MInf s) /\
-  (* [pow_si(+inf, n)] is +0 for [n < 0], 1 for [n = 0] and +inf for
-     [n > 0], and [pow_si(-inf, n)] is -0 for an odd [n < 0] and -inf for
-     an odd [n > 0] *)
-  (forall rnd n, is_i32 n -> (n < 0)%Z -> mpfr_pow_si m rnd (MInf false) n = MZero false) /\
+  (* [pow_si(+inf, n)] is a zero for [n < 0], 1 for [n = 0] and +inf for
+     [n > 0], and [pow_si(-inf, n)] is a zero for an odd [n < 0] and -inf
+     for an odd [n > 0] *)
+  (forall rnd n, is_i32 n -> (n < 0)%Z ->
+   exists s, mpfr_pow_si m rnd (MInf false) n = MZero s) /\
   (forall rnd, mpfr_pow_si m rnd (MInf false) 0 = MNum 1) /\
   (forall rnd n, is_i32 n -> (0 < n)%Z -> mpfr_pow_si m rnd (MInf false) n = MInf false) /\
   (forall rnd n, is_i32 n -> (n < 0)%Z -> Z.odd n = true ->
-   mpfr_pow_si m rnd (MInf true) n = MZero true) /\
+   exists s, mpfr_pow_si m rnd (MInf true) n = MZero s) /\
   (forall rnd n, is_i32 n -> (0 < n)%Z -> Z.odd n = true ->
    mpfr_pow_si m rnd (MInf true) n = MInf true).
 

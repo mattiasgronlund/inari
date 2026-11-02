@@ -11,8 +11,8 @@
 // in `rocq/theories/Model.v` has it, so that a special value is checked with the sign of a
 // zero. Where `Mpfr.v` states a rounding (`mpfr_round`), which gives a result of 0 as a zero
 // of either sign, the check compares `Float`s or `f64`s with `==`, which does not tell the
-// zeros apart. `atan2_ok` states `atan2(±0, +∞)` only as a zero of some sign, which its check
-// matches with `Zero(_)`. A second check there tests more than `Mpfr.v` assumes, the sign of
+// zeros apart. Where `Mpfr.v` states a special value only as a zero of some sign, the check
+// matches it with `Zero(_)`. A second check there tests more than `Mpfr.v` assumes, the sign of
 // that zero, and its comment says so.
 //
 // MPFR's exponent range is per thread in an MPFR built thread-safe, as `gmp-mpfr-sys` builds
@@ -229,19 +229,21 @@ fn atan2_ok() {
 
     for rnd in DIRS {
         for y in ys {
-            // `forall rnd y, 0 < y -> mpfr_atan2 m rnd (MNum y) (MInf false) = MZero false`
-            assert_eq!(
-                value(&mpfr_fn2!(atan2(y, inf, rnd))),
-                Zero(false),
-                "{y:e}, {rnd:?}"
-            );
-            // `forall rnd y, y < 0 -> mpfr_atan2 m rnd (MNum y) (MInf false) = MZero true`
-            assert_eq!(
-                value(&mpfr_fn2!(atan2(-y, inf, rnd))),
-                Zero(true),
-                "{:e}, {rnd:?}",
-                -y
-            );
+            let v = value(&mpfr_fn2!(atan2(y, inf, rnd)));
+            // `forall rnd y, 0 < y -> exists s', mpfr_atan2 m rnd (MNum y) (MInf false) =
+            // MZero s'`
+            assert!(matches!(v, Zero(_)), "{y:e}, {rnd:?}: {v:?}");
+            // More than `atan2_ok` assumes: +0, as the `mpfr_atan2` entry of the MPFR manual
+            // gives it.
+            assert_eq!(v, Zero(false), "{y:e}, {rnd:?}");
+
+            let v = value(&mpfr_fn2!(atan2(-y, inf, rnd)));
+            // `forall rnd y, y < 0 -> exists s', mpfr_atan2 m rnd (MNum y) (MInf false) =
+            // MZero s'`
+            assert!(matches!(v, Zero(_)), "{:e}, {rnd:?}: {v:?}", -y);
+            // More than `atan2_ok` assumes: -0, as the `mpfr_atan2` entry of the MPFR manual
+            // gives it.
+            assert_eq!(v, Zero(true), "{:e}, {rnd:?}", -y);
         }
 
         for y in [0.0f64, -0.0] {
@@ -315,16 +317,33 @@ fn cosh_ok() {
     assert_eq!(value(&mpfr_fn!(cosh(f64::INFINITY, RNDU))), Inf(false));
 }
 
-// `exp_ok`, `exp10_ok` and `exp2_ok`, `mpfr_<f> m RNDD (MInf true) = MZero false` and
+// `exp_ok`, `exp10_ok` and `exp2_ok`, `exists s, mpfr_<f> m RNDD (MInf true) = MZero s` and
 // `mpfr_<f> m RNDU (MInf false) = MInf false`.
 #[test]
 fn exp_ok() {
     let inf = f64::INFINITY;
-    assert_eq!(value(&mpfr_fn!(exp(-inf, RNDD))), Zero(false));
+    let v = value(&mpfr_fn!(exp(-inf, RNDD)));
+    // `exists s, mpfr_exp m RNDD (MInf true) = MZero s`
+    assert!(matches!(v, Zero(_)), "{v:?}");
+    // More than `exp_ok` assumes: +0, as §4.5 "Floating-Point Values on Special Numbers" of the
+    // MPFR manual gives it.
+    assert_eq!(v, Zero(false));
     assert_eq!(value(&mpfr_fn!(exp(inf, RNDU))), Inf(false));
-    assert_eq!(value(&mpfr_fn!(exp10(-inf, RNDD))), Zero(false));
+
+    let v = value(&mpfr_fn!(exp10(-inf, RNDD)));
+    // `exists s, mpfr_exp10 m RNDD (MInf true) = MZero s`
+    assert!(matches!(v, Zero(_)), "{v:?}");
+    // More than `exp10_ok` assumes: +0, as §4.5 "Floating-Point Values on Special Numbers" of
+    // the MPFR manual gives it.
+    assert_eq!(v, Zero(false));
     assert_eq!(value(&mpfr_fn!(exp10(inf, RNDU))), Inf(false));
-    assert_eq!(value(&mpfr_fn!(exp2(-inf, RNDD))), Zero(false));
+
+    let v = value(&mpfr_fn!(exp2(-inf, RNDD)));
+    // `exists s, mpfr_exp2 m RNDD (MInf true) = MZero s`
+    assert!(matches!(v, Zero(_)), "{v:?}");
+    // More than `exp2_ok` assumes: +0, as §4.5 "Floating-Point Values on Special Numbers" of
+    // the MPFR manual gives it.
+    assert_eq!(v, Zero(false));
     assert_eq!(value(&mpfr_fn!(exp2(inf, RNDU))), Inf(false));
 }
 
@@ -370,12 +389,11 @@ fn pow_ok() {
             Inf(false),
             "{rnd:?}"
         );
-        // `forall rnd, mpfr_pow m rnd (MZero false) (MInf false) = MZero false`
-        assert_eq!(
-            value(&mpfr_fn2!(pow(0.0, inf, rnd))),
-            Zero(false),
-            "{rnd:?}"
-        );
+        let v = value(&mpfr_fn2!(pow(0.0, inf, rnd)));
+        // `forall rnd, exists s, mpfr_pow m rnd (MZero false) (MInf false) = MZero s`
+        assert!(matches!(v, Zero(_)), "{rnd:?}: {v:?}");
+        // More than `pow_ok` assumes: +0, as the `mpfr_pow` entry of the MPFR manual gives it.
+        assert_eq!(v, Zero(false), "{rnd:?}");
 
         for s in [0.0f64, -0.0] {
             // `forall rnd s, mpfr_pow m rnd (MZero false) (MZero s) = MNum 1`
@@ -407,20 +425,21 @@ fn pow_ok() {
                 Inf(false),
                 "{y:e}, {rnd:?}"
             );
-            // `forall rnd y, 0 < y < 1 -> mpfr_pow m rnd (MNum y) (MInf false) = MZero false`
-            assert_eq!(
-                value(&mpfr_fn2!(pow(y, inf, rnd))),
-                Zero(false),
-                "{y:e}, {rnd:?}"
-            );
+            let v = value(&mpfr_fn2!(pow(y, inf, rnd)));
+            // `forall rnd y, 0 < y < 1 -> exists s, mpfr_pow m rnd (MNum y) (MInf false) =
+            // MZero s`
+            assert!(matches!(v, Zero(_)), "{y:e}, {rnd:?}: {v:?}");
+            // More than `pow_ok` assumes: +0, as the `mpfr_pow` entry of the MPFR manual
+            // gives it.
+            assert_eq!(v, Zero(false), "{y:e}, {rnd:?}");
         }
         for y in above_1 {
-            // `forall rnd y, 1 < y -> mpfr_pow m rnd (MNum y) (MInf true) = MZero false`
-            assert_eq!(
-                value(&mpfr_fn2!(pow(y, -inf, rnd))),
-                Zero(false),
-                "{y:e}, {rnd:?}"
-            );
+            let v = value(&mpfr_fn2!(pow(y, -inf, rnd)));
+            // `forall rnd y, 1 < y -> exists s, mpfr_pow m rnd (MNum y) (MInf true) = MZero s`
+            assert!(matches!(v, Zero(_)), "{y:e}, {rnd:?}: {v:?}");
+            // More than `pow_ok` assumes: +0, as the `mpfr_pow` entry of the MPFR manual
+            // gives it.
+            assert_eq!(v, Zero(false), "{y:e}, {rnd:?}");
             // `forall rnd y, 1 < y -> mpfr_pow m rnd (MNum y) (MInf false) = MInf false`
             assert_eq!(
                 value(&mpfr_fn2!(pow(y, inf, rnd))),
@@ -430,19 +449,18 @@ fn pow_ok() {
         }
 
         for y in neg {
-            // `forall rnd y, y < 0 -> mpfr_pow m rnd (MInf false) (MNum y) = MZero false`
-            assert_eq!(
-                value(&mpfr_fn2!(pow(inf, y, rnd))),
-                Zero(false),
-                "{y:e}, {rnd:?}"
-            );
+            let v = value(&mpfr_fn2!(pow(inf, y, rnd)));
+            // `forall rnd y, y < 0 -> exists s, mpfr_pow m rnd (MInf false) (MNum y) = MZero s`
+            assert!(matches!(v, Zero(_)), "{y:e}, {rnd:?}: {v:?}");
+            // More than `pow_ok` assumes: +0, as the `mpfr_pow` entry of the MPFR manual
+            // gives it.
+            assert_eq!(v, Zero(false), "{y:e}, {rnd:?}");
         }
-        // `forall rnd, mpfr_pow m rnd (MInf false) (MInf true) = MZero false`
-        assert_eq!(
-            value(&mpfr_fn2!(pow(inf, -inf, rnd))),
-            Zero(false),
-            "{rnd:?}"
-        );
+        let v = value(&mpfr_fn2!(pow(inf, -inf, rnd)));
+        // `forall rnd, exists s, mpfr_pow m rnd (MInf false) (MInf true) = MZero s`
+        assert!(matches!(v, Zero(_)), "{rnd:?}: {v:?}");
+        // More than `pow_ok` assumes: +0, as the `mpfr_pow` entry of the MPFR manual gives it.
+        assert_eq!(v, Zero(false), "{rnd:?}");
         for y in pos {
             // `forall rnd y, 0 < y -> mpfr_pow m rnd (MInf false) (MNum y) = MInf false`
             assert_eq!(
@@ -489,13 +507,13 @@ fn pown_ok() {
         }
 
         for n in neg_even.into_iter().chain(neg_odd) {
-            // `forall rnd n, is_i32 n -> (n < 0)%Z -> mpfr_pow_si m rnd (MInf false) n =
-            // MZero false`
-            assert_eq!(
-                value(&mpfr_fn_si!(pow_si(inf, n, rnd))),
-                Zero(false),
-                "{n}, {rnd:?}"
-            );
+            let v = value(&mpfr_fn_si!(pow_si(inf, n, rnd)));
+            // `forall rnd n, is_i32 n -> (n < 0)%Z ->
+            // exists s, mpfr_pow_si m rnd (MInf false) n = MZero s`
+            assert!(matches!(v, Zero(_)), "{n}, {rnd:?}: {v:?}");
+            // More than `pown_ok` assumes: +0, as the `mpfr_pow` entry of the MPFR manual
+            // gives it.
+            assert_eq!(v, Zero(false), "{n}, {rnd:?}");
         }
         // `forall rnd, mpfr_pow_si m rnd (MInf false) 0 = MNum 1`
         assert_eq!(
@@ -513,13 +531,13 @@ fn pown_ok() {
             );
         }
         for n in neg_odd {
+            let v = value(&mpfr_fn_si!(pow_si(-inf, n, rnd)));
             // `forall rnd n, is_i32 n -> (n < 0)%Z -> Z.odd n = true ->
-            // mpfr_pow_si m rnd (MInf true) n = MZero true`
-            assert_eq!(
-                value(&mpfr_fn_si!(pow_si(-inf, n, rnd))),
-                Zero(true),
-                "{n}, {rnd:?}"
-            );
+            // exists s, mpfr_pow_si m rnd (MInf true) n = MZero s`
+            assert!(matches!(v, Zero(_)), "{n}, {rnd:?}: {v:?}");
+            // More than `pown_ok` assumes: -0, as the `mpfr_pow` entry of the MPFR manual
+            // gives it.
+            assert_eq!(v, Zero(true), "{n}, {rnd:?}");
         }
         for n in pos_odd {
             // `forall rnd n, is_i32 n -> (0 < n)%Z -> Z.odd n = true ->

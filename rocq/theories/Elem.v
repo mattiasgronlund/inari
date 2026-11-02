@@ -96,7 +96,7 @@ Theorem exp_correct :
   forall emin emax m, range_ok emin emax -> get_d_ok emin emax m -> exp_ok emin emax m ->
   forall x, valid x -> is_tightest (image_dom real_dom exp x) (Interval.exp m x).
 Proof.
-intros emin emax m Hr Hget [Hg [Hlo Hhi]] x Hx.
+intros emin emax m Hr Hget [Hg [[s Hlo] Hhi]] x Hx.
 change (Interval.exp m x) with
   (Interval.mono_inc (mpfr_fn m (mpfr_exp m) RNDD) (mpfr_fn m (mpfr_exp m) RNDU) x).
 eapply mono_inc_correct;
@@ -116,7 +116,7 @@ Theorem dec_exp_correct :
     is_tightest (image_dom real_dom exp (itv x)) (itv y) /\
     exists d, strongest_dom real_dom d exp (itv x) (itv y) /\ dec y = dec_min d (dec x).
 Proof.
-intros emin emax m Hr Hget [Hg [Hlo Hhi]] x Hx Hcc.
+intros emin emax m Hr Hget [Hg [[s Hlo] Hhi]] x Hx Hcc.
 change (DecInterval.exp m x) with
   (DecInterval.elem_dec
      (Interval.mono_inc (mpfr_fn m (mpfr_exp m) RNDD) (mpfr_fn m (mpfr_exp m) RNDU)) x).
@@ -133,7 +133,7 @@ Theorem exp10_correct :
   forall emin emax m, range_ok emin emax -> get_d_ok emin emax m -> exp10_ok emin emax m ->
   forall x, valid x -> is_tightest (image_dom real_dom Rexp10 x) (Interval.exp10 m x).
 Proof.
-intros emin emax m Hr Hget [Hg [Hlo Hhi]] x Hx.
+intros emin emax m Hr Hget [Hg [[s Hlo] Hhi]] x Hx.
 change (Interval.exp10 m x) with
   (Interval.mono_inc (mpfr_fn m (mpfr_exp10 m) RNDD) (mpfr_fn m (mpfr_exp10 m) RNDU) x).
 eapply mono_inc_correct;
@@ -153,7 +153,7 @@ Theorem dec_exp10_correct :
     is_tightest (image_dom real_dom Rexp10 (itv x)) (itv y) /\
     exists d, strongest_dom real_dom d Rexp10 (itv x) (itv y) /\ dec y = dec_min d (dec x).
 Proof.
-intros emin emax m Hr Hget [Hg [Hlo Hhi]] x Hx Hcc.
+intros emin emax m Hr Hget [Hg [[s Hlo] Hhi]] x Hx Hcc.
 change (DecInterval.exp10 m x) with
   (DecInterval.elem_dec
      (Interval.mono_inc (mpfr_fn m (mpfr_exp10 m) RNDD) (mpfr_fn m (mpfr_exp10 m) RNDU)) x).
@@ -170,7 +170,7 @@ Theorem exp2_correct :
   forall emin emax m, range_ok emin emax -> get_d_ok emin emax m -> exp2_ok emin emax m ->
   forall x, valid x -> is_tightest (image_dom real_dom Rexp2 x) (Interval.exp2 m x).
 Proof.
-intros emin emax m Hr Hget [Hg [Hlo Hhi]] x Hx.
+intros emin emax m Hr Hget [Hg [[s Hlo] Hhi]] x Hx.
 change (Interval.exp2 m x) with
   (Interval.mono_inc (mpfr_fn m (mpfr_exp2 m) RNDD) (mpfr_fn m (mpfr_exp2 m) RNDU) x).
 eapply mono_inc_correct;
@@ -190,7 +190,7 @@ Theorem dec_exp2_correct :
     is_tightest (image_dom real_dom Rexp2 (itv x)) (itv y) /\
     exists d, strongest_dom real_dom d Rexp2 (itv x) (itv y) /\ dec y = dec_min d (dec x).
 Proof.
-intros emin emax m Hr Hget [Hg [Hlo Hhi]] x Hx Hcc.
+intros emin emax m Hr Hget [Hg [[s Hlo] Hhi]] x Hx Hcc.
 change (DecInterval.exp2 m x) with
   (DecInterval.elem_dec
      (Interval.mono_inc (mpfr_fn m (mpfr_exp2 m) RNDD) (mpfr_fn m (mpfr_exp2 m) RNDU)) x).

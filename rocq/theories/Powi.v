@@ -323,8 +323,8 @@ unfold Interval.with_infsup_raw, Generic.constant. apply tightest_lanes_lub.
     * intros s Hs. destruct (HS' s Hs) as (u & Hu & Hu0 & ->).
       apply pown_le_neg; [exact Hn|]. split; [exact Hu0 | exact (Hd u Hu)].
     * apply (pown_fin emin emax m Hr Hgd Hp RNDD _ n Hn32 Fd). right. lra.
-  + (* [d = +inf], and [pow_si(+inf, n) = +0]: the values are above 0 and
-       come as close to it as asked. *)
+  + (* [d = +inf], and [pow_si(+inf, n)] is a zero: the values are above 0
+       and come as close to it as asked. *)
     rewrite Ed. apply (pl_lo _ 0).
     * intros s Hs. destruct (HS' s Hs) as (u & _ & Hu0 & ->).
       pose proof (pown_gt_0 u n Hu0). lra.
@@ -474,8 +474,8 @@ destruct (Model.lt (opp (fst (rep x))) Model.zero) eqn:HA.
          pose proof (mono_inf_le_mem x r Hr' Fa). pose proof (Hx0 r Hr').
          apply pwx_odd_neg_dec; [exact Hn | exact Hodd | lra].
       -- apply (pown_fin emin emax m Hr Hgd Hp RNDU _ n Hn32 Fa). right. lra.
-    * (* [a = -inf], and [pow_si(-inf, n) = -0]: the values are below 0
-         and come as close to it as asked. *)
+    * (* [a = -inf], and [pow_si(-inf, n)] is a zero: the values are below
+         0 and come as close to it as asked. *)
       rewrite Ea. apply (pl_hi _ 0).
       -- intros s (r & Hr' & Hd & ->). destruct Hd as [Hd|Hd]; [lia|].
          pose proof (Hx0 r Hr'). pose proof (pwx_odd_neg_lt0 n r Hodd ltac:(lra)). lra.
@@ -523,8 +523,8 @@ destruct (Model.lt (opp (fst (rep x))) Model.zero) eqn:HA.
          pose proof (Hx0 r Hr'). pose proof (mono_mem_le_sup x r Hr' Fb).
          apply pown_le_neg; [exact Hn | lra].
       -- apply (pown_fin emin emax m Hr Hgd Hp RNDD _ n Hn32 Fb). right. lra.
-    * (* [b = +inf], and [pow_si(+inf, n) = +0]: the values are above 0 and
-         come as close to it as asked. *)
+    * (* [b = +inf], and [pow_si(+inf, n)] is a zero: the values are above
+         0 and come as close to it as asked. *)
       rewrite Eb. apply (pl_lo _ 0).
       -- intros s (r & Hr' & Hd & ->). destruct Hd as [Hd|Hd]; [lia|].
          pose proof (Hx0 r Hr'). pose proof (pown_gt_0 r n ltac:(lra)). lra.

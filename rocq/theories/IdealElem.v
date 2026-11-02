@@ -107,7 +107,7 @@ Theorem ideal_exp_ok :
 Proof.
 intros emin emax Hr. unfold exp_ok. cbn [ideal mpfr_exp]. split; [|split].
 - ie_correct Hr.
-- reflexivity.
+- exists false. reflexivity.
 - reflexivity.
 Qed.
 
@@ -116,7 +116,7 @@ Theorem ideal_exp10_ok :
 Proof.
 intros emin emax Hr. unfold exp10_ok. cbn [ideal mpfr_exp10]. split; [|split].
 - ie_correct Hr.
-- reflexivity.
+- exists false. reflexivity.
 - reflexivity.
 Qed.
 
@@ -125,7 +125,7 @@ Theorem ideal_exp2_ok :
 Proof.
 intros emin emax Hr. unfold exp2_ok. cbn [ideal mpfr_exp2]. split; [|split].
 - ie_correct Hr.
-- reflexivity.
+- exists false. reflexivity.
 - reflexivity.
 Qed.
 

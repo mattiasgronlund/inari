@@ -42,7 +42,7 @@ repeat match goal with |- _ /\ _ => split end; intros; cbn [ideal_pow];
   | |- context [Rlt_dec ?a ?b] => destruct (Rlt_dec a b)
   | |- context [Req_dec_T ?a ?b] => destruct (Req_dec_T a b)
   end;
-  try reflexivity; try congruence; exfalso; lra.
+  try reflexivity; try (eexists; reflexivity); try congruence; exfalso; lra.
 Qed.
 
 Theorem ideal_pown_ok :
@@ -65,13 +65,13 @@ split; [|repeat match goal with |- _ /\ _ => split end].
 - (* an odd [n] is not even *)
   intros rnd s n _ Hn Ho. cbn [ideal_pow_si].
   destruct (Z_lt_dec n 0); [|lia]. rewrite <- Z.negb_odd, Ho. reflexivity.
-- intros rnd n _ Hn. cbn [ideal_pow_si].
+- intros rnd n _ Hn. exists false. cbn [ideal_pow_si].
   destruct (Z_lt_dec n 0); [reflexivity | lia].
 - intros rnd. cbn [ideal_pow_si].
   destruct (Z_lt_dec 0 0); [lia|]. destruct (Z.eq_dec 0 0); [reflexivity | lia].
 - intros rnd n _ Hn. cbn [ideal_pow_si].
   destruct (Z_lt_dec n 0); [lia|]. destruct (Z.eq_dec n 0); [lia | reflexivity].
-- intros rnd n _ Hn Ho. cbn [ideal_pow_si].
+- intros rnd n _ Hn Ho. exists true. cbn [ideal_pow_si].
   destruct (Z_lt_dec n 0); [|lia]. rewrite Ho. reflexivity.
 - intros rnd n _ Hn Ho. cbn [ideal_pow_si].
   destruct (Z_lt_dec n 0); [lia|]. destruct (Z.eq_dec n 0); [lia|].
