@@ -156,7 +156,8 @@ sensitive that loop is.
 
 The trigonometric section was measured on 2026-11-02 between 03:00 and 03:55.
 `ced0d5f`, the commit before `216e5f5`, `216e5f5` itself and `b2390de` were
-built with the `trig` benchmark of `db3ae6e` added, with
+built with the `trig` benchmark of `416ba9a` added (the measured copy differed
+only in comments), with
 `RUSTFLAGS=-Ctarget-cpu=haswell` and `--features gmp`, so with `fma`. Each
 benchmark took criterion's default 3 s of warm-up and 5 s of measurement, with
 flat sampling, as one iteration takes milliseconds. Nine rounds ran the three
