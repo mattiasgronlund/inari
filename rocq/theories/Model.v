@@ -8,16 +8,17 @@
     them, with the parts of the Rust code outside [generic.rs] that they
     use, for each place in [src/interval.rs],
     [src/interval/dec_interval.rs], [src/constants.rs], [src/set_op.rs]
-    and [src/bytes.rs] that makes a [DecInterval], and for each place in
-    those files and in [src/parse.rs] that makes an [Interval] other than
-    by an operation that is not proved here. This file has to be checked
-    against the Rust code, and so do the headers of [ComCommon.v] and
-    [Valid.v], which argue from the Rust code that the library makes every
-    [DecInterval] and every [Interval] at the places and by the operations
-    transcribed here. [Ieee1788.v] and [Elementary.v] are the only files
-    that have to be checked against IEEE 1788, and [Mpfr.v] has to be
-    checked against the MPFR manual. The other files prove properties of
-    the definitions in these four.
+    and [src/bytes.rs] that makes a [DecInterval], for each place in those
+    files and in [src/parse.rs] that makes an [Interval] other than by an
+    operation that is not proved here, and for the step of the grammar of
+    [src/parse.rs] that decorates an interval literal. This file has to be
+    checked against the Rust code, and so do the headers of [ComCommon.v]
+    and [Valid.v], which argue from the Rust code that the library makes
+    every [DecInterval] and every [Interval] at the places and by the
+    operations transcribed here. [Ieee1788.v] and [Elementary.v] are the
+    only files that have to be checked against IEEE 1788, and [Mpfr.v] has
+    to be checked against the MPFR manual. The other files prove
+    properties of the definitions in these four.
 
     Rust's [f64] is Flocq's IEEE 754 binary64 type, and its [+], [-], [*]
     and [/] are Flocq's [Bplus], [Bminus], [Bmult] and [Bdiv] rounded to
@@ -1155,7 +1156,8 @@ Definition transmute_class2 (c : Z) : option (IntervalClass * IntervalClass) :=
   Some (x, y).
 
 (** The types and functions of [src/parse.rs] that turn the bounds of an
-    interval literal into [f64]s. The [nom] grammar of [parse.rs], which
+    interval literal into [f64]s, and the step of its grammar that
+    decorates a literal. The rest of the [nom] grammar of [parse.rs], which
     reads the literal and computes its bounds as exact rationals, is not
     modelled. Rust's [Rational], an exact GMP rational, is Stdlib's [Q]
     here. A [Q] need not be in lowest terms, as a [Rational] is, but the
@@ -1197,6 +1199,9 @@ Definition number_le (a b : Number) : Prop :=
     [fn is_common_interval(&self) -> bool]. *)
 Inductive NInterval : Type := NInfSup (a b : Number) | NPoint (a : Number).
 
+(** [const EMPTY: Self] of [NInterval] *)
+Definition n_EMPTY : NInterval := NInfSup Infinity NegInfinity.
+
 Definition ninf (x : NInterval) : Number :=
   match x with NInfSup a _ => a | NPoint a => a end.
 
@@ -1225,9 +1230,14 @@ Definition ninterval_ok (x : NInterval) : Prop :=
   (number_le (ninf x) (nsup x) /\ ninf x <> Infinity /\ nsup x <> NegInfinity).
 
 (** [struct DecNInterval { x: NInterval, d: Decoration }], with its fields
-    as [nx] and [nd], and its [fn new(x: NInterval) -> Self]. *)
+    as [nx] and [nd]. *)
 Record DecNInterval : Type := { nx : NInterval; nd : Decoration }.
 
+(** [const EMPTY: Self] and [const NAI: Self] of [DecNInterval] *)
+Definition dn_EMPTY : DecNInterval := {| nx := n_EMPTY; nd := Trv |}.
+Definition dn_NAI : DecNInterval := {| nx := n_EMPTY; nd := Ill |}.
+
+(** [fn new(x: NInterval) -> Self] of [DecNInterval] *)
 Definition dn_new (x : NInterval) : DecNInterval :=
   let d :=
     if nis_empty x then Trv
@@ -1235,22 +1245,42 @@ Definition dn_new (x : NInterval) : DecNInterval :=
     else Com in
   {| nx := x; nd := d |}.
 
+(** [fn set_dec(x: NInterval, d: Decoration) -> Self] of [DecNInterval],
+    which only the grammar calls. *)
+Definition dn_set_dec (x : NInterval) (d : Decoration) : DecNInterval :=
+  if dec_eqb d Ill then dn_NAI
+  else if nis_empty x then dn_EMPTY
+  else if dec_eqb d Com && negb (nis_common_interval x) then
+    {| nx := x; nd := Dac |}
+  else {| nx := x; nd := d |}.
+
+(** The arm [(Ok(x), Some(d))] of the closure that [decorated_interval]
+    passes to [map], for a literal [x] with the decoration [d], with
+    [Ok(xd)] as [Some xd] and the [Err] as [None]. *)
+Definition dn_decorated (x : NInterval) (d : Decoration) :
+    option DecNInterval :=
+  let xd := dn_set_dec x d in
+  if dec_eqb (nd xd) d then Some xd else None.
+
 (** What the grammar guarantees of each [DecNInterval] [x] that it
     returns: [nx x] has [ninterval_ok], [nd x] is [com] only if both bounds
-    of [nx x] are [Rational]s, and [NInterval::EMPTY] is decorated only
-    [trv] or [ill]. This is not proved, except that [dn_new_ok] in
-    [ParseDec.v] proves it of [dn_new n] for an [n] with [ninterval_ok].
-    [decorated_interval] returns [DecNInterval::NAI], whose [x] is
-    [NInterval::EMPTY] and whose [d] is [ill], for [[nai]],
-    [DecNInterval::new(x)] for a literal without a decoration, and for one
-    with a decoration [d], [DecNInterval::set_dec(x, d)] only if its
-    decoration is [d]. [set_dec], which is not transcribed, decorates
-    [NInterval::EMPTY] [trv] for any [d] other than [ill], and lowers [com]
-    to [dac] for an [x] that is not common. *)
+    of [nx x] are [Rational]s, [NInterval::EMPTY] is decorated only [trv]
+    or [ill], and only [NInterval::EMPTY] is decorated [ill].
+    [decorated_interval] returns [DecNInterval::NAI] for [[nai]], and for
+    a literal whose [NInterval] is [n], [DecNInterval::new(n)] if it has
+    no decoration, and if it has the decoration [d], the [y] of
+    [dn_decorated n d] if that is [Some y], and otherwise rejects the
+    literal. [ParseDec.v] proves [dec_ninterval_ok] of [dn_NAI]
+    ([dn_NAI_ok]), and, for an [n] with [ninterval_ok], of [dn_new n]
+    ([dn_new_ok]) and of the [y] of a [Some y] that [dn_decorated n d]
+    returns ([dn_decorated_ok]). That the [n] of each literal has
+    [ninterval_ok], and that the [nom] combinators of [decorated_interval]
+    return what is said above, is checked by reading, not proved. *)
 Definition dec_ninterval_ok (x : DecNInterval) : Prop :=
   ninterval_ok (nx x) /\
   (nd x = Com -> nis_common_interval (nx x) = true) /\
-  (nis_empty (nx x) = true -> nd x = Trv \/ nd x = Ill).
+  (nis_empty (nx x) = true -> nd x = Trv \/ nd x = Ill) /\
+  (nd x = Ill -> nis_empty (nx x) = true).
 
 (** [struct F64 { f: f64, inexact: bool, overflow: bool }], with its fields
     as [f64_f], [f64_inexact] and [f64_overflow]. *)

@@ -10,7 +10,13 @@
     when the conversion of a bound overflowed. [From<NInterval>] returns
     the same interval for an [NInterval] with [ninterval_ok], and
     [from_ninterval_new] shows that [From<DecNInterval>] of
-    [DecNInterval::new(x)] is [DecInterval::new] of it, for any MPFR. *)
+    [DecNInterval::new(x)] is [DecInterval::new] of it, for any MPFR.
+
+    [dn_NAI_ok], [dn_new_ok] and [dn_decorated_ok] show that the step of
+    the grammar that decorates a literal gives [dec_ninterval_ok] to what
+    it returns for [[nai]], and for a literal whose [NInterval] has
+    [ninterval_ok], without a decoration or with one. [dn_decorated_ok]
+    also shows that a literal that it accepts keeps its decoration. *)
 
 From Stdlib Require Import ZArith Reals Qreals Lra.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -346,16 +352,89 @@ pose proof (Rabs_pos (Q2R qa)). pose proof (Rabs_pos (Q2R qb)).
 apply Rabs_le. lra.
 Qed.
 
-(** For an [x] with [ninterval_ok], [DecNInterval::new(x)] has
-    [dec_ninterval_ok], which the grammar is checked by reading to return.
-    The decoration that [new] gives meets the two conjuncts on [nd] for
-    any [x], and the first conjunct is [ninterval_ok x] itself. *)
+(** [DecNInterval::NAI], which the grammar returns for [[nai]], has
+    [dec_ninterval_ok]: it is [NInterval::EMPTY] decorated [ill]. *)
+Lemma dn_NAI_ok : dec_ninterval_ok dn_NAI.
+Proof.
+unfold dec_ninterval_ok, dn_NAI, n_EMPTY. cbn [nx nd nis_empty].
+split; [left; reflexivity|].
+split; [intros H; discriminate H|].
+split; intros _; [right|]; reflexivity.
+Qed.
+
+(** For an [x] with [ninterval_ok], [DecNInterval::new(x)], which the
+    grammar returns for a literal [x] without a decoration, has
+    [dec_ninterval_ok]. The decoration that [new] gives meets the three
+    conjuncts on [nd] for any [x], and the first conjunct is
+    [ninterval_ok x] itself. *)
 Lemma dn_new_ok : forall x, ninterval_ok x -> dec_ninterval_ok (dn_new x).
 Proof.
 intros x Hok. unfold dec_ninterval_ok, dn_new. cbv zeta. cbn [nx nd].
 split; [exact Hok|].
 destruct (nis_empty x), (nis_common_interval x); cbn [negb];
-  split; intros H; first [discriminate H|reflexivity|left; reflexivity].
+  repeat split; intros H; first [discriminate H|reflexivity|left; reflexivity].
+Qed.
+
+(** For an [x] with [ninterval_ok], [DecNInterval::set_dec(x, d)] has
+    [dec_ninterval_ok] for every [d]. For [ill] it is NaI, so the proof
+    does not need that [decoration] parses no [ill]. For any other [d],
+    [set_dec] decorates [NInterval::EMPTY] [trv], and otherwise keeps [x]
+    and [d], except that it lowers [com] to [dac] for an [x] that is not
+    common. *)
+Lemma dn_set_dec_ok :
+  forall x d, ninterval_ok x -> dec_ninterval_ok (dn_set_dec x d).
+Proof.
+intros x d Hok. unfold dn_set_dec.
+destruct (dec_eqb d Ill) eqn:Ei; [exact dn_NAI_ok|].
+unfold dec_ninterval_ok.
+destruct (nis_empty x) eqn:Ee.
+- (* [NInterval::EMPTY] is decorated [trv]. *)
+  cbn [dn_EMPTY nx nd n_EMPTY nis_empty].
+  split; [left; reflexivity|].
+  split; [intros H; discriminate H|].
+  split; intros H; [left; reflexivity|discriminate H].
+- (* Otherwise [x] is kept, so it has [ninterval_ok] and is not
+     [NInterval::EMPTY], and the decoration is [dac], or [d], which is not
+     [ill], and is [com] only if [x] is common. *)
+  destruct (dec_eqb d Com && negb (nis_common_interval x)) eqn:Ec;
+    cbn [nx nd]; rewrite Ee; (split; [exact Hok|]).
+  + split; [intros H; discriminate H|].
+    split; intros H; discriminate H.
+  + split; [|split; intros H; [discriminate H|]].
+    * intros ->. cbn [dec_eqb discriminant Z.eqb Pos.eqb andb] in Ec.
+      destruct (nis_common_interval x); [reflexivity|discriminate Ec].
+    * rewrite H in Ei. discriminate Ei.
+Qed.
+
+(** What [dn_decorated] returns for a literal [x] with [ninterval_ok] and
+    the decoration [d], if it accepts the literal, has [dec_ninterval_ok],
+    the decoration [d], and the [NInterval] [x] unless [d] is [ill]. The
+    test [xd.d == d] is not needed for [dec_ninterval_ok], which [set_dec]
+    alone gives. It is what keeps the literal's decoration: it rejects
+    [[1,inf]_com] and [[empty]_dac], which [set_dec] would decorate [dac]
+    and [trv]. So for a [d] other than [ill], the literal's own [x] and [d]
+    meet [dec_ninterval_ok] if [dn_decorated] accepts the literal. *)
+Lemma dn_decorated_ok :
+  forall x d y, ninterval_ok x -> dn_decorated x d = Some y ->
+  dec_ninterval_ok y /\ nd y = d /\ (d <> Ill -> nx y = x).
+Proof.
+intros x d y Hok. unfold dn_decorated.
+destruct (dec_eqb (nd (dn_set_dec x d)) d) eqn:E; intros H; [|discriminate H].
+injection H as <-.
+split; [exact (dn_set_dec_ok x d Hok)|].
+split.
+- (* The test [xd.d == d]. *)
+  revert E. generalize (nd (dn_set_dec x d)) as e. intros e E.
+  destruct e, d; first [reflexivity|discriminate E].
+- (* [set_dec] keeps [x] unless [d] is [ill], as [EMPTY] is
+     [NInterval::EMPTY] decorated [trv]. *)
+  intros Hd. unfold dn_set_dec.
+  destruct (dec_eqb d Ill) eqn:Ei.
+  + destruct d; first [discriminate Ei|destruct (Hd eq_refl)].
+  + destruct (nis_empty x) eqn:Ee.
+    * destruct x as [[| |] [| |]|a]; cbn [nis_empty] in Ee;
+        try discriminate Ee; reflexivity.
+    * destruct (_ && _); reflexivity.
 Qed.
 
 Theorem from_dec_ninterval_correct :
@@ -377,7 +456,7 @@ assert (Hno : forall n, nis_empty n = true -> forall r, ~ ninterval_set n r).
 { intros n He r [Ha _].
   destruct n as [[| |] b|a]; cbn [nis_empty] in He; try discriminate He.
   exact Ha. }
-intros m x Hm (Hok & Hcom & Hemp). cbv zeta.
+intros m x Hm (Hok & Hcom & Hemp & _). cbv zeta.
 pose proof (from_dec_ninterval_set_dec m x Hm Hok) as Hsd. cbv zeta in Hsd.
 pose proof (from_dec_ninterval_not_common m x Hm Hok) as Hnc.
 set (y := DecInterval.from_dec_ninterval m x) in *. clearbody y.

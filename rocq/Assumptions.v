@@ -170,6 +170,9 @@ Print Assumptions ninterval_ok_set.
 Print Assumptions bounds_tightest.
 Print Assumptions try_from_ninterval_exact_correct.
 Print Assumptions dn_new_ok.
+Print Assumptions dn_NAI_ok.
+Print Assumptions dn_set_dec_ok.
+Print Assumptions dn_decorated_ok.
 Print Assumptions from_dec_ninterval_correct.
 Print Assumptions from_ninterval_correct.
 Print Assumptions from_ninterval_new.

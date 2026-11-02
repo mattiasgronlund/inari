@@ -77,9 +77,10 @@ impl std::ops::Neg for Number {
 
 #[derive(Debug, Eq, PartialEq)]
 enum NInterval {
-    // `rocq/theories/Model.v` transcribes this enum, its derived `PartialEq` with `EMPTY`,
-    // and `inf`, `sup` and `is_common_interval` below for the proofs of the conversions of
-    // this file in `rocq/theories/ParseHull.v`, `rocq/theories/ParseExact.v` and
+    // `rocq/theories/Model.v` transcribes this enum, `EMPTY` below, comparisons with it by
+    // the derived `PartialEq`, and `inf`, `sup` and `is_common_interval` below for the
+    // proofs of the conversions of this file and of the decorations that the grammar
+    // gives in `rocq/theories/ParseHull.v`, `rocq/theories/ParseExact.v` and
     // `rocq/theories/ParseDec.v`, so it has to be updated along with them.
     InfSup(Number, Number),
     Point(Number),
@@ -113,11 +114,10 @@ impl NInterval {
 
 #[derive(Debug, Eq, PartialEq)]
 struct DecNInterval {
-    // `rocq/theories/Model.v` transcribes this struct and `new` below for the proofs of
-    // `From<DecNInterval>` and `From<NInterval>` in `rocq/theories/ParseDec.v`, so it has
-    // to be updated along with them. `set_dec` below, which only the grammar calls, is
-    // not transcribed, but `dec_ninterval_ok` in `rocq/theories/Model.v` states what
-    // `decorated_interval` gives with it.
+    // `rocq/theories/Model.v` transcribes this struct, and `EMPTY`, `NAI` and `new` below,
+    // for the proofs of `From<DecNInterval>` and `From<NInterval>` and of the decorations
+    // that the grammar gives in `rocq/theories/ParseDec.v`, so it has to be updated along
+    // with them.
     x: NInterval,
     d: Decoration,
 }
@@ -148,6 +148,10 @@ impl DecNInterval {
     }
 
     fn set_dec(x: NInterval, d: Decoration) -> Self {
+        // `rocq/theories/Model.v` transcribes this function as `dn_set_dec`, and
+        // `dn_set_dec_ok` in `rocq/theories/ParseDec.v` shows that it returns a
+        // `DecNInterval` with `dec_ninterval_ok` for an `x` with `ninterval_ok` and any `d`,
+        // so it has to be updated along with them.
         use Decoration::*;
 
         if d == Ill {
@@ -386,8 +390,9 @@ fn infsup_interval(s: &str) -> IResult<&str, Result<NInterval>> {
             // `ninterval_ok` in `rocq/theories/Model.v` states what this test and the other
             // rules of the grammar guarantee of the `NInterval`s that they return. It is
             // checked by reading, not proved, and the proofs of `From<DecNInterval>` and
-            // `From<NInterval>` in `rocq/theories/ParseHull.v` and `rocq/theories/ParseDec.v`
-            // assume it, so it has to be updated along with the grammar.
+            // `From<NInterval>` and of the decorations that the grammar gives, in
+            // `rocq/theories/ParseHull.v` and `rocq/theories/ParseDec.v`, assume it, so it has
+            // to be updated along with the grammar.
             if a <= b && a != Number::Infinity && b != Number::NegInfinity {
                 Ok(NInterval::InfSup(a, b))
             } else {
@@ -504,14 +509,13 @@ fn decorated_interval(s: &str) -> IResult<&str, Result<DecNInterval>> {
                 (Ok(x), None) => Ok(DecNInterval::new(x)),
                 (Ok(x), Some(d)) => {
                     let xd = DecNInterval::set_dec(x, d);
-                    // `dec_ninterval_ok` in `rocq/theories/Model.v` states what this test,
-                    // `DecNInterval::new` and `DecNInterval::NAI` guarantee of the
-                    // decorations of the `DecNInterval`s that the grammar returns: `com`
-                    // only for an `x` whose bounds are both rationals, and only `trv` or
-                    // `ill` for `NInterval::EMPTY`. It is checked by reading, not proved,
-                    // except for `DecNInterval::new` (`dn_new_ok`), and the proof of
-                    // `From<DecNInterval>` in `rocq/theories/ParseDec.v` assumes it, so it
-                    // has to be updated along with the grammar.
+                    // This test rejects `[1,inf]_com` and `[empty]_dac`, which `set_dec`
+                    // would decorate `dac` and `trv`. `rocq/theories/Model.v` transcribes
+                    // this arm as `dn_decorated`, and `dn_decorated_ok` in
+                    // `rocq/theories/ParseDec.v` shows that, for an `x` with `ninterval_ok`,
+                    // the `xd` that it returns has the decoration `d`, the `NInterval` `x`
+                    // unless `d` is `ill`, and `dec_ninterval_ok`, which the proof of
+                    // `From<DecNInterval>` assumes, so it has to be updated along with them.
                     if xd.d == d {
                         Ok(xd)
                     } else {
@@ -882,8 +886,9 @@ mod tests {
     #[test]
     fn decorated_literal_decorations() {
         // Tests the paths of `decorated_interval` that `dec_ninterval_ok` in
-        // `rocq/theories/Model.v` relies on: it decorates a literal `com` only if both its
-        // bounds are rationals, and an empty one only `trv`, or `ill` for `[nai]`.
+        // `rocq/theories/Model.v` relies on, through the `nom` combinators: it decorates a
+        // literal `com` only if both its bounds are rationals, `ill` only if it is `[nai]`,
+        // and an empty one other than `[nai]` only `trv`.
         for s in [
             "[1,inf]_com",
             "[-inf,1]_com",
@@ -895,6 +900,8 @@ mod tests {
             "[empty]_def",
             "[]_dac",
             "[]_def",
+            "[1,2]_ill",
+            "[empty]_ill",
         ] {
             assert_eq!(
                 dec_interval!(s).map_err(|e| e.kind()),
