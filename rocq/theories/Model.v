@@ -1359,14 +1359,16 @@ Definition ENTIRE : Interval :=
 (** The other constants of [Interval] in [src/constants.rs], from [E] to
     [TAU]. Each is [const_interval!(a, b)] for two decimal literals [a] and
     [b], which rustc rounds to the nearest [f64]s. They are given here by
-    the bit patterns of those [f64]s. The test [constants_bits] in
-    [src/constants.rs] checks that the bounds of the Rust constants have
-    the bit patterns of its [check_bits!] lines, and [rocq/check-sites.sh]
-    that these lines give the same constants and bit patterns as the
-    definitions below. The script reads only a definition in the form
-    [Definition C : Interval :=] at the start of a line, with
-    [const_interval (from_bits 0x...) (from_bits 0x...).] on the next
-    line, with lowercase hex digits, so keep each in that form. *)
+    the bit patterns of those [f64]s, below a comment that gives [a] and
+    [b]. The test [tests/model_constants.rs] checks that the definitions
+    below are those of these constants, each once, that their bit patterns
+    are those of the bounds of the Rust constants, and that [a] and [b] in
+    the comment above each round to nearest to them. It reads only a
+    definition in the form [Definition C : Interval :=] at the start of a
+    line, with [const_interval (from_bits 0x...) (from_bits 0x...).] on the
+    next line, right below a comment whose text is
+    [pub const C: Self = const_interval!(a, b)] in square brackets, on one
+    line or more, so keep each in that form. *)
 
 (** [pub const E: Self = const_interval!(2.718281828459045, 2.7182818284590455)] *)
 Definition E : Interval :=

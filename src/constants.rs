@@ -23,8 +23,8 @@ impl Interval {
     // Proved to be the tightest intervals around their values, from `E` to `TAU`, in
     // `rocq/theories/ConstPi.v`, `ConstInv.v`, `ConstLn.v` and `ConstLog.v` (`E_tightest`
     // and the others). `rocq/theories/Model.v` transcribes these constants for those proofs,
-    // by the bit patterns of their bounds, which the test `constants_bits` below and
-    // `rocq/check-sites.sh` check, so it and the test have to be updated along with them.
+    // by the bit patterns of their bounds, which `tests/model_constants.rs` checks against
+    // them, so it and the test `constants_bits` below have to be updated along with them.
 
     /// The tightest interval enclosing $\e$, the base of natural logarithms.
     pub const E: Self = const_interval!(2.718281828459045, 2.7182818284590455);
@@ -210,15 +210,12 @@ mod tests {
         check!(TAU);
     }
 
-    // `rocq/theories/Model.v` gives the bounds of these constants by their bit patterns, for
+    // `rocq/theories/Model.v` gives the bounds of these constants by these bit patterns, for
     // the proofs in `rocq/theories/ConstPi.v`, `rocq/theories/ConstInv.v`,
     // `rocq/theories/ConstLn.v` and `rocq/theories/ConstLog.v` that each is the tightest
-    // interval around its value. This checks that the bounds of the constants here have the bit
-    // patterns of the `check_bits!` lines below, and `rocq/check-sites.sh`, which CI runs, that
-    // these lines give the same constants and bit patterns as `Model.v`. The script reads only
-    // lines of the form `check_bits!(C, 0x..., 0x...);`, on one line and with lowercase hex
-    // digits, and only definitions of the form that the comment above them in `Model.v` gives,
-    // so update this along with `Model.v` and keep both in those forms.
+    // interval around its value. `tests/model_constants.rs` checks the constants against
+    // `Model.v`, but skips in the published crate, which has no `rocq/`, and is ignored on
+    // WASI, so this checks their bit patterns there too. Update it along with `Model.v`.
     #[test]
     fn constants_bits() {
         macro_rules! check_bits {

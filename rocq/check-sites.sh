@@ -11,13 +11,6 @@
 # two that must find nothing finds something. Which of the lines make an
 # interval, and the rest of the README's argument, is still checked by reading.
 #
-# It also compares the bit patterns of the bounds of the constants of
-# `Interval` from `E` to `TAU`, which rocq/theories/Model.v gives for the
-# proofs, with those in the `check_bits!` lines of the test `constants_bits` in
-# src/constants.rs, which checks that the Rust constants have them. It reads
-# each side only in the form that its message gives, and fails if the two give
-# different constants or bit patterns in those forms, or if either gives none.
-#
 # Usage: rocq/check-sites.sh [--update]
 # With --update, it writes the lines that it finds to rocq/sites.txt.
 # `git grep` searches only the files that Git tracks, so `git add` a new file
@@ -77,49 +70,6 @@ nothing() {
 nothing "$valid_shorthand" "Write the field of an \`Interval\` struct \
 expression as \`rep: ...\`, so that the grep for \`rep:\` finds it."
 nothing "$valid_assign" "Make a new \`Interval\` rather than assign to \`rep\`."
-
-# The constants of `Interval` that Model.v gives by the bit patterns of their
-# bounds, and those in the `check_bits!` lines of the test `constants_bits`,
-# each as `<name> <bits of the lower bound> <bits of the upper bound>`, sorted.
-# Only the forms that $bits_forms gives are read: a definition or a line in
-# another form is left out of its list. The two lists must be nonempty and
-# equal, so that a constant is added to or removed from both.
-bits_forms="rocq/theories/Model.v has to give each constant as
-\`Definition C : Interval :=\` at the start of a line, with
-\`  const_interval (from_bits 0x...) (from_bits 0x...).\` on the next line, and
-the test \`constants_bits\` in src/constants.rs as
-\`check_bits!(C, 0x..., 0x...);\` on one line, with lowercase hex digits."
-model_bits=$(
-  run "git grep -h -A1 '^Definition [A-Z][A-Z0-9_]* : Interval :=\$' -- rocq/theories/Model.v" |
-    sed -nE '/^Definition /{N;s/^Definition ([A-Z][A-Z0-9_]*) : Interval :=\n[[:space:]]*const_interval \(from_bits (0x[0-9a-f]+)\) \(from_bits (0x[0-9a-f]+)\)\.$/\1 \2 \3/p;}' |
-    sort
-)
-rust_bits=$(
-  run "git grep -h '^[[:space:]]*check_bits!(' -- src/constants.rs" |
-    sed -nE 's/^[[:space:]]*check_bits!\(([A-Z][A-Z0-9_]*), (0x[0-9a-f]+), (0x[0-9a-f]+)\);$/\1 \2 \3/p' |
-    sort
-)
-
-if [ -z "$model_bits" ] || [ -z "$rust_bits" ]; then
-  [ -n "$model_bits" ] ||
-    echo "check-sites: finds no constants in rocq/theories/Model.v." >&2
-  [ -n "$rust_bits" ] ||
-    echo "check-sites: finds no constants in src/constants.rs" \
-      "(\`constants_bits\`)." >&2
-  printf '%s\n' "$bits_forms" >&2
-  status=1
-elif ! diff -u --label rocq/theories/Model.v \
-  --label 'src/constants.rs (constants_bits)' \
-  <(printf '%s\n' "$model_bits") <(printf '%s\n' "$rust_bits") >&2; then
-  printf '%s\n' "check-sites: the lines above, each \`<name> <bits of the lower
-bound> <bits of the upper bound>\` of a constant of \`Interval\`, differ between
-rocq/theories/Model.v (-) and the test \`constants_bits\` in src/constants.rs
-(+). The Rocq proofs take the bounds of these constants from Model.v, and
-\`constants_bits\`, which \`cargo test constants_bits\` runs, checks that the
-Rust constants have the bounds that it gives. Make both give the bit patterns
-of the bounds of the Rust constants." "$bits_forms" >&2
-  status=1
-fi
 
 # Prints the lines that a grep finds as `<name> <path>: <line>`, without the
 # line number and indentation.
