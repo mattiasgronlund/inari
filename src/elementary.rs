@@ -1254,6 +1254,14 @@ mod tests {
         let y = DI::new(interval!(a, a + 1.0).unwrap()).tan();
         assert_eq!(y.interval(), Some(I::ENTIRE));
         assert_eq!(y.decoration(), Decoration::Trv);
+        // Their union holds the pole too, but neither of its bounds is within 0.5 of a multiple
+        // of π/2. For it, `floors_exact` returns `true`, and `tan_impl` keeps the floors
+        // `qa = 136308121570116` and `qb = 136308121570117`, with `q = 0` and `n = 1`. For
+        // `[a - 1, a]` and `[a, a + 1]`, `a / (π/2)` is too close to 136308121570117 for
+        // `floors_exact` to return `true`, and `tan_impl` takes `q` and `n` from `quadrants`.
+        let y = DI::new(interval!(a - 1.0, a + 1.0).unwrap()).tan();
+        assert_eq!(y.interval(), Some(I::ENTIRE));
+        assert_eq!(y.decoration(), Decoration::Trv);
     }
 
     #[test]
