@@ -193,6 +193,9 @@ Print Assumptions PI_tightest.
 Print Assumptions SQRT_2_tightest.
 Print Assumptions TAU_tightest.
 Print Assumptions com_strongest0.
+Print Assumptions ENTIRE_dec_correct.
+Print Assumptions EMPTY_dec_correct.
+Print Assumptions NAI_dec_correct.
 Print Assumptions new_com_common.
 Print Assumptions set_dec_com_common.
 Print Assumptions constants_com_common.

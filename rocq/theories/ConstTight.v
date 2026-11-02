@@ -13,7 +13,13 @@
     [com] is the strongest decoration of a constant function whose
     computed interval is bounded ([com_strongest0]), as no decoration is
     stronger, and a common interval is bounded ([const_strongest0], by
-    [common_bounded] in [DecBinary.v]). *)
+    [common_bounded] in [DecBinary.v]).
+
+    The decorated constants [ENTIRE], [EMPTY] and [NAI] are decorated
+    [dac], [trv] and [ill], as the draft P1788/D9.5 asks
+    ([ENTIRE_dec_correct], [EMPTY_dec_correct] and [NAI_dec_correct]), and
+    [dac] is the strongest decoration of a constant function whose
+    computed interval is [ENTIRE]. *)
 
 From Stdlib Require Import ZArith Lia Reals Lra QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -106,4 +112,44 @@ Lemma const_strongest0 :
   forall c z, Interval.is_common_interval z = true -> strongest0 Com c z.
 Proof.
 intros c z Hz. exact (com_strongest0 c z (DecBinary.common_bounded z Hz)).
+Qed.
+
+(** ** The decorated constants [ENTIRE], [EMPTY] and [NAI] *)
+
+(** [DecInterval::ENTIRE] is [ENTIRE] decorated [dac], which is what the
+    decorated [entire()] returns (§12.12.1 of the draft P1788/D9.5).
+    [dac] is the strongest decoration of any constant function [c()] whose
+    computed interval is [ENTIRE]: [p0 Dac] always holds, and [p0 Com]
+    asks a bounded computed interval, but every real is a member of
+    [ENTIRE]. *)
+Theorem ENTIRE_dec_correct :
+  dec DecInterval.ENTIRE = Dac /\ forall c, strongest0 Dac c (itv DecInterval.ENTIRE).
+Proof.
+split; [reflexivity|].
+intros c. split; [exact I|].
+intros [] He; cbn [discriminant]; try lia.
+(* [com]: a bound [m] of the reals of [ENTIRE] would bound [|m| + 1],
+   which is above [m]. [ENTIRE] is [[+inf; +inf]], whose lanes bound no
+   real. *)
+exfalso. destruct He as (m & Hm).
+assert (Hmem : mem (Rabs m + 1) Interval.ENTIRE) by (split; reflexivity).
+pose proof (Hm (Rabs m + 1) Hmem) as H.
+pose proof (Rle_abs (Rabs m + 1)). pose proof (Rle_abs m). lra.
+Qed.
+
+(** [DecInterval::EMPTY] is [EMPTY] decorated [trv], which is what the
+    decorated [empty()] returns (§12.12.1 of the draft P1788/D9.5). *)
+Theorem EMPTY_dec_correct : dec DecInterval.EMPTY = Trv.
+Proof.
+reflexivity.
+Qed.
+
+(** [DecInterval::NAI] is [EMPTY] decorated [ill]. NaI, Not an Interval
+    (§3.2.43 of the draft P1788/D9.5), is the decorated interval decorated
+    [ill] (§11.3 there). §12.5.1 there identifies it with the empty set
+    decorated [ill], and §11.6 regards it as that in the decorated
+    versions of point functions. *)
+Theorem NAI_dec_correct : dec DecInterval.NAI = Ill.
+Proof.
+reflexivity.
 Qed.

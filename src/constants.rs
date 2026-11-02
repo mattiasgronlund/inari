@@ -125,10 +125,11 @@ macro_rules! def_com {
 }
 
 // `rocq/theories/Model.v` transcribes `EMPTY`, `ENTIRE` and `NAI` for the proof that every
-// `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`) and
-// for the proof that every `Interval` that the constructors and the proved operations make
-// is `valid` (`rocq/theories/Valid.v`), and `EMPTY` and `NAI` also for the proofs of the
-// operations that call `set_dec`, so they have to be updated along with it.
+// `DecInterval` is `com` only if its interval is common (`rocq/theories/ComCommon.v`), for
+// the proof that every `Interval` that the constructors and the proved operations make is
+// `valid` (`rocq/theories/Valid.v`) and for the proof that these three are decorated as
+// IEEE 1788 asks (`rocq/theories/ConstTight.v`), and `EMPTY` and `NAI` also for the proofs
+// of the operations that call `set_dec`, so they have to be updated along with it.
 impl DecInterval {
     /// $∅$, the empty set, decorated with [`Decoration::Trv`].
     pub const EMPTY: Self = Self::new_unchecked(Interval::EMPTY, Decoration::Trv);

@@ -758,6 +758,19 @@ Each of these constants of `Interval` is `const_interval!(a, b)` for two finite 
 - ln 2 and ln 10: `q < ln y` if `exp q < y`, and `ln y < q` if `0 < y < exp q`, so these bounds of `exp` bound `ln 2` by two rationals `10^-24` apart (`LN_2_Q`). The bounds of `ln 10` are above 1, where `exp_Q_bounds` does not apply, so `LN_10_Q` bounds `exp` at a third of each and cubes it, as `exp(3q) = exp(q)³`.
 - The logarithms to the bases 2 and 10: `Rlog b r` is `ln r / ln b`, and `ln (exp 1) = 1`, so the values of `LOG10_2`, `LOG10_E`, `LOG2_10` and `LOG2_E` are `ln 2 / ln 10`, `1 / ln 10`, `ln 10 / ln 2` and `1 / ln 2`, which quotients of the rational bounds of `ln 2` and `ln 10` bound.
 
+`ENTIRE_dec_correct`, `EMPTY_dec_correct` and `NAI_dec_correct` in `ConstTight.v` show that the other three constants of `DecInterval` are decorated as IEEE 1788 asks:
+
+```coq
+Theorem ENTIRE_dec_correct :
+  dec DecInterval.ENTIRE = Dac /\ forall c, strongest0 Dac c (itv DecInterval.ENTIRE).
+
+Theorem EMPTY_dec_correct : dec DecInterval.EMPTY = Trv.
+
+Theorem NAI_dec_correct : dec DecInterval.NAI = Ill.
+```
+
+§12.12.1 of the draft P1788/D9.5 asks the decorated versions of `empty()` and `entire()` to return the empty set decorated `trv` and `[-∞, +∞]` decorated `dac`, and its §12.5.1 identifies NaI with the empty set decorated `ill`. `dac` is the strongest decoration of the constant function `c()` whose computed interval is `ENTIRE`, for every `c`, as `com` asks for a bounded computed interval.
+
 [`Valid.v`](theories/Valid.v) shows that the hypothesis `valid` of the theorems above holds for every interval that is made by the library's constructors, or computed from such intervals by the operations proved here, any number of times:
 
 ```coq
@@ -879,7 +892,7 @@ On the way, the other files prove:
 - [`ParseHull.v`](theories/ParseHull.v): `bounds_tightest` above. `ninterval_ok_set`: an `NInterval` with `ninterval_ok` other than `NInterval::EMPTY` denotes some real. `lower_lane` and `upper_lane`: the converted bounds are the lanes of the least upper bounds of the negated reals and of the reals of the literal.
 - [`ParseExact.v`](theories/ParseExact.v): `try_from_ninterval_exact_correct` above. `lo_mem_exact` and `hi_mem_exact`: an exact bound rounded in its direction bounds the same reals as the bound itself.
 - [`ParseDec.v`](theories/ParseDec.v): the theorems above. `dn_new_ok`: `DecNInterval::new` of an `NInterval` with `ninterval_ok` has `dec_ninterval_ok`. `from_dec_ninterval_set_dec`: what `From<DecNInterval>` returns for any `x` with `ninterval_ok (nx x)`, with the decoration as `set_dec` gives it. `from_dec_ninterval_not_common`: for a literal with `ninterval_ok` whose bounds are both rationals and a decoration other than `ill`, the result is not common exactly when the conversion of a bound overflowed. `nis_common_bounded`: a literal whose bounds are both rationals denotes a bounded set. `overflow_not_common`: if a bound overflowed, the interval that `From<DecNInterval>` passes to `set_dec` is not common, for any MPFR.
-- [`ConstTight.v`](theories/ConstTight.v): `const_tightest`, `const_tightest_Q`, `com_strongest0` and `const_strongest0` above. `B2Q_correct`: `B2Q x`, which is `m * 2^e` for a finite float `x` and 0 otherwise, has the real value of `x` that `B2R` gives.
+- [`ConstTight.v`](theories/ConstTight.v): `const_tightest`, `const_tightest_Q`, `com_strongest0`, `const_strongest0`, `ENTIRE_dec_correct`, `EMPTY_dec_correct` and `NAI_dec_correct` above. `B2Q_correct`: `B2Q x`, which is `m * 2^e` for a finite float `x` and 0 otherwise, has the real value of `x` that `B2R` gives.
 - [`ExpSeries.v`](theories/ExpSeries.v): `exp_Q_bounds` above. `exp_alt_bounds`: for `0 <= x <= 1`, the partial sums of `Σ (-1)^n x^n / n!` with an even number of terms bound `exp(-x)` below, and those with an odd number above. `es_sumQ_R`: `es_sumQ` computes these partial sums for a rational `x`.
 - [`ConstPi.v`](theories/ConstPi.v), [`ConstInv.v`](theories/ConstInv.v), [`ConstLn.v`](theories/ConstLn.v) and [`ConstLog.v`](theories/ConstLog.v): the theorems above, with `const_tightest_sqrt`, `LN_2_Q` and `LN_10_Q`.
 
