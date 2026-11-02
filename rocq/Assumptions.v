@@ -334,6 +334,10 @@ Print Assumptions mpfr_ok_default.
 (** The names whose types quantify over an MPFR anywhere, and those of
     them that [Valid.v] declares, for the check of [MpfrExamples.v] in the
     [Makefile]. They are searched here, as this file imports every module
-    whose theorems it prints, so that [Search] gives their short names. *)
+    whose theorems it prints, so that [Search] gives their short names.
+    By default, [Search] hides the names whose qualified name contains
+    [Private_], [_subproof] or [_subterm], such as those of the lemmas
+    that [abstract] makes. The first line below has it show them too. *)
+Remove Search Blacklist "Private_" "_subproof" "_subterm".
 Redirect "MpfrSearch" Search (forall _ : Model.mpfr, _).
 Redirect "MpfrSearchValid" Search (forall _ : Model.mpfr, _) inside Valid.
