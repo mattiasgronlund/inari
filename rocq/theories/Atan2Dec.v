@@ -1,6 +1,6 @@
 (** * The decorations of [Interval::atan2_impl]
 
-    What [dec_holds] of [Dom2.v] asks of each decoration that
+    What [dec_holds] of [DecBinary.v] asks of each decoration that
     [Interval::atan2_impl] returns, from where the box [y × x] lies
     ([y] the interval of [y] coordinates, [x] that of [x] coordinates):
     - [trv] ([ad_trv], [ad_empty]): the box contains [(0, 0)], which is
@@ -18,7 +18,7 @@
       ([Ratan2_not_cont_in2]). *)
 
 From Stdlib Require Import Reals Lra Classical_Prop.
-From Inari Require Import Model Ieee1788 Elementary AtanReal Dom2.
+From Inari Require Import Model Ieee1788 Elementary AtanReal DecBinary Dom2.
 
 Open Scope R_scope.
 

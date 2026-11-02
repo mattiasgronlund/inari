@@ -120,17 +120,6 @@ intros s u v
   destruct Hk as ((r & Hr) & _ & Hks & _); destruct (Hs r (Hks r Hr)).
 Qed.
 
-(** [set_dec] keeps a valid interval if the decoration is not [ill], as an
-    empty valid interval is [EMPTY]. *)
-Lemma itv_set_dec :
-  forall w e, valid w -> e <> Ill -> itv (DecInterval.set_dec w e) = w.
-Proof.
-intros w e Hw He. unfold DecInterval.set_dec.
-destruct (dec_eqb e Ill) eqn:E; [destruct e; [now elim He | discriminate E ..]|].
-destruct (Interval.is_empty w) eqn:Ew; [exact (eq_sym (valid_empty_eq w Hw Ew))|].
-destruct (dec_eqb e Com && negb (Interval.is_common_interval w)); reflexivity.
-Qed.
-
 Lemma dec_set_dec_Trv : forall w, dec (DecInterval.set_dec w Trv) = Trv.
 Proof.
 intros w. unfold DecInterval.set_dec. destruct (Interval.is_empty w); reflexivity.

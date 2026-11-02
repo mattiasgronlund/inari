@@ -322,7 +322,8 @@ Definition strongest2_dom (D1 D2 : R -> Prop) (d : Decoration) (f : R -> R -> R)
     R² without [(0, 0)]. Here the domain is any set [D] of points of R²,
     [D r t] saying that [(r, t)] is in it. [Dom2.v] shows that for a
     product [D1 × D2] the definitions below are [image2_dom], [p2_dom] and
-    [strongest2_dom], and for all of R² [image2], [p2] and [strongest2]. *)
+    [strongest2_dom], and [DecBinary.v] that for all of R² they are
+    [image2], [p2] and [strongest2]. *)
 
 (** The image of the box [x × y] under [f] defined on [D]: the values of
     [f] at the points of the box that are in [D]. *)

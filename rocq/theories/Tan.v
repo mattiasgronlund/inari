@@ -32,7 +32,7 @@ From Stdlib Require Import ZArith Reals Lra Lia QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr ComCommon Integer Encoding
   Decompose PiBounds TrigPieces TrigReduce TrigBranch TrigQuad TrigCount TrigCert
-  DecBinary MonoInc Sqrt.
+  DecBinary MonoInc Sqrt ElemDec.
 
 Open Scope R_scope.
 
@@ -204,7 +204,6 @@ Qed.
 (** What [tn_impl] says of a result [(y, e)] for [x]. *)
 Definition tn_spec (x y : Interval) (e : Decoration) : Prop :=
   encloses (image_dom tan_dom tan x) y /\
-  ((forall r, ~ mem r x) -> Interval.is_empty y = true) /\
   (e = Trv \/ (e = Com /\ (forall r, mem r x -> tan_dom r) /\ bounded (fun r => mem r x))) /\
   is_tightest (image_dom tan_dom tan x) y /\
   (e = Trv -> ~ ((exists r, mem r x) /\ forall r, mem r x -> tan_dom r)).
@@ -219,9 +218,6 @@ Lemma tn_res_com :
 Proof.
 intros x y Hf HD Ht.
 split; [exact (conj (proj1 Ht) (proj1 (proj2 Ht)))|].
-split.
-{ intros N. destruct (nonempty_mem x (proj1 Hf) (proj1 (proj2 Hf))) as (r & Hr).
-  destruct (N r Hr). }
 split; [right; split; [reflexivity|]; split; [exact HD | exact (tn_bounded x Hf)]|].
 split; [exact Ht | intros E; discriminate E].
 Qed.
@@ -234,8 +230,6 @@ Lemma tn_res_entire :
 Proof.
 intros x Hx Hn (Ht & ND).
 split; [apply br_entire_encl|].
-split.
-{ intros N. destruct (nonempty_mem x Hx Hn) as (r & Hr). destruct (N r Hr). }
 split; [left; reflexivity|].
 split; [exact Ht|].
 intros _ (_ & HD). exact (ND HD).
@@ -412,10 +406,10 @@ destruct (Z.even ka) eqn:Ev; cbn [andb orb negb]; rewrite ?Bool.orb_false_r.
 Qed.
 
 (** What the theorems need of [Interval::tan_impl]: it returns [(y, e)]
-    with [y] the tightest enclosure, empty for an empty [x]; [e] is [trv],
-    or [com] for a bounded [x] in the domain, and [trv] only if [x] is
-    empty or holds a pole. A singleton gives the [com] form
-    ([tn_single]), and an unbounded [x] [[-inf, +inf]] ([tn_unb_wide]).
+    with [y] the tightest enclosure; [e] is [trv], or [com] for a bounded
+    [x] in the domain, and [trv] only if [x] is empty or holds a pole. A
+    singleton gives the [com] form ([tn_single]), and an unbounded [x]
+    [[-inf, +inf]] ([tn_unb_wide]).
     Otherwise the [(q, n)] of the floors [qa] and [qb] are kept when
     [n = 0], when [b - a] rounds to at least 4, so [x] is more than [PI]
     wide ([tn_sub_wide]), and when they are exact ([floors_exact_ok]);
@@ -425,7 +419,6 @@ Lemma tn_impl :
   forall x, valid x ->
   exists y e, Interval.tan_impl m has_fma x = Some (y, e) /\
   encloses (image_dom tan_dom tan x) y /\
-  ((forall r, ~ mem r x) -> Interval.is_empty y = true) /\
   (e = Trv \/ (e = Com /\ (forall r, mem r x -> tan_dom r) /\ bounded (fun r => mem r x))) /\
   is_tightest (image_dom tan_dom tan x) y /\
   (e = Trv -> ~ ((exists r, mem r x) /\ forall r, mem r x -> tan_dom r)).
@@ -436,7 +429,6 @@ destruct (Interval.is_empty x) eqn:Hn.
   exists x, Trv. unfold Interval.tan_impl. rewrite Hn. split; [reflexivity|].
   assert (Nm : forall r, ~ mem r x) by (intros r; exact (mem_empty x r Hx Hn)).
   split; [split; [exact Hx | intros s (r & Hr & _); destruct (Nm r Hr)]|].
-  split; [intros _; reflexivity|].
   split; [left; reflexivity|].
   split.
   - split; [exact Hx|]. split; [intros s (r & Hr & _); destruct (Nm r Hr)|].
@@ -589,7 +581,7 @@ Theorem tan_correct :
 Proof.
 intros emin emax m has_fma x Hrange Hget Htan Hs Hc Hx.
 destruct (tn_impl emin emax m has_fma Hrange Hget Htan Hs Hc x Hx)
-  as (y & e & Ei & _ & _ & _ & Ht & _).
+  as (y & e & Ei & _ & _ & Ht & _).
 exists y. unfold Interval.tan. rewrite Ei. split; [reflexivity | exact Ht].
 Qed.
 
@@ -606,7 +598,7 @@ Theorem dec_tan_correct :
 Proof.
 intros emin emax m has_fma x Hrange Hget Htan Hs Hc Hx.
 destruct (tn_impl emin emax m has_fma Hrange Hget Htan Hs Hc (itv x) Hx)
-  as (y & e & Ei & Henc & Hemp & He & Ht1 & Ht2).
+  as (y & e & Ei & _ & He & Ht1 & Ht2).
 unfold DecInterval.tan. rewrite Ei. eexists. split; [reflexivity|]. cbn [fst snd].
 destruct (DecInterval.is_nai x) eqn:Enai.
 - (* NaI: [dec_min] keeps [ill], and [set_dec] returns NaI. *)
@@ -615,14 +607,13 @@ destruct (DecInterval.is_nai x) eqn:Enai.
   { intros E. unfold DecInterval.is_nai in Enai. rewrite E in Enai. discriminate Enai. }
   (* [tan] is continuous on its domain, and [e] is [trv], or [com] for a
      bounded [x] in the domain. *)
-  assert (He' : e = Trv \/
+  assert (He' :
+    (e = Trv /\ ~ ((exists r, mem r (itv x)) /\ forall r, mem r (itv x) -> tan_dom r)) \/
     (e = Com /\ (forall r, mem r (itv x) -> tan_dom r) /\
      (dec x = Com -> Interval.is_common_interval y = true ->
       bounded (fun r => mem r (itv x))))).
-  { destruct He as [E|(E & HD & Hb)]; [left; exact E|].
+  { destruct He as [E|(E & HD & Hb)]; [left; split; [exact E | exact (Ht2 E)]|].
     right. split; [exact E|]. split; [exact HD | intros _ _; exact Hb]. }
-  pose proof (trig_set_dec_correct tan_dom tan x y e Hx Hd Henc Hemp
-    (fun r _ Hr => continuity_pt_continue_in tan tan_dom r (tan_dom_cont r Hr)) He')
-    as (_ & H2 & _ & H4).
-  split; [exact (H2 Ht1) | exact (H4 Ht2)].
+  exact (elem_set_dec_trv_com tan_dom tan x y e Hx Hd Ht1
+    (fun r _ Hr => continuity_pt_continue_in tan tan_dom r (tan_dom_cont r Hr)) He').
 Qed.

@@ -9,14 +9,12 @@
     when each form encloses the image of [x] ([br_*_encl]) and when it is
     the tightest interval that does ([br_*_tight]); the forms around a
     maximum or a minimum are for [sin] and [cos], so they assume that [f]
-    is in [[-1, 1]]. And, in
-    [trig_set_dec_correct], what [set_dec] makes of an enclosure, as
-    [elem_set_dec_correct] in [ElemDec.v] does of a tightest interval. *)
+    is in [[-1, 1]]. *)
 
 From Stdlib Require Import ZArith Reals Lra Classical_Prop.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr Integer DecBinary
-  MpfrRound ElemDec.
+  MpfrRound.
 From Inari Require Import Sign MaxMin AddSub MulTight DivTight Sqrt MonoInc Cosh.
 
 Open Scope R_scope.
@@ -185,20 +183,6 @@ split; [left; rewrite is_finite_opp; exact Fm|]. rewrite (Fo _ Fm), Em. split.
   assert (- B2R z <= Rmin (B2R w) (B2R w')).
   { apply le_Rmin_iff. split; [pose proof (M1 ltac:(lra)) | pose proof (M2 ltac:(lra))]; lra. }
   lra.
-Qed.
-
-(** [itv (set_dec z d)] is [z] for a decoration other than [ill]: [z]
-    itself, or [EMPTY] when [z] is empty, which then is [z]. *)
-Lemma tb_set_dec_itv :
-  forall z d, valid z -> d <> Ill -> itv (DecInterval.set_dec z d) = z.
-Proof.
-intros z d Hz Hd. destruct (Interval.is_empty z) eqn:E.
-- rewrite (set_dec_empty_any z d E Hd). cbn [itv DecInterval.EMPTY].
-  symmetry. exact (valid_empty_eq z Hz E).
-- unfold DecInterval.set_dec. rewrite E.
-  destruct d; try congruence; cbn [dec_eqb discriminant Z.eqb negb andb];
-    try reflexivity.
-  destruct (Interval.is_common_interval z); reflexivity.
 Qed.
 
 (** ** Forms that need no MPFR *)
@@ -533,106 +517,3 @@ apply tightest_lanes_lub.
 Qed.
 
 End Branch.
-
-(** ** Decorations
-
-    [set_dec z (dec_min (dec x) e)] for an enclosure [z] and a decoration
-    [e] that is [trv], or [com] for an [x] in the domain: the result
-    encloses the image, is tightest if [z] is, and its decoration holds;
-    it is the strongest unless [e] is [trv] for a nonempty [x] in the
-    domain, which [tan] returns when its reduction is not exact. *)
-Theorem trig_set_dec_correct :
-  forall D f x z e,
-  valid (itv x) -> dec x <> Ill ->
-  encloses (image_dom D f (itv x)) z ->
-  ((forall r, ~ mem r (itv x)) -> Interval.is_empty z = true) ->
-  (forall r, mem r (itv x) -> D r -> continue_in f D r) ->
-  e = Trv \/
-  (e = Com /\ (forall r, mem r (itv x) -> D r) /\
-   (dec x = Com -> Interval.is_common_interval z = true ->
-    bounded (fun r => mem r (itv x)))) ->
-  let y := DecInterval.set_dec z (dec_min (dec x) e) in
-  encloses (image_dom D f (itv x)) (itv y) /\
-  (is_tightest (image_dom D f (itv x)) z -> is_tightest (image_dom D f (itv x)) (itv y)) /\
-  (exists d, p_dom D d f (itv x) (itv y) /\ dec y = dec_min d (dec x)) /\
-  ((e = Trv -> ~ ((exists r, mem r (itv x)) /\ forall r, mem r (itv x) -> D r)) ->
-   exists d, strongest_dom D d f (itv x) (itv y) /\ dec y = dec_min d (dec x)).
-Proof.
-intros D f x z e Hx Hd He Hemp Hc He'. cbv zeta.
-pose proof (proj1 He) as Hz.
-assert (Hde : dec_min (dec x) e <> Ill).
-{ apply dec_min_not_Ill; [exact Hd|]. destruct He' as [-> | (-> & _)]; discriminate. }
-(* [set_dec] keeps the interval [z], so enclosure and tightness carry
-   over. *)
-rewrite (tb_set_dec_itv z _ Hz Hde).
-split; [exact He|]. split; [intros Ht; exact Ht|].
-destruct He' as [Ee | (Ee & HD & Hb)]; subst e.
-- (* [e = trv]: [set_dec] keeps [trv] for any [z], which always holds, and
-     is the strongest if not even [def] holds. *)
-  rewrite (ed_dec_min_Trv_r _ Hd).
-  assert (Edy : dec (DecInterval.set_dec z Trv) = Trv).
-  { destruct (Interval.is_empty z) eqn:Ez0.
-    - rewrite (set_dec_empty_any z Trv Ez0 ltac:(discriminate)). reflexivity.
-    - rewrite (set_dec_keep z Trv Ez0 ltac:(discriminate) ltac:(intros E; discriminate E)).
-      reflexivity. }
-  rewrite Edy.
-  assert (E1 : Trv = dec_min Trv (dec x)) by (symmetry; now apply dec_min_Trv_l).
-  split.
-  + exists Trv. split; [exact I | exact E1].
-  + intros Hnd. exists Trv. split; [apply strongest_dom_Trv; exact (Hnd eq_refl) | exact E1].
-- (* [e = com]: [x] is a subset of [D], and [set_dec] gets [dec x]. The
-     strongest decoration is found as in [elem_set_dec_correct]. *)
-  rewrite dec_min_Com_r.
-  assert (Hs : exists d, strongest_dom D d f (itv x) z /\
-                 dec (DecInterval.set_dec z (dec x)) = dec_min d (dec x)).
-  { destruct (Interval.is_empty z) eqn:Ez0.
-    - (* [z] is empty, so [x] has no real, as [f] maps one into [z]. *)
-      rewrite (set_dec_empty_any z (dec x) Ez0 Hd). cbn [dec DecInterval.EMPTY].
-      exists Trv. split; [|symmetry; now apply dec_min_Trv_l].
-      apply strongest_dom_Trv. intros ((r & Hr) & _).
-      apply (mem_empty z (f r) Hz Ez0). apply (proj2 He).
-      exists r. split; [exact Hr|]. split; [exact (HD r Hr) | reflexivity].
-    - (* [z] is nonempty, so [x] is, and [dac] holds: [f] is continuous
-         relative to [D], so relative to [x]. *)
-      assert (Nx : exists r, mem r (itv x)).
-      { destruct (Interval.is_empty (itv x)) eqn:Ex;
-          [|exact (nonempty_mem _ Hx Ex)].
-        (* [destruct] has replaced [Interval.is_empty z] by [false] in
-           [Hemp]. *)
-        discriminate (Hemp (fun r Hr => mem_empty _ r Hx Ex Hr)). }
-      assert (Hdac : p_dom D Dac f (itv x) z).
-      { cbn [p_dom]. split; [exact Nx|]. split; [exact HD|].
-        intros r Hr. exact (ed_continue_in_sub f D _ r (Hc r Hr (HD r Hr)) HD). }
-      destruct (classic (dec x = Com)) as [Edx|Ndx].
-      + (* [x] is [com]: [com] holds if [z] is common, as [x] is then
-           bounded, and otherwise [z] is unbounded, and [set_dec] lowers
-           [com] to [dac]. *)
-        rewrite Edx. destruct (Interval.is_common_interval z) eqn:Cz.
-        * rewrite (set_dec_keep z Com Ez0 ltac:(discriminate) (fun _ => Cz)).
-          cbn [dec DecInterval.new_unchecked].
-          exists Com. split; [|reflexivity].
-          apply strongest_dom_Com. cbn [p_dom].
-          split; [exact Nx|]. split; [exact HD|].
-          split; [exact (Hb Edx eq_refl)|].
-          split; [intros r Hr; exact (Hc r Hr (HD r Hr))|].
-          exact (common_bounded z Cz).
-        * rewrite (set_dec_lower z Com Ez0 Cz ltac:(discriminate)).
-          cbn [dec DecInterval.new_unchecked].
-          exists Dac. split; [|reflexivity].
-          apply strongest_dom_Dac; [exact Hdac|].
-          intros (_ & _ & _ & _ & Bz).
-          rewrite (bounded_common z Hz Ez0 Bz) in Cz. discriminate Cz.
-      + (* [x] is not [com]: [set_dec] keeps [dec x], which is
-           [dec_min d (dec x)] for [d] either [com] or [dac]. *)
-        rewrite (set_dec_keep z (dec x) Ez0 Hd (fun E => False_ind _ (Ndx E))).
-        cbn [dec DecInterval.new_unchecked].
-        destruct (classic (p_dom D Com f (itv x) z)) as [Pc|Pc].
-        * exists Com.
-          split; [now apply strongest_dom_Com | symmetry; apply dec_min_Com_l].
-        * exists Dac.
-          split; [now apply strongest_dom_Dac|].
-          symmetry. now apply dec_min_Dac_l. }
-  destruct Hs as (d & Hsd & Ed).
-  split; [exists d; split; [exact (proj1 Hsd) | exact Ed]|].
-  intros _. exists d. split; [exact Hsd | exact Ed].
-Qed.

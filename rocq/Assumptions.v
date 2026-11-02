@@ -8,14 +8,15 @@
     which is printed here too. At the end, two [Search]es write the names
     from which [make] takes those that must have an [Example] there. *)
 
-From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu
-  AddOdd EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign
-  Abs MaxMin DecBinary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
-  MulRevSets MulRev CancelSpec Cancel MpfrRound ClosedDom Elem Atanh Cosh PiBounds
-  PiIrrational TrigQuad TrigCount TrigCert Cos Sin Tan Dom2 Pow Powi AtanReal PiTight
-  Atan2 ParseFormat ParseRound ParseHull ParseExact ParseDec ConstTight ConstPi ConstInv
-  ConstLn ConstLog ValidMake ValidSetOp ValidOps ValidDecOps ValidElem Valid
-  MpfrIdeal IdealRound IdealGetD IdealParse IdealElem IdealPow IdealAtan2 MpfrConsistent.
+From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu AddOdd
+  EmulatedFma MulAddRuSlow MulAddRu Integer RoundTiesEven Trunc Round Sign Abs MaxMin
+  DecBinary DecTernary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
+  MulRevSets MulRev CancelSpec Cancel MpfrRound ElemDec ClosedDom Elem Atanh Cosh
+  PiBounds PiIrrational TrigQuad TrigCount TrigCert Cos Sin Tan Dom2 Pow Powi AtanReal
+  PiTight Atan2 ParseFormat ParseRound ParseHull ParseExact ParseDec ConstTight
+  ConstPi ConstInv ConstLn ConstLog ValidMake ValidSetOp ValidOps ValidDecOps
+  ValidElem Valid MpfrIdeal IdealRound IdealGetD IdealParse IdealElem IdealPow
+  IdealAtan2 MpfrConsistent.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -146,6 +147,8 @@ Print Assumptions p2_set_all.
 Print Assumptions strongest2_set_all.
 Print Assumptions elem2_set_dec_correct.
 Print Assumptions elem_dec2_impl_correct.
+Print Assumptions elem_set_dec_correct.
+Print Assumptions set_dec_correct3.
 Print Assumptions pow_correct.
 Print Assumptions dec_pow_correct.
 Print Assumptions powi_correct.

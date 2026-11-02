@@ -799,7 +799,7 @@ destruct (DecInterval.is_nai x) eqn:Hn.
   destruct p as [z' []]; reflexivity.
 - assert (Hdx : dec x <> Ill).
   { intros E. unfold DecInterval.is_nai in Hn. rewrite E in Hn. discriminate Hn. }
-  refine (elem_set_dec_correct (pown_dom n) (fun r => powerRZ r n) x (fst p) (snd p)
+  refine (elem_set_dec_trv_com (pown_dom n) (fun r => powerRZ r n) x (fst p) (snd p)
     Hx Hdx Ht _ _).
   + intros r _ Hd'. exact (continuity_pt_continue_in _ _ r (pown_cont n r Hd')).
   + (* A [com] [x] is bounded if the result is common: for [n > 0] by

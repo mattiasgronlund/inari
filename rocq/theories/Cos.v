@@ -601,7 +601,6 @@ Theorem dec_cos_correct :
 Proof.
 intros emin emax m has_fma first x Hrange Hget Hc Hs Hx Hcc.
 destruct (cs_main emin emax m has_fma first (itv x) Hrange Hget Hc Hs Hx) as (y & Ey & Ht).
-pose proof (cs_tight_encl _ _ Ht) as He.
 unfold DecInterval.cos. rewrite Ey. cbv beta iota.
 exists (DecInterval.set_dec y (dec x)). split; [reflexivity|].
 destruct (DecInterval.is_nai x) eqn:Enai.
@@ -611,20 +610,11 @@ destruct (DecInterval.is_nai x) eqn:Enai.
 - assert (Hd : dec x <> Ill).
   { intros E. unfold DecInterval.is_nai in Enai. rewrite E in Enai.
     vm_compute in Enai. discriminate Enai. }
-  (* An empty [x] is returned as it is. *)
-  assert (Hempty : (forall r, ~ mem r (itv x)) -> Interval.is_empty y = true).
-  { intros Hno. destruct (Interval.is_empty (itv x)) eqn:Ex.
-    - unfold Interval.cos in Ey. rewrite Ex in Ey. cbv beta iota in Ey.
-      injection Ey as E'. rewrite <- E'. exact Ex.
-    - destruct (nonempty_mem _ Hx Ex) as (r & Hr). destruct (Hno r Hr). }
   (* [cos] is continuous and defined everywhere, so [e = com]; a [com]
      [x] is common ([com_common]), so bounded. *)
-  pose proof (trig_set_dec_correct real_dom cos x y Com Hx Hd He Hempty
+  pose proof (elem_set_dec_trv_com real_dom cos x y Com Hx Hd Ht
     (fun r _ _ => continuity_pt_continue_in cos real_dom r (continuity_cos r))
     (or_intror (conj eq_refl (conj (fun r _ => I)
       (fun Ed _ => common_bounded _ (Hcc Ed)))))) as T.
-  cbv zeta in T. rewrite dec_min_Com_r in T.
-  destruct T as (_ & T2 & _ & T4).
-  split; [exact (T2 Ht)|].
-  apply T4. intros E. discriminate E.
+  cbv zeta in T. rewrite dec_min_Com_r in T. exact T.
 Qed.

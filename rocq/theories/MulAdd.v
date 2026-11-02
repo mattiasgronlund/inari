@@ -17,15 +17,16 @@
     [MulAddMRow.v], and [mul_add_NN], [mul_add_NP], [mul_add_PN] and
     [mul_add_PP] in [MulAddNP.v].
 
-    [Rfma] is continuous on R³ ([Rfma_continuous]), so
-    [set_dec_correct3] in [DecTernary.v] gives the decorations, if [e] is
-    [com] only when a nonempty box with a bounded image is bounded. As for
-    [*], [[0, 0] × [1, +inf] × [1, 2]] has the bounded image [[1, 2]], so
-    [dec_mul_add_correct] assumes [com_common] of [x] and [y], which
-    [ComCommon.v] shows of every [DecInterval] that the library makes. It
-    needs nothing of [z]: for [r] in [x] and [t] in [y], every [u] in [z]
-    has [|u| <= |r * t + u| + |r * t|], so [z] is bounded if the image is
-    ([fma_addend_bounded]). *)
+    [Rfma] is continuous on R³ ([Rfma_continuous]), so the decoration that
+    [dec_holds3] describes is [com] for a nonempty box, and [trv] for an
+    empty one, and [set_dec_correct3] in [DecTernary.v] gives the
+    decorations, if a box of three [com] intervals is bounded when the
+    result is common. As for [*], [[0, 0] × [1, +inf] × [1, 2]] has the
+    bounded image [[1, 2]], so [dec_mul_add_correct] assumes [com_common]
+    of [x] and [y], which [ComCommon.v] shows of every [DecInterval] that
+    the library makes. It needs nothing of [z]: for [r] in [x] and [t] in
+    [y], every [u] in [z] has [|u| <= |r * t + u| + |r * t|], so [z] is
+    bounded if the image is ([fma_addend_bounded]). *)
 
 From Stdlib Require Import Reals Lra.
 From Inari Require Import Model Ieee1788 ComCommon DecBinary DecTernary Abs Mul
@@ -135,28 +136,69 @@ destruct (DecInterval.is_nai x || DecInterval.is_nai y || DecInterval.is_nai z)
 apply Bool.orb_false_iff in N. destruct N as [Nxy Nz].
 apply Bool.orb_false_iff in Nxy. destruct Nxy as [Nx Ny].
 unfold DecInterval.is_nai in Nx, Ny, Nz.
+assert (Hdx : dec x <> Ill) by (intros E; rewrite E in Nx; discriminate).
+assert (Hdy : dec y <> Ill) by (intros E; rewrite E in Ny; discriminate).
+assert (Hdz : dec z <> Ill) by (intros E; rewrite E in Nz; discriminate).
 assert (He : dec_min (dec x) (dec_min (dec y) (dec z)) <> Ill).
-{ apply dec_min_not_Ill; [|apply dec_min_not_Ill]; intros E;
-    [rewrite E in Nx | rewrite E in Ny | rewrite E in Nz]; discriminate. }
+{ apply dec_min_not_Ill; [exact Hdx|]. apply dec_min_not_Ill; assumption. }
 destruct (mul_add_correct has_fma _ _ _ Hx Hy Hz) as (w & -> & Hw).
 cbv beta iota.
 exists (DecInterval.set_dec w (dec_min (dec x) (dec_min (dec y) (dec z)))).
 split; [reflexivity|].
-(* The minimum is [com] only if all three decorations are, and then [x]
-   and [y] are common, so bounded, and [z] is bounded as the image is. *)
-assert (Hc : dec_min (dec x) (dec_min (dec y) (dec z)) = Com ->
-             (exists r, mem r (itv x)) -> (exists t, mem t (itv y)) ->
-             (exists u, mem u (itv z)) ->
-             bounded (image3 Rfma (itv x) (itv y) (itv z)) ->
-             bounded (fun r => mem r (itv x)) /\
-             bounded (fun t => mem t (itv y)) /\
-             bounded (fun u => mem u (itv z))).
-{ intros E Ex Ey _ B. apply dec_min_Com in E. destruct E as [Cx E].
-  apply dec_min_Com in E. destruct E as [Cy _].
-  split; [apply common_bounded, Hcx; exact Cx|].
-  split; [apply common_bounded, Hcy; exact Cy|].
-  exact (fma_addend_bounded _ _ _ Ex Ey B). }
-destruct (set_dec_correct3 Rfma Rfma_continuous _ _ _ w _ Hx Hy Hz He Hw Hc)
-  as (E & d & Hd & Ed).
-rewrite E. split; [exact Hw|]. exists d. split; [exact Hd | exact Ed].
+(* [set_dec_correct3] applies with the decoration [e] that [dec_holds3]
+   describes: [trv] for an empty box, and otherwise [com], as [Rfma] is
+   continuous. Either way, [set_dec] gets the same interval as with the
+   minimum of the decorations of [x], [y] and [z]. *)
+assert (Hdec :
+  exists e, dec_holds3 Rfma (itv x) (itv y) (itv z) w e /\
+    (e = Com -> dec x = Com -> dec y = Com -> dec z = Com ->
+     Interval.is_common_interval w = true ->
+     bounded (fun r => mem r (itv x)) /\ bounded (fun t => mem t (itv y)) /\
+     bounded (fun u => mem u (itv z))) /\
+    DecInterval.set_dec w (dec_min (dec x) (dec_min (dec y) (dec_min (dec z) e))) =
+    DecInterval.set_dec w (dec_min (dec x) (dec_min (dec y) (dec z)))).
+{ destruct (Interval.is_empty (itv x) || Interval.is_empty (itv y) ||
+            Interval.is_empty (itv z)) eqn:Ee.
+  - (* An empty box: [def] does not hold, and the image and so [w] are
+       empty, which [set_dec] makes [EMPTY] for any decoration. *)
+    assert (Hn : (forall r, ~ mem r (itv x)) \/ (forall t, ~ mem t (itv y)) \/
+                 (forall u, ~ mem u (itv z))).
+    { apply Bool.orb_true_iff in Ee. destruct Ee as [Exy|Ez].
+      - apply Bool.orb_true_iff in Exy. destruct Exy as [Ex|Ey].
+        + left. intros r. exact (mem_empty _ r Hx Ex).
+        + right; left. intros t. exact (mem_empty _ t Hy Ey).
+      - right; right. intros u. exact (mem_empty _ u Hz Ez). }
+    assert (Ew : Interval.is_empty w = true).
+    { apply (no_mem_empty w (proj1 Hw)).
+      exact (tightest_no_mem _ w Hw (image3_empty Rfma _ _ _ Hn)). }
+    exists Trv. split; [|split].
+    + cbn [dec_holds3]. intros ((r & Hr) & (t & Ht) & (u & Hu)).
+      destruct Hn as [Hn|[Hn|Hn]]; [exact (Hn r Hr) | exact (Hn t Ht) | exact (Hn u Hu)].
+    + intros E. discriminate E.
+    + rewrite (dec_min_Trv_r _ Hdz), (dec_min_Trv_r _ Hdy), (dec_min_Trv_r _ Hdx).
+      rewrite (set_dec_empty_any w Trv Ew ltac:(discriminate)).
+      rewrite (set_dec_empty_any w _ Ew He). reflexivity.
+  - (* A nonempty box: [dac] holds and [Rfma] is continuous, so the
+       decoration is [com]. The minimum is [com] only if all three
+       decorations are, and then [x] and [y] are common, so bounded, and
+       [z] is bounded as the image, which is in the common [w], is. *)
+    apply Bool.orb_false_iff in Ee. destruct Ee as [Exy Ez].
+    apply Bool.orb_false_iff in Exy. destruct Exy as [Ex Ey].
+    pose proof (nonempty_mem _ Hx Ex) as Mx.
+    pose proof (nonempty_mem _ Hy Ey) as My.
+    pose proof (nonempty_mem _ Hz Ez) as Mz.
+    exists Com. split; [|split].
+    + cbn [dec_holds3].
+      split; [exact (p3_Dac_continuous Rfma Rfma_continuous _ _ _ w Mx My Mz)|].
+      intros r t u _ _ _. exact (Rfma_continuous r t u).
+    + intros _ Cx Cy _ Cw.
+      split; [apply common_bounded, Hcx; exact Cx|].
+      split; [apply common_bounded, Hcy; exact Cy|].
+      apply (fma_addend_bounded _ _ _ Mx My).
+      destruct (common_bounded w Cw) as (m & Hm).
+      exists m. intros s Hs. exact (Hm s (proj1 (proj2 Hw) s Hs)).
+    + rewrite (dec_min_Com_r (dec z)). reflexivity. }
+destruct Hdec as (e & Hh & Hb & E).
+pose proof (set_dec_correct3 Rfma x y z w e Hx Hy Hz Hdx Hdy Hdz Hw Hh Hb) as H.
+cbv zeta in H. rewrite E in H. exact H.
 Qed.

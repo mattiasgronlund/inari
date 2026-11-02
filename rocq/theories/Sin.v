@@ -787,7 +787,7 @@ Theorem sin_correct :
 Proof. exact sn_main. Qed.
 
 (** [sin] is defined and continuous everywhere, so the decoration of [x]
-    is kept ([e = Com] in [trig_set_dec_correct]); a [com] [x] is
+    is kept ([e = Com] in [elem_set_dec_trv_com]); a [com] [x] is
     bounded by [com_common]. *)
 Theorem dec_sin_correct :
   forall emin emax m has_fma first x,
@@ -802,8 +802,6 @@ Theorem dec_sin_correct :
 Proof.
 intros emin emax m has_fma first x Hrange Hget Hs Hc Hx Hcc.
 destruct (sn_main emin emax m has_fma first (itv x) Hrange Hget Hs Hc Hx) as (y0 & Ey0 & Ht).
-assert (He : encloses (image_dom real_dom sin (itv x)) y0)
-  by (destruct Ht as (Hy & Hi & _); exact (conj Hy Hi)).
 exists (DecInterval.set_dec y0 (dec x)).
 split; [unfold DecInterval.sin; rewrite Ey0; reflexivity|].
 destruct (DecInterval.is_nai x) eqn:Hnai.
@@ -811,15 +809,8 @@ destruct (DecInterval.is_nai x) eqn:Hnai.
   unfold DecInterval.is_nai in Hnai. unfold DecInterval.set_dec. rewrite Hnai. reflexivity.
 - assert (Hdx : dec x <> Ill).
   { intros E. unfold DecInterval.is_nai in Hnai. rewrite E in Hnai. discriminate Hnai. }
-  assert (Hemp : (forall r, ~ mem r (itv x)) -> Interval.is_empty y0 = true).
-  { intros Hno. destruct (Interval.is_empty (itv x)) eqn:Hn.
-    - unfold Interval.sin in Ey0. rewrite Hn in Ey0. injection Ey0 as <-. exact Hn.
-    - destruct (nonempty_mem (itv x) Hx Hn) as (r & Hr). destruct (Hno r Hr). }
-  pose proof (trig_set_dec_correct real_dom sin x y0 Com Hx Hdx He Hemp
+  pose proof (elem_set_dec_trv_com real_dom sin x y0 Com Hx Hdx Ht
     (fun r _ _ => continuity_pt_continue_in sin real_dom r (continuity_sin r))
     (or_intror (conj eq_refl (conj (fun _ _ => I) (fun Hd _ => common_bounded _ (Hcc Hd))))))
-    as H. cbv zeta in H. rewrite dec_min_Com_r in H.
-  destruct H as (_ & H2 & _ & H4).
-  split; [exact (H2 Ht)|].
-  apply H4. intros E. discriminate E.
+    as H. cbv zeta in H. rewrite dec_min_Com_r in H. exact H.
 Qed.
