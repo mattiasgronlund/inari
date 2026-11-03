@@ -41,6 +41,8 @@ mod elementary;
 #[cfg(feature = "gmp")]
 mod format;
 mod integer;
+#[cfg(feature = "gmp")]
+mod mpfr_calls;
 mod numeric;
 mod overlap;
 #[cfg(feature = "gmp")]

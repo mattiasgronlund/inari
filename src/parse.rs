@@ -1,4 +1,4 @@
-use crate::{elementary::get_d, interval::*};
+use crate::{interval::*, mpfr_calls::round_rational};
 use gmp_mpfr_sys::{gmp, mpfr};
 use nom::{
     branch::alt,
@@ -8,7 +8,7 @@ use nom::{
     sequence::{delimited, pair, preceded, separated_pair, tuple},
     IResult,
 };
-use rug::{Float, Integer, Rational};
+use rug::{Integer, Rational};
 use std::{cmp::Ordering, result, str::FromStr};
 
 #[derive(Clone, Debug)]
@@ -563,60 +563,12 @@ const _: () = assert!(
      magnitude the wrong sign"
 );
 
-// `f()` at the exponent range of `rational_to_f64`, `emin = -1073` and `emax = 1024`: it saves
-// MPFR's exponent range, sets it to that one, calls `f` and restores it. `mpfr_tests` calls
-// it too, and `parse_ok` there checks the range during `f()` and after it.
-// `rocq/theories/Model.v` transcribes this function as part of `rational_to_f64`, so it has
-// to be updated along with it. The proof of `rational_to_f64` takes MPFR's exponent range to
-// stay as this function sets it until it restores it. No other thread can change it in
-// between where MPFR keeps it per thread, as the MPFR that `gmp-mpfr-sys` builds does, which
-// `range_per_thread` in `src/elementary/mpfr_tests.rs` tests. A system MPFR built without
-// thread-local storage, which the feature `use-system-libs` of `gmp-mpfr-sys` can link,
-// keeps it global instead, and fails that test.
-pub(crate) fn with_parse_range<T>(f: impl FnOnce() -> T) -> T {
-    let (orig_emin, orig_emax) = unsafe { (mpfr::get_emin(), mpfr::get_emax()) };
-    unsafe {
-        mpfr::set_emin((f64::MIN_EXP - (f64::MANTISSA_DIGITS as i32) + 1).into());
-        mpfr::set_emax(f64::MAX_EXP.into());
-    }
-    let x = f();
-    unsafe {
-        mpfr::set_emin(orig_emin);
-        mpfr::set_emax(orig_emax);
-    }
-    x
-}
-
-// The MPFR calls of `rational_to_f64`: `r` rounded in the direction `rnd` to an MPFR number
-// `f` of 53 bits with `mpfr::set_q`, then `f` set with `mpfr::subnormalize` to `r` rounded in
-// the same direction to the numbers that an `f64` holds, which have fewer than 53 bits below
-// `f64::MIN_POSITIVE`, and converted with `get_d`, all at the range that `with_parse_range`
-// sets. It returns `f`, the ternary value of `mpfr::subnormalize` and the `f64`.
-// `after_set_q` gets `f` and the ternary value after `mpfr::set_q`, for `parse_ok` in
-// `mpfr_tests`, which calls MPFR through this function. `rational_to_f64` passes one that
-// does nothing. `rocq/theories/Model.v` transcribes this function as part of
-// `rational_to_f64`, so it has to be updated along with it.
-pub(crate) fn round_rational(
-    r: &Rational,
-    rnd: mpfr::rnd_t,
-    after_set_q: impl FnOnce(&Float, i32),
-) -> (Float, i32, f64) {
-    let mut f = Float::new(f64::MANTISSA_DIGITS);
-    let (t, d) = with_parse_range(|| {
-        let t = unsafe { mpfr::set_q(f.as_raw_mut(), r.as_raw(), rnd) };
-        after_set_q(&f, t);
-        let t = unsafe { mpfr::subnormalize(f.as_raw_mut(), t, rnd) };
-        (t, get_d(&f, rnd))
-    });
-    (f, t, d)
-}
-
 // Proved correct in `rocq/theories/ParseRound.v` (`rational_to_f64_correct`), assuming what
 // `rocq/theories/Mpfr.v` says of `mpfr::set_q`, `mpfr::subnormalize` and `mpfr::get_d` at
-// the exponent range that `with_parse_range` sets (`parse_ok`): `f` is `r` rounded toward -∞
-// for `Inf` and toward +∞ for `Sup` to an `f64`, `inexact` is false exactly when `r` is the
-// value of a finite `f64`, and `overflow` is true exactly when `f` is infinite.
-// `rocq/theories/Model.v` transcribes this function, with `round_rational` and
+// the exponent range that `with_parse_range` in `src/mpfr_calls.rs` sets (`parse_ok`): `f` is
+// `r` rounded toward -∞ for `Inf` and toward +∞ for `Sup` to an `f64`, `inexact` is false
+// exactly when `r` is the value of a finite `f64`, and `overflow` is true exactly when `f` is
+// infinite. `rocq/theories/Model.v` transcribes this function, with `round_rational` and
 // `with_parse_range` inlined and the MPFR functions abstract, so it has to be updated along
 // with it.
 fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64 {

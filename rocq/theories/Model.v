@@ -837,8 +837,9 @@ Definition with_val (x : f64) : mpfr_t :=
   end.
 
 (** The MPFR functions that [src/elementary.rs] calls, each a function of
-    the rounding direction and of the argument: [mpfr_get_d], and
-    [mpfr_acos] and the others, of which [mpfr_log] is MPFR's [log].
+    the rounding direction and of the argument: [mpfr_get_d], through
+    [get_d] in [src/mpfr_calls.rs], and [mpfr_acos] and the others, of
+    which [mpfr_log] is MPFR's [log].
     [mpfr::f(x.as_raw_mut(), x.as_raw(), rnd)] sets the MPFR number [x] to
     [f rnd x], rounded to the 53 bits of [x], which is both the argument
     and the result. [mpfr_atan2] and [mpfr_pow] take a second MPFR number,
@@ -860,7 +861,7 @@ Definition with_val (x : f64) : mpfr_t :=
     [fst (mpfr_subnormalize emin emax rnd f t)] and returns
     [snd (mpfr_subnormalize emin emax rnd f t)]. Their first two arguments
     are MPFR's exponent range, [emin] and [emax], during the call, which
-    [with_parse_range] in [src/parse.rs] sets around them. The other
+    [with_parse_range] in [src/mpfr_calls.rs] sets around them. The other
     fields do not take it, as [src/elementary.rs] does not set it, and
     [Mpfr.v] states what it assumes of them for any range that contains
     that of [f64].
@@ -1291,10 +1292,11 @@ Definition f64_is_infinite (x : f64) : bool :=
   match x with B754_infinity _ => true | _ => false end.
 
 (** [fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64], with
-    [round_rational] and [with_parse_range] of [src/parse.rs] inlined. [f]
-    is [Float::new(f64::MANTISSA_DIGITS)], an MPFR number of 53 bits, which
-    [mpfr::set_q] sets before anything reads it on the targets that inari
-    compiles for with the feature [gmp] (see [set_q_ok] in [Mpfr.v]).
+    [round_rational] and [with_parse_range] of [src/mpfr_calls.rs]
+    inlined. [f] is [Float::new(f64::MANTISSA_DIGITS)], an MPFR number of
+    53 bits, which [mpfr::set_q] sets before anything reads it on the
+    targets that inari compiles for with the feature [gmp] (see [set_q_ok]
+    in [Mpfr.v]).
     [round_rational] calls [mpfr::set_q], [mpfr::subnormalize] and
     [get_d], which calls [mpfr::get_d], in a closure that it passes to
     [with_parse_range]. [with_parse_range] saves MPFR's exponent range,

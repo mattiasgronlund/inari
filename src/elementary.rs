@@ -1,24 +1,9 @@
-use crate::{classify::*, const_interval, interval::*};
+use crate::{classify::*, const_interval, interval::*, mpfr_calls::get_d};
 use gmp_mpfr_sys::mpfr::{
     self,
     rnd_t::{RNDD, RNDU},
 };
 use rug::Float;
-
-// `mpfr::get_d` of the MPFR number `x`, rounded in the direction `rnd`. The functions that
-// `mpfr_fn!`, `mpfr_fn2!` and `mpfr_fn_si!` define, and `round_rational` in `src/parse.rs`,
-// convert their results with it, and `mpfr_tests` tests it. `rocq/theories/Model.v`
-// transcribes it as `mpfr_get_d m rnd` in `mpfr_fn`, `mpfr_fn2`, `mpfr_fn_si` and
-// `rational_to_f64`, so it has to be updated along with them. `rocq/theories/Mpfr.v` states
-// what the proofs assume of `mpfr::get_d` (`get_d_ok`). A release build can put `get_d` and
-// `round_rational` in different codegen units. Without `#[inline]`, LLVM then first
-// optimizes the call seeing only a declaration of `get_d`, so it cannot tell that the call
-// does not unwind, and the functions that call `number_to_f64` while they hold an
-// `NInterval` keep a landing pad that drops the `NInterval`.
-#[inline]
-pub(crate) fn get_d(x: &Float, rnd: mpfr::rnd_t) -> f64 {
-    unsafe { mpfr::get_d(x.as_raw(), rnd) }
-}
 
 // `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn`
 // of an abstract MPFR function, for the proofs of the functions of this file in

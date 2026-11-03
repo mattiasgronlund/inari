@@ -1,9 +1,11 @@
 // Tests the linked MPFR against what `rocq/theories/Mpfr.v` assumes of it: the special
 // values of the `<f>_ok` definitions, `get_d_ok` at its edges, and the conversions of
 // `parse_ok`. It calls the MPFR functions that `Mpfr.v` states hypotheses about through the
-// code: the arms of `mpfr_fn!`, `mpfr_fn2!` and `mpfr_fn_si!` that give the MPFR number that
-// the functions they define convert with `get_d`, and `get_d`, in `src/elementary.rs`, and
-// `round_rational` and `with_parse_range`, which `rational_to_f64` calls, in `src/parse.rs`.
+// code: the arms of `mpfr_fn!`, `mpfr_fn2!` and `mpfr_fn_si!` in `src/elementary.rs` that
+// give the MPFR number that the functions they define convert with `get_d`, and `get_d`,
+// `round_rational` and `with_parse_range` in `src/mpfr_calls.rs`, through which
+// `rational_to_f64` in `src/parse.rs` calls `mpfr::set_q`, `mpfr::subnormalize` and
+// `mpfr::get_d`.
 //
 // Each check names, in a comment, the definition of `Mpfr.v` and the clause of it that it
 // checks. A clause stated `forall rnd` is checked with `RNDD` and with `RNDU`. The checks
@@ -21,9 +23,8 @@
 // with `mpfr::get_emin` and `mpfr::get_emax` rather than assume MPFR's default, and
 // `with_parse_range` restores it.
 
-use super::get_d;
 use crate::{
-    parse::{round_rational, with_parse_range},
+    mpfr_calls::{get_d, round_rational, with_parse_range},
     *,
 };
 use gmp_mpfr_sys::mpfr::{
@@ -772,7 +773,7 @@ fn get_d_ok() {
 }
 
 // `parse_ok`: `set_q_ok (-1073) 1024` and `subnormalize_ok (-1073) 1024`, through
-// `round_rational` in `src/parse.rs`, which `rational_to_f64` calls, and `get_d_ok (-1073)
+// `round_rational` in `src/mpfr_calls.rs`, which `rational_to_f64` calls, and `get_d_ok (-1073)
 // 1024` of the result. The rationals are small. `mpfr_set_q` aborts on an operand wider than
 // `MPFR_PREC_MAX` bits, but no GMP integer is that wide on the targets that the `const`
 // assertion before `rational_to_f64` in `src/parse.rs` lets inari compile for with `gmp`
