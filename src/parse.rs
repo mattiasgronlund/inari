@@ -288,6 +288,12 @@ fn uncertain_direction(s: &str) -> IResult<&str, UncertainDirection> {
     )(s)
 }
 
+// Whether C `long` (`mpfr::prec_t`) and GMP limbs have 64 bits, as on the targets that inari
+// supports with the feature `gmp`. Where they do not, `parse_dec_float_with_ulp` and
+// `check_width` reject a literal before GMP computes a power of ten, or MPFR rounds a rational,
+// wider than 2^29 bits, as GMP and MPFR can fail on wider ones there.
+const LONG_AND_LIMBS_64: bool = std::mem::size_of::<mpfr::prec_t>() == 8 && gmp::NUMB_BITS == 64;
+
 fn pow(base: u32, exp: i32) -> Rational {
     let i = Integer::from(Integer::u_pow_u(base, exp.unsigned_abs()));
     let mut r = Rational::from(i);
@@ -327,6 +333,23 @@ fn parse_dec_float_with_ulp(
     // 123.456e7 -> 123456e4 (ulp == 1e4)
     let frac_digits = i32::try_from(frac_part.len())?;
     let log10_ulp = e.checked_sub(frac_digits).ok_or(ParseNumberError)?;
+    // `pow` has GMP compute 10^|log10_ulp| as an integer, and where `long` has 32 bits, GMP
+    // can crash there. On 32-bit x86, GMP 6.3.0, as `gmp-mpfr-sys` builds it, raises SIGFPE,
+    // as it does when it detects an overflow of its integer type, for 10^1272582864 through
+    // 10^1808407287, where the number of limbs that `mpz_n_pow_ui` computes to allocate
+    // exceeds what `_mpz_realloc` accepts. From 10^1808407288 to 10^2147483648, the widest
+    // power of ten that `pow` asks for, the product in which it computes that number in an
+    // `unsigned long` (`mpz/n_pow_ui.c`, l.371) wraps around, as GMP does not test it for
+    // overflow, a gap that GMP's NEWS for 4.2.3 already names. GMP then allocates too little,
+    // which crashed with SIGSEGV for each power tried, such as 10^1900000000 in
+    // `[1e1900000000]`. So where `long` or limbs are narrower than 64 bits, reject a power of
+    // ten wider than `check_width` accepts before GMP computes it: 10^161614248 has 536870911
+    // bits, at most 2^29, and 10^161614249 has 536870915. This also rejects some literals that
+    // `check_width` would accept, such as `[0e161614249]` and `[8e-161614249]`.
+    const MAX_LOG10_ULP: u32 = 161_614_248;
+    if !LONG_AND_LIMBS_64 && log10_ulp.unsigned_abs() > MAX_LOG10_ULP {
+        return Err(ParseNumberError);
+    }
     let ulp = pow(10, log10_ulp);
 
     let i_str = [int_part, frac_part].concat();
@@ -502,12 +525,10 @@ fn uncertain_interval(s: &str) -> IResult<&str, Result<NInterval>> {
 // claimed for these targets. GMP keeps the most significant limb of an integer nonzero, so an
 // integer of at most `(1 << 29) / NUMB_BITS` limbs has at most 2^29 bits, and with limbs of
 // 32 or 64 bits, one of more limbs has more. The grammar has GMP compute each number before
-// this checks it, and GMP can crash on a much wider one there: on 32-bit x86, GMP 6.3.0 does
-// on 10^1900000000, as in `[1e1900000000]`, where the size that `mpz_n_pow_ui` computes for
-// it wraps around in a 32-bit `unsigned long`.
+// this checks it, and GMP can crash on a much wider power of ten there, so where `long` or
+// limbs are narrower, `parse_dec_float_with_ulp` rejects a power of ten wider than this
+// accepts before GMP computes it.
 fn check_width(x: NInterval) -> Result<NInterval> {
-    const LONG_AND_LIMBS_64: bool =
-        std::mem::size_of::<mpfr::prec_t>() == 8 && gmp::NUMB_BITS == 64;
     const MAX_LIMBS: usize = (1 << 29) / gmp::NUMB_BITS as usize;
     let too_wide = |n: &Number| match n {
         Number::Rational(r) => {
