@@ -900,7 +900,10 @@ Record mpfr : Type := {
     functions that [mpfr_fn!] defines, for the MPFR function [f]: [x] as
     an MPFR number of 53 bits, set to [f] of it rounded in the direction
     [rnd], and then converted to an [f64] in the same direction by
-    [get_d], which calls [mpfr::get_d]. *)
+    [get_d], which calls [mpfr::get_d]. The call of
+    [crate::mpfr_calls::assert_thread_safe()] that begins the [let] arm is
+    left out: it panics where the linked MPFR is not built thread-safe,
+    and does nothing otherwise. *)
 Definition mpfr_fn (m : mpfr) (f : mpfr_rnd -> mpfr_t -> mpfr_t)
     (rnd : mpfr_rnd) (x : f64) : f64 :=
   mpfr_get_d m rnd (f rnd (with_val x)).
@@ -909,7 +912,8 @@ Definition mpfr_fn (m : mpfr) (f : mpfr_rnd -> mpfr_t -> mpfr_t)
     the functions that [mpfr_fn2!] defines, for the MPFR function [f] of
     two numbers: [x] and [y] as MPFR numbers of 53 bits, [x] set to [f] of
     them rounded in the direction [rnd], and then converted to an [f64] in
-    the same direction by [get_d]. *)
+    the same direction by [get_d]. The call of [assert_thread_safe()] is
+    left out, as in [mpfr_fn]. *)
 Definition mpfr_fn2 (m : mpfr) (f : mpfr_rnd -> mpfr_t -> mpfr_t -> mpfr_t)
     (rnd : mpfr_rnd) (x y : f64) : f64 :=
   mpfr_get_d m rnd (f rnd (with_val x) (with_val y)).
@@ -917,7 +921,8 @@ Definition mpfr_fn2 (m : mpfr) (f : mpfr_rnd -> mpfr_t -> mpfr_t -> mpfr_t)
 (** The body [mpfr_fn_si!(let x = $mpfr_f(x, y, rnd)); get_d(&x, rnd)] of
     the functions that [mpfr_fn_si!] defines, for the MPFR function [f] of
     a number and a [c_long], with the [i32] [y] as the integer [n], which
-    [y.into()] converts to a [c_long] exactly. *)
+    [y.into()] converts to a [c_long] exactly. The call of
+    [assert_thread_safe()] is left out, as in [mpfr_fn]. *)
 Definition mpfr_fn_si (m : mpfr) (f : mpfr_rnd -> mpfr_t -> Z -> mpfr_t)
     (rnd : mpfr_rnd) (x : f64) (n : Z) : f64 :=
   mpfr_get_d m rnd (f rnd (with_val x) n).
@@ -1299,20 +1304,24 @@ Definition f64_is_infinite (x : f64) : bool :=
     in [Mpfr.v]).
     [round_rational] calls [mpfr::set_q], [mpfr::subnormalize] and
     [get_d], which calls [mpfr::get_d], in a closure that it passes to
-    [with_parse_range]. [with_parse_range] saves MPFR's exponent range,
-    sets [emin] to [f64::MIN_EXP - (f64::MANTISSA_DIGITS as i32) + 1],
-    which is [-1021 - 53 + 1 = -1073], and [emax] to [f64::MAX_EXP], which
-    is [1024], calls the closure, and restores the range. The model passes
+    [with_parse_range]. [with_parse_range] calls [assert_thread_safe()]
+    of [src/mpfr_calls.rs], saves MPFR's exponent range, sets [emin] to
+    [f64::MIN_EXP - (f64::MANTISSA_DIGITS as i32) + 1], which is
+    [-1021 - 53 + 1 = -1073], and [emax] to [f64::MAX_EXP], which is
+    [1024], calls the closure, and restores the range. The model passes
     that range to [mpfr_set_q] and [mpfr_subnormalize], and [parse_ok] in
     [Mpfr.v] assumes [get_d_ok] of [mpfr_get_d] at it. The save and the
     restore are left out: the range is the same after the call as before
     it, which is the range that [Mpfr.v] assumes for the other MPFR
     functions. No other thread can change the range between these calls
     where MPFR keeps it per thread, as the MPFR that [gmp-mpfr-sys] builds
-    does (see the comment at the top of [Mpfr.v]). [after_set_q], which
-    [round_rational] calls after [mpfr::set_q] and which [rational_to_f64]
-    passes as [|_, _| ()], does nothing and is left out, as is the MPFR
-    number [f] that [round_rational] returns and [rational_to_f64] drops.
+    does (see the comment at the top of [Mpfr.v]). Where MPFR is not built
+    thread-safe, and so keeps the range global, [assert_thread_safe()]
+    panics before the range is set, and otherwise it does nothing, so it is
+    left out too. [after_set_q], which [round_rational] calls after
+    [mpfr::set_q] and which [rational_to_f64] passes as [|_, _| ()], does
+    nothing and is left out, as is the MPFR number [f] that
+    [round_rational] returns and [rational_to_f64] drops.
     [ternary_to_ordering(t) != Ordering::Equal] is [t != 0], and
     [f.is_infinite()], of the [f64] [f], is [f64_is_infinite f]. *)
 Definition rational_to_f64 (m : mpfr) (r : Q) (infsup : InfSup) : F64 :=

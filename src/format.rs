@@ -1,4 +1,4 @@
-use crate::interval::*;
+use crate::{interval::*, mpfr_calls::assert_thread_safe};
 use gmp_mpfr_sys::mpfr;
 use rug::Float;
 use std::{
@@ -54,6 +54,7 @@ fn fmt_impl(x: Interval, d: Option<Decoration>, f: &mut fmt::Formatter, conv: ch
             Some(p) => format!(".{}", p),
             None => String::new(),
         };
+        assert_thread_safe();
         let fa = Float::with_val(f64::MANTISSA_DIGITS, x.inf());
         let fb = Float::with_val(f64::MANTISSA_DIGITS, x.sup());
         let sa = mpfr_printf(&format!("%{}RD{}", prec, conv), &fa);

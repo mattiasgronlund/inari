@@ -29,7 +29,9 @@
     linked MPFR keeps it per thread, so that no other thread can change
     it while [rational_to_f64] has it set. A system MPFR built without
     thread-local storage, which the feature [use-system-libs] of
-    [gmp-mpfr-sys] can link, fails that test.
+    [gmp-mpfr-sys] can link, fails that test, and with such an MPFR,
+    [assert_thread_safe] in [src/mpfr_calls.rs], which [with_parse_range]
+    calls first, panics before [rational_to_f64] sets the range.
 
     [mpfr_ok_consistent] in [MpfrConsistent.v] shows that the hypotheses
     on [m] that the theorems take can all hold at once: at every range with

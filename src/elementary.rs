@@ -26,9 +26,11 @@ macro_rules! mpfr_fn {
         }
     };
 
-    // Binds `$z` to the MPFR number that the functions above convert with `get_d`: `x` as an
-    // MPFR number of 53 bits, set to `$mpfr_f` of it rounded in the direction `rnd`.
+    // Calls `assert_thread_safe` in `src/mpfr_calls.rs`, then binds `$z` to the MPFR number
+    // that the functions above convert with `get_d`: `x` as an MPFR number of 53 bits, set to
+    // `$mpfr_f` of it rounded in the direction `rnd`.
     (let $z:ident = $mpfr_f:ident($x:expr, $rnd:expr)) => {
+        crate::mpfr_calls::assert_thread_safe();
         let x: f64 = $x;
         let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
         let rnd = $rnd;
@@ -65,6 +67,7 @@ macro_rules! mpfr_fn2 {
     // The same as for `mpfr_fn!`, with `y` as an MPFR number of 53 bits too. Like `$z`, it
     // lives to the end of the caller's block, so the functions above clear it after `get_d`.
     (let $z:ident = $mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {
+        crate::mpfr_calls::assert_thread_safe();
         let (x, y): (f64, f64) = ($x, $y);
         let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
         let y = Float::with_val(f64::MANTISSA_DIGITS, y);
@@ -100,6 +103,7 @@ macro_rules! mpfr_fn_si {
 
     // The same as for `mpfr_fn!`, with the `i32` `y` passed as a `c_long`.
     (let $z:ident = $mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {
+        crate::mpfr_calls::assert_thread_safe();
         let (x, y): (f64, i32) = ($x, $y);
         let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
         let rnd = $rnd;

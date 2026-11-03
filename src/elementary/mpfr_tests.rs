@@ -21,7 +21,10 @@
 // it, which `range_per_thread` tests, so that `with_parse_range` in one test does not change
 // the range that a test running at the same time in another thread reads. The tests read it
 // with `mpfr::get_emin` and `mpfr::get_emax` rather than assume MPFR's default, and
-// `with_parse_range` restores it.
+// `with_parse_range` restores it. With an MPFR that is not built thread-safe,
+// `range_per_thread` fails, and so does every test here that calls MPFR through
+// `with_parse_range` or the arms of the macros, as `assert_thread_safe` in
+// `src/mpfr_calls.rs` panics there.
 
 use crate::{
     mpfr_calls::{get_d, round_rational, with_parse_range},
@@ -150,7 +153,9 @@ fn range_ok() {
 // `rational_to_f64` in `src/parse.rs`: MPFR is built thread-safe (`mpfr_buildopt_tls_p`,
 // §5.12 "Miscellaneous Functions" of the MPFR manual), and a range set in another thread
 // leaves this thread's as it was. A system MPFR built without thread-local storage, which
-// the feature `use-system-libs` of `gmp-mpfr-sys` can link, fails this test.
+// the feature `use-system-libs` of `gmp-mpfr-sys` can link, fails this test, and in a program
+// linked with such an MPFR, `assert_thread_safe` in `src/mpfr_calls.rs`, which
+// `with_parse_range` calls first, panics before `rational_to_f64` sets the range.
 #[test]
 fn range_per_thread() {
     assert_ne!(unsafe { mpfr::buildopt_tls_p() }, 0);

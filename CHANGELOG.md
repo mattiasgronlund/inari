@@ -18,6 +18,7 @@ Items marked with ⚠️ are breaking changes.
 - Made `(Dec)Interval::sqrt` about 2.5 times faster on x86-64 processors without AVX-512F, by computing the square root without changing the rounding mode.
 - Made `(Dec)Interval::sqrt` compute both endpoints in a single vector square root when the interval does not contain zero: about 1.8 times faster on x86-64 processors without AVX-512F, and about 1.5 times faster on WebAssembly with `simd128`.
 - ⚠️ Made inari fail to compile with the Cargo feature `gmp` for targets where C `long` or GMP limbs are not 64 bits wide, such as 32-bit targets and 64-bit Windows with the GNU toolchain. Where `long` has 32 bits, MPFR's `mpfr_set_q`, which rounds the numbers of interval literals, can fail on a number whose numerator or denominator has more than about 2^30 bits, and on most 32-bit targets, it can also round a negative number of huge or tiny magnitude to +0 or to a positive number.
+- ⚠️ Made the operations that call MPFR with the Cargo feature `gmp`, such as parsing, formatting and the elementary functions, panic if the linked MPFR is not built thread-safe. The MPFR that `gmp-mpfr-sys` builds is thread-safe, but a system MPFR that its feature `use-system-libs` links need not be. Such an MPFR keeps its flags, its exponent range and its caches of constants global, so a program linked with it now panics on its first such operation, even if it runs only one thread.
 
 ### Fixed
 
