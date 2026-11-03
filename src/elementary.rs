@@ -1,144 +1,15 @@
-use crate::{classify::*, const_interval, interval::*, mpfr_calls::get_d};
-use gmp_mpfr_sys::mpfr::{
-    self,
-    rnd_t::{RNDD, RNDU},
+use crate::{
+    classify::*,
+    const_interval,
+    interval::*,
+    mpfr_calls::{
+        acos_rd, acos_ru, acosh_rd, acosh_ru, asin_rd, asin_ru, asinh_rd, asinh_ru, atan2_rd,
+        atan2_ru, atan_rd, atan_ru, atanh_rd, atanh_ru, cos_rd, cos_ru, cosh_rd, cosh_ru, exp10_rd,
+        exp10_ru, exp2_rd, exp2_ru, exp_rd, exp_ru, ln_rd, ln_ru, log10_rd, log10_ru, log2_rd,
+        log2_ru, pow_rd, pow_ru, pown_rd, pown_ru, sin_rd, sin_ru, sinh_rd, sinh_ru, tan_rd,
+        tan_ru, tanh_rd, tanh_ru,
+    },
 };
-use rug::Float;
-
-// `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn`
-// of an abstract MPFR function, for the proofs of the functions of this file in
-// `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
-// `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
-// `rocq/theories/Tan.v`, and of `quadrant`, which calls `sin_rd` and `cos_ru`, in
-// `rocq/theories/TrigQuad.v`, so it has to be updated along with it.
-// `rocq/theories/Mpfr.v` states what those proofs assume of the MPFR functions and of
-// `mpfr::get_d`, and `mpfr_tests` tests the linked MPFR against it.
-macro_rules! mpfr_fn {
-    ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
-        fn $f_rd(x: f64) -> f64 {
-            mpfr_fn!(let x = $mpfr_f(x, RNDD));
-            get_d(&x, RNDD)
-        }
-
-        fn $f_ru(x: f64) -> f64 {
-            mpfr_fn!(let x = $mpfr_f(x, RNDU));
-            get_d(&x, RNDU)
-        }
-    };
-
-    // Calls `assert_thread_safe` in `src/mpfr_calls.rs`, then binds `$z` to the MPFR number
-    // that the functions above convert with `get_d`: `x` as an MPFR number of 53 bits, set to
-    // `$mpfr_f` of it rounded in the direction `rnd`.
-    (let $z:ident = $mpfr_f:ident($x:expr, $rnd:expr)) => {
-        crate::mpfr_calls::assert_thread_safe();
-        let x: f64 = $x;
-        let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
-        let rnd = $rnd;
-        unsafe {
-            mpfr::$mpfr_f($z.as_raw_mut(), $z.as_raw(), rnd);
-        }
-    };
-
-    // That MPFR number as a value. `mpfr_tests` calls MPFR through this arm.
-    ($mpfr_f:ident($x:expr, $rnd:expr)) => {{
-        mpfr_fn!(let x = $mpfr_f($x, $rnd));
-        x
-    }};
-}
-
-// `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn2`
-// of an abstract MPFR function, for the proofs of `(Dec)Interval::atan2` in
-// `rocq/theories/Atan2.v` and of `(Dec)Interval::pow` in `rocq/theories/Pow.v`, so it has
-// to be updated along with it. `rocq/theories/Mpfr.v` states what those proofs assume of
-// `mpfr::atan2`, `mpfr::pow` and `mpfr::get_d`.
-macro_rules! mpfr_fn2 {
-    ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
-        fn $f_rd(x: f64, y: f64) -> f64 {
-            mpfr_fn2!(let x = $mpfr_f(x, y, RNDD));
-            get_d(&x, RNDD)
-        }
-
-        fn $f_ru(x: f64, y: f64) -> f64 {
-            mpfr_fn2!(let x = $mpfr_f(x, y, RNDU));
-            get_d(&x, RNDU)
-        }
-    };
-
-    // The same as for `mpfr_fn!`, with `y` as an MPFR number of 53 bits too. Like `$z`, it
-    // lives to the end of the caller's block, so the functions above clear it after `get_d`.
-    (let $z:ident = $mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {
-        crate::mpfr_calls::assert_thread_safe();
-        let (x, y): (f64, f64) = ($x, $y);
-        let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
-        let y = Float::with_val(f64::MANTISSA_DIGITS, y);
-        let rnd = $rnd;
-        unsafe {
-            mpfr::$mpfr_f($z.as_raw_mut(), $z.as_raw(), y.as_raw(), rnd);
-        }
-    };
-
-    ($mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {{
-        mpfr_fn2!(let x = $mpfr_f($x, $y, $rnd));
-        x
-    }};
-}
-
-// `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn_si`
-// of an abstract MPFR function, with the `i32` `y` as an integer, which `y.into()` converts
-// to a `c_long` exactly, for the proofs of `(Dec)Interval::powi` in `rocq/theories/Powi.v`,
-// so it has to be updated along with it. `rocq/theories/Mpfr.v` states what those proofs
-// assume of `mpfr::pow_si` and of `mpfr::get_d`.
-macro_rules! mpfr_fn_si {
-    ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
-        fn $f_rd(x: f64, y: i32) -> f64 {
-            mpfr_fn_si!(let x = $mpfr_f(x, y, RNDD));
-            get_d(&x, RNDD)
-        }
-
-        fn $f_ru(x: f64, y: i32) -> f64 {
-            mpfr_fn_si!(let x = $mpfr_f(x, y, RNDU));
-            get_d(&x, RNDU)
-        }
-    };
-
-    // The same as for `mpfr_fn!`, with the `i32` `y` passed as a `c_long`.
-    (let $z:ident = $mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {
-        crate::mpfr_calls::assert_thread_safe();
-        let (x, y): (f64, i32) = ($x, $y);
-        let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
-        let rnd = $rnd;
-        unsafe {
-            mpfr::$mpfr_f($z.as_raw_mut(), $z.as_raw(), y.into(), rnd);
-        }
-    };
-
-    ($mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {{
-        mpfr_fn_si!(let x = $mpfr_f($x, $y, $rnd));
-        x
-    }};
-}
-
-mpfr_fn!(acos, acos_rd, acos_ru);
-mpfr_fn!(acosh, acosh_rd, acosh_ru);
-mpfr_fn!(asin, asin_rd, asin_ru);
-mpfr_fn!(asinh, asinh_rd, asinh_ru);
-mpfr_fn!(atan, atan_rd, atan_ru);
-mpfr_fn2!(atan2, atan2_rd, atan2_ru);
-mpfr_fn!(atanh, atanh_rd, atanh_ru);
-mpfr_fn!(cos, cos_rd, cos_ru);
-mpfr_fn!(cosh, cosh_rd, cosh_ru);
-mpfr_fn!(exp, exp_rd, exp_ru);
-mpfr_fn!(exp10, exp10_rd, exp10_ru);
-mpfr_fn!(exp2, exp2_rd, exp2_ru);
-mpfr_fn!(log, ln_rd, ln_ru);
-mpfr_fn!(log10, log10_rd, log10_ru);
-mpfr_fn!(log2, log2_rd, log2_ru);
-mpfr_fn2!(pow, pow_rd, pow_ru);
-mpfr_fn_si!(pow_si, pown_rd, pown_ru);
-mpfr_fn!(sin, sin_rd, sin_ru);
-mpfr_fn!(sinh, sinh_rd, sinh_ru);
-mpfr_fn!(tan, tan_rd, tan_ru);
-mpfr_fn!(tanh, tanh_rd, tanh_ru);
 
 // `rocq/theories/Model.v` transcribes this function for the proofs of `(Dec)Interval::cos`
 // and `(Dec)Interval::tan`, so it has to be updated along with it. `rem_euclid_2_int` in

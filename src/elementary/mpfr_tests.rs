@@ -1,9 +1,9 @@
 // Tests the linked MPFR against what `rocq/theories/Mpfr.v` assumes of it: the special
 // values of the `<f>_ok` definitions, `get_d_ok` at its edges, and the conversions of
 // `parse_ok`. It calls the MPFR functions that `Mpfr.v` states hypotheses about through the
-// code: the arms of `mpfr_fn!`, `mpfr_fn2!` and `mpfr_fn_si!` in `src/elementary.rs` that
-// give the MPFR number that the functions they define convert with `get_d`, and `get_d`,
-// `round_rational` and `with_parse_range` in `src/mpfr_calls.rs`, through which
+// code: the arms of `mpfr_fn!`, `mpfr_fn2!` and `mpfr_fn_si!` that give the MPFR number that
+// the functions they define convert with `get_d`, and `get_d`, `round_rational` and
+// `with_parse_range`, all in `src/mpfr_calls/mpfr.rs`, through which
 // `rational_to_f64` in `src/parse.rs` calls `mpfr::set_q`, `mpfr::subnormalize` and
 // `mpfr::get_d`.
 //
@@ -24,10 +24,10 @@
 // `with_parse_range` restores it. With an MPFR that is not built thread-safe,
 // `range_per_thread` fails, and so does every test here that calls MPFR through
 // `with_parse_range` or the arms of the macros, as `assert_thread_safe` in
-// `src/mpfr_calls.rs` panics there.
+// `src/mpfr_calls/mpfr.rs` panics there.
 
 use crate::{
-    mpfr_calls::{get_d, round_rational, with_parse_range},
+    mpfr_calls::{get_d, mpfr_fn, mpfr_fn2, mpfr_fn_si, round_rational, with_parse_range},
     *,
 };
 use gmp_mpfr_sys::mpfr::{
@@ -154,7 +154,7 @@ fn range_ok() {
 // §5.12 "Miscellaneous Functions" of the MPFR manual), and a range set in another thread
 // leaves this thread's as it was. A system MPFR built without thread-local storage, which
 // the feature `use-system-libs` of `gmp-mpfr-sys` can link, fails this test, and in a program
-// linked with such an MPFR, `assert_thread_safe` in `src/mpfr_calls.rs`, which
+// linked with such an MPFR, `assert_thread_safe` in `src/mpfr_calls/mpfr.rs`, which
 // `with_parse_range` calls first, panics before `rational_to_f64` sets the range.
 #[test]
 fn range_per_thread() {
@@ -787,10 +787,10 @@ fn get_d_ok() {
 }
 
 // `parse_ok`: `set_q_ok (-1073) 1024` and `subnormalize_ok (-1073) 1024`, through
-// `round_rational` in `src/mpfr_calls.rs`, which `rational_to_f64` calls, and `get_d_ok (-1073)
-// 1024` of the result. The rationals are small. `mpfr_set_q` aborts on an operand wider than
-// `MPFR_PREC_MAX` bits, but no GMP integer is that wide where C `long` and GMP limbs have 64
-// bits, as on the targets that inari supports with `gmp` (see `set_q_ok`).
+// `round_rational` in `src/mpfr_calls/mpfr.rs`, which `rational_to_f64` calls, and
+// `get_d_ok (-1073) 1024` of the result. The rationals are small. `mpfr_set_q` aborts on an
+// operand wider than `MPFR_PREC_MAX` bits, but no GMP integer is that wide where C `long` and
+// GMP limbs have 64 bits, as on the targets that inari supports with `gmp` (see `set_q_ok`).
 #[test]
 fn parse_ok() {
     // `with_parse_range` sets the range `[-1073, 1024]` that `parse_ok` states, and then

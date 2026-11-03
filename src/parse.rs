@@ -611,10 +611,11 @@ struct F64 {
 
 // Proved correct in `rocq/theories/ParseRound.v` (`rational_to_f64_correct`), assuming what
 // `rocq/theories/Mpfr.v` says of `mpfr::set_q`, `mpfr::subnormalize` and `mpfr::get_d` at
-// the exponent range that `with_parse_range` in `src/mpfr_calls.rs` sets (`parse_ok`): `f` is
-// `r` rounded toward -∞ for `Inf` and toward +∞ for `Sup` to an `f64`, `inexact` is false
-// exactly when `r` is the value of a finite `f64`, and `overflow` is true exactly when `f` is
-// infinite. `rocq/theories/Model.v` transcribes this function, with `round_rational` and
+// the exponent range that `with_parse_range` in `src/mpfr_calls/mpfr.rs` sets (`parse_ok`):
+// `f` is `r` rounded toward -∞ for `Inf` and toward +∞ for `Sup` to an `f64`, `inexact` is
+// false exactly when `r` is the value of a finite `f64`, and `overflow` is true exactly when
+// `f` is infinite. `rocq/theories/Model.v` transcribes this function, with `round_rational` as
+// the field `p_round_rational` of the record `point`, which `mpfr_point` defines with
 // `with_parse_range` inlined and the MPFR functions abstract, so it has to be updated along
 // with it.
 fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64 {

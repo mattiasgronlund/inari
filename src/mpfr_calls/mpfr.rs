@@ -1,0 +1,324 @@
+// The MPFR backend of `src/mpfr_calls.rs`, which says what calls it.
+
+use gmp_mpfr_sys::mpfr::{
+    self,
+    rnd_t::{RNDD, RNDU},
+};
+use rug::{Float, Rational};
+use std::{
+    ffi::{CStr, CString},
+    os::raw::c_char,
+};
+
+// Panics unless the linked MPFR is built thread-safe, as the MPFR that `gmp-mpfr-sys` builds
+// is. A system MPFR, which the feature `use-system-libs` of `gmp-mpfr-sys` links, need not be,
+// and one that is not keeps its flags and its exponent range global rather than per thread
+// (§4.7 "Memory Handling" of the MPFR manual), and its caches of constants such as π too
+// (`MPFR_CACHE_ATTR` in MPFR's `mpfr-impl.h`). There, another thread can change the range
+// that `with_parse_range` sets before it restores it, and two threads that call MPFR at once
+// can write the same flags and the same cache. inari calls this before the MPFR calls of each
+// of its operations: in `with_parse_range`, in the `let` arms of `mpfr_fn!`, `mpfr_fn2!` and
+// `mpfr_fn_si!`, and in `fmt_bounds`, all below, so that a program linked with such an MPFR
+// panics on its first operation that calls MPFR, whether or not it runs more than one thread.
+// Of these calls, only `Float::new` in `round_rational`, which allocates the number that
+// `mpfr::set_q` then sets, comes before it.
+// `mpfr::buildopt_tls_p` (§5.12 "Miscellaneous Functions") returns whether MPFR was built
+// thread-safe, which is fixed when MPFR is built, so calling it every time gives the same
+// answer as calling it once. `rocq/theories/Model.v` leaves this function out of `mpfr_fn`,
+// `mpfr_fn2`, `mpfr_fn_si` and the field `p_round_rational` of `mpfr_point`, as it either
+// panics or does nothing, so a change that makes it do anything else has to be modelled
+// there. As it can panic, in a build that unwinds on panic, the functions in `src/parse.rs`
+// that call `number_to_f64` while they hold an `NInterval` need a landing pad that drops it,
+// with or without the `#[inline]` attributes below.
+pub(crate) fn assert_thread_safe() {
+    assert!(
+        unsafe { mpfr::buildopt_tls_p() } != 0,
+        "inari needs an MPFR built thread-safe, and the linked one is not; the feature \
+         `use-system-libs` of `gmp-mpfr-sys` links a system MPFR, which need not be"
+    );
+}
+
+// `mpfr::get_d` of the MPFR number `x`, rounded in the direction `rnd`. The functions that
+// `mpfr_fn!`, `mpfr_fn2!` and `mpfr_fn_si!` below define, and `round_rational`, convert their
+// results with it, and `mpfr_tests` tests it.
+// `rocq/theories/Model.v` transcribes it as `mpfr_get_d m rnd` in `mpfr_fn`, `mpfr_fn2`,
+// `mpfr_fn_si` and the field `p_round_rational` of `mpfr_point`, so it has to be updated
+// along with them.
+// `rocq/theories/Mpfr.v` states what the proofs assume of `mpfr::get_d` (`get_d_ok`). A
+// release build can put `get_d` and its callers in different codegen units, and `#[inline]`
+// gives each codegen unit that calls it a copy of its own.
+#[inline]
+pub(crate) fn get_d(x: &Float, rnd: mpfr::rnd_t) -> f64 {
+    unsafe { mpfr::get_d(x.as_raw(), rnd) }
+}
+
+// `f()` at the exponent range of `rational_to_f64` in `src/parse.rs`, `emin = -1073` and
+// `emax = 1024`: it saves MPFR's exponent range, sets it to that one, calls `f` and restores
+// it. `mpfr_tests` calls it too, and `parse_ok` there checks the range during `f()` and after
+// it. `rocq/theories/Model.v` transcribes this function as part of the field
+// `p_round_rational` of `mpfr_point`, so it has to be updated along with it. That
+// transcription, and so the proof of `rational_to_f64`, takes MPFR's exponent range to stay
+// as this function sets it until it restores it. No other thread can change it in between
+// where MPFR keeps it per thread, as the MPFR that `gmp-mpfr-sys` builds does, which
+// `range_per_thread` in `src/elementary/mpfr_tests.rs` tests. A system MPFR built without
+// thread-local storage, which the feature `use-system-libs` of `gmp-mpfr-sys` can link, keeps
+// it global instead, and fails that test, and with such an MPFR, `assert_thread_safe` above
+// panics before this function reads or sets the range. It is `#[inline]` for the reason that
+// `round_rational` is.
+#[inline]
+pub(crate) fn with_parse_range<T>(f: impl FnOnce() -> T) -> T {
+    assert_thread_safe();
+    let (orig_emin, orig_emax) = unsafe { (mpfr::get_emin(), mpfr::get_emax()) };
+    unsafe {
+        mpfr::set_emin((f64::MIN_EXP - (f64::MANTISSA_DIGITS as i32) + 1).into());
+        mpfr::set_emax(f64::MAX_EXP.into());
+    }
+    let x = f();
+    unsafe {
+        mpfr::set_emin(orig_emin);
+        mpfr::set_emax(orig_emax);
+    }
+    x
+}
+
+// The MPFR calls of `rational_to_f64` in `src/parse.rs`: `r` rounded in the direction `rnd` to
+// an MPFR number `f` of 53 bits with `mpfr::set_q`, then `f` set with `mpfr::subnormalize` to
+// `r` rounded in the same direction to the numbers that an `f64` holds, which have fewer than
+// 53 bits below `f64::MIN_POSITIVE`, and converted with `get_d`, all at the range that
+// `with_parse_range` sets. It returns `f`, the ternary value of `mpfr::subnormalize` and the
+// `f64`. `after_set_q` gets `f` and the ternary value after `mpfr::set_q`, for `parse_ok` in
+// `mpfr_tests`, which calls MPFR through this function. `rational_to_f64` passes one that
+// does nothing. `rocq/theories/Model.v` transcribes this function as the field
+// `p_round_rational` of `mpfr_point`, for the proof of `rational_to_f64` in
+// `rocq/theories/ParseRound.v`, for `mpfr_round_rational_c` in `rocq/theories/MpfrPoint.v`
+// and for `mpfr_point_of_point` in `rocq/theories/OfPoint.v`, so it has to be updated along
+// with it. A release build puts the instances of a free generic function that is not
+// `#[inline]` in the codegen unit of the module that defines it, not in that of the caller,
+// so that without `#[inline]`, this one and `rational_to_f64` can be in different codegen
+// units. In such a build, `#[inline]` gives each codegen unit that calls it a copy of its
+// own.
+#[inline]
+pub(crate) fn round_rational(
+    r: &Rational,
+    rnd: mpfr::rnd_t,
+    after_set_q: impl FnOnce(&Float, i32),
+) -> (Float, i32, f64) {
+    let mut f = Float::new(f64::MANTISSA_DIGITS);
+    let (t, d) = with_parse_range(|| {
+        let t = unsafe { mpfr::set_q(f.as_raw_mut(), r.as_raw(), rnd) };
+        after_set_q(&f, t);
+        let t = unsafe { mpfr::subnormalize(f.as_raw_mut(), t, rnd) };
+        (t, get_d(&f, rnd))
+    });
+    (f, t, d)
+}
+
+// `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn`
+// of an abstract MPFR function in the fields of `mpfr_point`, for the proofs of the
+// functions of `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
+// `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
+// `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, and of `quadrant` there, which calls
+// `sin_rd` and `cos_ru`, in `rocq/theories/TrigQuad.v`, for `mpfr_acos_c` and the other
+// theorems of `rocq/theories/MpfrPoint.v` about them, and for `mpfr_point_of_point` in
+// `rocq/theories/OfPoint.v`, so it has to be updated along with it.
+// `rocq/theories/Mpfr.v` states what those proofs assume of the MPFR functions and of
+// `mpfr::get_d`, and `mpfr_tests` tests the linked MPFR against it.
+macro_rules! mpfr_fn {
+    ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
+        pub(crate) fn $f_rd(x: f64) -> f64 {
+            mpfr_fn!(let x = $mpfr_f(x, RNDD));
+            get_d(&x, RNDD)
+        }
+
+        pub(crate) fn $f_ru(x: f64) -> f64 {
+            mpfr_fn!(let x = $mpfr_f(x, RNDU));
+            get_d(&x, RNDU)
+        }
+    };
+
+    // Calls `assert_thread_safe` above, then binds `$z` to the MPFR number that the functions
+    // above convert with `get_d`: `x` as an MPFR number of 53 bits, set to `$mpfr_f` of it
+    // rounded in the direction `rnd`.
+    (let $z:ident = $mpfr_f:ident($x:expr, $rnd:expr)) => {
+        crate::mpfr_calls::assert_thread_safe();
+        let x: f64 = $x;
+        let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
+        let rnd = $rnd;
+        unsafe {
+            mpfr::$mpfr_f($z.as_raw_mut(), $z.as_raw(), rnd);
+        }
+    };
+
+    // That MPFR number as a value. `mpfr_tests` calls MPFR through this arm.
+    ($mpfr_f:ident($x:expr, $rnd:expr)) => {{
+        mpfr_fn!(let x = $mpfr_f($x, $rnd));
+        x
+    }};
+}
+// For `mpfr_tests`, which calls MPFR through the arms of this macro and of the two below.
+#[cfg(test)]
+pub(crate) use mpfr_fn;
+
+// `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn2`
+// of an abstract MPFR function in the fields of `mpfr_point`, for the proofs of
+// `(Dec)Interval::atan2` in `rocq/theories/Atan2.v` and of `(Dec)Interval::pow` in
+// `rocq/theories/Pow.v`, for `mpfr_atan2_c` and `mpfr_pow_c` in `rocq/theories/MpfrPoint.v`
+// and for `mpfr_point_of_point` in `rocq/theories/OfPoint.v`, so it has to be updated along
+// with it.
+// `rocq/theories/Mpfr.v` states what those proofs assume of `mpfr::atan2`, `mpfr::pow` and
+// `mpfr::get_d`.
+macro_rules! mpfr_fn2 {
+    ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
+        pub(crate) fn $f_rd(x: f64, y: f64) -> f64 {
+            mpfr_fn2!(let x = $mpfr_f(x, y, RNDD));
+            get_d(&x, RNDD)
+        }
+
+        pub(crate) fn $f_ru(x: f64, y: f64) -> f64 {
+            mpfr_fn2!(let x = $mpfr_f(x, y, RNDU));
+            get_d(&x, RNDU)
+        }
+    };
+
+    // The same as for `mpfr_fn!`, with `y` as an MPFR number of 53 bits too. Like `$z`, it
+    // lives to the end of the caller's block, so the functions above clear it after `get_d`.
+    (let $z:ident = $mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {
+        crate::mpfr_calls::assert_thread_safe();
+        let (x, y): (f64, f64) = ($x, $y);
+        let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
+        let y = Float::with_val(f64::MANTISSA_DIGITS, y);
+        let rnd = $rnd;
+        unsafe {
+            mpfr::$mpfr_f($z.as_raw_mut(), $z.as_raw(), y.as_raw(), rnd);
+        }
+    };
+
+    ($mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {{
+        mpfr_fn2!(let x = $mpfr_f($x, $y, $rnd));
+        x
+    }};
+}
+#[cfg(test)]
+pub(crate) use mpfr_fn2;
+
+// `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn_si`
+// of an abstract MPFR function in the field `p_pown` of `mpfr_point`, with the `i32` `y` as
+// an integer, which `y.into()` converts to a `c_long` exactly, for the proofs of
+// `(Dec)Interval::powi` in `rocq/theories/Powi.v`, for `mpfr_pown_c` in
+// `rocq/theories/MpfrPoint.v` and for `mpfr_point_of_point` in `rocq/theories/OfPoint.v`, so
+// it has to be updated along with it.
+// `rocq/theories/Mpfr.v` states what those proofs assume of `mpfr::pow_si` and of
+// `mpfr::get_d`.
+macro_rules! mpfr_fn_si {
+    ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
+        pub(crate) fn $f_rd(x: f64, y: i32) -> f64 {
+            mpfr_fn_si!(let x = $mpfr_f(x, y, RNDD));
+            get_d(&x, RNDD)
+        }
+
+        pub(crate) fn $f_ru(x: f64, y: i32) -> f64 {
+            mpfr_fn_si!(let x = $mpfr_f(x, y, RNDU));
+            get_d(&x, RNDU)
+        }
+    };
+
+    // The same as for `mpfr_fn!`, with the `i32` `y` passed as a `c_long`.
+    (let $z:ident = $mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {
+        crate::mpfr_calls::assert_thread_safe();
+        let (x, y): (f64, i32) = ($x, $y);
+        let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
+        let rnd = $rnd;
+        unsafe {
+            mpfr::$mpfr_f($z.as_raw_mut(), $z.as_raw(), y.into(), rnd);
+        }
+    };
+
+    ($mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {{
+        mpfr_fn_si!(let x = $mpfr_f($x, $y, $rnd));
+        x
+    }};
+}
+#[cfg(test)]
+pub(crate) use mpfr_fn_si;
+
+mpfr_fn!(acos, acos_rd, acos_ru);
+mpfr_fn!(acosh, acosh_rd, acosh_ru);
+mpfr_fn!(asin, asin_rd, asin_ru);
+mpfr_fn!(asinh, asinh_rd, asinh_ru);
+mpfr_fn!(atan, atan_rd, atan_ru);
+mpfr_fn2!(atan2, atan2_rd, atan2_ru);
+mpfr_fn!(atanh, atanh_rd, atanh_ru);
+mpfr_fn!(cos, cos_rd, cos_ru);
+mpfr_fn!(cosh, cosh_rd, cosh_ru);
+mpfr_fn!(exp, exp_rd, exp_ru);
+mpfr_fn!(exp10, exp10_rd, exp10_ru);
+mpfr_fn!(exp2, exp2_rd, exp2_ru);
+mpfr_fn!(log, ln_rd, ln_ru);
+mpfr_fn!(log10, log10_rd, log10_ru);
+mpfr_fn!(log2, log2_rd, log2_ru);
+mpfr_fn2!(pow, pow_rd, pow_ru);
+mpfr_fn_si!(pow_si, pown_rd, pown_ru);
+mpfr_fn!(sin, sin_rd, sin_ru);
+mpfr_fn!(sinh, sinh_rd, sinh_ru);
+mpfr_fn!(tan, tan_rd, tan_ru);
+mpfr_fn!(tanh, tanh_rd, tanh_ru);
+
+// `then` of the bounds `a` and `b` of an interval as `fmt_impl` in `src/format.rs` prints
+// them: `a` rounded toward -∞ and `b` toward +∞ by `mpfr::asprintf`, with the conversion
+// `conv` (`'f'`, `'e'` or `'a'`, as in C's `printf`) and `prec` digits after the point, or
+// MPFR's default for `conv` if `prec` is `None`, and an infinite bound as `-inf` or `inf`. It
+// calls `assert_thread_safe` before any MPFR call. `fmt_impl` writes the bounds in `then`, so
+// that the two MPFR numbers live until it has written them, as when it called MPFR itself,
+// and this function is `#[inline]` for the reason that `round_rational` is. Measured with
+// rustc 1.96.0 and `-Ctarget-cpu=haswell` for x86-64, in release builds of the library (with
+// the default codegen units and with one) and of its tests, `fmt_impl` then makes the same
+// calls in the same order as when it called MPFR itself. In the release build of the library
+// with the default codegen units, this function stayed out of line without `#[inline]`, and
+// when it returned the bounds and was `#[inline(always)]`, `fmt_impl` held two copies of its
+// MPFR calls. When it returned the bounds, with or without `#[inline]`, it stayed out of line
+// in all three builds, and it and `fmt_impl` had two landing pads more than `fmt_impl` had
+// alone.
+#[inline]
+pub(crate) fn fmt_bounds<T>(
+    a: f64,
+    b: f64,
+    prec: Option<usize>,
+    conv: char,
+    then: impl FnOnce(&str, &str) -> T,
+) -> T {
+    let prec = match prec {
+        Some(p) => format!(".{}", p),
+        None => String::new(),
+    };
+    assert_thread_safe();
+    let fa = Float::with_val(f64::MANTISSA_DIGITS, a);
+    let fb = Float::with_val(f64::MANTISSA_DIGITS, b);
+    let sa = mpfr_printf(&format!("%{}RD{}", prec, conv), &fa);
+    let sb = mpfr_printf(&format!("%{}RU{}", prec, conv), &fb);
+    then(&sa, &sb)
+}
+
+fn mpfr_printf(template: &str, f: &Float) -> String {
+    assert!(!f.is_nan());
+
+    // https://github.com/rust-lang/rust/blob/229e5b2640fc5715e77607a989748be588d983f2/src/libcore/num/dec2flt/mod.rs#L118
+    if f.is_infinite() {
+        return if f.is_sign_negative() {
+            String::from("-inf")
+        } else {
+            String::from("inf")
+        };
+    }
+
+    let mut p: *mut c_char = std::ptr::null_mut();
+    let c_template = CString::new(template).unwrap();
+
+    unsafe {
+        let len = mpfr::asprintf(&mut p, c_template.as_ptr(), f.as_raw());
+        assert!(len >= 0);
+        let c_str = CStr::from_ptr(p);
+        let s = c_str.to_str().unwrap().to_owned();
+        mpfr::free_str(p);
+        s
+    }
+}
