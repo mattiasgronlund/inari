@@ -36,8 +36,14 @@ Proof.
 intros emin emax Hr. unfold pow_ok. cbn [mpfr_pow ideal].
 split; [exact (ideal_pow_correct2 emin emax Hr)|].
 (* The special values: each clause is a test on [Rlt_dec] or [Req_dec_T]
-   that the hypothesis decides. *)
-repeat match goal with |- _ /\ _ => split end; intros; cbn [ideal_pow];
+   that the hypothesis decides. A finite float in a clause is not a zero
+   there, so its [with_val] is [MNum] of its real. *)
+repeat match goal with |- _ /\ _ => split end; intros;
+  repeat match goal with
+  | F : is_finite ?w = true |- context [with_val ?w] =>
+      rewrite (with_val_finite w F) by lra
+  end;
+  cbn [ideal_pow];
   repeat match goal with
   | |- context [Rlt_dec ?a ?b] => destruct (Rlt_dec a b)
   | |- context [Req_dec_T ?a ?b] => destruct (Req_dec_T a b)

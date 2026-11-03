@@ -9,7 +9,13 @@
     special values and exceptions, the entry of [mpfr_get_d], and those of
     the functions. It assumes as little as the proofs use: the rounding of
     each function for finite arguments in its domain, and only the special
-    values that the Rust code passes. A special value that is a zero is
+    values that the Rust code passes. The rounding and the special values
+    of the functions that [src/elementary.rs] calls, all but [mpfr_get_d],
+    which converts their results, are stated only at the MPFR numbers that
+    [with_val] makes of [f64]s, as the code passes them. A special value at
+    a finite argument other than 0, such as [atan2(y, -inf)] for [y > 0],
+    is thus assumed only where that argument is the real of a finite
+    [f64], not at every real. A special value that is a zero is
     assumed only to be a zero, of either sign: the code passes the result
     of each function with special values here only to [mpfr_get_d], and
     [get_d_ok] says only that it converts a zero to a zero, so the
@@ -146,7 +152,7 @@ Definition atan_ok (emin emax : Z) (m : mpfr) : Prop :=
     leaves out [y = 0, x <= 0]. The
     special values below are those of the [mpfr_atan2] entry of the MPFR
     manual at the points that the code passes, one infinity and a finite
-    number, except that [atan2(y, +inf)] is only assumed to be a zero, of
+    [f64], except that [atan2(y, +inf)] is only assumed to be a zero, of
     either sign (see the header). For a finite [y > 0] the entry gives +0
     there, and -0 for a finite [y < 0]. For [y] = ±0, it gives ±0 by its
     [atan2(±0, x) = ±0] for [x > 0] if that [x] can be +inf. If it cannot,
@@ -166,15 +172,21 @@ Definition atan_ok (emin emax : Z) (m : mpfr) : Prop :=
     stated for both directions, and [PI] and [PI / 2] are rounded. *)
 Definition atan2_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct2 emin emax (fun y x => y <> 0 \/ 0 < x) Ratan2 (mpfr_atan2 m) /\
-  (* [atan2(y, +inf)] is a zero for [y > 0], for [y < 0] and for [y] = ±0 *)
-  (forall rnd y, 0 < y -> exists s', mpfr_atan2 m rnd (MNum y) (MInf false) = MZero s') /\
-  (forall rnd y, y < 0 -> exists s', mpfr_atan2 m rnd (MNum y) (MInf false) = MZero s') /\
+  (* [atan2(y, +inf)] is a zero for a finite [y > 0], for a finite [y < 0]
+     and for [y] = ±0 *)
+  (forall rnd (y : f64), is_finite y = true -> 0 < B2R y ->
+   exists s', mpfr_atan2 m rnd (with_val y) (MInf false) = MZero s') /\
+  (forall rnd (y : f64), is_finite y = true -> B2R y < 0 ->
+   exists s', mpfr_atan2 m rnd (with_val y) (MInf false) = MZero s') /\
   (forall rnd s, exists s', mpfr_atan2 m rnd (MZero s) (MInf false) = MZero s') /\
-  (* [atan2(y, -inf)] is [PI] for [y > 0] and [-PI] for [y < 0] *)
-  (forall rnd y, 0 < y ->
-   mpfr_round (mpfr_format emin emax) rnd PI (mpfr_atan2 m rnd (MNum y) (MInf true))) /\
-  (forall rnd y, y < 0 ->
-   mpfr_round (mpfr_format emin emax) rnd (- PI) (mpfr_atan2 m rnd (MNum y) (MInf true))) /\
+  (* [atan2(y, -inf)] is [PI] for a finite [y > 0] and [-PI] for a finite
+     [y < 0] *)
+  (forall rnd (y : f64), is_finite y = true -> 0 < B2R y ->
+   mpfr_round (mpfr_format emin emax) rnd PI
+     (mpfr_atan2 m rnd (with_val y) (MInf true))) /\
+  (forall rnd (y : f64), is_finite y = true -> B2R y < 0 ->
+   mpfr_round (mpfr_format emin emax) rnd (- PI)
+     (mpfr_atan2 m rnd (with_val y) (MInf true))) /\
   (* [atan2(+inf, x)] is [PI / 2] and [atan2(-inf, x)] is [- (PI / 2)] for
      a finite [x] *)
   (forall rnd (x : f64), is_finite x = true ->
@@ -247,7 +259,8 @@ Definition pow_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct2 emin emax pow_dom Rpow (mpfr_pow m) /\
   (* [pow(+0, y) = +inf] for [y < 0], [-inf] included, as [y] is then not
      an odd integer or [+0] is the zero; [pow(+0, +inf)] is a zero *)
-  (forall rnd y, y < 0 -> mpfr_pow m rnd (MZero false) (MNum y) = MInf false) /\
+  (forall rnd (y : f64), is_finite y = true -> B2R y < 0 ->
+   mpfr_pow m rnd (MZero false) (with_val y) = MInf false) /\
   (forall rnd, mpfr_pow m rnd (MZero false) (MInf true) = MInf false) /\
   (forall rnd, exists s, mpfr_pow m rnd (MZero false) (MInf false) = MZero s) /\
   (* [pow(x, ±0) = 1] for [x] +0 and +inf, and [pow(+1, ±inf) = 1] *)
@@ -256,15 +269,21 @@ Definition pow_ok (emin emax : Z) (m : mpfr) : Prop :=
   (forall rnd s, mpfr_pow m rnd (MNum 1) (MInf s) = MNum 1) /\
   (* [pow(x, -inf)] is +inf for [0 < x < 1] and a zero for [x > 1], and
      [pow(x, +inf)] is a zero for [0 < x < 1] and +inf for [x > 1] *)
-  (forall rnd y, 0 < y < 1 -> mpfr_pow m rnd (MNum y) (MInf true) = MInf false) /\
-  (forall rnd y, 1 < y -> exists s, mpfr_pow m rnd (MNum y) (MInf true) = MZero s) /\
-  (forall rnd y, 0 < y < 1 -> exists s, mpfr_pow m rnd (MNum y) (MInf false) = MZero s) /\
-  (forall rnd y, 1 < y -> mpfr_pow m rnd (MNum y) (MInf false) = MInf false) /\
+  (forall rnd (x : f64), is_finite x = true -> 0 < B2R x < 1 ->
+   mpfr_pow m rnd (with_val x) (MInf true) = MInf false) /\
+  (forall rnd (x : f64), is_finite x = true -> 1 < B2R x ->
+   exists s, mpfr_pow m rnd (with_val x) (MInf true) = MZero s) /\
+  (forall rnd (x : f64), is_finite x = true -> 0 < B2R x < 1 ->
+   exists s, mpfr_pow m rnd (with_val x) (MInf false) = MZero s) /\
+  (forall rnd (x : f64), is_finite x = true -> 1 < B2R x ->
+   mpfr_pow m rnd (with_val x) (MInf false) = MInf false) /\
   (* [pow(+inf, y)] is a zero for [y < 0] and +inf for [y > 0], infinities
      included *)
-  (forall rnd y, y < 0 -> exists s, mpfr_pow m rnd (MInf false) (MNum y) = MZero s) /\
+  (forall rnd (y : f64), is_finite y = true -> B2R y < 0 ->
+   exists s, mpfr_pow m rnd (MInf false) (with_val y) = MZero s) /\
   (forall rnd, exists s, mpfr_pow m rnd (MInf false) (MInf true) = MZero s) /\
-  (forall rnd y, 0 < y -> mpfr_pow m rnd (MInf false) (MNum y) = MInf false) /\
+  (forall rnd (y : f64), is_finite y = true -> 0 < B2R y ->
+   mpfr_pow m rnd (MInf false) (with_val y) = MInf false) /\
   (forall rnd, mpfr_pow m rnd (MInf false) (MInf false) = MInf false).
 
 (** [Interval::powi] calls [pow_si] with an [i32] [n]. It computes

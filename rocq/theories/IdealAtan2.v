@@ -33,16 +33,18 @@ split; [exact (ideal_atan2_correct2 emin emax Hr)|].
 (* [split] would also solve some equations by [eq_refl], which shifts the
    bullets, so only the conjunctions are split. *)
 repeat match goal with |- _ /\ _ => split end.
-- intros rnd y Hy. exists false. cbn [ideal_atan2].
-  destruct (Rlt_dec 0 y); [reflexivity | (exfalso; lra)].
-- intros rnd y Hy. exists true. cbn [ideal_atan2].
-  destruct (Rlt_dec 0 y); [(exfalso; lra) | reflexivity].
+- intros rnd y Fy Hy. rewrite (with_val_finite y Fy) by lra.
+  exists false. cbn [ideal_atan2].
+  destruct (Rlt_dec 0 (B2R y)); [reflexivity | (exfalso; lra)].
+- intros rnd y Fy Hy. rewrite (with_val_finite y Fy) by lra.
+  exists true. cbn [ideal_atan2].
+  destruct (Rlt_dec 0 (B2R y)); [(exfalso; lra) | reflexivity].
 - (* the zero [y] itself, with its sign *)
   intros rnd s. exists s. reflexivity.
-- intros rnd y Hy. cbn [ideal_atan2].
-  destruct (Rlt_dec 0 y); [|(exfalso; lra)]. apply round_mpfr_correct, Hr.
-- intros rnd y Hy. cbn [ideal_atan2].
-  destruct (Rlt_dec 0 y); [(exfalso; lra)|]. apply round_mpfr_correct, Hr.
+- intros rnd y Fy Hy. rewrite (with_val_finite y Fy) by lra. cbn [ideal_atan2].
+  destruct (Rlt_dec 0 (B2R y)); [|(exfalso; lra)]. apply round_mpfr_correct, Hr.
+- intros rnd y Fy Hy. rewrite (with_val_finite y Fy) by lra. cbn [ideal_atan2].
+  destruct (Rlt_dec 0 (B2R y)); [(exfalso; lra)|]. apply round_mpfr_correct, Hr.
 - intros rnd x Fx.
   destruct (with_val_finite_cases x Fx) as [(s & Ex & _) | (Ex & _)];
     rewrite Ex; cbn [ideal_atan2]; apply round_mpfr_correct, Hr.

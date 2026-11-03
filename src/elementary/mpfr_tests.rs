@@ -236,16 +236,16 @@ fn atan2_ok() {
     for rnd in DIRS {
         for y in ys {
             let v = value(&mpfr_fn2!(atan2(y, inf, rnd)));
-            // `forall rnd y, 0 < y -> exists s', mpfr_atan2 m rnd (MNum y) (MInf false) =
-            // MZero s'`
+            // `forall rnd (y : f64), is_finite y = true -> 0 < B2R y ->
+            // exists s', mpfr_atan2 m rnd (with_val y) (MInf false) = MZero s'`
             assert!(matches!(v, Zero(_)), "{y:e}, {rnd:?}: {v:?}");
             // More than `atan2_ok` assumes: +0, as the `mpfr_atan2` entry of the MPFR manual
             // gives it.
             assert_eq!(v, Zero(false), "{y:e}, {rnd:?}");
 
             let v = value(&mpfr_fn2!(atan2(-y, inf, rnd)));
-            // `forall rnd y, y < 0 -> exists s', mpfr_atan2 m rnd (MNum y) (MInf false) =
-            // MZero s'`
+            // `forall rnd (y : f64), is_finite y = true -> B2R y < 0 ->
+            // exists s', mpfr_atan2 m rnd (with_val y) (MInf false) = MZero s'`
             assert!(matches!(v, Zero(_)), "{:e}, {rnd:?}: {v:?}", -y);
             // More than `atan2_ok` assumes: -0, as the `mpfr_atan2` entry of the MPFR manual
             // gives it.
@@ -267,15 +267,17 @@ fn atan2_ok() {
         (RNDU, I::PI.sup(), -I::PI.inf()),
     ] {
         for y in ys {
-            // `forall rnd y, 0 < y -> mpfr_round (mpfr_format emin emax) rnd PI
-            // (mpfr_atan2 m rnd (MNum y) (MInf true))`
+            // `forall rnd (y : f64), is_finite y = true -> 0 < B2R y ->
+            // mpfr_round (mpfr_format emin emax) rnd PI
+            // (mpfr_atan2 m rnd (with_val y) (MInf true))`
             assert_eq!(
                 value(&mpfr_fn2!(atan2(y, -inf, rnd))),
                 num(pi_rnd),
                 "{y:e}, {rnd:?}"
             );
-            // `forall rnd y, y < 0 -> mpfr_round (mpfr_format emin emax) rnd (- PI)
-            // (mpfr_atan2 m rnd (MNum y) (MInf true))`
+            // `forall rnd (y : f64), is_finite y = true -> B2R y < 0 ->
+            // mpfr_round (mpfr_format emin emax) rnd (- PI)
+            // (mpfr_atan2 m rnd (with_val y) (MInf true))`
             assert_eq!(
                 value(&mpfr_fn2!(atan2(-y, -inf, rnd))),
                 num(neg_pi_rnd),
@@ -369,7 +371,8 @@ fn ln_ok() {
 }
 
 // `pow_ok`, the fourteen special values, in both directions. `mpfr_pow m rnd x y` is
-// `mpfr_fn2!(pow(x, y, rnd))`; the clauses call the base `y` where it is a number.
+// `mpfr_fn2!(pow(x, y, rnd))`. The loops over `below_1` and `above_1` call the base `y`,
+// which the clauses call `x`.
 #[test]
 fn pow_ok() {
     let inf = f64::INFINITY;
@@ -382,7 +385,8 @@ fn pow_ok() {
 
     for rnd in DIRS {
         for y in neg {
-            // `forall rnd y, y < 0 -> mpfr_pow m rnd (MZero false) (MNum y) = MInf false`
+            // `forall rnd (y : f64), is_finite y = true -> B2R y < 0 ->
+            // mpfr_pow m rnd (MZero false) (with_val y) = MInf false`
             assert_eq!(
                 value(&mpfr_fn2!(pow(0.0, y, rnd))),
                 Inf(false),
@@ -425,15 +429,16 @@ fn pow_ok() {
         }
 
         for y in below_1 {
-            // `forall rnd y, 0 < y < 1 -> mpfr_pow m rnd (MNum y) (MInf true) = MInf false`
+            // `forall rnd (x : f64), is_finite x = true -> 0 < B2R x < 1 ->
+            // mpfr_pow m rnd (with_val x) (MInf true) = MInf false`
             assert_eq!(
                 value(&mpfr_fn2!(pow(y, -inf, rnd))),
                 Inf(false),
                 "{y:e}, {rnd:?}"
             );
             let v = value(&mpfr_fn2!(pow(y, inf, rnd)));
-            // `forall rnd y, 0 < y < 1 -> exists s, mpfr_pow m rnd (MNum y) (MInf false) =
-            // MZero s`
+            // `forall rnd (x : f64), is_finite x = true -> 0 < B2R x < 1 ->
+            // exists s, mpfr_pow m rnd (with_val x) (MInf false) = MZero s`
             assert!(matches!(v, Zero(_)), "{y:e}, {rnd:?}: {v:?}");
             // More than `pow_ok` assumes: +0, as the `mpfr_pow` entry of the MPFR manual
             // gives it.
@@ -441,12 +446,14 @@ fn pow_ok() {
         }
         for y in above_1 {
             let v = value(&mpfr_fn2!(pow(y, -inf, rnd)));
-            // `forall rnd y, 1 < y -> exists s, mpfr_pow m rnd (MNum y) (MInf true) = MZero s`
+            // `forall rnd (x : f64), is_finite x = true -> 1 < B2R x ->
+            // exists s, mpfr_pow m rnd (with_val x) (MInf true) = MZero s`
             assert!(matches!(v, Zero(_)), "{y:e}, {rnd:?}: {v:?}");
             // More than `pow_ok` assumes: +0, as the `mpfr_pow` entry of the MPFR manual
             // gives it.
             assert_eq!(v, Zero(false), "{y:e}, {rnd:?}");
-            // `forall rnd y, 1 < y -> mpfr_pow m rnd (MNum y) (MInf false) = MInf false`
+            // `forall rnd (x : f64), is_finite x = true -> 1 < B2R x ->
+            // mpfr_pow m rnd (with_val x) (MInf false) = MInf false`
             assert_eq!(
                 value(&mpfr_fn2!(pow(y, inf, rnd))),
                 Inf(false),
@@ -456,7 +463,8 @@ fn pow_ok() {
 
         for y in neg {
             let v = value(&mpfr_fn2!(pow(inf, y, rnd)));
-            // `forall rnd y, y < 0 -> exists s, mpfr_pow m rnd (MInf false) (MNum y) = MZero s`
+            // `forall rnd (y : f64), is_finite y = true -> B2R y < 0 ->
+            // exists s, mpfr_pow m rnd (MInf false) (with_val y) = MZero s`
             assert!(matches!(v, Zero(_)), "{y:e}, {rnd:?}: {v:?}");
             // More than `pow_ok` assumes: +0, as the `mpfr_pow` entry of the MPFR manual
             // gives it.
@@ -468,7 +476,8 @@ fn pow_ok() {
         // More than `pow_ok` assumes: +0, as the `mpfr_pow` entry of the MPFR manual gives it.
         assert_eq!(v, Zero(false), "{rnd:?}");
         for y in pos {
-            // `forall rnd y, 0 < y -> mpfr_pow m rnd (MInf false) (MNum y) = MInf false`
+            // `forall rnd (y : f64), is_finite y = true -> 0 < B2R y ->
+            // mpfr_pow m rnd (MInf false) (with_val y) = MInf false`
             assert_eq!(
                 value(&mpfr_fn2!(pow(inf, y, rnd))),
                 Inf(false),

@@ -71,7 +71,7 @@ Lemma pow_zero_neg :
 Proof.
 intros emin emax m Hget (Hc & H1 & H2 & H3 & H4 & H5 & H6 & H7 & H8 & H9 & H10 & H11 & H12 & H13 & H14) rnd q [(Fq & Hq)| ->];
   unfold mpfr_fn2; cbn [with_val].
-- rewrite (with_val_finite q Fq) by lra. rewrite H1 by exact Hq.
+- rewrite (H1 rnd q Fq Hq).
   exact (pm_get_inf _ _ _ Hget _ _).
 - rewrite H2. exact (pm_get_inf _ _ _ Hget _ _).
 Qed.
@@ -116,7 +116,7 @@ Lemma pow_pinf_neg :
 Proof.
 intros emin emax m Hget (Hc & H1 & H2 & H3 & H4 & H5 & H6 & H7 & H8 & H9 & H10 & H11 & H12 & H13 & H14) rnd q [(Fq & Hq)| ->];
   unfold mpfr_fn2; cbn [with_val].
-- rewrite (with_val_finite q Fq) by lra. destruct (H11 rnd _ Hq) as (s & ->).
+- destruct (H11 rnd q Fq Hq) as (s & ->).
   exact (pm_get_zero _ _ _ Hget _ _).
 - destruct (H12 rnd) as (s & ->). exact (pm_get_zero _ _ _ Hget _ _).
 Qed.
@@ -128,7 +128,7 @@ Lemma pow_pinf_pos :
 Proof.
 intros emin emax m Hget (Hc & H1 & H2 & H3 & H4 & H5 & H6 & H7 & H8 & H9 & H10 & H11 & H12 & H13 & H14) rnd q [(Fq & Hq)| ->];
   unfold mpfr_fn2; cbn [with_val].
-- rewrite (with_val_finite q Fq) by lra. rewrite H13 by exact Hq.
+- rewrite (H13 rnd q Fq Hq).
   exact (pm_get_inf _ _ _ Hget _ _).
 - rewrite H14. exact (pm_get_inf _ _ _ Hget _ _).
 Qed.
@@ -151,8 +151,8 @@ Lemma pow_lt1_ninf :
   mpfr_fn2 m (mpfr_pow m) rnd p (B754_infinity true) = B754_infinity false.
 Proof.
 intros emin emax m Hget (Hc & H1 & H2 & H3 & H4 & H5 & H6 & H7 & H8 & H9 & H10 & H11 & H12 & H13 & H14) rnd p Fp Hp.
-unfold mpfr_fn2. rewrite (with_val_finite p Fp) by lra. cbn [with_val].
-rewrite H7 by exact Hp. exact (pm_get_inf _ _ _ Hget _ _).
+unfold mpfr_fn2. cbn [with_val].
+rewrite (H7 rnd p Fp Hp). exact (pm_get_inf _ _ _ Hget _ _).
 Qed.
 
 Lemma pow_gt1_ninf :
@@ -162,8 +162,8 @@ Lemma pow_gt1_ninf :
     (with_val (mpfr_fn2 m (mpfr_pow m) rnd p (B754_infinity true))).
 Proof.
 intros emin emax m Hget (Hc & H1 & H2 & H3 & H4 & H5 & H6 & H7 & H8 & H9 & H10 & H11 & H12 & H13 & H14) rnd p Fp Hp.
-unfold mpfr_fn2. rewrite (with_val_finite p Fp) by lra. cbn [with_val].
-destruct (H8 rnd _ Hp) as (s & ->). exact (pm_get_zero _ _ _ Hget _ _).
+unfold mpfr_fn2. cbn [with_val].
+destruct (H8 rnd p Fp Hp) as (s & ->). exact (pm_get_zero _ _ _ Hget _ _).
 Qed.
 
 Lemma pow_lt1_pinf :
@@ -173,8 +173,8 @@ Lemma pow_lt1_pinf :
     (with_val (mpfr_fn2 m (mpfr_pow m) rnd p (B754_infinity false))).
 Proof.
 intros emin emax m Hget (Hc & H1 & H2 & H3 & H4 & H5 & H6 & H7 & H8 & H9 & H10 & H11 & H12 & H13 & H14) rnd p Fp Hp.
-unfold mpfr_fn2. rewrite (with_val_finite p Fp) by lra. cbn [with_val].
-destruct (H9 rnd _ Hp) as (s & ->). exact (pm_get_zero _ _ _ Hget _ _).
+unfold mpfr_fn2. cbn [with_val].
+destruct (H9 rnd p Fp Hp) as (s & ->). exact (pm_get_zero _ _ _ Hget _ _).
 Qed.
 
 Lemma pow_gt1_pinf :
@@ -183,8 +183,8 @@ Lemma pow_gt1_pinf :
   mpfr_fn2 m (mpfr_pow m) rnd p (B754_infinity false) = B754_infinity false.
 Proof.
 intros emin emax m Hget (Hc & H1 & H2 & H3 & H4 & H5 & H6 & H7 & H8 & H9 & H10 & H11 & H12 & H13 & H14) rnd p Fp Hp.
-unfold mpfr_fn2. rewrite (with_val_finite p Fp) by lra. cbn [with_val].
-rewrite H10 by exact Hp. exact (pm_get_inf _ _ _ Hget _ _).
+unfold mpfr_fn2. cbn [with_val].
+rewrite (H10 rnd p Fp Hp). exact (pm_get_inf _ _ _ Hget _ _).
 Qed.
 
 (** ** [pown] *)

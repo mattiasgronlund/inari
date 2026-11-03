@@ -119,22 +119,21 @@ destruct (is_finite y) eqn:Fy.
          sign. *)
       assert (Hy0 : B2R y <> 0).
       { intros E. destruct (Hz eq_refl E) as [Ex|(Fx' & _)]; discriminate. }
-      rewrite (with_val_finite y Fy Hy0). cbn [with_val].
+      cbn [with_val].
       destruct (Rlt_dec 0 (B2R y)) as [Hp|Hn].
       -- rewrite (at_val_x_ninf_pos y Fy Hp).
-         apply (mpfr_fn_round emin emax); [exact Hr | exact Hget | exact (H4 rnd _ Hp)].
+         apply (mpfr_fn_round emin emax); [exact Hr | exact Hget | exact (H4 rnd y Fy Hp)].
       -- rewrite (at_val_x_ninf_neg y Fy) by lra.
          apply (mpfr_fn_round emin emax); [exact Hr | exact Hget |].
-         apply H5. lra.
+         apply H5; [exact Fy | lra].
     * (* [x = +inf]: MPFR returns a zero, which [mpfr_get_d] keeps. *)
       rewrite (at_val_x_pinf y Fy). cbn [with_val].
       assert (E : exists s, mpfr_atan2 m rnd (with_val y) (MInf false) = MZero s).
       { destruct (Req_dec (B2R y) 0) as [E|E].
         - destruct (am_with_val_zero y Fy E) as (s & ->). exact (H3 rnd s).
-        - rewrite (with_val_finite y Fy E).
-          destruct (Rlt_dec 0 (B2R y)) as [Hp|Hn].
-          + apply H1. exact Hp.
-          + apply H2. lra. }
+        - destruct (Rlt_dec 0 (B2R y)) as [Hp|Hn].
+          + exact (H1 rnd y Fy Hp).
+          + apply H2; [exact Fy | lra]. }
       destruct E as (s & ->). exact (pm_get_zero _ _ _ Hget _ _).
 - (* [y] is an infinity, so [x] is finite. *)
   destruct Hfin as [Hfy|Fx]; [discriminate Hfy|].
