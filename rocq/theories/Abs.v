@@ -34,13 +34,24 @@
     decoration of the argument for a bounded [x], and lowers [com] to [dac]
     for an unbounded one. For the empty interval, the strongest decoration
     is [trv], and [set_dec] returns [EMPTY]. In each case, that is the
-    minimum of the strongest decoration and that of the argument. Unlike
-    [dec_sign_correct], [dec_abs_correct] needs no hypothesis on the
-    decoration of the argument. *)
+    minimum of the strongest decoration and that of the argument.
+
+    [dec_abs_correct] leaves these cases to [elem_set_dec_trv_com] in
+    [ElemDec.v], which it applies with all of R as the domain and the
+    decoration [com]. With [com], that theorem also asks that a [com] [x]
+    be bounded if the result is common. It is: a common result is bounded
+    and is the hull of the image of [x], so the image is bounded, and so
+    is [x], as each real of [x] has the magnitude of its image
+    ([Rabs_Rabsolu]). The [*_all] lemmas in [ElemDec.v] show that on all
+    of R, [image_dom] is [image], the hull of the image is the tightest
+    interval that contains it, and for that hull, [p_dom] and
+    [strongest_dom] are [p] and [strongest]. Unlike [dec_sign_correct],
+    [dec_abs_correct] needs no hypothesis on the decoration of the
+    argument. *)
 
 From Stdlib Require Import ZArith Reals Lra.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Encoding Ieee1788 Integer Sign.
+From Inari Require Import Model Encoding Ieee1788 Integer Sign DecBinary ElemDec.
 
 Open Scope R_scope.
 
@@ -124,13 +135,6 @@ Qed.
 Lemma upper_ok_opp : forall v, lower_ok (opp v) -> upper_ok v.
 Proof.
 intros v [Fv|Ev]; [left; now rewrite is_finite_opp in Fv | right; now apply opp_inf].
-Qed.
-
-Lemma lower_ok_not_nan : forall v, lower_ok (opp v) -> is_nan v = false.
-Proof.
-intros v [Fv|Ev].
-- rewrite is_finite_opp in Fv. destruct v; first [reflexivity | discriminate Fv].
-- now rewrite (opp_inf v Ev).
 Qed.
 
 Lemma upper_ok_not_nan : forall v, upper_ok v -> is_nan v = false.
@@ -326,18 +330,12 @@ Qed.
 
 (** ** The result *)
 
-(** Both bounds are finite. *)
-Definition both (lo hi : option R) : bool :=
-  match lo, hi with Some _, Some _ => true | _, _ => false end.
-
 (** What each class shows of the result [y] of [abs x]: its bounds are of
-    the right form and ordered, they are finite exactly when those of [x]
-    are, and the reals between them are the image of [x]. *)
+    the right form and ordered, and the reals between them are the image of
+    [x]. *)
 Definition abs_ok (x y : Interval) : Prop :=
   lower_ok (opp (fst (rep y))) /\ upper_ok (snd (rep y)) /\
   ordered (bound (opp (fst (rep y)))) (bound (snd (rep y))) /\
-  both (bound (opp (fst (rep y)))) (bound (snd (rep y))) =
-    both (bound (opp (fst (rep x)))) (bound (snd (rep x))) /\
   forall t,
   image Rabs x t <-> in_bounds (bound (opp (fst (rep y)))) (bound (snd (rep y))) t.
 
@@ -350,7 +348,6 @@ intros x Hx Hn Hl.
 destruct (valid_nonempty x Hx Hn) as (Ha & Hb & Hord).
 destruct (lower_le_true _ Ha Hl) as (a & Ea & Ha0).
 split; [exact Ha|]. split; [exact Hb|]. split; [exact Hord|].
-split; [reflexivity|].
 assert (HX : forall r, mem r x <-> in_bounds (Some a) (bound (snd (rep x))) r).
 { intros r. rewrite <- Ea. now apply mem_bounds. }
 intros t. rewrite Ea. exact (image_nonneg (fun r => mem r x) a _ HX Ha0 t).
@@ -358,12 +355,9 @@ Qed.
 
 Lemma swap_bounds :
   forall lo b,
-  ordered lo (Some b) ->
-  ordered (Some (- b)) (option_map Ropp lo) /\
-  both (Some (- b)) (option_map Ropp lo) = both lo (Some b).
+  ordered lo (Some b) -> ordered (Some (- b)) (option_map Ropp lo).
 Proof.
-intros [a|] b H; cbn [ordered option_map both] in *; [|split; trivial].
-split; [lra | reflexivity].
+intros [a|] b H; cbn [ordered option_map] in *; [lra | trivial].
 Qed.
 
 (** [N0] and [N1]: [a < 0] and [b <= 0], and the result swaps the lanes
@@ -380,22 +374,21 @@ assert (HX : forall r,
           mem r x <-> in_bounds (bound (opp (fst (rep x)))) (Some b) r).
 { intros r. rewrite <- Eb. now apply mem_bounds. }
 rewrite Eb in Hord.
-destruct (swap_bounds _ _ Hord) as [Hord' Hboth].
+pose proof (swap_bounds _ _ Hord) as Hord'.
 unfold abs_ok, Generic.swap. cbn [rep fst snd].
 rewrite (bound_opp (snd (rep x))), Eb, (bound_opp_opp (fst (rep x))).
 cbn [option_map].
 split; [now apply lower_ok_opp|]. split; [now apply upper_ok_opp|].
-split; [exact Hord'|]. split; [exact Hboth|].
+split; [exact Hord'|].
 intros t. exact (image_nonpos (fun r => mem r x) _ b HX Hb0 t).
 Qed.
 
 Lemma mixed_bounds :
   forall lo hi,
   match hi with Some b => 0 < b | None => True end ->
-  ordered (Some 0) (max_bound lo hi) /\
-  both (Some 0) (max_bound lo hi) = both lo hi.
+  ordered (Some 0) (max_bound lo hi).
 Proof.
-intros [a|] [b|] Hb; cbn [ordered max_bound both] in *; split; trivial.
+intros [a|] [b|] Hb; cbn [ordered max_bound] in *; trivial.
 generalize (Rmax_r (- a) b). lra.
 Qed.
 
@@ -414,7 +407,7 @@ destruct (valid_nonempty x Hx Hn) as (Ha & Hb & Hord).
 destruct (max_lane _ _ Ha Hb) as (Hm & Em).
 pose proof (lower_le_false _ Ha Hl0) as Hlo.
 pose proof (upper_le_false _ Hb Hl1) as Hhi.
-destruct (mixed_bounds (bound (opp (fst (rep x)))) _ Hhi) as [Hord' Hboth].
+pose proof (mixed_bounds (bound (opp (fst (rep x)))) _ Hhi) as Hord'.
 assert (HX : forall r,
           mem r x <->
           in_bounds (bound (opp (fst (rep x)))) (bound (snd (rep x))) r).
@@ -423,7 +416,7 @@ unfold abs_ok. cbn [rep fst snd]. rewrite Em.
 (* The lower bound of the result is [-0.0], whose value is 0. *)
 replace (bound (opp zero)) with (Some 0) by reflexivity.
 split; [left; reflexivity|]. split; [exact Hm|].
-split; [exact Hord'|]. split; [exact Hboth|].
+split; [exact Hord'|].
 intros t. exact (image_mixed (fun r => mem r x) _ _ HX Hlo Hhi t).
 Qed.
 
@@ -455,7 +448,7 @@ Qed.
 
 Lemma abs_hull : forall x y, abs_ok x y -> is_hull (image Rabs x) y.
 Proof.
-intros x y (Ha & Hb & Hord & _ & Him). split; [now apply valid_bounds|].
+intros x y (Ha & Hb & Hord & Him). split; [now apply valid_bounds|].
 intros r. rewrite mem_bounds by assumption. exact (hull_bounds _ _ _ Him r).
 Qed.
 
@@ -476,7 +469,7 @@ intros x Hx. destruct (is_nan (fst (rep x))) eqn:Hn.
   exists y. split; [exact Ey | now apply abs_hull].
 Qed.
 
-(** ** The strongest decoration *)
+(** ** Continuity *)
 
 Lemma Rabs_continue_in : forall X r, continue_in Rabs X r.
 Proof.
@@ -485,52 +478,7 @@ exists alp. split; [exact Halp|].
 intros s [[_ Hs] Hd]. apply H. split; [split; [exact I | exact Hs] | exact Hd].
 Qed.
 
-(** The strongest decoration of [abs] on the reals between [lo] and [hi]. *)
-Definition abs_dec (lo hi : option R) : Decoration :=
-  if both lo hi then Com else Dac.
-
-Lemma abs_strongest :
-  forall x lo hi,
-  (forall r, mem r x <-> in_bounds lo hi r) -> ordered lo hi ->
-  strongest (abs_dec lo hi) Rabs x.
-Proof.
-intros x lo hi HX Hord.
-assert (Hne : exists r, mem r x).
-{ destruct (in_bounds_nonempty lo hi Hord) as (r & Hr). exists r. now apply HX. }
-assert (Hdac : p Dac Rabs x).
-{ split; [exact Hne|]. intros r _. apply Rabs_continue_in. }
-unfold abs_dec. destruct lo as [a|], hi as [b|]; cbn [both].
-- (* [x] is bounded, and so is its image. *)
-  apply strongest_Com. split; [exact Hne|]. split; [|split].
-  + exists (Rabs a + Rabs b). intros r Hr. apply HX in Hr.
-    now apply Rabs_between.
-  + intros r _. apply Rcontinuity_abs.
-  + exists (Rabs a + Rabs b). intros s (r & Hr & ->). rewrite Rabs_Rabsolu.
-    apply HX in Hr. now apply Rabs_between.
-- apply strongest_Dac; [exact Hdac|].
-  intros (_ & Hb & _). exact (unbounded_hi x (Some a) HX Hb).
-- apply strongest_Dac; [exact Hdac|].
-  intros (_ & Hb & _). exact (unbounded_lo x (Some b) HX Hb).
-- apply strongest_Dac; [exact Hdac|].
-  intros (_ & Hb & _). exact (unbounded_lo x None HX Hb).
-Qed.
-
 (** ** The decorated version *)
-
-(** An interval is common exactly when both of its bounds are finite. *)
-Lemma common_bounds :
-  forall y, lower_ok (opp (fst (rep y))) -> upper_ok (snd (rep y)) ->
-  Interval.is_common_interval y =
-    both (bound (opp (fst (rep y)))) (bound (snd (rep y))).
-Proof.
-intros y [Fa|Ea] Hb; [destruct Hb as [Fb|Eb]|].
-- rewrite (finite_common y Fa Fb), (bound_finite _ Fa), (bound_finite _ Fb).
-  reflexivity.
-- rewrite is_common_interval_lt, infinity_eq, Eb, bound_inf, (bound_finite _ Fa).
-  cbn [both]. destruct (lt (fst (rep y)) (B754_infinity false)); reflexivity.
-- rewrite Ea, bound_inf, is_common_interval_lt, infinity_eq, (opp_inf _ Ea).
-  reflexivity.
-Qed.
 
 (** [DecInterval::abs] decorates it with the decoration that IEEE 1788 asks
     for. *)
@@ -544,33 +492,23 @@ Theorem dec_abs_correct :
 Proof.
 intros x Hx. unfold DecInterval.abs.
 destruct (DecInterval.is_nai x) eqn:Hnai; [exists x; split; reflexivity|].
-unfold DecInterval.is_nai in Hnai.
-destruct (is_nan (fst (rep (itv x)))) eqn:Hn.
-- (* [x] is empty, so [abs] returns its interval, and [set_dec] [EMPTY]. *)
-  pose proof (empty_nan _ Hx Hn) as E.
-  rewrite (abs_empty _ E). cbv beta iota.
-  exists DecInterval.EMPTY. split; [|split].
-  + f_equal. unfold DecInterval.set_dec, Interval.is_empty.
-    now rewrite Hnai, Hn.
-  + apply is_hull_empty. intros u (r & Hr & _). exact (mem_nan _ r E Hr).
-  + exists Trv. split; [apply strongest_Trv; intros r; exact (mem_nan _ r E)|].
-    cbn [dec DecInterval.EMPTY].
-    destruct (dec x); first [reflexivity | discriminate Hnai].
-- destruct (valid_nonempty (itv x) Hx Hn) as (_ & _ & Hord).
-  destruct (abs_nonempty (itv x) Hx Hn) as (y & Ey & Hy).
-  rewrite Ey. cbv beta iota.
-  set (d := abs_dec (bound (opp (fst (rep (itv x))))) (bound (snd (rep (itv x))))).
-  exists (DecInterval.new_unchecked y (dec_min d (dec x))). split; [|split].
-  + (* [y] is common exactly when [d] is [com]. *)
-    f_equal. pose proof Hy as (Hya & Hyb & _ & Hboth & _).
-    unfold DecInterval.set_dec, Interval.is_empty.
-    rewrite Hnai, (lower_ok_not_nan _ Hya), (common_bounds y Hya Hyb), Hboth.
-    unfold d, abs_dec.
-    destruct (both (bound (opp (fst (rep (itv x))))) (bound (snd (rep (itv x))))),
-      (dec x); reflexivity.
-  + exact (abs_hull _ _ Hy).
-  + exists d. split; [|reflexivity].
-    apply abs_strongest; [|exact Hord].
-    intros r. destruct (valid_nonempty (itv x) Hx Hn) as (Ha & Hb & _).
-    now apply mem_bounds.
+assert (Hdx : dec x <> Ill).
+{ intros E. unfold DecInterval.is_nai in Hnai. now rewrite E in Hnai. }
+destruct (abs_correct _ Hx) as (z & Ez & Hz). rewrite Ez. cbv beta iota.
+exists (DecInterval.set_dec z (dec x)). split; [reflexivity|].
+(* A common result is bounded, so the image is, and so is [x]. *)
+assert (Hb : dec x = Com -> Interval.is_common_interval z = true ->
+  bounded (fun r => mem r (itv x))).
+{ intros _ C. destruct (proj2 (is_hull_bounded _ _ Hz) (common_bounded _ C)) as (m & Hm).
+  exists m. intros s Hs. rewrite <- Rabs_Rabsolu. apply Hm.
+  exists s. split; [exact Hs | reflexivity]. }
+(* [abs] is defined and continuous on all of R, so the theorem applies
+   with the decoration [com]. *)
+pose proof (elem_set_dec_trv_com (fun _ => True) Rabs x z Com Hx Hdx
+  (hull_tightest_all _ _ _ Hz) (fun r _ _ => Rabs_continue_in _ r)
+  (or_intror (conj eq_refl (conj (fun _ _ => I) Hb)))) as H.
+cbv zeta in H. rewrite dec_min_Com_r in H. destruct H as (_ & d & Hd & Edec).
+rewrite (itv_set_dec _ _ (proj1 Hz) Hdx) in Hd |- *.
+split; [exact Hz|]. exists d.
+split; [exact (proj1 (strongest_dom_all d Rabs (itv x) _ Hz) Hd) | exact Edec].
 Qed.

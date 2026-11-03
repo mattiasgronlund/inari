@@ -71,6 +71,11 @@ Qed.
 Definition bound (a : f64) : option R :=
   if is_finite a then Some (B2R a) else None.
 
+Lemma bound_inf : forall s, bound (B754_infinity s) = None.
+Proof.
+reflexivity.
+Qed.
+
 (** The forms that the bounds [a] and [b] of a nonempty interval take. *)
 Definition lower_ok (a : f64) : Prop :=
   is_finite a = true \/ a = B754_infinity true.
@@ -177,6 +182,35 @@ intros s y [_ Hy]. split.
 - intros (m & Hm). exists m. intros r Hr. apply Hm, Hy.
   exists r, r. split; [exact Hr|]. split; [exact Hr|].
   split; apply Rle_refl.
+Qed.
+
+(** An interval with an infinite bound is not bounded. *)
+Lemma unbounded_lo :
+  forall x hi,
+  (forall r, mem r x <-> in_bounds None hi r) -> ~ bounded (fun r => mem r x).
+Proof.
+intros x hi HX (m & Hm).
+set (t := match hi with Some b => Rmin (- Rabs m - 1) b | None => - Rabs m - 1 end).
+assert (Ht : t <= - Rabs m - 1).
+{ unfold t. destruct hi; [apply Rmin_l | apply Rle_refl]. }
+assert (Hx : mem t x).
+{ apply HX. split; [exact I|]. unfold t. destruct hi; [apply Rmin_r | exact I]. }
+specialize (Hm t Hx). generalize (Rabs_pos m) (RRle_abs m). intros H1 H2.
+rewrite Rabs_left in Hm by lra. lra.
+Qed.
+
+Lemma unbounded_hi :
+  forall x lo,
+  (forall r, mem r x <-> in_bounds lo None r) -> ~ bounded (fun r => mem r x).
+Proof.
+intros x lo HX (m & Hm).
+set (t := match lo with Some a => Rmax (Rabs m + 1) a | None => Rabs m + 1 end).
+assert (Ht : Rabs m + 1 <= t).
+{ unfold t. destruct lo; [apply Rmax_l | apply Rle_refl]. }
+assert (Hx : mem t x).
+{ apply HX. split; [|exact I]. unfold t. destruct lo; [apply Rmax_r | exact I]. }
+specialize (Hm t Hx). generalize (Rabs_pos m) (RRle_abs m). intros H1 H2.
+rewrite Rabs_pos_eq in Hm by lra. lra.
 Qed.
 
 Lemma infinity_eq : infinity = B754_infinity false.

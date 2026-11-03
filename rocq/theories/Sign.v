@@ -22,18 +22,29 @@
     [impl_dec!(sign, ...)]. Otherwise [[a, b]] contains 0 and a nonzero
     real, so the restriction of [sign] jumps at 0.
 
-    An unbounded interval on which [sign] is constant, such as [[1, +inf]],
-    maps to a singleton, [[1, 1]], for which [impl_dec] computes [com],
-    where the strongest decoration is [dac], as [com] asks for a bounded
-    argument. The result is still right if the decoration of the argument
-    is not [com], as the minimum with it is then the same for [com] and
-    [dac]. So [dec_sign_correct] takes as a hypothesis that the argument is
-    [com] only if its interval is common ([com_common]), which
-    [ComCommon.v] shows of every [DecInterval] that the library makes. *)
+    [dec_sign_correct] applies [elem_set_dec_correct] in [ElemDec.v] with
+    all of R as the domain and the decoration that [impl_dec] computes,
+    which [sign_holds] shows is the one that [dec_holds_dom] describes.
+
+    For [[1, +inf]], [impl_dec] computes [com], as the result [[1, 1]] is a
+    singleton and the lower bound is not 0. [dec_holds_dom] describes [com]
+    there, as it asks for continuity at each real of the argument but for
+    no bound. [elem_set_dec_correct], though, asks that a [com] argument be
+    bounded when the decoration is [com] and the result is common, which
+    fails for a [com] [[1, +inf]]. The decoration of the result is wrong
+    there, too: [set_dec] keeps [com] for the common result [[1, 1]], but
+    the strongest decoration on [[1, +inf]] is [dac], as [com] asks for a
+    bounded argument. It is right if the argument is not [com], as the
+    minimum with its decoration is then the same for [com] and [dac].
+    So [dec_sign_correct] takes as a hypothesis that the argument is [com]
+    only if its interval is common ([com_common]), which gives the bound,
+    as a common interval is bounded ([common_bounded] in [DecBinary.v]).
+    [ComCommon.v] shows [com_common] of every [DecInterval] that the
+    library makes. *)
 
 From Stdlib Require Import ZArith Reals Lra.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Encoding Ieee1788 Integer ComCommon.
+From Inari Require Import Model Encoding Ieee1788 Integer ComCommon DecBinary ElemDec.
 
 Open Scope R_scope.
 
@@ -94,11 +105,6 @@ Qed.
 Lemma bound_finite : forall a, is_finite a = true -> bound a = Some (B2R a).
 Proof.
 intros a Fa. unfold bound. now rewrite Fa.
-Qed.
-
-Lemma bound_inf : forall s, bound (B754_infinity s) = None.
-Proof.
-reflexivity.
 Qed.
 
 (** [1.0]. *)
@@ -392,35 +398,6 @@ apply (sign_discontinuous (fun r => mem r x)).
 - apply Hc, HX, H0.
 Qed.
 
-(** An interval with an infinite bound is not bounded. *)
-Lemma unbounded_lo :
-  forall x hi,
-  (forall r, mem r x <-> in_bounds None hi r) -> ~ bounded (fun r => mem r x).
-Proof.
-intros x hi HX (m & Hm).
-set (t := match hi with Some b => Rmin (- Rabs m - 1) b | None => - Rabs m - 1 end).
-assert (Ht : t <= - Rabs m - 1).
-{ unfold t. destruct hi; [apply Rmin_l | apply Rle_refl]. }
-assert (Hx : mem t x).
-{ apply HX. split; [exact I|]. unfold t. destruct hi; [apply Rmin_r | exact I]. }
-specialize (Hm t Hx). generalize (Rabs_pos m) (RRle_abs m). intros H1 H2.
-rewrite Rabs_left in Hm by lra. lra.
-Qed.
-
-Lemma unbounded_hi :
-  forall x lo,
-  (forall r, mem r x <-> in_bounds lo None r) -> ~ bounded (fun r => mem r x).
-Proof.
-intros x lo HX (m & Hm).
-set (t := match lo with Some a => Rmax (Rabs m + 1) a | None => Rabs m + 1 end).
-assert (Ht : Rabs m + 1 <= t).
-{ unfold t. destruct lo; [apply Rmax_l | apply Rle_refl]. }
-assert (Hx : mem t x).
-{ apply HX. split; [|exact I]. unfold t. destruct lo; [apply Rmax_r | exact I]. }
-specialize (Hm t Hx). generalize (Rabs_pos m) (RRle_abs m). intros H1 H2.
-rewrite Rabs_pos_eq in Hm by lra. lra.
-Qed.
-
 (** If [sign] differs on the bounds, the reals between them contain 0 and
     a nonzero real. *)
 Lemma sign_differs :
@@ -449,71 +426,6 @@ intros [a|] [b|] Hord Hs; cbn [lsign usign ordered in_bounds] in *.
   exists 1. split; [split; exact I | apply Rgt_not_eq; lra].
 Qed.
 
-(** ** The strongest decoration *)
-
-(** The strongest decoration of [sign] on the reals between [lo] and [hi].
-    Unlike [floor_dec], it is [dac] for an unbounded interval on which
-    [sign] is constant, such as [[1, +inf]]. *)
-Definition sign_dec (lo hi : option R) : Decoration :=
-  if Req_bool (lsign lo) (usign hi) then
-    match lo, hi with
-    | Some a, Some _ => if Req_bool a 0 then Dac else Com
-    | _, _ => Dac
-    end
-  else Def.
-
-Lemma sign_strongest :
-  forall x lo hi,
-  (forall r, mem r x <-> in_bounds lo hi r) -> ordered lo hi ->
-  strongest (sign_dec lo hi) Rsign x.
-Proof.
-intros x lo hi HX Hord.
-assert (Hne : exists r, mem r x).
-{ destruct (in_bounds_nonempty lo hi Hord) as (r & Hr). exists r. now apply HX. }
-assert (Hcon : forall r, mem r x -> lsign lo <= Rsign r <= usign hi).
-{ intros r Hr. apply HX in Hr. destruct Hr as [Hr1 Hr2]. split.
-  - destruct lo as [a|]; cbn [lsign];
-      [now apply Rsign_le | exact (proj1 (Rsign_bounds r))].
-  - destruct hi as [b|]; cbn [usign];
-      [now apply Rsign_le | exact (proj2 (Rsign_bounds r))]. }
-unfold sign_dec. case (Req_bool_spec (lsign lo) (usign hi)); intros Hs.
-- (* [sign] is constant on [x]. *)
-  assert (Hdac : p Dac Rsign x).
-  { split; [exact Hne|]. intros r Hr.
-    apply continue_in_const with (c := lsign lo); [|exact Hr].
-    intros s Hs'. generalize (Hcon s Hs'). lra. }
-  destruct lo as [a|], hi as [b|]; cbv beta iota;
-    cbn [lsign usign] in Hs, Hcon.
-  + case (Req_bool_spec a 0); intros Ha.
-    * (* [x] is [[0, 0]], and [sign] jumps at 0. *)
-      apply strongest_Dac; [exact Hdac|].
-      intros (_ & _ & Hc & _).
-      apply (sign_discontinuous no_cond).
-      -- intros d Hd. exists (d / 2). split; [exact I|].
-         split; [apply Rgt_not_eq; lra | rewrite Rabs_pos_eq; lra].
-      -- change (continuity_pt Rsign 0). apply Hc, HX.
-         rewrite <- Ha. split; [apply Rle_refl | exact Hord].
-    * (* [x] is bounded, and 0 is not in it. *)
-      apply strongest_Com. split; [exact Hne|]. split; [|split].
-      -- exists (Rabs a + Rabs b). intros r Hr. apply HX in Hr.
-         now apply Rabs_between.
-      -- intros r Hr. apply sign_continuous. intros Hr0.
-         apply Ha, Rsign_zero. generalize (Hcon r Hr). rewrite Hr0, Rsign_0.
-         lra.
-      -- exists 1. intros s (r & _ & ->).
-         generalize (Rsign_bounds r). intros H. apply Rabs_le. lra.
-  + (* [x] is unbounded. *)
-    apply strongest_Dac; [exact Hdac|].
-    intros (_ & Hb & _). exact (unbounded_hi x (Some a) HX Hb).
-  + apply strongest_Dac; [exact Hdac|].
-    intros (_ & Hb & _). exact (unbounded_lo x (Some b) HX Hb).
-  + apply strongest_Dac; [exact Hdac|].
-    intros (_ & Hb & _). exact (unbounded_lo x None HX Hb).
-- apply strongest_Def; [exact Hne|].
-  destruct (sign_differs lo hi Hord Hs) as (H0 & t & Ht & Ht0).
-  exact (sign_jump x lo hi t HX H0 Ht Ht0).
-Qed.
-
 (** ** What [impl_dec] tests *)
 
 Lemma sign_singleton :
@@ -536,46 +448,77 @@ intros a [Fa| ->].
 - reflexivity.
 Qed.
 
-(** [impl_dec] computes [com] where [sign_dec] is [dac] on an unbounded
-    interval, and both give the same decoration once the minimum with that
-    of the argument is taken, which is not [com] then. *)
-Lemma sign_test :
-  forall x e, valid x -> is_nan (fst (rep x)) = false ->
-  (e = Com -> Interval.is_common_interval x = true) ->
-  dec_min (if Interval.is_singleton (Interval.sign x) then
-             if eq (Interval.inf_raw x) zero then Dac else Com
-           else Def) e =
-  dec_min (sign_dec (bound (opp (fst (rep x)))) (bound (snd (rep x)))) e.
+(** The decoration that [impl_dec] computes for [sign] on the reals
+    between [lo] and [hi] is the one that [dec_holds_dom] describes on all
+    of R. *)
+Lemma sign_holds_bounds :
+  forall x lo hi z,
+  (forall r, mem r x <-> in_bounds lo hi r) -> ordered lo hi ->
+  dec_holds_dom (fun _ => True) Rsign x z
+    (if negb (Req_bool (lsign lo) (usign hi)) then Def
+     else if match lo with Some a => Req_bool a 0 | None => false end then Dac
+     else Com).
 Proof.
-intros x e Hx Hn He.
-destruct (valid_nonempty x Hx Hn) as (Ha & Hb & _).
-rewrite (sign_singleton x Hx Hn). unfold Interval.inf_raw.
-rewrite (inf_zero_test _ Ha). unfold sign_dec.
-destruct Ha as [Fa|Ea].
-- destruct Hb as [Fb|Eb].
-  + rewrite (bound_finite _ Fa), (bound_finite _ Fb). reflexivity.
-  + (* [b = +inf] *)
-    assert (Hnc : e <> Com).
-    { intros E. specialize (He E).
-      rewrite is_common_interval_lt, infinity_eq, Eb in He.
-      apply Bool.andb_true_iff in He. destruct He as [_ He]. discriminate He. }
-    rewrite Eb, bound_inf, (bound_finite _ Fa). cbv beta iota.
-    case (Req_bool_spec (lsign (Some (B2R (opp (fst (rep x)))))) (usign None));
-      intros _; [|reflexivity].
-    case (Req_bool_spec (B2R (opp (fst (rep x)))) 0); intros _;
-      destruct e; first [reflexivity | now elim Hnc].
-- (* [a = -inf] *)
-  assert (E0 : fst (rep x) = B754_infinity false).
-  { rewrite <- (Bopp_involutive _ _ (fst (rep x))). unfold opp in Ea.
-    now rewrite Ea. }
-  assert (Hnc : e <> Com).
-  { intros E. specialize (He E).
-    rewrite is_common_interval_lt, infinity_eq, E0 in He. discriminate He. }
-  rewrite Ea, bound_inf. cbv beta iota.
-  case (Req_bool_spec (lsign None) (usign (bound (snd (rep x))))); intros _;
-    [|reflexivity].
-  destruct (bound (snd (rep x))); cbv beta iota;
-    destruct e; first [reflexivity | now elim Hnc].
+intros x lo hi z HX Hord.
+assert (Hne : exists r, mem r x).
+{ destruct (in_bounds_nonempty lo hi Hord) as (r & Hr). exists r. now apply HX. }
+assert (Hcon : forall r, mem r x -> lsign lo <= Rsign r <= usign hi).
+{ intros r Hr. apply HX in Hr. destruct Hr as [Hr1 Hr2]. split.
+  - destruct lo as [a|]; cbn [lsign];
+      [now apply Rsign_le | exact (proj1 (Rsign_bounds r))].
+  - destruct hi as [b|]; cbn [usign];
+      [now apply Rsign_le | exact (proj2 (Rsign_bounds r))]. }
+case (Req_bool_spec (lsign lo) (usign hi)); intros Hs; cbn [negb].
+- (* [sign] is constant on [x], so its restriction to [x] is continuous. *)
+  assert (Hdac : p_dom (fun _ => True) Dac Rsign x z).
+  { split; [exact Hne|]. split; [intros; exact I|]. intros r Hr.
+    apply continue_in_const with (c := lsign lo); [|exact Hr].
+    intros s Hs'. generalize (Hcon s Hs'). lra. }
+  (* [sign] is continuous at each real of [x] if 0 is not in [x]. *)
+  assert (Hcom : (forall r, mem r x -> Rsign r <> 0) ->
+                 dec_holds_dom (fun _ => True) Rsign x z Com).
+  { intros H0. split; [exact Hdac|]. intros r Hr. apply sign_continuous.
+    intros Hr0. apply (H0 r Hr). rewrite Hr0. exact Rsign_0. }
+  destruct lo as [a|]; cbn [lsign] in Hs, Hcon.
+  + case (Req_bool_spec a 0); intros Ha.
+    * (* 0 is in [x], and [sign] jumps at 0. *)
+      split; [exact Hdac|]. intros Hc.
+      apply (sign_discontinuous no_cond).
+      -- intros d Hd. exists (d / 2). split; [exact I|].
+         split; [apply Rgt_not_eq; lra | rewrite Rabs_pos_eq; lra].
+      -- apply Hc, HX. rewrite <- Ha.
+         split; [apply Rle_refl | destruct hi; exact Hord].
+    * (* [sign a = sign r] for [r] in [x], so [r] is not 0. *)
+      apply Hcom. intros r Hr E. apply Ha, Rsign_zero.
+      generalize (Hcon r Hr). lra.
+  + (* [sign r = -1] for [r] in [x]. *)
+    apply Hcom. intros r Hr E. generalize (Hcon r Hr). lra.
+- (* [x] contains 0 and a nonzero real, so [sign] jumps at 0. *)
+  split; [split; [exact Hne | intros; exact I]|].
+  intros (Hne' & _ & Hc).
+  destruct (sign_differs lo hi Hord Hs) as (H0 & t & Ht & Ht0).
+  exact (sign_jump x lo hi t HX H0 Ht Ht0 (conj Hne' Hc)).
+Qed.
+
+Lemma sign_holds :
+  forall x, valid x ->
+  dec_holds_dom (fun _ => True) Rsign x (Interval.sign x)
+    (if Interval.is_empty (Interval.sign x) then Trv
+     else if negb (Interval.is_singleton (Interval.sign x)) then Def
+     else if eq (Interval.inf_raw x) zero then Dac else Com).
+Proof.
+intros x Hx. destruct (is_nan (fst (rep x))) eqn:Hn.
+- (* [x] is empty, so no decoration above [trv] holds. *)
+  assert (Hy : Interval.is_empty (Interval.sign x) = true)
+    by (rewrite (sign_empty x Hn); reflexivity).
+  rewrite Hy. cbn [dec_holds_dom]. intros ((r & Hr) & _).
+  exact (mem_nan _ r (empty_nan _ Hx Hn) Hr).
+- (* The tests of [impl_dec] are those of [sign_holds_bounds] on the
+     bounds of [x]. *)
+  rewrite (sign_not_empty x Hn), (sign_singleton x Hx Hn).
+  destruct (valid_nonempty x Hx Hn) as (Ha & Hb & Hord).
+  unfold Interval.inf_raw. rewrite (inf_zero_test _ Ha).
+  apply sign_holds_bounds; [intros r; exact (mem_bounds x r Ha Hb) | exact Hord].
 Qed.
 
 (** ** The decorated version *)
@@ -597,40 +540,23 @@ intros x Hx Hcx. unfold DecInterval.sign, DecInterval.impl_dec. cbv zeta.
 destruct (DecInterval.is_nai x) eqn:Hnai; [reflexivity|].
 assert (Hdx : dec x <> Ill).
 { intros E. unfold DecInterval.is_nai in Hnai. now rewrite E in Hnai. }
-destruct (is_nan (fst (rep (itv x)))) eqn:Hn.
-- assert (Hx' : forall r, ~ mem r (itv x)).
-  { intros r. exact (mem_nan _ r (empty_nan _ Hx Hn)). }
-  assert (Hy : Interval.is_empty (Interval.sign (itv x)) = true).
-  { rewrite (sign_empty (itv x) Hn). reflexivity. }
-  rewrite Hy, set_dec_empty by assumption. split.
-  + apply is_hull_empty. intros u (r & Hr & _). exact (Hx' r Hr).
-  + exists Trv. split; [now apply strongest_Trv|].
-    cbn. destruct (dec x); first [reflexivity | congruence].
-- destruct (valid_nonempty (itv x) Hx Hn) as (_ & _ & Hord).
-  assert (HX : forall r, mem r (itv x) <->
-                 in_bounds (bound (opp (fst (rep (itv x)))))
-                   (bound (snd (rep (itv x)))) r).
-  { intros r. destruct (valid_nonempty (itv x) Hx Hn) as (Ha & Hb & _).
-    now apply mem_bounds. }
-  rewrite (sign_not_empty (itv x) Hn).
-  set (d := if Interval.is_singleton (Interval.sign (itv x)) then
-              if eq (Interval.inf_raw (itv x)) zero then Dac else Com
-            else Def).
-  assert (Ed : (if negb (Interval.is_singleton (Interval.sign (itv x))) then Def
-                else if eq (Interval.inf_raw (itv x)) zero then Dac else Com) = d).
-  { unfold d. now destruct (Interval.is_singleton (Interval.sign (itv x))). }
-  rewrite Ed.
-  assert (Hd : d <> Ill).
-  { unfold d. destruct (Interval.is_singleton _), (eq _ _); discriminate. }
-  rewrite set_dec_nonempty.
-  + split; [now apply sign_correct|].
-    exists (sign_dec (bound (opp (fst (rep (itv x))))) (bound (snd (rep (itv x))))).
-    split; [now apply sign_strongest|].
-    cbn [dec DecInterval.new_unchecked]. unfold d.
-    apply sign_test; assumption.
-  + now apply sign_not_empty.
-  + exact Hd.
-  + exact Hdx.
-  + intros _. destruct (sign_bounds (itv x) Hx Hn) as (Fa & Fb & _).
-    now apply finite_common.
+pose proof (sign_correct _ Hx) as Hz.
+pose proof (sign_holds _ Hx) as Hh.
+set (d := if Interval.is_empty (Interval.sign (itv x)) then Trv
+          else if negb (Interval.is_singleton (Interval.sign (itv x))) then Def
+          else if eq (Interval.inf_raw (itv x)) zero then Dac else Com) in *.
+assert (Hd : d <> Ill).
+{ unfold d. destruct (Interval.is_empty _); [discriminate|].
+  destruct (negb _); [discriminate|]. destruct (eq _ _); discriminate. }
+(* [sign] is defined on all of R, and [d] is the decoration that
+   [dec_holds_dom] describes there. A [com] [x] is common, so it is bounded. *)
+replace (dec_min d (dec x)) with (dec_min (dec x) d)
+  by (destruct d, (dec x); reflexivity).
+pose proof (elem_set_dec_correct (fun _ => True) Rsign x (Interval.sign (itv x)) d Hx Hdx
+  (hull_tightest_all _ _ _ Hz) Hh
+  (fun _ Edx _ => common_bounded _ (Hcx Edx))) as H.
+cbv zeta in H. destruct H as (_ & d' & Hd' & Edec).
+rewrite (itv_set_dec _ _ (proj1 Hz) (dec_min_not_Ill _ _ Hdx Hd)) in Hd' |- *.
+split; [exact Hz|]. exists d'.
+split; [exact (proj1 (strongest_dom_all d' Rsign (itv x) _ Hz) Hd') | exact Edec].
 Qed.

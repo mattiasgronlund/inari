@@ -50,7 +50,7 @@
 
 From Stdlib Require Import ZArith Reals Lra Lia Classical_Prop.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Ieee1788 Integer Sign.
+From Inari Require Import Model Ieee1788 Integer.
 
 Open Scope R_scope.
 
