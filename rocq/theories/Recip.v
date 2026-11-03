@@ -24,16 +24,22 @@
       ([contains_zero] in [DivZero.v]).
     - [com] if [x] and [z] are nonempty and bounded.
     - [dac] otherwise.
+
+    [dec_recip_correct] picks [trv] when [x.contains(0.0)] and [com]
+    otherwise, and leaves the rest of these cases to
+    [elem_set_dec_trv_com] in [ElemDec.v]. With [com], that theorem also
+    asks that a [com] [x] be bounded if [z] is common.
     [recip [1, +inf]] is [[0, 1]], which is common though [x] is not
     bounded, so if [x] were [com], [set_dec] would keep [com]. So, as
     [dec_mul_correct] in [Mul.v] does, [dec_recip_correct] assumes that
     [x] is [com] only if its interval is common ([com_common]), which
-    [ComCommon.v] shows of every [DecInterval] that the library makes. *)
+    [ComCommon.v] shows of every [DecInterval] that the library makes. A
+    common interval is bounded, which gives the bound. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Integer Sign MaxMin ComCommon DecBinary
-  AddSub Abs Sqrt DivZero DivCases.
+  AddSub Abs Sqrt DivZero DivCases ElemDec.
 
 Open Scope R_scope.
 
@@ -87,72 +93,27 @@ assert (Hdx : dec x <> Ill).
   discriminate Hnai. }
 destruct (recip_correct has_fma (itv x) Hx) as (z & Ez & Hz).
 cbv zeta. rewrite Ez. cbv beta iota.
-set (d := if Interval.contains (itv x) zero then Trv else dec x).
-exists (DecInterval.set_dec z d). split; [reflexivity|].
-assert (Hd : d <> Ill).
-{ unfold d. destruct (Interval.contains (itv x) zero);
-    [discriminate | exact Hdx]. }
-destruct (Interval.is_empty z) eqn:Ez0.
-- (* [z] is empty, so the image is, and [x] has no real in the domain. *)
-  pose proof (valid_empty_eq z (proj1 Hz) Ez0) as Ez1.
-  rewrite (set_dec_empty_any z d Ez0 Hd). cbn [itv dec DecInterval.EMPTY].
-  rewrite <- Ez1. split; [exact Hz|]. exists Trv.
-  split; [|symmetry; apply dec_min_Trv_l; exact Hdx].
-  apply strongest_dom_Trv. intros Hdef. cbn [p_dom] in Hdef.
-  destruct Hdef as ((r & Hr) & HD).
-  apply (mem_empty z (Rinv r) (proj1 Hz) Ez0).
-  apply (proj1 (proj2 Hz)). exists r.
-  split; [exact Hr|]. split; [exact (HD r Hr) | reflexivity].
-- (* [x] is nonempty, as its image is. *)
-  assert (Nx : Interval.is_empty (itv x) = false).
-  { destruct (Interval.is_empty (itv x)) eqn:Ex; [|reflexivity].
-    rewrite (no_mem_empty z (proj1 Hz)) in Ez0; [discriminate Ez0|].
-    apply (tightest_no_mem _ _ Hz). intros u (r & Hr & _).
-    exact (mem_empty _ r Hx Ex Hr). }
-  destruct (nonempty_mem _ Hx Nx) as (r0 & Hr0).
-  unfold d. destruct (Interval.contains (itv x) zero) eqn:Hc0.
-  + (* 0 is in [x], and outside the domain. *)
-    assert (Hc : Trv = Com -> Interval.is_common_interval z = true)
-      by (intros E; discriminate E).
-    rewrite (set_dec_keep z Trv Ez0 ltac:(discriminate) Hc).
-    cbn [itv dec DecInterval.new_unchecked]. split; [exact Hz|].
-    exists Trv. split; [|symmetry; apply dec_min_Trv_l; exact Hdx].
-    apply strongest_dom_Trv. intros Hdef. cbn [p_dom] in Hdef.
-    destruct Hdef as (_ & HD).
-    exact (HD 0 (proj1 (contains_zero (itv x) Hx) Hc0) eq_refl).
-  + (* 0 is not in [x], so [x] is in the domain, where [Rinv] is
-       continuous. *)
-    assert (HD : forall r, mem r (itv x) -> recip_dom r).
-    { intros r Hr E. subst r.
-      rewrite (proj2 (contains_zero (itv x) Hx) Hr) in Hc0. discriminate Hc0. }
-    assert (Hcont : forall D r, mem r (itv x) -> continue_in Rinv D r).
-    { intros D r Hr. apply continuity_pt_continue_in, Rinv_continuous, HD, Hr. }
-    assert (Hdac : p_dom recip_dom Dac Rinv (itv x) z).
-    { cbn [p_dom]. split; [exists r0; exact Hr0|].
-      split; [exact HD|]. intros r Hr. exact (Hcont _ r Hr). }
-    destruct (Interval.is_common_interval z) eqn:Cz.
-    * rewrite (set_dec_keep z (dec x) Ez0 Hdx (fun _ => Cz)).
-      cbn [itv dec DecInterval.new_unchecked]. split; [exact Hz|].
-      destruct (Interval.is_common_interval (itv x)) eqn:Cx.
-      -- (* [x] and [z] are bounded. *)
-         exists Com. split; [|symmetry; apply dec_min_Com_l].
-         apply strongest_dom_Com. cbn [p_dom].
-         split; [exists r0; exact Hr0|]. split; [exact HD|].
-         split; [exact (common_bounded _ Cx)|].
-         split; [intros r Hr; exact (Hcont _ r Hr) | exact (common_bounded z Cz)].
-      -- (* [x] is not common, so not bounded, as it is nonempty, and
-            [com_common] gives that [x] is not [com]. *)
-         assert (Hnc : dec x <> Com).
-         { intros E. rewrite (Hcc E) in Cx. discriminate Cx. }
-         exists Dac. split; [|symmetry; apply dec_min_Dac_l; exact Hnc].
-         apply strongest_dom_Dac; [exact Hdac|].
-         intros Hcom. cbn [p_dom] in Hcom. destruct Hcom as (_ & _ & Bx & _).
-         rewrite (bounded_common (itv x) Hx Nx Bx) in Cx. discriminate Cx.
-    * (* [z] is not common, so not bounded, as it is nonempty. *)
-      rewrite (set_dec_lower z (dec x) Ez0 Cz Hdx).
-      cbn [itv dec DecInterval.new_unchecked]. split; [exact Hz|].
-      exists Dac. split; [|reflexivity].
-      apply strongest_dom_Dac; [exact Hdac|].
-      intros Hcom. cbn [p_dom] in Hcom. destruct Hcom as (_ & _ & _ & _ & Bz).
-      rewrite (bounded_common z (proj1 Hz) Ez0 Bz) in Cz. discriminate Cz.
+exists (DecInterval.set_dec z (if Interval.contains (itv x) zero then Trv else dec x)).
+split; [reflexivity|].
+(* [Rinv] is continuous at each real of the domain. *)
+pose proof (fun r (_ : mem r (itv x)) (Hr : recip_dom r) =>
+  continuity_pt_continue_in Rinv recip_dom r (Rinv_continuous r Hr)) as Hc.
+destruct (Interval.contains (itv x) zero) eqn:Hc0.
+- (* 0 is in [x], and outside the domain, so [x] is not a subset of it:
+     [trv]. *)
+  assert (Hnd : ~ ((exists r, mem r (itv x)) /\
+                   forall r, mem r (itv x) -> recip_dom r)).
+  { intros (_ & HD). exact (HD 0 (proj1 (contains_zero (itv x) Hx) Hc0) eq_refl). }
+  pose proof (elem_set_dec_trv_com recip_dom Rinv x z Trv Hx Hdx Hz Hc
+    (or_introl (conj eq_refl Hnd))) as H.
+  cbv zeta in H. rewrite (dec_min_Trv_r _ Hdx) in H. exact H.
+- (* 0 is not in [x], so [x] is a subset of the domain: [com]. A [com]
+     [x] is common ([com_common]), so bounded. *)
+  assert (HD : forall r, mem r (itv x) -> recip_dom r).
+  { intros r Hr E. subst r.
+    rewrite (proj2 (contains_zero (itv x) Hx) Hr) in Hc0. discriminate Hc0. }
+  pose proof (elem_set_dec_trv_com recip_dom Rinv x z Com Hx Hdx Hz Hc
+    (or_intror (conj eq_refl (conj HD (fun Edx _ => common_bounded _ (Hcc Edx))))))
+    as H.
+  cbv zeta in H. rewrite dec_min_Com_r in H. exact H.
 Qed.

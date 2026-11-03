@@ -14,8 +14,9 @@
     [z] is common, where [com] holds, as [x] and [y] are then [com] and so
     the box is bounded.
     [elem_dec2_impl_correct] in [Dom2.v] applies it to the decorated
-    versions of [pow] and [atan2], and [set_dec_correct] below to [max],
-    [min], [+], [-] and [*].
+    versions of [pow] and [atan2], [dec_div_correct] in [Div.v] to [/],
+    with the [*_prod] lemmas of [Dom2.v], and [set_dec_correct] below to
+    [max], [min], [+], [-] and [*].
 
     [DecInterval::max], [DecInterval::min], [DecInterval::add],
     [DecInterval::sub] and [DecInterval::mul] call [set_dec] with the

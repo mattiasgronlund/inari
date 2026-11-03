@@ -31,16 +31,24 @@
       [DecInterval::div] ([contains_zero] in [DivZero.v]).
     - [com] if [x], [y] and [z] are nonempty and bounded.
     - [dac] otherwise.
+
+    [dec_div_correct] picks [trv] as the decoration that [dec_holds]
+    describes if [z] is empty or [y.contains(0.0)], and [com] otherwise,
+    and leaves the rest of these cases to [elem2_set_dec_correct] in
+    [DecBinary.v], on the domain [div_dom1 × div_dom2] ([*_prod] in
+    [Dom2.v]). With [com], that theorem also asks that a box of two [com]
+    arguments be bounded if [z] is common.
     [[1, 2] / [1, +inf]] is [[0, 2]], which is common though the box is not
     bounded, so, as [dec_mul_correct] in [Mul.v] does, [dec_div_correct]
     assumes that each argument is [com] only if its interval is common
     ([com_common]), which [ComCommon.v] shows of every [DecInterval] that
-    the library makes. *)
+    the library makes. A common interval is bounded, which gives the
+    bound. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Integer Sign MaxMin ComCommon DecBinary
-  AddSub Abs Mul DivZero DivCases Recip.
+  AddSub Abs Mul DivZero DivCases Recip Dom2.
 
 Open Scope R_scope.
 
@@ -75,37 +83,6 @@ destruct cx, cy;
     | solve [apply div_PN1; auto]
     | solve [apply div_PP0; auto]
     | solve [apply div_PP1; auto] ].
-Qed.
-
-(** ** The strongest decoration on a box in a domain *)
-
-Lemma strongest2_dom_Trv :
-  forall D1 D2 f x y z, ~ p2_dom D1 D2 Def f x y z ->
-  strongest2_dom D1 D2 Trv f x y z.
-Proof.
-intros D1 D2 f x y z H. split; [exact I|].
-(* Each decoration above [trv] asks for a nonempty box in the domain. *)
-intros [] He; cbn [discriminant]; try lia; exfalso; apply H; cbn [p2_dom] in *.
-- exact He.
-- destruct He as (Hx & Hy & HD1 & HD2 & _).
-  split; [exact Hx|]. split; [exact Hy|]. split; assumption.
-- destruct He as (Hx & Hy & HD1 & HD2 & _).
-  split; [exact Hx|]. split; [exact Hy|]. split; assumption.
-Qed.
-
-Lemma strongest2_dom_Dac :
-  forall D1 D2 f x y z, p2_dom D1 D2 Dac f x y z -> ~ p2_dom D1 D2 Com f x y z ->
-  strongest2_dom D1 D2 Dac f x y z.
-Proof.
-intros D1 D2 f x y z Hd Hc. split; [exact Hd|].
-intros [] He; cbn [discriminant]; try lia. exfalso. exact (Hc He).
-Qed.
-
-Lemma strongest2_dom_Com :
-  forall D1 D2 f x y z, p2_dom D1 D2 Com f x y z -> strongest2_dom D1 D2 Com f x y z.
-Proof.
-intros D1 D2 f x y z Hc. split; [exact Hc|].
-intros [] _; cbn [discriminant]; lia.
 Qed.
 
 (** ** [DecInterval::div] *)
@@ -161,9 +138,9 @@ destruct (DecInterval.is_nai x || DecInterval.is_nai y) eqn:N;
   [exists DecInterval.NAI; split; reflexivity|].
 apply Bool.orb_false_iff in N. destruct N as [Nx Ny].
 unfold DecInterval.is_nai in Nx, Ny.
-assert (He : dec_min (dec x) (dec y) <> Ill).
-{ apply dec_min_not_Ill; intros E; [rewrite E in Nx | rewrite E in Ny];
-    discriminate. }
+assert (Hdx : dec x <> Ill) by (intros E; rewrite E in Nx; discriminate Nx).
+assert (Hdy : dec y <> Ill) by (intros E; rewrite E in Ny; discriminate Ny).
+assert (He : dec_min (dec x) (dec y) <> Ill) by (apply dec_min_not_Ill; assumption).
 destruct (div_correct has_fma _ _ Hx Hy) as (z & Ez & Hz).
 cbv zeta. rewrite Ez. cbv beta iota.
 set (d := if Interval.contains (itv y) zero then Trv
@@ -171,91 +148,80 @@ set (d := if Interval.contains (itv y) zero then Trv
 assert (Hd : d <> Ill).
 { unfold d. destruct (Interval.contains (itv y) zero); [discriminate | exact He]. }
 exists (DecInterval.set_dec z d). split; [reflexivity|].
-destruct (Interval.is_empty z) eqn:Ez0.
-- (* [z] is empty, so the image is, and the box has no point in the
-     domain. *)
-  pose proof (valid_empty_eq z (proj1 Hz) Ez0) as Ez1.
-  rewrite (set_dec_empty_any z d Ez0 Hd). cbn [itv dec DecInterval.EMPTY].
-  rewrite <- Ez1. split; [exact Hz|]. exists Trv.
-  split; [|symmetry; exact (dec_min_Trv_l _ He)].
-  apply strongest2_dom_Trv. intros Hdef. cbn [p2_dom] in Hdef.
-  destruct Hdef as ((r & Hr) & (t & Ht) & _ & HD2).
-  apply (mem_empty z (Rdiv r t) (proj1 Hz) Ez0).
-  apply (proj1 (proj2 Hz)). exists r, t.
-  split; [exact Hr|]. split; [exact Ht|]. split; [exact I|].
-  split; [exact (HD2 t Ht) | reflexivity].
-- (* [x] and [y] are nonempty, as the image is. *)
-  assert (Ex : Interval.is_empty (itv x) = false).
-  { destruct (Interval.is_empty (itv x)) eqn:Ex; [|reflexivity].
-    rewrite (no_mem_empty z (proj1 Hz)) in Ez0; [discriminate Ez0|].
-    apply (tightest_no_mem _ _ Hz). intros u (r & t & Hr & _).
-    exact (mem_empty _ r Hx Ex Hr). }
-  assert (Ey : Interval.is_empty (itv y) = false).
-  { destruct (Interval.is_empty (itv y)) eqn:Ey; [|reflexivity].
-    rewrite (no_mem_empty z (proj1 Hz)) in Ez0; [discriminate Ez0|].
-    apply (tightest_no_mem _ _ Hz). intros u (r & t & _ & Ht & _).
-    exact (mem_empty _ t Hy Ey Ht). }
-  destruct (nonempty_mem _ Hx Ex) as (r0 & Hr0).
-  destruct (nonempty_mem _ Hy Ey) as (t0 & Ht0).
-  unfold d. destruct (Interval.contains (itv y) zero) eqn:C0.
-  + (* 0 is in [y], so the box is not a subset of the domain. *)
-    assert (Hc : Trv = Com -> Interval.is_common_interval z = true)
-      by (intros E; discriminate E).
-    rewrite (set_dec_keep z Trv Ez0 ltac:(discriminate) Hc).
-    cbn [itv dec DecInterval.new_unchecked]. split; [exact Hz|].
-    exists Trv. split; [|symmetry; exact (dec_min_Trv_l _ He)].
-    apply strongest2_dom_Trv. intros Hdef. cbn [p2_dom] in Hdef.
-    destruct Hdef as (_ & _ & _ & HD2).
-    exact (HD2 0 (proj1 (contains_zero (itv y) Hy) C0) eq_refl).
-  + (* 0 is not in [y], so the box is in the domain, where [/] is
-       continuous. *)
-    assert (HD2 : forall t, mem t (itv y) -> div_dom2 t).
-    { intros t Ht. unfold div_dom2. intros E. rewrite E in Ht.
-      rewrite (proj2 (contains_zero (itv y) Hy) Ht) in C0. discriminate C0. }
-    assert (Hcont : forall X Y r t, mem t (itv y) -> continue_in2 Rdiv X Y r t).
-    { intros X Y r t Ht. apply continuity2_pt_continue_in2, Rdiv_continuous.
-      exact (HD2 t Ht). }
-    assert (Hdac : p2_dom div_dom1 div_dom2 Dac Rdiv (itv x) (itv y) z).
-    { cbn [p2_dom]. split; [exists r0; exact Hr0|].
-      split; [exists t0; exact Ht0|].
-      split; [intros r _; exact I|]. split; [exact HD2|].
-      intros r t _ Ht. exact (Hcont _ _ r t Ht). }
-    destruct (Interval.is_common_interval z) eqn:Cz.
-    * rewrite (set_dec_keep z _ Ez0 He (fun _ => Cz)).
-      cbn [itv dec DecInterval.new_unchecked]. split; [exact Hz|].
-      pose proof (common_bounded z Cz) as Bz.
-      destruct (Interval.is_common_interval (itv x) &&
-                Interval.is_common_interval (itv y)) eqn:C.
-      -- (* A bounded box and a bounded [z]. *)
-         apply andb_prop in C. destruct C as [Cx Cy].
-         exists Com. split; [|symmetry; apply dec_min_Com_l].
-         apply strongest2_dom_Com. cbn [p2_dom].
-         split; [exists r0; exact Hr0|]. split; [exists t0; exact Ht0|].
-         split; [intros r _; exact I|]. split; [exact HD2|].
-         split; [exact (common_bounded _ Cx)|].
-         split; [exact (common_bounded _ Cy)|].
-         split; [intros r t _ Ht; exact (Hcont _ _ r t Ht) | exact Bz].
-      -- (* An unbounded box: [x] or [y] is not common, so not bounded, as
-            it is nonempty, and by [com_common] not [com], so neither is
-            the minimum of their decorations. *)
-         assert (Hnb : ~ (bounded (fun r => mem r (itv x)) /\
-                          bounded (fun t => mem t (itv y)))).
-         { intros [Bx By].
-           rewrite (bounded_common _ Hx Ex Bx), (bounded_common _ Hy Ey By) in C.
-           discriminate C. }
-         assert (Hnc : dec_min (dec x) (dec y) <> Com).
-         { intros E. apply dec_min_Com in E. destruct E as [Ex' Ey'].
-           apply Hnb. split; apply common_bounded; [exact (Hcx Ex') | exact (Hcy Ey')]. }
-         exists Dac. split; [|symmetry; exact (dec_min_Dac_l _ Hnc)].
-         apply strongest2_dom_Dac; [exact Hdac|].
-         intros Hcom. cbn [p2_dom] in Hcom.
-         destruct Hcom as (_ & _ & _ & _ & Bx & By & _). exact (Hnb (conj Bx By)).
-    * (* [z] is not common, so not bounded, as it is nonempty. *)
-      rewrite (set_dec_lower z _ Ez0 Cz He).
-      cbn [itv dec DecInterval.new_unchecked]. split; [exact Hz|].
-      exists Dac. split; [|reflexivity].
-      apply strongest2_dom_Dac; [exact Hdac|].
-      intros Hcom. cbn [p2_dom] in Hcom.
-      destruct Hcom as (_ & _ & _ & _ & _ & _ & _ & Bz).
-      rewrite (bounded_common z (proj1 Hz) Ez0 Bz) in Cz. discriminate Cz.
+(* [image2_dom] on [div_dom1 × div_dom2] is [image2_set] on the set of
+   pairs whose first real is in [div_dom1] and second in [div_dom2]. *)
+assert (Ht : is_tightest (image2_set (fun r t => div_dom1 r /\ div_dom2 t) Rdiv
+                            (itv x) (itv y)) z).
+{ apply (is_tightest_ext _ _ z
+           (fun s => iff_sym (image2_set_prod div_dom1 div_dom2 Rdiv (itv x) (itv y) s))).
+  exact Hz. }
+(* The decoration [e] that [dec_holds] describes. [set_dec] of [z] with the
+   minimum of [e] and the decorations of [x] and [y] is [set_dec] of [z]
+   with [d]. *)
+assert (Hh : exists e,
+  dec_holds (fun r t => div_dom1 r /\ div_dom2 t) Rdiv (itv x) (itv y) z e /\
+  (e = Com -> dec x = Com -> dec y = Com -> Interval.is_common_interval z = true ->
+   bounded (fun r => mem r (itv x)) /\ bounded (fun t => mem t (itv y))) /\
+  DecInterval.set_dec z (dec_min (dec x) (dec_min (dec y) e)) = DecInterval.set_dec z d).
+{ destruct (Interval.is_empty z) eqn:Ez0.
+  - (* [z] is empty, so the image is, and the box has no point in the
+       domain. [set_dec] returns [EMPTY] for both decorations. *)
+    exists Trv. split; [|split].
+    + cbn [dec_holds p2_set]. intros ((r & Hr) & (t & Htm) & HD).
+      apply (mem_empty z (Rdiv r t) (proj1 Hz) Ez0).
+      apply (proj1 (proj2 Ht)). exists r, t.
+      split; [exact Hr|]. split; [exact Htm|].
+      split; [exact (HD r t Hr Htm) | reflexivity].
+    + intros E. discriminate E.
+    + rewrite (dec_min_Trv_r _ Hdy), (dec_min_Trv_r _ Hdx).
+      rewrite (set_dec_empty_any z Trv Ez0 ltac:(discriminate)).
+      rewrite (set_dec_empty_any z d Ez0 Hd). reflexivity.
+  - (* [x] and [y] are nonempty, as the image is. *)
+    assert (Ex : Interval.is_empty (itv x) = false).
+    { destruct (Interval.is_empty (itv x)) eqn:Ex; [|reflexivity].
+      rewrite (no_mem_empty z (proj1 Hz)) in Ez0; [discriminate Ez0|].
+      apply (tightest_no_mem _ _ Hz). intros u (r & t & Hr & _).
+      exact (mem_empty _ r Hx Ex Hr). }
+    assert (Ey : Interval.is_empty (itv y) = false).
+    { destruct (Interval.is_empty (itv y)) eqn:Ey; [|reflexivity].
+      rewrite (no_mem_empty z (proj1 Hz)) in Ez0; [discriminate Ez0|].
+      apply (tightest_no_mem _ _ Hz). intros u (r & t & _ & Ht' & _).
+      exact (mem_empty _ t Hy Ey Ht'). }
+    destruct (nonempty_mem _ Hx Ex) as (r0 & Hr0).
+    destruct (nonempty_mem _ Hy Ey) as (t0 & Ht0).
+    unfold d. destruct (Interval.contains (itv y) zero) eqn:C0.
+    + (* 0 is in [y], so the box is not a subset of the domain. *)
+      exists Trv. split; [|split].
+      * cbn [dec_holds p2_set]. intros (_ & _ & HD).
+        exact (proj2 (HD r0 0 Hr0 (proj1 (contains_zero (itv y) Hy) C0)) eq_refl).
+      * intros E. discriminate E.
+      * rewrite (dec_min_Trv_r _ Hdy), (dec_min_Trv_r _ Hdx). reflexivity.
+    + (* 0 is not in [y], so the box is in the domain, where [/] is
+         continuous. A box of two [com] arguments is bounded by
+         [com_common]. *)
+      assert (HD2 : forall t, mem t (itv y) -> div_dom2 t).
+      { intros t Htm. unfold div_dom2. intros E. rewrite E in Htm.
+        rewrite (proj2 (contains_zero (itv y) Hy) Htm) in C0. discriminate C0. }
+      exists Com. split; [|split].
+      * cbn [dec_holds p2_set]. split; [split; [exists r0; exact Hr0|]|].
+        -- split; [exists t0; exact Ht0|].
+           split; [intros r t _ Htm; exact (conj I (HD2 t Htm))|].
+           intros r t _ Htm.
+           exact (continuity2_pt_continue_in2 _ _ _ r t (Rdiv_continuous r t (HD2 t Htm))).
+        -- intros r t _ Htm.
+           exact (proj2 (continue_in2_set_prod Rdiv div_dom1 div_dom2 r t)
+                    (continuity2_pt_continue_in2 _ _ _ r t
+                       (Rdiv_continuous r t (HD2 t Htm)))).
+      * intros _ Ex' Ey' _.
+        split; apply common_bounded; [exact (Hcx Ex') | exact (Hcy Ey')].
+      * rewrite dec_min_Com_r. reflexivity. }
+destruct Hh as (e & Hh & Hb & Es).
+pose proof (elem2_set_dec_correct (fun r t => div_dom1 r /\ div_dom2 t) Rdiv x y z e
+  Hx Hy Hdx Hdy Ht Hh Hb) as H.
+cbv zeta in H. rewrite Es in H. destruct H as (Ht' & d' & Hd' & Hdw).
+split.
+- apply (is_tightest_ext _ _ _ (image2_set_prod div_dom1 div_dom2 Rdiv (itv x) (itv y))).
+  exact Ht'.
+- exists d'. split; [|exact Hdw].
+  exact (proj1 (strongest2_set_prod div_dom1 div_dom2 d' Rdiv _ _ _) Hd').
 Qed.

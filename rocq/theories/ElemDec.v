@@ -19,14 +19,59 @@
     IEEE 1788 asks, if a [com] [x] is bounded when [e] is [com] and [z] is
     common. [elem_set_dec_trv_com] applies it to the decoration [trv] or
     [com]. [elem_dec_correct] and [elem_dec_impl_correct] below apply
-    that, as do [dec_powi_correct], [dec_cos_correct], [dec_sin_correct]
-    and [dec_tan_correct] in [Powi.v], [Cos.v], [Sin.v] and [Tan.v]. *)
+    that, as do [dec_sqrt_correct], [dec_sqr_correct], [dec_recip_correct],
+    [dec_powi_correct], [dec_cos_correct], [dec_sin_correct] and
+    [dec_tan_correct] in [Sqrt.v], [Sqr.v], [Recip.v], [Powi.v], [Cos.v],
+    [Sin.v] and [Tan.v].
+
+    [dec_neg_correct] in [Neg.v] applies [elem_set_dec_trv_com] too, with
+    all of R as the domain, though it is stated, like [dec_abs_correct],
+    with [is_hull], [image] and [strongest], the definitions for a
+    function defined on all of R. The [*_all] lemmas at the end of this
+    file show that on all of R, [image_dom] is [image], the hull of the
+    image is the tightest interval that contains it, and for that hull,
+    [p_dom] and [strongest_dom] are [p] and [strongest]. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia Classical_Prop.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Ieee1788 DecBinary Sqrt.
+From Inari Require Import Model Ieee1788 Integer DecBinary.
 
 Open Scope R_scope.
+
+(** A function that is continuous at a point is continuous there relative
+    to any set. *)
+Lemma continuity_pt_continue_in :
+  forall f D r, continuity_pt f r -> continue_in f D r.
+Proof.
+intros f D r Hc eps Heps. destruct (Hc eps Heps) as (alp & Halp & H).
+exists alp. split; [exact Halp|].
+intros s [[_ Hs] Hd]. apply H. split; [split; [exact I | exact Hs] | exact Hd].
+Qed.
+
+Lemma strongest_dom_Trv :
+  forall D f x z, ~ p_dom D Def f x z -> strongest_dom D Trv f x z.
+Proof.
+intros D f x z H. split; [exact I|].
+intros [] He; cbn [discriminant]; try lia; exfalso; apply H; cbn [p_dom] in *.
+- exact He.
+- destruct He as (Hne & HD & _). split; assumption.
+- destruct He as (Hne & HD & _). split; assumption.
+Qed.
+
+Lemma strongest_dom_Dac :
+  forall D f x z, p_dom D Dac f x z -> ~ p_dom D Com f x z ->
+  strongest_dom D Dac f x z.
+Proof.
+intros D f x z Hd Hc. split; [exact Hd|].
+intros [] He; cbn [discriminant]; try lia. exfalso. exact (Hc He).
+Qed.
+
+Lemma strongest_dom_Com :
+  forall D f x z, p_dom D Com f x z -> strongest_dom D Com f x z.
+Proof.
+intros D f x z Hc. split; [exact Hc|].
+intros [] _; cbn [discriminant]; lia.
+Qed.
 
 (** A function continuous at [r] relative to [D] is continuous there
     relative to any subset of [D], as the points of the subset near [r]
@@ -293,4 +338,66 @@ assert (Hd : dec x <> Ill).
 unfold DecInterval.elem_dec_impl. revert Ht He.
 destruct (h (itv x)) as [z e]. cbn [fst snd]. intros Ht He.
 exact (elem_set_dec_trv_com D f x z e Hx Hd Ht Hc He).
+Qed.
+
+(** ** Functions of one real defined on all of R
+
+    [Ieee1788.v] states what IEEE 1788 asks of a function [f] defined on
+    all of R with [image], [p] and [strongest], whose [com] asks for a
+    bounded image, and of a function defined on a set [D] with
+    [image_dom], [p_dom] and [strongest_dom], whose [com] asks for a
+    bounded computed interval [z]. If [z] is the hull of the image, it is
+    bounded exactly when the image is ([is_hull_bounded] in [Integer.v]),
+    so for [D] all of R the second definitions are the first ([*_all]), as
+    [strongest2_set_all] in [DecBinary.v] shows for two reals. Continuity
+    relative to all of R is [continuity_pt] by definition. *)
+
+Lemma image_dom_all :
+  forall f x s, image_dom (fun _ => True) f x s <-> image f x s.
+Proof.
+intros f x s. unfold image_dom, image. split.
+- intros (r & Hr & _ & Hs). exists r. exact (conj Hr Hs).
+- intros (r & Hr & Hs). exists r. exact (conj Hr (conj I Hs)).
+Qed.
+
+(** The hull of the image is the tightest interval that contains it. *)
+Lemma hull_tightest_all :
+  forall f x z, is_hull (image f x) z ->
+  is_tightest (image_dom (fun _ => True) f x) z.
+Proof.
+intros f x z Hz. destruct (hull_tightest _ _ Hz) as (Hv & Hin & Hmin).
+split; [exact Hv|]. split.
+- intros s Hs. apply Hin, image_dom_all, Hs.
+- intros w Hw Hs. apply (Hmin w Hw). intros s Hs'. apply Hs, image_dom_all, Hs'.
+Qed.
+
+Lemma p_dom_all :
+  forall d f x z, is_hull (image f x) z ->
+  (p_dom (fun _ => True) d f x z <-> p d f x).
+Proof.
+intros d f x z Hz. destruct d; cbn [p_dom p]; [tauto | tauto | | |].
+- (* [def] *)
+  split; [intros (Hx & _); exact Hx|].
+  intros Hx. split; [exact Hx | intros; exact I].
+- (* [dac] *)
+  split.
+  + intros (Hx & _ & Hc). exact (conj Hx Hc).
+  + intros (Hx & Hc). split; [exact Hx|]. split; [intros; exact I | exact Hc].
+- (* [com] *)
+  split.
+  + intros (Hx & _ & Bx & Hc & Bz). split; [exact Hx|]. split; [exact Bx|].
+    split; [exact Hc | exact (proj2 (is_hull_bounded _ _ Hz) Bz)].
+  + intros (Hx & Bx & Hc & Bi). split; [exact Hx|]. split; [intros; exact I|].
+    split; [exact Bx|]. split; [exact Hc | exact (proj1 (is_hull_bounded _ _ Hz) Bi)].
+Qed.
+
+Lemma strongest_dom_all :
+  forall d f x z, is_hull (image f x) z ->
+  (strongest_dom (fun _ => True) d f x z <-> strongest d f x).
+Proof.
+intros d f x z Hz. unfold strongest_dom, strongest. split.
+- intros (Hp & Hm). split; [exact (proj1 (p_dom_all d f x z Hz) Hp)|].
+  intros e He. apply Hm. exact (proj2 (p_dom_all e f x z Hz) He).
+- intros (Hp & Hm). split; [exact (proj2 (p_dom_all d f x z Hz) Hp)|].
+  intros e He. apply Hm. exact (proj1 (p_dom_all e f x z Hz) He).
 Qed.

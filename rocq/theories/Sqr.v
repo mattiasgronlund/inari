@@ -57,13 +57,18 @@
       [com] to [dac] and keeps any other decoration, which gives the
       minimum of [dac] and the decoration of [x].
 
+    [dec_sqr_correct] leaves these cases to [elem_set_dec_trv_com] in
+    [ElemDec.v], which it applies with the decoration [com], as [sqr_dom]
+    is all of R. With [com], that theorem also asks that a [com] [x] be
+    bounded if [z] is common, which is the [|r| <= 1 + m] argument above.
+
     So, like [dec_sqrt_correct] in [Sqrt.v], [dec_sqr_correct] needs no
     hypothesis that [x] is [com] only if its interval is common. *)
 
 From Stdlib Require Import Reals Lra Psatz.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Integer Sign MaxMin DecBinary AddSub
-  Abs Classes MulRu MulLane MulTight MulNP MulZero Sqrt.
+  Abs Classes MulRu MulLane MulTight MulNP MulZero Sqrt ElemDec.
 
 Open Scope R_scope.
 
@@ -313,48 +318,20 @@ assert (Hdx : dec x <> Ill).
 destruct (sqr_correct has_fma (itv x) Hx) as (z & Ez & Hz).
 rewrite Ez. cbv beta iota.
 exists (DecInterval.set_dec z (dec x)). split; [reflexivity|].
-assert (Him : forall r, mem r (itv x) -> mem (r * r) z).
-{ intros r Hr. apply (proj1 (proj2 Hz)), sqr_image. exists r. split; [exact Hr | reflexivity]. }
-destruct (Interval.is_empty z) eqn:Ez0.
-- (* [z] is empty, so [x] is. *)
-  pose proof (valid_empty_eq z (proj1 Hz) Ez0) as Ez1.
-  rewrite (set_dec_empty_any z (dec x) Ez0 Hdx). cbn [itv dec DecInterval.EMPTY].
-  rewrite <- Ez1. split; [exact Hz|]. exists Trv.
-  split; [|symmetry; now apply dec_min_Trv_l].
-  apply strongest_dom_Trv. intros Hdef. cbn [p_dom] in Hdef.
-  destruct Hdef as ((r & Hr) & _).
-  exact (mem_empty z (r * r) (proj1 Hz) Ez0 (Him r Hr)).
-- (* [x] is nonempty, as its image is, and [sqr] is continuous on it. *)
-  assert (Nx : exists r, mem r (itv x)).
-  { destruct (Interval.is_empty (itv x)) eqn:Ex; [|exact (nonempty_mem _ Hx Ex)].
-    exfalso. rewrite (no_mem_empty z (proj1 Hz)) in Ez0; [discriminate Ez0|].
-    apply (tightest_no_mem _ _ Hz). intros u Hu. apply sqr_image in Hu.
-    destruct Hu as (r & Hr & _). exact (mem_empty _ r Hx Ex Hr). }
-  destruct Nx as (r0 & Hr0).
-  assert (Hcont : forall D r, continue_in Rsqr D r)
-    by (intros D r; apply continuity_pt_continue_in, Rsqr_continuous).
-  assert (Hdac : p_dom sqr_dom Dac Rsqr (itv x) z).
-  { cbn [p_dom]. split; [exists r0; exact Hr0|].
-    split; [intros r _; exact I | intros r _; apply Hcont]. }
-  destruct (Interval.is_common_interval z) eqn:Cz.
-  + (* [z] is bounded, so [x] is. *)
-    rewrite (set_dec_keep z (dec x) Ez0 Hdx (fun _ => Cz)).
-    cbn [itv dec DecInterval.new_unchecked]. split; [exact Hz|].
-    exists Com. split; [|symmetry; apply dec_min_Com_l].
-    apply strongest_dom_Com. cbn [p_dom].
-    split; [exists r0; exact Hr0|]. split; [intros r _; exact I|]. split.
-    * (* [r * r <= m] gives [|r| <= 1 + m]. *)
-      destruct (common_bounded z Cz) as (m & Hm).
-      exists (1 + m). intros r Hr.
-      pose proof (Hm _ (Him r Hr)) as Hs.
-      rewrite Rabs_pos_eq in Hs by nra.
-      apply Rabs_le. split; nra.
-    * split; [intros r _; apply Hcont | exact (common_bounded z Cz)].
-  + (* [z] is not bounded, and [com] asks for a bounded [z]. *)
-    rewrite (set_dec_lower z (dec x) Ez0 Cz Hdx).
-    cbn [itv dec DecInterval.new_unchecked]. split; [exact Hz|].
-    exists Dac. split; [|reflexivity].
-    apply strongest_dom_Dac; [exact Hdac|].
-    intros Hcom. cbn [p_dom] in Hcom. destruct Hcom as (_ & _ & _ & _ & Bz).
-    rewrite (bounded_common z (proj1 Hz) Ez0 Bz) in Cz. discriminate Cz.
+(* [sqr_dom] is all of R, so [elem_set_dec_trv_com] applies with [com].
+   If [z] is common, [x] is bounded: a real [r] of [x] has [r * r] in [z],
+   and [r * r <= m] gives [|r| <= 1 + m]. *)
+assert (Hb : dec x = Com -> Interval.is_common_interval z = true ->
+             bounded (fun r => mem r (itv x))).
+{ intros _ Cz. destruct (common_bounded z Cz) as (m & Hm).
+  exists (1 + m). intros r Hr.
+  assert (Him : mem (r * r) z).
+  { apply (proj1 (proj2 Hz)), sqr_image. exists r. split; [exact Hr | reflexivity]. }
+  pose proof (Hm _ Him) as Hs.
+  rewrite Rabs_pos_eq in Hs by nra.
+  apply Rabs_le. split; nra. }
+pose proof (elem_set_dec_trv_com sqr_dom Rsqr x z Com Hx Hdx Hz
+  (fun r _ _ => continuity_pt_continue_in Rsqr sqr_dom r (Rsqr_continuous r))
+  (or_intror (conj eq_refl (conj (fun _ _ => I) Hb)))) as H.
+cbv zeta in H. rewrite dec_min_Com_r in H. exact H.
 Qed.

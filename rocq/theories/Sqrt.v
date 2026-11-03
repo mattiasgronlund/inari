@@ -44,15 +44,19 @@
       [com] to [dac] and keeps any other decoration, which gives the
       minimum of [dac] and the decoration of [x].
 
-    So, unlike [dec_mul_correct], [dec_sqrt_correct] needs no hypothesis
-    that [x] is [com] only if its interval is common: whenever [set_dec]
-    gets the decoration of a nonempty [x], [z] is common exactly when [x]
-    is bounded. *)
+    [dec_sqrt_correct] picks [trv] when [a < 0] and [com] otherwise, and
+    leaves the rest of these cases to [elem_set_dec_trv_com] in
+    [ElemDec.v]. With [com], that theorem also asks that a [com] [x] be
+    bounded if [z] is common. So, unlike [dec_mul_correct],
+    [dec_sqrt_correct] needs no hypothesis that [x] is [com] only if its
+    interval is common: when [0 <= a], a common [z] holds the square roots
+    of the reals of [x], so it bounds them by some [m], and the reals of
+    [x] by [m * m]. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia Psatz.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Encoding Spec Ieee1788 Integer Sign MaxMin
-  DecBinary AddSub SqrtRdRu.
+  DecBinary AddSub SqrtRdRu ElemDec.
 
 Open Scope R_scope.
 
@@ -178,11 +182,6 @@ intros [a|] [b|] Hord Ha; cbn [ordered] in Hord.
 - exists (Rmin (-1) b). split; [split; [exact I | apply Rmin_r]|].
   generalize (Rmin_l (-1) b). lra.
 - exists (-1). split; [split; exact I | lra].
-Qed.
-
-Lemma bound_Some_finite : forall a r, bound a = Some r -> is_finite a = true.
-Proof.
-intros a r. unfold bound. destruct (is_finite a); [reflexivity | discriminate].
 Qed.
 
 (** ** The lanes *)
@@ -381,41 +380,6 @@ Qed.
 
 (** ** The decorated version *)
 
-(** A function that is continuous at a point is continuous there relative
-    to any set. *)
-Lemma continuity_pt_continue_in :
-  forall f D r, continuity_pt f r -> continue_in f D r.
-Proof.
-intros f D r Hc eps Heps. destruct (Hc eps Heps) as (alp & Halp & H).
-exists alp. split; [exact Halp|].
-intros s [[_ Hs] Hd]. apply H. split; [split; [exact I | exact Hs] | exact Hd].
-Qed.
-
-Lemma strongest_dom_Trv :
-  forall D f x z, ~ p_dom D Def f x z -> strongest_dom D Trv f x z.
-Proof.
-intros D f x z H. split; [exact I|].
-intros [] He; cbn [discriminant]; try lia; exfalso; apply H; cbn [p_dom] in *.
-- exact He.
-- destruct He as (Hne & HD & _). split; assumption.
-- destruct He as (Hne & HD & _). split; assumption.
-Qed.
-
-Lemma strongest_dom_Dac :
-  forall D f x z, p_dom D Dac f x z -> ~ p_dom D Com f x z ->
-  strongest_dom D Dac f x z.
-Proof.
-intros D f x z Hd Hc. split; [exact Hd|].
-intros [] He; cbn [discriminant]; try lia. exfalso. exact (Hc He).
-Qed.
-
-Lemma strongest_dom_Com :
-  forall D f x z, p_dom D Com f x z -> strongest_dom D Com f x z.
-Proof.
-intros D f x z Hc. split; [exact Hc|].
-intros [] _; cbn [discriminant]; lia.
-Qed.
-
 (** [DecInterval::sqrt] returns NaI for NaI, and otherwise the tightest
     interval, decorated with the decoration that IEEE 1788 asks for. *)
 Theorem dec_sqrt_correct :
@@ -433,93 +397,48 @@ assert (Hdx : dec x <> Ill).
 { intros E. unfold DecInterval.is_nai in Hnai. now rewrite E in Hnai. }
 destruct (sqrt_correct has_fma (itv x) Hx) as (z & Ez & Hz).
 cbv zeta. rewrite Ez. cbv beta iota.
-set (d := if lt (Interval.inf_raw (itv x)) zero then Trv else dec x).
-assert (Hd : d <> Ill).
-{ unfold d. destruct (lt (Interval.inf_raw (itv x)) zero);
-    [discriminate | exact Hdx]. }
-exists (DecInterval.set_dec z d). split; [reflexivity|].
-destruct (Interval.is_empty z) eqn:Ez0.
-- (* [z] is empty, so the image is, and [x] has no real in the domain. *)
-  pose proof (valid_empty_eq z (proj1 Hz) Ez0) as Ez1.
-  rewrite (set_dec_empty_any z d Ez0 Hd). cbn [itv dec DecInterval.EMPTY].
-  rewrite <- Ez1. split; [exact Hz|]. exists Trv.
-  split; [|symmetry; now apply dec_min_Trv_l].
-  apply strongest_dom_Trv. intros Hdef. cbn [p_dom] in Hdef.
-  destruct Hdef as ((r & Hr) & HD).
-  apply (mem_empty z (sqrt r) (proj1 Hz) Ez0).
-  apply (proj1 (proj2 Hz)). exists r.
-  split; [exact Hr|]. split; [exact (HD r Hr) | reflexivity].
-- (* [x] is nonempty, as its image is, and [b] is at least 0. *)
-  assert (Nx : Interval.is_empty (itv x) = false).
-  { destruct (Interval.is_empty (itv x)) eqn:Ex; [|reflexivity].
-    rewrite (no_mem_empty z (proj1 Hz)) in Ez0; [discriminate Ez0|].
-    apply (tightest_no_mem _ _ Hz). intros u (r & Hr & _).
-    exact (mem_empty _ r Hx Ex Hr). }
-  assert (Hlt : lt (snd (rep (itv x))) zero = false).
-  { destruct (lt (snd (rep (itv x))) zero) eqn:Hlt; [|reflexivity].
-    rewrite (sqrt_empty_or_neg has_fma (itv x) (or_intror Hlt)) in Ez.
-    injection Ez as Ez. subst z. discriminate Ez0. }
-  destruct (valid_nonempty (itv x) Hx Nx) as (Ha & Hb & Hord).
-  assert (HX : forall r, mem r (itv x) <->
-    in_bounds (bound (opp (fst (rep (itv x))))) (bound (snd (rep (itv x)))) r).
-  { intros r. exact (mem_bounds _ r Ha Hb). }
-  assert (Rz : rep z =
-    (if le (opp (fst (rep (itv x)))) zero then opp zero
-     else opp (Bsqrt mode_DN (opp (fst (rep (itv x))))),
-     Bsqrt mode_UP (snd (rep (itv x))))).
-  { rewrite (sqrt_some has_fma (itv x) Nx Hlt) in Ez.
-    injection Ez as Ez. subst z. reflexivity. }
-  pose proof (upper_lt_zero _ Hb) as HB. rewrite Hlt in HB.
-  pose proof (lower_lt_zero _ Ha) as HA.
-  unfold d. change (Interval.inf_raw (itv x)) with (opp (fst (rep (itv x)))).
-  destruct (lt (opp (fst (rep (itv x)))) zero) eqn:HltA.
-  + (* [a < 0]: [x] has a real below 0. *)
-    assert (Hc : Trv = Com -> Interval.is_common_interval z = true)
-      by (intros E; discriminate E).
-    rewrite (set_dec_keep z Trv Ez0 ltac:(discriminate) Hc).
-    cbn [itv dec DecInterval.new_unchecked]. split; [exact Hz|].
-    exists Trv. split; [|symmetry; now apply dec_min_Trv_l].
-    apply strongest_dom_Trv. intros Hdef. cbn [p_dom] in Hdef.
-    destruct Hdef as (_ & HD).
-    destruct (neg_point _ _ Hord HA) as (r & Hr & Hr0).
-    specialize (HD r (proj2 (HX r) Hr)). unfold sqrt_dom in HD. lra.
-  + (* [0 <= a]: [x] is in the domain, where [sqrt] is continuous. *)
+exists (DecInterval.set_dec z
+  (if lt (Interval.inf_raw (itv x)) zero then Trv else dec x)).
+split; [reflexivity|].
+(* [sqrt] is continuous at each real of its domain. *)
+assert (Hc : forall r, mem r (itv x) -> sqrt_dom r -> continue_in sqrt sqrt_dom r).
+{ intros r _ Hr.
+  exact (continuity_pt_continue_in sqrt sqrt_dom r (continuity_pt_sqrt r Hr)). }
+change (Interval.inf_raw (itv x)) with (opp (fst (rep (itv x)))).
+destruct (lt (opp (fst (rep (itv x)))) zero) eqn:HltA.
+- (* [a < 0]: a nonempty [x] has a real below 0, outside the domain. *)
+  assert (Hnd : ~ ((exists r, mem r (itv x)) /\ forall r, mem r (itv x) -> sqrt_dom r)).
+  { intros ((r0 & Hr0) & HD).
+    destruct (valid_nonempty (itv x) Hx (mem_not_empty _ r0 Hx Hr0))
+      as (Ha & Hb & Hord).
+    pose proof (lower_lt_zero _ Ha) as HA. rewrite HltA in HA.
+    destruct (neg_point _ _ Hord HA) as (r & Hr & Hr1).
+    specialize (HD r (proj2 (mem_bounds _ r Ha Hb) Hr)). unfold sqrt_dom in HD. lra. }
+  pose proof (elem_set_dec_trv_com sqrt_dom sqrt x z Trv Hx Hdx Hz Hc
+    (or_introl (conj eq_refl Hnd))) as H.
+  cbv zeta in H. rewrite (dec_min_Trv_r _ Hdx) in H. exact H.
+- (* [0 <= a]: [x] is a subset of the domain. *)
+  assert (HD : forall r, mem r (itv x) -> sqrt_dom r).
+  { intros r Hr.
+    destruct (valid_nonempty (itv x) Hx (mem_not_empty _ r Hx Hr)) as (Ha & Hb & _).
+    pose proof (lower_lt_zero _ Ha) as HA. rewrite HltA in HA.
     destruct HA as (a0 & Ea0 & Ha0).
-    assert (HD : forall r, mem r (itv x) -> sqrt_dom r).
-    { intros r Hr. apply HX in Hr. rewrite Ea0 in Hr. destruct Hr as [Hr _].
-      unfold sqrt_dom. lra. }
-    assert (Hcont : forall D r, mem r (itv x) -> continue_in sqrt D r).
-    { intros D r Hr. apply continuity_pt_continue_in, continuity_pt_sqrt, HD, Hr. }
-    destruct (nonempty_mem _ Hx Nx) as (r0 & Hr0).
-    assert (Hdac : p_dom sqrt_dom Dac sqrt (itv x) z).
-    { cbn [p_dom]. split; [exists r0; exact Hr0|].
-      split; [exact HD|]. intros r Hr. exact (Hcont _ r Hr). }
-    destruct Hb as [Fb|Eb].
-    * (* A finite [b]: [x] and [z] are bounded. *)
-      destruct (lo_lane _ Ha) as (_ & Flo).
-      destruct (up_lane _ (or_introl Fb) HB) as (_ & Fup).
-      assert (Cz : Interval.is_common_interval z = true).
-      { apply finite_common; rewrite Rz; cbn [fst snd].
-        - rewrite is_finite_opp. exact Flo.
-        - exact (Fup Fb). }
-      rewrite (set_dec_keep z (dec x) Ez0 Hdx (fun _ => Cz)).
-      cbn [itv dec DecInterval.new_unchecked]. split; [exact Hz|].
-      exists Com. split; [|symmetry; apply dec_min_Com_l].
-      apply strongest_dom_Com. cbn [p_dom].
-      split; [exists r0; exact Hr0|]. split; [exact HD|]. split.
-      -- apply common_bounded, finite_common;
-           [exact (bound_Some_finite _ _ Ea0) | exact Fb].
-      -- split; [intros r Hr; exact (Hcont _ r Hr) | exact (common_bounded z Cz)].
-    * (* [b = +inf]: [z] is [[.., +inf]], which is not bounded. *)
-      assert (Cz : Interval.is_common_interval z = false).
-      { rewrite is_common_interval_lt, infinity_eq, Rz, Eb. cbn [fst snd].
-        change (lt (Bsqrt mode_UP (B754_infinity false)) (B754_infinity false))
-          with false.
-        apply Bool.andb_false_r. }
-      rewrite (set_dec_lower z (dec x) Ez0 Cz Hdx).
-      cbn [itv dec DecInterval.new_unchecked]. split; [exact Hz|].
-      exists Dac. split; [|reflexivity].
-      apply strongest_dom_Dac; [exact Hdac|].
-      intros Hcom. cbn [p_dom] in Hcom. destruct Hcom as (_ & _ & _ & _ & Bz).
-      rewrite (bounded_common z (proj1 Hz) Ez0 Bz) in Cz. discriminate Cz.
+    apply (mem_bounds _ r Ha Hb) in Hr. rewrite Ea0 in Hr. destruct Hr as [Hr _].
+    unfold sqrt_dom. lra. }
+  (* A common [z] bounds the square roots of the reals of [x] by some [m],
+     so it bounds those reals by [m * m]. *)
+  assert (Hb : dec x = Com -> Interval.is_common_interval z = true ->
+               bounded (fun r => mem r (itv x))).
+  { intros _ Cz. destruct (common_bounded z Cz) as (m & Hm).
+    exists (m * m). intros r Hr.
+    pose proof (HD r Hr) as Hr0. unfold sqrt_dom in Hr0.
+    assert (Hs : Rabs (sqrt r) <= m).
+    { apply Hm, (proj1 (proj2 Hz)). exists r.
+      split; [exact Hr|]. split; [exact Hr0 | reflexivity]. }
+    rewrite (Rabs_pos_eq _ (sqrt_pos r)) in Hs.
+    rewrite (Rabs_pos_eq _ Hr0), <- (sqrt_sqrt r Hr0).
+    apply Rmult_le_compat; [apply sqrt_pos | apply sqrt_pos | exact Hs | exact Hs]. }
+  pose proof (elem_set_dec_trv_com sqrt_dom sqrt x z Com Hx Hdx Hz Hc
+    (or_intror (conj eq_refl (conj HD Hb)))) as H.
+  cbv zeta in H. rewrite dec_min_Com_r in H. exact H.
 Qed.

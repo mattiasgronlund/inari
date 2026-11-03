@@ -5,8 +5,11 @@
     [strongest2_set]. This file shows that for a product [D1 × D2] they are
     [image2_dom], [p2_dom] and [strongest2_dom] ([*_prod]), and
     [DecBinary.v] that for all of R² they are [image2], [p2] and
-    [strongest2] ([*_all]). It also proves once, for the decorated versions
-    that [impl_dec2!] in [src/elementary.rs] defines
+    [strongest2] ([*_all]). [dec_div_correct] in [Div.v] uses
+    [image2_set_prod], [continue_in2_set_prod] and [strongest2_set_prod]
+    to apply [elem2_set_dec_correct] to [/], whose domain is
+    [div_dom1 × div_dom2]. This file also proves once, for the
+    decorated versions that [impl_dec2!] in [src/elementary.rs] defines
     ([DecInterval.elem_dec2_impl]), that the result is NaI for NaI, and
     otherwise the tightest interval, decorated as IEEE 1788 asks, from what
     the interval function returns ([elem_dec2_impl_correct], by

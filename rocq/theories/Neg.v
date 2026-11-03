@@ -17,11 +17,20 @@
     unbounded one. [DecInterval::neg] returns a NaI unchanged, and
     otherwise calls [set_dec] with the result and the decoration of [x],
     which gives the minimum of the strongest decoration and that of [x] in
-    each case. *)
+    each case.
+
+    [dec_neg_correct] leaves these cases to [elem_set_dec_trv_com] in
+    [ElemDec.v], which it applies with all of R as the domain and the
+    decoration [com]. With [com], that theorem also asks that a [com] [x]
+    be bounded if the result is common, which holds as the result is
+    bounded exactly when [x] is. The [*_all] lemmas there show that on
+    all of R, [image_dom] is [image], the hull of the image is the
+    tightest interval that contains it, and for that hull, [p_dom] and
+    [strongest_dom] are [p] and [strongest]. *)
 
 From Stdlib Require Import Reals Lra.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Ieee1788 Integer Abs MaxMin DecBinary.
+From Inari Require Import Model Ieee1788 Integer Abs MaxMin DecBinary ElemDec.
 
 Open Scope R_scope.
 
@@ -117,38 +126,21 @@ destruct (DecInterval.is_nai x) eqn:Hnai; [reflexivity|].
 assert (Hdx : dec x <> Ill).
 { intros E. unfold DecInterval.is_nai in Hnai. now rewrite E in Hnai. }
 pose proof (neg_correct _ Hx) as Hz.
-destruct (neg_mem _ Hx) as (Hv & Hm).
-destruct (Interval.is_empty (itv x)) eqn:Ex.
-- (* The image of an empty [x] is empty, and so is [-x], for which
-     [set_dec] returns [EMPTY]. *)
-  assert (N : forall r, ~ mem r (itv x)) by (intros r; now apply mem_empty).
-  assert (Ez : Interval.is_empty (Interval.neg (itv x)) = true).
-  { apply (no_mem_empty _ Hv). intros r Hr. apply Hm in Hr. exact (N _ Hr). }
-  rewrite (set_dec_empty_any _ _ Ez Hdx). cbn [itv dec DecInterval.EMPTY].
-  split; [apply is_hull_empty; intros u (r & Hr & _); exact (N r Hr)|].
-  exists Trv.
-  split; [now apply strongest_Trv | symmetry; now apply dec_min_Trv_l].
-- destruct (nonempty_mem _ Hx Ex) as (r & Hr).
-  assert (Ez : Interval.is_empty (Interval.neg (itv x)) = false).
-  { apply (mem_not_empty _ (- r) Hv). apply Hm. now rewrite Ropp_involutive. }
-  assert (Hdac : p Dac Ropp (itv x)).
-  { split; [exists r; exact Hr|]. intros s _. apply Ropp_continue_in. }
-  destruct (Interval.is_common_interval (Interval.neg (itv x))) eqn:C.
-  + (* [-x] is bounded, so the image is, and so is [x]. *)
-    rewrite (set_dec_keep _ _ Ez Hdx (fun _ => C)).
-    cbn [itv dec DecInterval.new_unchecked].
-    split; [exact Hz|]. exists Com. split; [|symmetry; apply dec_min_Com_l].
-    destruct (proj2 (is_hull_bounded _ _ Hz) (common_bounded _ C)) as (m & Hb).
-    apply strongest_Com. split; [exists r; exact Hr|]. split; [|split].
-    * exists m. intros s Hs. rewrite <- Rabs_Ropp. apply Hb.
-      exists s. split; [exact Hs | reflexivity].
-    * intros s _. exact (Ropp_continue_in no_cond s).
-    * exists m. exact Hb.
-  + (* [-x] is not common, so not bounded, and neither is the image. *)
-    rewrite (set_dec_lower _ _ Ez C Hdx).
-    cbn [itv dec DecInterval.new_unchecked].
-    split; [exact Hz|]. exists Dac. split; [|reflexivity].
-    apply strongest_Dac; [exact Hdac|].
-    intros (_ & _ & _ & Bi). apply (is_hull_bounded _ _ Hz) in Bi.
-    rewrite (bounded_common _ Hv Ez Bi) in C. discriminate C.
+(* A common [-x] is bounded, so the image is, and so is [x]. *)
+assert (Hb : dec x = Com ->
+  Interval.is_common_interval (Interval.neg (itv x)) = true ->
+  bounded (fun r => mem r (itv x))).
+{ intros _ C.
+  destruct (proj2 (is_hull_bounded _ _ Hz) (common_bounded _ C)) as (m & Hm).
+  exists m. intros s Hs. rewrite <- Rabs_Ropp. apply Hm.
+  exists s. split; [exact Hs | reflexivity]. }
+(* Negation is defined and continuous on all of R, so the theorem applies
+   with the decoration [com]. *)
+pose proof (elem_set_dec_trv_com (fun _ => True) Ropp x (Interval.neg (itv x))
+  Com Hx Hdx (hull_tightest_all _ _ _ Hz) (fun r _ _ => Ropp_continue_in _ r)
+  (or_intror (conj eq_refl (conj (fun _ _ => I) Hb)))) as H.
+cbv zeta in H. rewrite dec_min_Com_r in H. destruct H as (_ & d & Hd & Edec).
+rewrite (itv_set_dec _ _ (proj1 Hz) Hdx) in Hd |- *.
+split; [exact Hz|]. exists d.
+split; [exact (proj1 (strongest_dom_all d Ropp (itv x) _ Hz) Hd) | exact Edec].
 Qed.
