@@ -1299,9 +1299,9 @@ Definition f64_is_infinite (x : f64) : bool :=
 (** [fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64], with
     [round_rational] and [with_parse_range] of [src/mpfr_calls.rs]
     inlined. [f] is [Float::new(f64::MANTISSA_DIGITS)], an MPFR number of
-    53 bits, which [mpfr::set_q] sets before anything reads it on the
-    targets that inari compiles for with the feature [gmp] (see [set_q_ok]
-    in [Mpfr.v]).
+    53 bits, which [mpfr::set_q] sets before anything reads it where C
+    [long] and GMP limbs have 64 bits, as on the targets that inari
+    supports with the feature [gmp] (see [set_q_ok] in [Mpfr.v]).
     [round_rational] calls [mpfr::set_q], [mpfr::subnormalize] and
     [get_d], which calls [mpfr::get_d], in a closure that it passes to
     [with_parse_range]. [with_parse_range] calls [assert_thread_safe()]

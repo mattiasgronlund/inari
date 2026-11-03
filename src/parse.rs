@@ -482,8 +482,52 @@ fn uncertain_interval(s: &str) -> IResult<&str, Result<NInterval>> {
     )(s)
 }
 
+// `Ok(x)`, unless C `long`, MPFR's `mpfr_prec_t` and `mpfr_exp_t`, or GMP limbs are narrower
+// than 64 bits and a bound of `x` is a rational whose numerator or denominator has more than
+// 2^29 bits, which gives an `Err` of the kind `PossiblyUndefinedOperation`, as an exponent
+// beyond `i32` does. `interval` applies it to each literal that it reads, so that the grammar
+// can return this `Err` as well as the `Ok` values that `ninterval_ok` in
+// `rocq/theories/Model.v` describes, and so that where `long` or limbs are narrower,
+// `rational_to_f64` never gets such a rational. Where `long` and limbs have 64 bits, as on the
+// targets that inari supports with the feature `gmp`, it is `Ok(x)`, and none of the failures
+// of `mpfr_set_q` that the comment of `set_q_ok` in `rocq/theories/Mpfr.v` describes can
+// happen. Where `long` has 32 bits, `mpfr_set_q` fails or gives a wrong result on some
+// rationals whose numerator or denominator has more than about 2^30 bits. By a reading of
+// MPFR 4.2.2's `set_q.c`, but not of `mpfr_div` or the other functions that it calls, at most
+// 2^29 bits each keep the precisions of the MPFR numbers that it makes of them below
+// `MPFR_PREC_MAX`, which is then `2^31 - 257`, and the exponent of the quotient that it scales
+// inside MPFR's widest exponent range, `[1 - 2^30, 2^30 - 1]`. With 32-bit limbs, they also
+// keep the numerator and the denominator fewer than 2^24 limbs apart, while its early overflow
+// and underflow tests fire only from 2^25 limbs apart. Neither `set_q_ok` nor the proofs are
+// claimed for these targets. GMP keeps the most significant limb of an integer nonzero, so an
+// integer of at most `(1 << 29) / NUMB_BITS` limbs has at most 2^29 bits, and with limbs of
+// 32 or 64 bits, one of more limbs has more. The grammar has GMP compute each number before
+// this checks it, and GMP can crash on a much wider one there: on 32-bit x86, GMP 6.3.0 does
+// on 10^1900000000, as in `[1e1900000000]`, where the size that `mpz_n_pow_ui` computes for
+// it wraps around in a 32-bit `unsigned long`.
+fn check_width(x: NInterval) -> Result<NInterval> {
+    const LONG_AND_LIMBS_64: bool =
+        std::mem::size_of::<mpfr::prec_t>() == 8 && gmp::NUMB_BITS == 64;
+    const MAX_LIMBS: usize = (1 << 29) / gmp::NUMB_BITS as usize;
+    let too_wide = |n: &Number| match n {
+        Number::Rational(r) => {
+            r.numer().as_limbs().len() > MAX_LIMBS || r.denom().as_limbs().len() > MAX_LIMBS
+        }
+        _ => false,
+    };
+    if !LONG_AND_LIMBS_64 && (too_wide(x.inf()) || too_wide(x.sup())) {
+        Err(IntervalError {
+            kind: IntervalErrorKind::PossiblyUndefinedOperation,
+        })
+    } else {
+        Ok(x)
+    }
+}
+
 fn interval(s: &str) -> IResult<&str, Result<NInterval>> {
-    alt((bracket_interval, uncertain_interval))(s)
+    map(alt((bracket_interval, uncertain_interval)), |x| {
+        x.and_then(check_width)
+    })(s)
 }
 
 fn decoration(s: &str) -> IResult<&str, Decoration> {
@@ -543,25 +587,6 @@ struct F64 {
     inexact: bool,
     overflow: bool,
 }
-
-// `set_q_ok` in `rocq/theories/Mpfr.v`, which the proof of `rational_to_f64` below assumes of
-// `mpfr::set_q`, fails for MPFR 4.2.2 where C `long`, MPFR's `mpfr_prec_t` and
-// `mpfr_exp_t`, has 32 bits, as on 32-bit targets and on 64-bit Windows. There,
-// `MPFR_PREC_MAX` is `2^31 - 257`, and `mpfr_set_q` fails on a rational whose numerator or
-// denominator has more bits than that, not counting its low zero limbs. MPFR's widest
-// exponent range is then `[1 - 2^30, 2^30 - 1]`. Where GMP limbs have 64 bits, as on 64-bit
-// Windows, `mpfr_set_q` can return the ternary value 0 for a rational that overflows or
-// underflows that range, and where they have 32 bits, as on most 32-bit targets, it can give
-// such a rational the sign of the number it overwrites rather than its own. So this refuses
-// to compile unless `long` and limbs have 64 bits, where none of these can happen (see
-// `set_q_ok`).
-const _: () = assert!(
-    std::mem::size_of::<mpfr::prec_t>() == 8 && gmp::NUMB_BITS == 64,
-    "the feature `gmp` of inari needs a target where C `long` and GMP limbs have 64 bits; \
-     where `long` has 32 bits, MPFR's `mpfr_set_q` fails on some rationals wider than \
-     about 2^30 bits, and where limbs have 32 bits too, it can give one of huge or tiny \
-     magnitude the wrong sign"
-);
 
 // Proved correct in `rocq/theories/ParseRound.v` (`rational_to_f64_correct`), assuming what
 // `rocq/theories/Mpfr.v` says of `mpfr::set_q`, `mpfr::subnormalize` and `mpfr::get_d` at
