@@ -128,7 +128,7 @@ assert (Hlo : forall r t, mem r x -> mem t y -> Rpow (B2R a) t <= Rpow r t).
 assert (Hpos : forall s, image2_set pow_dom Rpow x y s -> 0 <= s).
 { intros s Hs. destruct (proj1 (pp_img x y s Hx0 Hy0) Hs) as (r & t & Hr & _ & ->).
   apply Rpow_ge_0, Hx0, Hr. }
-unfold pow_rd.
+unfold pow_rd; cbn [mpfr_point p_pow].
 destruct Hyd as [(Fd & HCD & Hmy) | (Ed & Hmy)].
 - (* [d] finite: the least value is [a^d]. *)
   apply (pn_lo_at (image2_set pow_dom Rpow x y) (Rpow (B2R a) (B2R d))).
@@ -185,7 +185,7 @@ destruct (pp_desc_A y _ _ Hyd) as (Hyc & Hcy).
 assert (Hx0 : forall r, mem r x -> 0 <= r) by (intros r Hr; specialize (Hxb r Hr); lra).
 assert (Hy0 : forall t, mem t y -> 0 < t) by (intros t Ht; specialize (Hyc t Ht); lra).
 assert (HB0 : 0 <= B2R b) by (specialize (Hxb _ Hbx); lra).
-unfold pow_ru.
+unfold pow_ru; cbn [mpfr_point p_pow].
 apply (pn_hi_at (image2_set pow_dom Rpow x y) (Rpow (B2R b) (B2R c))).
 - apply (proj2 (pp_img x y _ Hx0 Hy0)). exists (B2R b), (B2R c).
   split; [exact Hbx|]. split; [exact Hcy | reflexivity].
@@ -219,7 +219,7 @@ destruct (pp_desc_A x _ _ Hxb) as (Hxa & Hax).
 destruct (pp_desc_A y _ _ Hyd) as (Hyc & Hcy).
 assert (Hx0 : forall r, mem r x -> 0 <= r) by (intros r Hr; specialize (Hxa r Hr); lra).
 assert (Hy0 : forall t, mem t y -> 0 < t) by (intros t Ht; specialize (Hyc t Ht); lra).
-unfold pow_ru.
+unfold pow_ru; cbn [mpfr_point p_pow].
 destruct Hxb as [(Fb & HAB & Hmx) | (Eb & Hmx)]; [specialize (Hb1 Fb) |].
 - (* Every value is at most [b^t] for its [t]. *)
   assert (Hhi : forall r t, mem r x -> mem t y -> Rpow r t <= Rpow (B2R b) t).
@@ -330,7 +330,7 @@ unfold Interval.with_infsup_raw, Generic.constant. apply tightest_lanes_lub.
 - exact (ex_intro _ _ HS).
 - (* The least value is [a^c], as [r^t] increases in [r] and, for
      [r >= 1], in [t]. *)
-  unfold pow_rd.
+  unfold pow_rd; cbn [mpfr_point p_pow].
   apply (pn_lo_at (image2_set pow_dom Rpow x y)
     (Rpow (B2R (Interval.inf_raw x)) (B2R (Interval.inf_raw y))) _ HS).
   + intros s Hs. destruct (proj1 (pp_img x y s Hx0 Hy0) Hs) as (r & t & Hr & Ht & ->).

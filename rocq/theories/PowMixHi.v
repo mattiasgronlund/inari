@@ -174,7 +174,7 @@ Lemma pxh_ac_pos :
   (is_finite c = true /\ B2R c <= 0) \/ c = B754_infinity true ->
   pxh_pos (pow_ru m a c).
 Proof.
-intros emin emax m Hrg Hg Hp a c Fa HA HAz Hc. unfold pow_ru.
+intros emin emax m Hrg Hg Hp a c Fa HA HAz Hc. unfold pow_ru; cbn [mpfr_point p_pow].
 destruct (Req_dec (B2R a) 0) as [HAe | HAp].
 - rewrite (HAz HAe). destruct Hc as [(Fc & HC0) | ->].
   + destruct (Rle_lt_or_eq_dec _ _ HC0) as [HC0' | HCe].
@@ -198,7 +198,7 @@ Lemma pxh_bd_pos :
   (is_finite d = true /\ 0 < B2R d) \/ d = B754_infinity false ->
   pxh_pos (pow_ru m b d).
 Proof.
-intros emin emax m Hrg Hg Hp b d Hb Hd. unfold pow_ru.
+intros emin emax m Hrg Hg Hp b d Hb Hd. unfold pow_ru; cbn [mpfr_point p_pow].
 destruct Hb as [(Fb & HB1) | ->].
 - destruct Hd as [(Fd & HD0) | ->].
   + apply (pxh_round_pos (Rpow (B2R b) (B2R d))); [apply Rpow_gt_0; lra|].
@@ -230,7 +230,7 @@ Lemma pxh_hi_ac :
   lane_ok (pxh_S1 x y) (pow_ru m a c).
 Proof.
 intros emin emax m Hrg Hg Hp x y a R1 c Fa HA0 HAz HR0 HR1 HAR Hxa Hax Hyc.
-unfold pow_ru.
+unfold pow_ru; cbn [mpfr_point p_pow].
 destruct (Req_dec (B2R a) 0) as [HAe | HAp].
 - rewrite (HAz HAe).
   (* For [t < 0] in [y], the values [r^t] for [r] in [(0, R1]] have no
@@ -315,7 +315,7 @@ Lemma pxh_hi_bd :
   lane_ok (pxh_S2 x y) (pow_ru m b d).
 Proof.
 intros emin emax m Hrg Hg Hp x y b R2 d HR2 Hxb Hyd.
-unfold pow_ru.
+unfold pow_ru; cbn [mpfr_point p_pow].
 destruct Hxb as [(Fb & HRB & Hxb1 & Hxb2) | (Eb & Hxb2)].
 - destruct Hyd as [(Fd & HD0 & Hyd1 & Hyd2) | (Ed & Hyd2)].
   + (* [b] and [d] finite: the largest value is [b^d]. *)

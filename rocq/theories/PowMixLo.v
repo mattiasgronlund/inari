@@ -120,7 +120,7 @@ Proof.
 intros emin emax m Hrg Hg Hp x y a d Fa HA0 HA1 HAz HAx Hxa Hyd.
 assert (Hpos : forall s, pxl_le1 x y s -> 0 <= s).
 { intros s (r & t & Hr & _ & _ & _ & ->). apply Rpow_ge_0. specialize (Hxa r Hr). lra. }
-unfold pow_rd.
+unfold pow_rd; cbn [mpfr_point p_pow].
 destruct Hyd as [(Fd & HD0 & HDy & HyD) | (Ed & Hy0)].
 - (* [d] finite: the least value is [a^d]. *)
   assert (Had : pow_dom (B2R a) (B2R d)).
@@ -186,7 +186,7 @@ Proof.
 intros emin emax m Hrg Hg Hp x y A b c HA0 Hxb Hb1 Hyc.
 assert (Hpos : forall s, pxl_ge1 x y s -> 0 <= s).
 { intros s (r & t & _ & Hr1 & _ & _ & ->). apply Rpow_ge_0. lra. }
-unfold pow_rd.
+unfold pow_rd; cbn [mpfr_point p_pow].
 destruct Hxb as [(Fb & HB0 & HAB & Hmx) | (Eb & Hmx)];
   [specialize (Hb1 Fb) |];
   destruct Hyc as [(Fc & HC0 & HCy & HyC) | (Ec & Hy0)].

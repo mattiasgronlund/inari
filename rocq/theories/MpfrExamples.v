@@ -26,7 +26,7 @@
 From Stdlib Require Import ZArith.
 From Inari Require Import Model Mpfr MpfrIdeal MpfrConsistent MpfrRound ClosedDom Elem
   Atanh Cosh TrigQuad TrigCount Cos Sin Tan Pow Powi Atan2 ParseRound ParseHull ParseExact
-  ParseDec ValidMake ValidElem Valid.
+  ParseDec ValidMake ValidElem Valid MpfrPoint.
 
 (** [app_head t] is the function of the application [t], or [t] if [t] is
     not an application. *)
@@ -217,6 +217,28 @@ Example dec_sin_valid_ideal := ltac:(mpfr_example dec_sin_valid).
 Example dec_sinh_valid_ideal := ltac:(mpfr_example dec_sinh_valid).
 Example dec_tan_valid_ideal := ltac:(mpfr_example dec_tan_valid).
 Example dec_tanh_valid_ideal := ltac:(mpfr_example dec_tanh_valid).
+Example mpfr_acos_c_ideal := ltac:(mpfr_example mpfr_acos_c).
+Example mpfr_acosh_c_ideal := ltac:(mpfr_example mpfr_acosh_c).
+Example mpfr_asin_c_ideal := ltac:(mpfr_example mpfr_asin_c).
+Example mpfr_asinh_c_ideal := ltac:(mpfr_example mpfr_asinh_c).
+Example mpfr_atan_c_ideal := ltac:(mpfr_example mpfr_atan_c).
+Example mpfr_atan2_c_ideal := ltac:(mpfr_example mpfr_atan2_c).
+Example mpfr_atanh_c_ideal := ltac:(mpfr_example mpfr_atanh_c).
+Example mpfr_cos_c_ideal := ltac:(mpfr_example mpfr_cos_c).
+Example mpfr_cosh_c_ideal := ltac:(mpfr_example mpfr_cosh_c).
+Example mpfr_exp_c_ideal := ltac:(mpfr_example mpfr_exp_c).
+Example mpfr_exp10_c_ideal := ltac:(mpfr_example mpfr_exp10_c).
+Example mpfr_exp2_c_ideal := ltac:(mpfr_example mpfr_exp2_c).
+Example mpfr_ln_c_ideal := ltac:(mpfr_example mpfr_ln_c).
+Example mpfr_log10_c_ideal := ltac:(mpfr_example mpfr_log10_c).
+Example mpfr_log2_c_ideal := ltac:(mpfr_example mpfr_log2_c).
+Example mpfr_pow_c_ideal := ltac:(mpfr_example mpfr_pow_c).
+Example mpfr_pown_c_ideal := ltac:(mpfr_example mpfr_pown_c).
+Example mpfr_sin_c_ideal := ltac:(mpfr_example mpfr_sin_c).
+Example mpfr_sinh_c_ideal := ltac:(mpfr_example mpfr_sinh_c).
+Example mpfr_tan_c_ideal := ltac:(mpfr_example mpfr_tan_c).
+Example mpfr_tanh_c_ideal := ltac:(mpfr_example mpfr_tanh_c).
+Example mpfr_round_rational_c_ideal := ltac:(mpfr_example mpfr_round_rational_c).
 
 (** The constructors of [made] and [dmade] in [Valid.v] that quantify over
     an MPFR, in their order. *)

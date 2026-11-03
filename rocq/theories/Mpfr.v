@@ -1,32 +1,38 @@
 (** * What the theorems assume of MPFR
 
-    [Model.v] leaves the MPFR functions that [src/elementary.rs] and
-    [src/parse.rs] call abstract, as the fields of a record [m : mpfr].
-    This file states what
-    the theorems assume of them: what the MPFR manual documents. Like
+    [Model.v] leaves abstract, as the fields of a record [m : mpfr], the
+    MPFR functions with which [src/mpfr_calls/mpfr.rs] rounds the bounds
+    of the elementary functions and of interval literals. In [Model.v],
+    the elementary functions and the conversions of [src/parse.rs] take a
+    record [point] of the functions that round their bounds to [f64]s,
+    and the theorems about them, all but the two of [PointTheorems.v]
+    below, are stated for [mpfr_point m], the record [point] that
+    [src/mpfr_calls/mpfr.rs] makes of [m]. This file states what the
+    theorems assume of [m]: what the MPFR manual documents. Like
     [Model.v] and [Ieee1788.v], it has to be checked by reading, against
     the MPFR manual: its sections on rounding, on the exponent range, on
     special values and exceptions, the entry of [mpfr_get_d], and those of
     the functions. It assumes as little as the proofs use: the rounding of
     each function for finite arguments in its domain, and only the special
     values that the Rust code passes. The rounding and the special values
-    of the functions that [src/elementary.rs] calls, all but [mpfr_get_d],
-    which converts their results, are stated only at the MPFR numbers that
-    [with_val] makes of [f64]s, as the code passes them. A special value at
-    a finite argument other than 0, such as [atan2(y, -inf)] for [y > 0],
-    is thus assumed only where that argument is the real of a finite
-    [f64], not at every real. A special value that is a zero is
-    assumed only to be a zero, of either sign: the code passes the result
-    of each function with special values here only to [mpfr_get_d], and
-    [get_d_ok] says only that it converts a zero to a zero, so the
-    theorems cannot use the sign.
+    of the fields of [m] that the elementary functions use, all but
+    [mpfr_get_d], which converts their results, are stated only at the
+    MPFR numbers that [with_val] makes of [f64]s, as the code passes them.
+    A special value at a finite argument other than 0, such as
+    [atan2(y, -inf)] for [y > 0], is thus assumed only where that argument
+    is the real of a finite [f64], not at every real. A special value that
+    is a zero is assumed only to be a zero, of either sign: the code passes
+    the result of each function with special values here only to
+    [mpfr_get_d], and [get_d_ok] says only that it converts a zero to a
+    zero, so the theorems cannot use the sign.
 
-    [src/elementary.rs] does not set MPFR's exponent range, [emin] and
-    [emax]. The theorems about its functions hold for every range that
-    contains that of [f64] ([range_ok]), as MPFR's default range does.
-    [rational_to_f64] in [src/parse.rs] sets the range around its calls,
-    and the hypotheses about them, in the last section, are stated at the
-    range that it sets.
+    Neither [src/elementary.rs] nor the functions of
+    [src/mpfr_calls/mpfr.rs] that it calls set MPFR's exponent range,
+    [emin] and [emax]. The theorems about the functions of
+    [src/elementary.rs] hold for every range that contains that of [f64]
+    ([range_ok]), as MPFR's default range does. [rational_to_f64] in
+    [src/parse.rs] sets the range around its calls, and the hypotheses
+    about them, in the last section, are stated at the range that it sets.
 
     The range is per thread in an MPFR built thread-safe, as
     [gmp-mpfr-sys] builds it, and global in one built without
@@ -36,13 +42,29 @@
     it while [rational_to_f64] has it set. A system MPFR built without
     thread-local storage, which the feature [use-system-libs] of
     [gmp-mpfr-sys] can link, fails that test, and with such an MPFR,
-    [assert_thread_safe] in [src/mpfr_calls.rs], which [with_parse_range]
-    calls first, panics before [rational_to_f64] sets the range.
+    [assert_thread_safe] in [src/mpfr_calls/mpfr.rs], which
+    [with_parse_range] calls first, panics before [rational_to_f64] sets
+    the range.
 
     [mpfr_ok_consistent] in [MpfrConsistent.v] shows that the hypotheses
     on [m] that the theorems take can all hold at once: at every range with
     [range_ok], the ideal MPFR of [MpfrIdeal.v] satisfies all of them. It
-    does not show that the MPFR that the Rust code links satisfies them. *)
+    does not show that the MPFR that the Rust code links satisfies them.
+
+    [Contract.v] states what each field of a record [point] must do, at
+    the level of [f64]s. [MpfrPoint.v] shows that each field of
+    [mpfr_point m] for an elementary function does it where [m]
+    satisfies, at a range with [range_ok], [get_d_ok] and the hypothesis
+    of the MPFR function that the field calls, such as [exp_ok] for
+    [p_exp], and that its [p_round_rational] does it where [m] satisfies
+    [parse_ok]. [PointTheorems.v] restates [exp_correct] as
+    [exp_correct_point], for every record [point] whose [p_exp] does what
+    [Contract.v] asks of it, and [from_ninterval_correct] as
+    [from_ninterval_correct_point], for every one whose [p_round_rational]
+    does. All the others about the elementary functions and the
+    conversions of [src/parse.rs], [exp_correct] and
+    [from_ninterval_correct] among them, assume of [m] only what this
+    file states. *)
 
 From Stdlib Require Import ZArith Reals Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.

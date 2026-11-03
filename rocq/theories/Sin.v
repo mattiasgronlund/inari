@@ -228,7 +228,7 @@ assert (Hm : forall r t, mem r x -> mem t x -> r <= t -> sin r <= sin t).
   apply (sn_inc j); [exact Hj | lra | exact Hrt | lra]. }
 assert (Ma : mem (B2R (Interval.inf_raw x)) x) by (apply (finite_itv_mem x _ Hfx); lra).
 assert (Mb : mem (B2R (Interval.sup_raw x)) x) by (apply (finite_itv_mem x _ Hfx); lra).
-unfold sin_rd, sin_ru. split.
+unfold sin_rd, sin_ru; cbn [mpfr_point p_sin]. split.
 - apply (br_inc_encl emin emax m real_dom sin (mpfr_sin m) Hrange Hget Hs x Hfx I I).
   intros r Hr _. pose proof (proj1 (finite_itv_mem x r Hfx) Hr) as Hr'.
   split; apply Hm; first [exact Ma | exact Mb | exact Hr | lra].
@@ -254,7 +254,7 @@ assert (Hm : forall r t, mem r x -> mem t x -> r <= t -> sin t <= sin r).
   apply (sn_dec j); [exact Hj | lra | exact Hrt | lra]. }
 assert (Ma : mem (B2R (Interval.inf_raw x)) x) by (apply (finite_itv_mem x _ Hfx); lra).
 assert (Mb : mem (B2R (Interval.sup_raw x)) x) by (apply (finite_itv_mem x _ Hfx); lra).
-unfold sin_rd, sin_ru. split.
+unfold sin_rd, sin_ru; cbn [mpfr_point p_sin]. split.
 - apply (br_dec_encl emin emax m real_dom sin (mpfr_sin m) Hrange Hget Hs x Hfx I I).
   intros r Hr _. pose proof (proj1 (finite_itv_mem x r Hfx) Hr) as Hr'.
   split; apply Hm; first [exact Ma | exact Mb | exact Hr | lra].
@@ -280,7 +280,7 @@ assert (Hone : forall r, mem r x -> r = B2R (Interval.inf_raw x)).
 { intros r Hr. apply (finite_itv_mem x r Hfx) in Hr. lra. }
 assert (Hm : forall r t, mem r x -> mem t x -> sin r = sin t).
 { intros r t Hr Ht. rewrite (Hone r Hr), (Hone t Ht). reflexivity. }
-unfold sin_rd, sin_ru. split; split.
+unfold sin_rd, sin_ru; cbn [mpfr_point p_sin]. split; split.
 - apply (br_inc_encl emin emax m real_dom sin (mpfr_sin m) Hrange Hget Hs x Hfx I I).
   intros r Hr _. rewrite (Hone r Hr), <- EAB. split; apply Rle_refl.
 - apply (br_inc_tight emin emax m real_dom sin (mpfr_sin m) Hrange Hget Hs x Hfx).
@@ -314,7 +314,7 @@ assert (Hm : forall r, mem r x ->
   Rmin (sin (B2R (Interval.inf_raw x))) (sin (B2R (Interval.sup_raw x))) <= sin r <= 1).
 { intros r Hr. apply (finite_itv_mem x r Hfx) in Hr. split; [|apply SIN_bound].
   apply (sn_max j); [exact Hj | exact Ha | lra | lra | exact Hb]. }
-unfold sin_rd. split.
+unfold sin_rd; cbn [mpfr_point p_sin]. split.
 - apply (br_max_encl emin emax m real_dom sin (mpfr_sin m) Hrange Hget Hs first x Hfx I I).
   + intros r _ _. apply SIN_bound.
   + intros r Hr _. exact (Hm r Hr).
@@ -345,7 +345,7 @@ assert (Hm : forall r, mem r x ->
   -1 <= sin r <= Rmax (sin (B2R (Interval.inf_raw x))) (sin (B2R (Interval.sup_raw x)))).
 { intros r Hr. apply (finite_itv_mem x r Hfx) in Hr. split; [apply SIN_bound|].
   apply (sn_min j); [exact Hj | exact Ha | lra | lra | exact Hb]. }
-unfold sin_ru. split.
+unfold sin_ru; cbn [mpfr_point p_sin]. split.
 - apply (br_min_encl emin emax m real_dom sin (mpfr_sin m) Hrange Hget Hs first x Hfx I I).
   + intros r _ _. apply SIN_bound.
   + intros r Hr _. exact (Hm r Hr).

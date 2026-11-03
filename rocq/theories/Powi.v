@@ -340,7 +340,7 @@ unfold Interval.with_infsup_raw, Generic.constant. apply tightest_lanes_lub.
        in [x], and so are the reals between 0 and [t], whose values rise
        without bound near 0. *)
     destruct (pwx_B2R_zero _ Fc Ec) as (sc & Esc). rewrite Esc.
-    unfold pown_ru. rewrite (pown_zero_neg_even emin emax m Hgd Hp RNDU sc n Hn32 Hn Hev).
+    unfold pown_ru; cbn [mpfr_point p_pown]. rewrite (pown_zero_neg_even emin emax m Hgd Hp RNDU sc n Hn32 Hn Hev).
     destruct Tc as (r & Hr' & Er). rewrite Ec in Er.
     assert (M0 : mem 0 x).
     { replace 0 with r; [exact Hr'|]. revert Er. unfold Rabs. destruct (Rcase_abs r); lra. }
@@ -615,7 +615,7 @@ unfold Interval.with_infsup_raw, Generic.constant. apply tightest_lanes_lub.
     * (* [n > 0]: [pow_si(+inf, n) = +inf], and the values rise without
          bound. *)
       assert (Hn' : (0 < n)%Z) by lia.
-      unfold pown_ru. rewrite (pown_pinf_pos emin emax m Hgd Hp RNDU n Hn32 Hn').
+      unfold pown_ru; cbn [mpfr_point p_pown]. rewrite (pown_pinf_pos emin emax m Hgd Hp RNDU n Hn32 Hn').
       apply lane_ok_inf. intros M.
       destruct (pown_large_pos n M Hn') as (r1 & Hr1 & H).
       destruct (Hd r1) as (u & Hu & Hu1).
@@ -741,6 +741,7 @@ destruct (Interval.is_empty x) eqn:Hne.
       -- exists (B2R (Interval.sup_raw y)). intros r Hr'. apply Hd.
          exists r. split; [exact Hr' | reflexivity].
       -- exfalso. unfold Interval.with_infsup_raw, Generic.constant, pown_ru in Hc.
+         cbn [mpfr_point p_pown] in Hc.
          rewrite Ed, (pown_pinf_pos emin emax m Hgd Hp RNDU n Hn32 Hn'),
            mono_not_common_hi in Hc.
          discriminate Hc.
@@ -753,6 +754,7 @@ destruct (Interval.is_empty x) eqn:Hne.
       intros _ Hc.
       unfold Interval.with_infsup_raw, Generic.constant, Interval.inf_raw, Interval.sup_raw,
         pown_rd, pown_ru in Hc.
+      cbn [mpfr_point p_pown] in Hc.
       destruct (valid_nonempty x Hx Hne) as ([Fa|Ea] & [Fb|Eb] & _).
       -- exact (common_bounded x (finite_common x Fa Fb)).
       -- exfalso. rewrite Eb, (pown_pinf_pos emin emax m Hgd Hp RNDU n Hn32 Hn'),

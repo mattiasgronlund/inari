@@ -196,7 +196,7 @@ assert (Hy0 : forall t, mem t y -> t <= 0) by (intros t Ht; specialize (HyD t Ht
 assert (Hpos : forall s, image2_set pow_dom Rpow x y s -> 0 <= s).
 { intros s Hs. destruct (proj1 (pn_img x y s Hy0) Hs) as (r & t & _ & _ & Hr & ->).
   apply Rlt_le, Rpow_gt_0, Hr. }
-unfold pow_rd.
+unfold pow_rd; cbn [mpfr_point p_pow].
 destruct Hxb as [(Fb & HB0 & HAB & Hmx) | (Eb & Hmx)];
   [specialize (Hb1 Fb) |];
   destruct Hyc as [(Fc & HCD & Hmy) | (Ec & Hmy)].
@@ -282,7 +282,7 @@ Proof.
 intros emin emax m Hrg Hg Hp x y a R1 c D Fa HA HAz HR1 HAR Hxa Hax HD0 Hyc.
 destruct (pn_yD y c D Hyc) as (HyD & HDy).
 assert (Hy0 : forall t, mem t y -> t <= 0) by (intros t Ht; specialize (HyD t Ht); lra).
-unfold pow_ru.
+unfold pow_ru; cbn [mpfr_point p_pow].
 destruct (Req_dec (B2R a) 0) as [HA0 | HA0].
 - rewrite (HAz HA0).
   (* For [t < 0] in [y], the values [r^t] for [r] in [(0, R1]] have no
@@ -400,7 +400,7 @@ unfold Interval.with_infsup_raw, Generic.constant. apply tightest_lanes_lub.
 - exact (ex_intro _ _ HS).
 - (* The least value is [b^d], as [r^t] decreases in [r] and, for
      [r <= 1], in [t]. *)
-  unfold pow_rd.
+  unfold pow_rd; cbn [mpfr_point p_pow].
   apply (pn_lo_at (image2_set pow_dom Rpow x y)
     (Rpow (B2R (Interval.sup_raw x)) (B2R (Interval.sup_raw y))) _ HS).
   + intros s Hs. destruct (proj1 (pn_img x y s Hy0) Hs) as (r & t & Hr & Ht & Hr0 & ->).
@@ -450,7 +450,7 @@ unfold Interval.with_infsup_raw, Generic.constant. apply tightest_lanes_lub.
   rewrite Eb in Fb. discriminate Fb.
 - (* The largest value is [a^d], as [r^t] decreases in [r] and, for
      [r >= 1], increases in [t]. *)
-  unfold pow_ru.
+  unfold pow_ru; cbn [mpfr_point p_pow].
   apply (pn_hi_at (image2_set pow_dom Rpow x y)
     (Rpow (B2R (Interval.inf_raw x)) (B2R (Interval.sup_raw y))) _ HS).
   + intros s Hs. destruct (proj1 (pn_img x y s Hy0) Hs) as (r & t & Hr & Ht & Hr0 & ->).

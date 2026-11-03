@@ -515,10 +515,10 @@ apply (cl_tightest _ (Some (- acos (B2R (Interval.sup_raw x))))
     * exact (proj1 (HxD _ Ma)).
     * exact (cl_mem_inf x r Hx E Fa Hr).
     * exact (proj2 (HxD r Hr)).
-- apply round_dn_lane. unfold acos_rd.
+- apply round_dn_lane. unfold acos_rd; cbn [mpfr_point p_acos].
   exact (mpfr_fn_correct emin emax m acos_dom acos (mpfr_acos m) Hrange Hget Hacos RNDD _ Fb
            (HxD _ Mb)).
-- apply round_up_lane. unfold acos_ru.
+- apply round_up_lane. unfold acos_ru; cbn [mpfr_point p_acos].
   exact (mpfr_fn_correct emin emax m acos_dom acos (mpfr_acos m) Hrange Hget Hacos RNDU _ Fa
            (HxD _ Ma)).
 Qed.

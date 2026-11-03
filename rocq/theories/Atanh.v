@@ -100,7 +100,7 @@ Lemma ath_rd_m1 :
   is_finite w = true -> B2R w = -1 -> atanh_rd m w = B754_infinity true.
 Proof.
 intros emin emax m w (_ & _ & Hinf) (_ & Hm1 & _) Fw Hw.
-unfold atanh_rd, mpfr_fn. rewrite (with_val_finite w Fw) by lra.
+unfold atanh_rd; cbn [mpfr_point p_atanh]; unfold mpfr_fn. rewrite (with_val_finite w Fw) by lra.
 rewrite Hw, Hm1. apply Hinf.
 Qed.
 
@@ -110,7 +110,7 @@ Lemma ath_ru_1 :
   is_finite w = true -> B2R w = 1 -> atanh_ru m w = B754_infinity false.
 Proof.
 intros emin emax m w (_ & _ & Hinf) (_ & _ & H1) Fw Hw.
-unfold atanh_ru, mpfr_fn. rewrite (with_val_finite w Fw) by lra.
+unfold atanh_ru; cbn [mpfr_point p_atanh]; unfold mpfr_fn. rewrite (with_val_finite w Fw) by lra.
 rewrite Hw, H1. apply Hinf.
 Qed.
 

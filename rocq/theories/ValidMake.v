@@ -104,7 +104,7 @@ end.
 Qed.
 
 Theorem try_from_ninterval_exact_valid :
-  forall m x y, Interval.try_from_ninterval_exact m x = Some y -> valid y.
+  forall (m : mpfr) x y, Interval.try_from_ninterval_exact m x = Some y -> valid y.
 Proof.
 intros m x y H. unfold Interval.try_from_ninterval_exact in H.
 cbv zeta in H.
@@ -195,7 +195,7 @@ end.
 Qed.
 
 Theorem from_dec_ninterval_valid :
-  forall m x, valid (itv (DecInterval.from_dec_ninterval m x)).
+  forall (m : mpfr) x, valid (itv (DecInterval.from_dec_ninterval m x)).
 Proof.
 intros m x. unfold DecInterval.from_dec_ninterval. cbv zeta.
 apply set_dec_valid.

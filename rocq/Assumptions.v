@@ -16,7 +16,8 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu A
   PiTight Atan2 ParseFormat ParseRound ParseHull ParseExact ParseDec ConstTight
   ConstPi ConstInv ConstLn ConstLog ValidMake ValidSetOp ValidOps ValidDecOps
   ValidElem Valid MpfrIdeal IdealRound IdealGetD IdealParse IdealElem IdealPow
-  IdealAtan2 MpfrConsistent.
+  IdealAtan2 MpfrConsistent Contract OfPointCore OfPoint OfPointElem OfPointPow
+  OfPointParse MpfrPoint PointTheorems.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -339,6 +340,66 @@ Print Assumptions ideal_parse_ok.
 Print Assumptions ideal_mpfr_ok.
 Print Assumptions mpfr_ok_consistent.
 Print Assumptions mpfr_ok_default.
+
+(** The contract of [Contract.v]. [of_point p], the MPFR functions made
+    of a record [point] [p], gives back [p] by [mpfr_point]. At the
+    exponent range of [f64], it satisfies [get_d_ok], each [<f>_ok] of
+    [Mpfr.v] where the field of [p] satisfies [<f>_c], and [parse_ok]
+    where [p_round_rational p] satisfies [round_rational_c].
+    [mpfr_point m] satisfies each [<f>_c] where [m] satisfies [get_d_ok]
+    and [<f>_ok], at an exponent range with [range_ok], and
+    [round_rational_c] where [m] satisfies [parse_ok]. Last,
+    [exp_correct] and [from_ninterval_correct] stated for every record
+    [point] whose fields satisfy the parts of [Contract.v] that they need
+    ([PointTheorems.v]). *)
+Print Assumptions mpfr_point_of_point.
+Print Assumptions of_point_get_d_ok.
+Print Assumptions of_point_acos_ok.
+Print Assumptions of_point_acosh_ok.
+Print Assumptions of_point_asin_ok.
+Print Assumptions of_point_asinh_ok.
+Print Assumptions of_point_atan_ok.
+Print Assumptions of_point_atanh_ok.
+Print Assumptions of_point_cos_ok.
+Print Assumptions of_point_cosh_ok.
+Print Assumptions of_point_exp_ok.
+Print Assumptions of_point_exp10_ok.
+Print Assumptions of_point_exp2_ok.
+Print Assumptions of_point_ln_ok.
+Print Assumptions of_point_log10_ok.
+Print Assumptions of_point_log2_ok.
+Print Assumptions of_point_sin_ok.
+Print Assumptions of_point_sinh_ok.
+Print Assumptions of_point_tan_ok.
+Print Assumptions of_point_tanh_ok.
+Print Assumptions of_point_atan2_ok.
+Print Assumptions of_point_pow_ok.
+Print Assumptions of_point_pown_ok.
+Print Assumptions of_point_parse_ok.
+Print Assumptions mpfr_acos_c.
+Print Assumptions mpfr_acosh_c.
+Print Assumptions mpfr_asin_c.
+Print Assumptions mpfr_asinh_c.
+Print Assumptions mpfr_atan_c.
+Print Assumptions mpfr_atan2_c.
+Print Assumptions mpfr_atanh_c.
+Print Assumptions mpfr_cos_c.
+Print Assumptions mpfr_cosh_c.
+Print Assumptions mpfr_exp_c.
+Print Assumptions mpfr_exp10_c.
+Print Assumptions mpfr_exp2_c.
+Print Assumptions mpfr_ln_c.
+Print Assumptions mpfr_log10_c.
+Print Assumptions mpfr_log2_c.
+Print Assumptions mpfr_pow_c.
+Print Assumptions mpfr_pown_c.
+Print Assumptions mpfr_sin_c.
+Print Assumptions mpfr_sinh_c.
+Print Assumptions mpfr_tan_c.
+Print Assumptions mpfr_tanh_c.
+Print Assumptions mpfr_round_rational_c.
+Print Assumptions exp_correct_point.
+Print Assumptions from_ninterval_correct_point.
 
 (** The names whose types quantify over an MPFR anywhere, and those of
     them that [Valid.v] declares, for the check of [MpfrExamples.v] in the

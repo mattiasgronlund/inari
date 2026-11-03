@@ -113,7 +113,7 @@ Theorem rational_to_f64_correct :
     negb (is_finite (f64_f (rational_to_f64 m q infsup))).
 Proof.
 intros m q infsup (Hq & Hs & Hg).
-unfold rational_to_f64. cbv zeta.
+unfold rational_to_f64. cbn [p_round_rational mpfr_point].
 generalize (as_rnd_t infsup) as rnd. intros rnd.
 (* [set_q] rounds [q] to an MPFR number, and [subnormalize] then rounds
    [q] itself to [sub_format], with the ternary value against [q]. *)

@@ -42,7 +42,7 @@ Definition parse_overflow (m : mpfr) (n : NInterval) : bool :=
   f64_overflow (number_to_f64 m (nsup n) Sup).
 
 Lemma from_dec_ninterval_eq :
-  forall m x,
+  forall (m : mpfr) x,
   DecInterval.from_dec_ninterval m x =
   DecInterval.set_dec (parse_hull m (nx x))
     (if parse_overflow m (nx x) then dec_min (nd x) Dac else nd x).
@@ -50,7 +50,7 @@ Proof.
 reflexivity.
 Qed.
 
-Lemma parse_hull_valid : forall m n, valid (parse_hull m n).
+Lemma parse_hull_valid : forall (m : mpfr) n, valid (parse_hull m n).
 Proof.
 intros m n. unfold parse_hull.
 destruct (Interval.try_from (f64_f (number_to_f64 m (ninf n) Inf))
@@ -61,7 +61,7 @@ destruct (Interval.try_from (f64_f (number_to_f64 m (ninf n) Inf))
 Qed.
 
 Lemma parse_hull_empty :
-  forall m n, Interval.is_empty (parse_hull m n) = true ->
+  forall (m : mpfr) n, Interval.is_empty (parse_hull m n) = true ->
   parse_hull m n = Interval.EMPTY.
 Proof.
 intros m n E. exact (valid_empty_eq _ (parse_hull_valid m n) E).
@@ -80,7 +80,7 @@ Qed.
     [parse_hull]: [set_dec] returns [EMPTY] only for an empty interval,
     which is [Interval::EMPTY]. *)
 Lemma itv_from_dec :
-  forall m x, dec_eqb (nd x) Ill = false ->
+  forall (m : mpfr) x, dec_eqb (nd x) Ill = false ->
   itv (DecInterval.from_dec_ninterval m x) = parse_hull m (nx x).
 Proof.
 intros m x Hd. rewrite from_dec_ninterval_eq. unfold DecInterval.set_dec.
@@ -98,7 +98,7 @@ Qed.
 (** A real of the literal is in the tightest interval, which is then not
     empty. *)
 Lemma parse_hull_nonempty :
-  forall m n, parse_ok m -> ninterval_ok n -> (exists r, ninterval_set n r) ->
+  forall (m : mpfr) n, parse_ok m -> ninterval_ok n -> (exists r, ninterval_set n r) ->
   Interval.is_empty (parse_hull m n) = false.
 Proof.
 intros m n Hm Hok (r & Hr).
@@ -110,7 +110,7 @@ Qed.
     tightness every member of [parse_hull] is in [Interval::EMPTY], which
     has none. *)
 Lemma parse_hull_of_empty :
-  forall m n, parse_ok m -> ninterval_ok n -> (forall r, ~ ninterval_set n r) ->
+  forall (m : mpfr) n, parse_ok m -> ninterval_ok n -> (forall r, ~ ninterval_set n r) ->
   parse_hull m n = Interval.EMPTY.
 Proof.
 intros m n Hm Hok Hno. apply parse_hull_empty.
@@ -123,19 +123,18 @@ Qed.
 
 (** [overflow] of a rational bound is [f.is_infinite()] of its [f]. *)
 Lemma rational_overflow :
-  forall m q s,
+  forall (m : mpfr) q s,
   f64_overflow (rational_to_f64 m q s) =
   f64_is_infinite (f64_f (rational_to_f64 m q s)).
 Proof.
-intros m q s. unfold rational_to_f64. cbv zeta.
-destruct (mpfr_set_q _ _ _ _ _) as [f t]. cbv beta iota.
-destruct (mpfr_subnormalize _ _ _ _ _ _) as [g u].
+intros m q s. unfold rational_to_f64.
+destruct (p_round_rational _ _ _) as [f b].
 reflexivity.
 Qed.
 
 (** An overflowed bound is infinite, for any MPFR. *)
 Lemma overflow_infinite :
-  forall m n s, f64_overflow (number_to_f64 m n s) = true ->
+  forall (m : mpfr) n s, f64_overflow (number_to_f64 m n s) = true ->
   is_finite (f64_f (number_to_f64 m n s)) = false.
 Proof.
 intros m [|q|] s H; try discriminate H.
@@ -187,7 +186,7 @@ apply finite_common; unfold Interval.with_infsup_raw, Generic.constant;
 Qed.
 
 Lemma parse_hull_infinite :
-  forall m n,
+  forall (m : mpfr) n,
   is_finite (f64_f (number_to_f64 m (ninf n) Inf)) = false \/
   is_finite (f64_f (number_to_f64 m (nsup n) Sup)) = false ->
   Interval.is_common_interval (parse_hull m n) = false.
@@ -202,7 +201,7 @@ Qed.
 
 (** When a bound overflowed, [parse_hull] is not common, for any MPFR. *)
 Lemma overflow_not_common :
-  forall m n, parse_overflow m n = true ->
+  forall (m : mpfr) n, parse_overflow m n = true ->
   Interval.is_common_interval (parse_hull m n) = false.
 Proof.
 intros m n H. apply parse_hull_infinite. unfold parse_overflow in H.
@@ -213,7 +212,7 @@ Qed.
 (** A literal that is not common has a bound [NegInfinity] or [Infinity],
     which [number_to_f64] returns as an infinity. *)
 Lemma not_common_infinite :
-  forall m n, nis_common_interval n = false ->
+  forall (m : mpfr) n, nis_common_interval n = false ->
   is_finite (f64_f (number_to_f64 m (ninf n) Inf)) = false \/
   is_finite (f64_f (number_to_f64 m (nsup n) Sup)) = false.
 Proof.
@@ -243,7 +242,7 @@ Qed.
 (** [NInterval::EMPTY] has the bounds +inf and -inf, which
     [Interval::try_from] rejects. *)
 Lemma parse_hull_nis_empty :
-  forall m n, nis_empty n = true -> parse_hull m n = Interval.EMPTY.
+  forall (m : mpfr) n, nis_empty n = true -> parse_hull m n = Interval.EMPTY.
 Proof.
 intros m [[| |] [| |]|a] H; cbn in H; try discriminate H; reflexivity.
 Qed.
@@ -261,7 +260,7 @@ Qed.
     literal's decoration if it holds one, except [dac] in place of [com]
     when the result is not common. *)
 Lemma from_dec_ninterval_set_dec :
-  forall m x, parse_ok m -> ninterval_ok (nx x) ->
+  forall (m : mpfr) x, parse_ok m -> ninterval_ok (nx x) ->
   let y := DecInterval.from_dec_ninterval m x in
   if dec_eqb (nd x) Ill then y = DecInterval.NAI else
   is_tightest (ninterval_set (nx x)) (itv y) /\
@@ -301,7 +300,7 @@ Qed.
     overflowed. Without [ninterval_ok], [[2, 1]] would be common, and its
     result [Interval::EMPTY] not common, with no bound overflowed. *)
 Lemma from_dec_ninterval_not_common :
-  forall m x, parse_ok m -> ninterval_ok (nx x) -> dec_eqb (nd x) Ill = false ->
+  forall (m : mpfr) x, parse_ok m -> ninterval_ok (nx x) -> dec_eqb (nd x) Ill = false ->
   nis_common_interval (nx x) = true ->
   (Interval.is_common_interval (itv (DecInterval.from_dec_ninterval m x)) = false <->
    f64_overflow (number_to_f64 m (ninf (nx x)) Inf) ||
@@ -438,7 +437,7 @@ split.
 Qed.
 
 Theorem from_dec_ninterval_correct :
-  forall m x, parse_ok m -> dec_ninterval_ok x ->
+  forall (m : mpfr) x, parse_ok m -> dec_ninterval_ok x ->
   let y := DecInterval.from_dec_ninterval m x in
   let overflow :=
     bounded (ninterval_set (nx x)) /\ ~ bounded (fun r => mem r (itv y)) in
@@ -516,7 +515,7 @@ destruct d; cbn [dec_eqb discriminant Z.eqb Pos.eqb andb negb] in Hsd |- *.
 Qed.
 
 Theorem from_ninterval_correct :
-  forall m x, parse_ok m -> ninterval_ok x ->
+  forall (m : mpfr) x, parse_ok m -> ninterval_ok x ->
   is_tightest (ninterval_set x) (DecInterval.from_ninterval m x).
 Proof.
 intros m x Hm Hok. unfold DecInterval.from_ninterval.
@@ -543,7 +542,7 @@ destruct (Interval.is_empty y) eqn:E; intros H.
 Qed.
 
 Theorem from_ninterval_new :
-  forall m x,
+  forall (m : mpfr) x,
   DecInterval.from_dec_ninterval m (dn_new x) =
   DecInterval.new (DecInterval.from_ninterval m x).
 Proof.

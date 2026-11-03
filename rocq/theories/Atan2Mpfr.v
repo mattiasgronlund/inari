@@ -156,7 +156,7 @@ Lemma at_hi_lane :
   lane_ok S (atan2_ru m y x).
 Proof.
 intros emin emax m S y x Hr Hget Hok Ha Hub Happ.
-unfold atan2_ru. apply (pl_hi S (at_val y x)); [exact Hub | exact Happ |].
+unfold atan2_ru; cbn [mpfr_point p_atan2]. apply (pl_hi S (at_val y x)); [exact Hub | exact Happ |].
 exact (atan2_round emin emax m Hr Hget Hok RNDU y x Ha).
 Qed.
 
@@ -170,6 +170,6 @@ Lemma at_lo_lane :
   lane_ok (fun s => S (- s)) (opp (atan2_rd m y x)).
 Proof.
 intros emin emax m S y x Hr Hget Hok Ha Hlb Happ.
-unfold atan2_rd. apply (pl_lo S (at_val y x)); [exact Hlb | exact Happ |].
+unfold atan2_rd; cbn [mpfr_point p_atan2]. apply (pl_lo S (at_val y x)); [exact Hlb | exact Happ |].
 exact (atan2_round emin emax m Hr Hget Hok RNDD y x Ha).
 Qed.

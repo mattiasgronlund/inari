@@ -150,4 +150,12 @@ theories/IdealElem.v
 theories/IdealPow.v
 theories/IdealAtan2.v
 theories/MpfrConsistent.v
+theories/Contract.v
+theories/OfPointCore.v
+theories/OfPoint.v
+theories/OfPointElem.v
+theories/OfPointPow.v
+theories/OfPointParse.v
+theories/MpfrPoint.v
+theories/PointTheorems.v
 theories/MpfrExamples.v

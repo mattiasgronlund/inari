@@ -55,7 +55,7 @@ Inductive made : Interval -> Prop :=
   | made_try_from_bytes :
       forall a b x, Interval.try_from_bytes a b = Some x -> made x
   | made_try_from_ninterval_exact :
-      forall m x y, Interval.try_from_ninterval_exact m x = Some y -> made y
+      forall (m : mpfr) x y, Interval.try_from_ninterval_exact m x = Some y -> made y
   | made_itv : forall d, dmade d -> made (itv d)
   | made_abs : forall x y, made x -> Interval.abs x = Some y -> made y
   | made_ceil : forall x, made x -> made (Interval.ceil x)
@@ -190,7 +190,7 @@ with dmade : DecInterval -> Prop :=
   | dmade_try_from_bytes :
       forall a b c z, DecInterval.try_from_bytes a b c = Some z -> dmade z
   | dmade_from_dec_ninterval :
-      forall m x, dmade (DecInterval.from_dec_ninterval m x)
+      forall (m : mpfr) x, dmade (DecInterval.from_dec_ninterval m x)
   | dmade_abs : forall x z, dmade x -> DecInterval.abs x = Some z -> dmade z
   | dmade_ceil : forall x, dmade x -> dmade (DecInterval.ceil x)
   | dmade_floor : forall x, dmade x -> dmade (DecInterval.floor x)

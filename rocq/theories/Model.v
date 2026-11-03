@@ -801,14 +801,36 @@ End Generic.
 (** ** MPFR
 
     [src/elementary.rs] computes the bounds of [exp] and the other
-    elementary functions with MPFR, through [rug] and [gmp_mpfr_sys], and
-    [src/parse.rs] rounds the bounds of an interval literal to [f64]s with
-    it. The model leaves MPFR's functions abstract: an MPFR number is an
-    [mpfr_t], and the MPFR functions that [elementary.rs] and [parse.rs]
-    call are the fields of a record [mpfr], which the elementary functions
-    and the conversions of [parse.rs] below take as their first argument
-    [m]. [Mpfr.v] states what the MPFR manual says of them, and the
-    theorems about these functions assume it. *)
+    elementary functions, and [src/parse.rs] rounds the bounds of an
+    interval literal to [f64]s, with functions of [src/mpfr_calls.rs],
+    which call MPFR through [rug] and [gmp_mpfr_sys]. Those functions are
+    the fields of the record [point] below, which the elementary functions
+    and the conversions of [parse.rs] take as their first argument [pt].
+
+    The model leaves MPFR's functions abstract: an MPFR number is an
+    [mpfr_t], and the MPFR functions with which [src/mpfr_calls/mpfr.rs]
+    computes those bounds, [mpfr::get_d], the 21 that the uses of
+    [mpfr_fn!], [mpfr_fn2!] and [mpfr_fn_si!] there call, [mpfr::set_q]
+    and [mpfr::subnormalize], are the fields of a record [mpfr], of which
+    [mpfr_point] makes the record [point] that inari uses. [Mpfr.v] states
+    what the MPFR manual says of them, and the theorems stated for MPFR
+    functions [m] assume it of [m]. The other functions of
+    [gmp_mpfr_sys::mpfr] that [src/mpfr_calls/mpfr.rs] calls are not
+    fields: the exponent range that [with_parse_range] reads and sets with
+    [mpfr::get_emin], [mpfr::get_emax], [mpfr::set_emin] and
+    [mpfr::set_emax] is an argument of [mpfr_set_q] and
+    [mpfr_subnormalize]; [assert_thread_safe()], which calls
+    [mpfr::buildopt_tls_p], is left out; and [fmt_bounds], which prints
+    the bounds of an interval for [src/format.rs] with [mpfr::asprintf]
+    and [mpfr::free_str], is not modelled. Outside [fmt_bounds], what it
+    does through [rug] is [Float::with_val], which is [with_val] below, and
+    the allocation and freeing of MPFR numbers, which are left out.
+
+    [Contract.v] states what each field of [point] must do at the level
+    of [f64]s; [MpfrPoint.v] shows that [mpfr_point m] does it under
+    [Mpfr.v]'s hypotheses, and [PointTheorems.v] proves [exp_correct] and
+    [from_ninterval_correct] for every record that does (as
+    [exp_correct_point] and [from_ninterval_correct_point]). *)
 
 (** [mpfr::rnd_t::RNDD] and [mpfr::rnd_t::RNDU], rounding toward -inf and
     toward +inf. *)
@@ -836,10 +858,13 @@ Definition with_val (x : f64) : mpfr_t :=
   | B754_finite _ _ _ _ => MNum (B2R x)
   end.
 
-(** The MPFR functions that [src/elementary.rs] calls, each a function of
-    the rounding direction and of the argument: [mpfr_get_d], through
-    [get_d] in [src/mpfr_calls.rs], and [mpfr_acos] and the others, of
-    which [mpfr_log] is MPFR's [log].
+(** The MPFR functions with which [src/mpfr_calls/mpfr.rs] computes
+    bounds; the others that it calls are not fields (see the start of this
+    section). The fields but the last two are each a function of the
+    rounding direction and of the argument: [mpfr_get_d], through [get_d],
+    and [mpfr_acos] and the 20 others that the uses of [mpfr_fn!],
+    [mpfr_fn2!] and [mpfr_fn_si!] call, of which [mpfr_log] is MPFR's
+    [log].
     [mpfr::f(x.as_raw_mut(), x.as_raw(), rnd)] sets the MPFR number [x] to
     [f rnd x], rounded to the 53 bits of [x], which is both the argument
     and the result. [mpfr_atan2] and [mpfr_pow] take a second MPFR number,
@@ -861,8 +886,9 @@ Definition with_val (x : f64) : mpfr_t :=
     [fst (mpfr_subnormalize emin emax rnd f t)] and returns
     [snd (mpfr_subnormalize emin emax rnd f t)]. Their first two arguments
     are MPFR's exponent range, [emin] and [emax], during the call, which
-    [with_parse_range] in [src/mpfr_calls.rs] sets around them. The other
-    fields do not take it, as [src/elementary.rs] does not set it, and
+    [with_parse_range] sets around them. The other fields do not take it,
+    as the functions that [mpfr_fn!] and the other macros define do not
+    set it, and
     [Mpfr.v] states what it assumes of them for any range that contains
     that of [f64].
 
@@ -930,51 +956,167 @@ Definition mpfr_fn_si (m : mpfr) (f : mpfr_rnd -> mpfr_t -> Z -> mpfr_t)
 (** The integers that an [i32] holds. *)
 Definition is_i32 (n : Z) : Prop := (- 2 ^ 31 <= n < 2 ^ 31)%Z.
 
+(** The functions that [src/mpfr_calls.rs] gives the elementary functions
+    and the conversions of [src/parse.rs] to compute bounds with, each a
+    function of the rounding direction: a field [p_f] for each pair of
+    functions [f_rd] and [f_ru] that [mpfr_fn!], [mpfr_fn2!] or
+    [mpfr_fn_si!] defines in [src/mpfr_calls/mpfr.rs], with [f_rd] as
+    [p_f pt RNDD] and [f_ru] as [p_f pt RNDU], and the field
+    [p_round_rational] for [round_rational], which is defined there too.
+    The fields are in the order of the uses of those macros there, which
+    is that of the record [mpfr], and are named after the Rust functions:
+    [p_ln] is [ln_rd] and [ln_ru], which call MPFR's [log], and [p_pown]
+    is [pown_rd] and [pown_ru], which call [pow_si].
+
+    [p_round_rational pt rnd r] is the pair of [d] and of [t != 0] for the
+    [(f, t, d)] that [round_rational(r, rnd, |_, _| ())] returns, which is
+    what [rational_to_f64] in [src/parse.rs] uses of it: [d] is an [f64],
+    and [t] is a ternary value, of which [rational_to_f64] only asks
+    whether [ternary_to_ordering(t) != Ordering::Equal], that is
+    [t != 0]. It drops the MPFR number [f].
+
+    The elementary functions and the conversions of [src/parse.rs] below
+    take such a record as their first argument [pt]. [mpfr_point m] is the
+    one that [src/mpfr_calls/mpfr.rs] makes of the MPFR functions [m].
+    [Contract.v] states what each field must do at the level of [f64]s;
+    [MpfrPoint.v] shows that [mpfr_point m] does it under [Mpfr.v]'s
+    hypotheses, and [PointTheorems.v] proves [exp_correct] and
+    [from_ninterval_correct] for every record that does. *)
+Record point : Type := {
+  p_acos : mpfr_rnd -> f64 -> f64;
+  p_acosh : mpfr_rnd -> f64 -> f64;
+  p_asin : mpfr_rnd -> f64 -> f64;
+  p_asinh : mpfr_rnd -> f64 -> f64;
+  p_atan : mpfr_rnd -> f64 -> f64;
+  p_atan2 : mpfr_rnd -> f64 -> f64 -> f64;
+  p_atanh : mpfr_rnd -> f64 -> f64;
+  p_cos : mpfr_rnd -> f64 -> f64;
+  p_cosh : mpfr_rnd -> f64 -> f64;
+  p_exp : mpfr_rnd -> f64 -> f64;
+  p_exp10 : mpfr_rnd -> f64 -> f64;
+  p_exp2 : mpfr_rnd -> f64 -> f64;
+  p_ln : mpfr_rnd -> f64 -> f64;
+  p_log10 : mpfr_rnd -> f64 -> f64;
+  p_log2 : mpfr_rnd -> f64 -> f64;
+  p_pow : mpfr_rnd -> f64 -> f64 -> f64;
+  p_pown : mpfr_rnd -> f64 -> Z -> f64;
+  p_sin : mpfr_rnd -> f64 -> f64;
+  p_sinh : mpfr_rnd -> f64 -> f64;
+  p_tan : mpfr_rnd -> f64 -> f64;
+  p_tanh : mpfr_rnd -> f64 -> f64;
+  p_round_rational : mpfr_rnd -> Q -> f64 * bool
+}.
+
+(** The record [point] that [src/mpfr_calls/mpfr.rs] makes of the MPFR
+    functions [m]. [mpfr_fn!(acos, acos_rd, acos_ru)] defines [acos_rd]
+    and [acos_ru] as [mpfr_fn m (mpfr_acos m)] in the directions [RNDD]
+    and [RNDU], and the other uses of [mpfr_fn!] the same, those of
+    [mpfr_fn2!] with [mpfr_fn2] and that of [mpfr_fn_si!] with
+    [mpfr_fn_si].
+
+    [p_round_rational] is [round_rational] with [with_parse_range]
+    inlined. [f] is [Float::new(f64::MANTISSA_DIGITS)], an MPFR number of
+    53 bits, which [mpfr::set_q] sets before anything reads it where C
+    [long] and GMP limbs have 64 bits, as on the targets that inari
+    supports with the feature [gmp] (see [set_q_ok] in [Mpfr.v]).
+    [round_rational] calls [mpfr::set_q], [mpfr::subnormalize] and
+    [get_d], which calls [mpfr::get_d], in a closure that it passes to
+    [with_parse_range]. [with_parse_range] calls [assert_thread_safe()],
+    saves MPFR's exponent range, sets [emin] to
+    [f64::MIN_EXP - (f64::MANTISSA_DIGITS as i32) + 1], which is
+    [-1021 - 53 + 1 = -1073], and [emax] to [f64::MAX_EXP], which is
+    [1024], calls the closure, and restores the range. The model passes
+    that range to [mpfr_set_q] and [mpfr_subnormalize], and [parse_ok] in
+    [Mpfr.v] assumes [get_d_ok] of [mpfr_get_d] at it. The save and the
+    restore are left out: the range is the same after the call as before
+    it, which is the range that [Mpfr.v] assumes for the other MPFR
+    functions. No other thread can change the range between these calls
+    where MPFR keeps it per thread, as the MPFR that [gmp-mpfr-sys] builds
+    does (see the comment at the top of [Mpfr.v]). Where MPFR is not built
+    thread-safe, and so keeps the range global, [assert_thread_safe()]
+    panics before the range is set, and otherwise it does nothing, so it is
+    left out too. [after_set_q], which [round_rational] calls after
+    [mpfr::set_q] and which [rational_to_f64] passes as [|_, _| ()], does
+    nothing and is left out. *)
+Definition mpfr_point (m : mpfr) : point := {|
+  p_acos := mpfr_fn m (mpfr_acos m);
+  p_acosh := mpfr_fn m (mpfr_acosh m);
+  p_asin := mpfr_fn m (mpfr_asin m);
+  p_asinh := mpfr_fn m (mpfr_asinh m);
+  p_atan := mpfr_fn m (mpfr_atan m);
+  p_atan2 := mpfr_fn2 m (mpfr_atan2 m);
+  p_atanh := mpfr_fn m (mpfr_atanh m);
+  p_cos := mpfr_fn m (mpfr_cos m);
+  p_cosh := mpfr_fn m (mpfr_cosh m);
+  p_exp := mpfr_fn m (mpfr_exp m);
+  p_exp10 := mpfr_fn m (mpfr_exp10 m);
+  p_exp2 := mpfr_fn m (mpfr_exp2 m);
+  p_ln := mpfr_fn m (mpfr_log m);
+  p_log10 := mpfr_fn m (mpfr_log10 m);
+  p_log2 := mpfr_fn m (mpfr_log2 m);
+  p_pow := mpfr_fn2 m (mpfr_pow m);
+  p_pown := mpfr_fn_si m (mpfr_pow_si m);
+  p_sin := mpfr_fn m (mpfr_sin m);
+  p_sinh := mpfr_fn m (mpfr_sinh m);
+  p_tan := mpfr_fn m (mpfr_tan m);
+  p_tanh := mpfr_fn m (mpfr_tanh m);
+  p_round_rational := fun rnd r =>
+    let '(f, t) := mpfr_set_q m (-1073) 1024 rnd r in
+    let '(f, t) := mpfr_subnormalize m (-1073) 1024 rnd f t in
+    (mpfr_get_d m rnd f, negb (t =? 0))
+|}.
+
+(** The theorems about the elementary functions and the conversions of
+    [src/parse.rs], other than the two of [PointTheorems.v], are stated for
+    the MPFR functions [m], and apply the functions below to
+    [mpfr_point m], which this coercion lets them write as [m]. *)
+Coercion mpfr_point : mpfr >-> point.
+
 (** The functions that [mpfr_fn!(acos, acos_rd, acos_ru)] and the other
     uses of [mpfr_fn!], [mpfr_fn2!] and [mpfr_fn_si!] in
-    [src/elementary.rs] define. *)
-Definition acos_rd (m : mpfr) := mpfr_fn m (mpfr_acos m) RNDD.
-Definition acos_ru (m : mpfr) := mpfr_fn m (mpfr_acos m) RNDU.
-Definition acosh_rd (m : mpfr) := mpfr_fn m (mpfr_acosh m) RNDD.
-Definition acosh_ru (m : mpfr) := mpfr_fn m (mpfr_acosh m) RNDU.
-Definition asin_rd (m : mpfr) := mpfr_fn m (mpfr_asin m) RNDD.
-Definition asin_ru (m : mpfr) := mpfr_fn m (mpfr_asin m) RNDU.
-Definition asinh_rd (m : mpfr) := mpfr_fn m (mpfr_asinh m) RNDD.
-Definition asinh_ru (m : mpfr) := mpfr_fn m (mpfr_asinh m) RNDU.
-Definition atan_rd (m : mpfr) := mpfr_fn m (mpfr_atan m) RNDD.
-Definition atan_ru (m : mpfr) := mpfr_fn m (mpfr_atan m) RNDU.
-Definition atan2_rd (m : mpfr) := mpfr_fn2 m (mpfr_atan2 m) RNDD.
-Definition atan2_ru (m : mpfr) := mpfr_fn2 m (mpfr_atan2 m) RNDU.
-Definition atanh_rd (m : mpfr) := mpfr_fn m (mpfr_atanh m) RNDD.
-Definition atanh_ru (m : mpfr) := mpfr_fn m (mpfr_atanh m) RNDU.
-Definition cos_rd (m : mpfr) := mpfr_fn m (mpfr_cos m) RNDD.
-Definition cos_ru (m : mpfr) := mpfr_fn m (mpfr_cos m) RNDU.
-Definition cosh_rd (m : mpfr) := mpfr_fn m (mpfr_cosh m) RNDD.
-Definition cosh_ru (m : mpfr) := mpfr_fn m (mpfr_cosh m) RNDU.
-Definition exp_rd (m : mpfr) := mpfr_fn m (mpfr_exp m) RNDD.
-Definition exp_ru (m : mpfr) := mpfr_fn m (mpfr_exp m) RNDU.
-Definition exp10_rd (m : mpfr) := mpfr_fn m (mpfr_exp10 m) RNDD.
-Definition exp10_ru (m : mpfr) := mpfr_fn m (mpfr_exp10 m) RNDU.
-Definition exp2_rd (m : mpfr) := mpfr_fn m (mpfr_exp2 m) RNDD.
-Definition exp2_ru (m : mpfr) := mpfr_fn m (mpfr_exp2 m) RNDU.
-Definition ln_rd (m : mpfr) := mpfr_fn m (mpfr_log m) RNDD.
-Definition ln_ru (m : mpfr) := mpfr_fn m (mpfr_log m) RNDU.
-Definition log10_rd (m : mpfr) := mpfr_fn m (mpfr_log10 m) RNDD.
-Definition log10_ru (m : mpfr) := mpfr_fn m (mpfr_log10 m) RNDU.
-Definition log2_rd (m : mpfr) := mpfr_fn m (mpfr_log2 m) RNDD.
-Definition log2_ru (m : mpfr) := mpfr_fn m (mpfr_log2 m) RNDU.
-Definition pow_rd (m : mpfr) := mpfr_fn2 m (mpfr_pow m) RNDD.
-Definition pow_ru (m : mpfr) := mpfr_fn2 m (mpfr_pow m) RNDU.
-Definition pown_rd (m : mpfr) := mpfr_fn_si m (mpfr_pow_si m) RNDD.
-Definition pown_ru (m : mpfr) := mpfr_fn_si m (mpfr_pow_si m) RNDU.
-Definition sin_rd (m : mpfr) := mpfr_fn m (mpfr_sin m) RNDD.
-Definition sin_ru (m : mpfr) := mpfr_fn m (mpfr_sin m) RNDU.
-Definition sinh_rd (m : mpfr) := mpfr_fn m (mpfr_sinh m) RNDD.
-Definition sinh_ru (m : mpfr) := mpfr_fn m (mpfr_sinh m) RNDU.
-Definition tan_rd (m : mpfr) := mpfr_fn m (mpfr_tan m) RNDD.
-Definition tan_ru (m : mpfr) := mpfr_fn m (mpfr_tan m) RNDU.
-Definition tanh_rd (m : mpfr) := mpfr_fn m (mpfr_tanh m) RNDD.
-Definition tanh_ru (m : mpfr) := mpfr_fn m (mpfr_tanh m) RNDU.
+    [src/mpfr_calls/mpfr.rs] define. *)
+Definition acos_rd (pt : point) := p_acos pt RNDD.
+Definition acos_ru (pt : point) := p_acos pt RNDU.
+Definition acosh_rd (pt : point) := p_acosh pt RNDD.
+Definition acosh_ru (pt : point) := p_acosh pt RNDU.
+Definition asin_rd (pt : point) := p_asin pt RNDD.
+Definition asin_ru (pt : point) := p_asin pt RNDU.
+Definition asinh_rd (pt : point) := p_asinh pt RNDD.
+Definition asinh_ru (pt : point) := p_asinh pt RNDU.
+Definition atan_rd (pt : point) := p_atan pt RNDD.
+Definition atan_ru (pt : point) := p_atan pt RNDU.
+Definition atan2_rd (pt : point) := p_atan2 pt RNDD.
+Definition atan2_ru (pt : point) := p_atan2 pt RNDU.
+Definition atanh_rd (pt : point) := p_atanh pt RNDD.
+Definition atanh_ru (pt : point) := p_atanh pt RNDU.
+Definition cos_rd (pt : point) := p_cos pt RNDD.
+Definition cos_ru (pt : point) := p_cos pt RNDU.
+Definition cosh_rd (pt : point) := p_cosh pt RNDD.
+Definition cosh_ru (pt : point) := p_cosh pt RNDU.
+Definition exp_rd (pt : point) := p_exp pt RNDD.
+Definition exp_ru (pt : point) := p_exp pt RNDU.
+Definition exp10_rd (pt : point) := p_exp10 pt RNDD.
+Definition exp10_ru (pt : point) := p_exp10 pt RNDU.
+Definition exp2_rd (pt : point) := p_exp2 pt RNDD.
+Definition exp2_ru (pt : point) := p_exp2 pt RNDU.
+Definition ln_rd (pt : point) := p_ln pt RNDD.
+Definition ln_ru (pt : point) := p_ln pt RNDU.
+Definition log10_rd (pt : point) := p_log10 pt RNDD.
+Definition log10_ru (pt : point) := p_log10 pt RNDU.
+Definition log2_rd (pt : point) := p_log2 pt RNDD.
+Definition log2_ru (pt : point) := p_log2 pt RNDU.
+Definition pow_rd (pt : point) := p_pow pt RNDD.
+Definition pow_ru (pt : point) := p_pow pt RNDU.
+Definition pown_rd (pt : point) := p_pown pt RNDD.
+Definition pown_ru (pt : point) := p_pown pt RNDU.
+Definition sin_rd (pt : point) := p_sin pt RNDD.
+Definition sin_ru (pt : point) := p_sin pt RNDU.
+Definition sinh_rd (pt : point) := p_sinh pt RNDD.
+Definition sinh_ru (pt : point) := p_sinh pt RNDU.
+Definition tan_rd (pt : point) := p_tan pt RNDD.
+Definition tan_ru (pt : point) := p_tan pt RNDU.
+Definition tanh_rd (pt : point) := p_tanh pt RNDD.
+Definition tanh_ru (pt : point) := p_tanh pt RNDU.
 
 (** [x.max(y)] of two [f64]s that are not NaN, as [Interval::cosh],
     [Interval::cos], [Interval::pow] and [Interval::sin] call it: the
@@ -996,19 +1138,19 @@ Definition rem_euclid_2 (x : f64) : f64 :=
   if eq (mul (of_u64 2) (ffloor (div x (of_u64 2)))) x then zero else of_u64 1.
 
 (** [fn quadrant(x: f64) -> f64] in [src/elementary.rs], with
-    [sin_rd(x) < 0.0] as [lt (sin_rd m x) zero], [cos_ru(x) > 0.0] as
-    [lt zero (cos_ru m x)], and the [match] on the two as [if]s. *)
-Definition quadrant (m : mpfr) (x : f64) : f64 :=
-  let sin_neg := lt (sin_rd m x) zero in
-  let cos_pos := lt zero (cos_ru m x) in
+    [sin_rd(x) < 0.0] as [lt (sin_rd pt x) zero], [cos_ru(x) > 0.0] as
+    [lt zero (cos_ru pt x)], and the [match] on the two as [if]s. *)
+Definition quadrant (pt : point) (x : f64) : f64 :=
+  let sin_neg := lt (sin_rd pt x) zero in
+  let cos_pos := lt zero (cos_ru pt x) in
   if sin_neg then (if cos_pos then of_u64 3 else of_u64 2)
   else (if cos_pos then zero else of_u64 1).
 
 (** [fn quadrants(a: f64, b: f64) -> (f64, f64)] in [src/elementary.rs],
     with [(..).rem_euclid(4.0)] as [rem_euclid _ (of_u64 4)]. *)
-Definition quadrants (m : mpfr) (a b : f64) : f64 * f64 :=
-  let qa := quadrant m a in
-  let d := rem_euclid (sub (quadrant m b) qa) (of_u64 4) in
+Definition quadrants (pt : point) (a b : f64) : f64 * f64 :=
+  let qa := quadrant pt a in
+  let d := rem_euclid (sub (quadrant pt b) qa) (of_u64 4) in
   let n := if le (sub b a) (add (mul (of_u64 2) d) (of_u64 3)) then d
            else add d (of_u64 4) in
   (qa, n).
@@ -1039,8 +1181,8 @@ Definition quadrants (m : mpfr) (a b : f64) : f64 * f64 :=
     [shuffle02], [shuffle03], [shuffle13], [swap], [add_rn], [sub_rn],
     [hadd_rn], [add_ru], [sub_ru], [mul_ru], [div_ru], [mul_add_ru],
     [sqrt1_ru] and [sqrt_rd_ru], which are the ones in [Generic] here.
-    The elementary functions also call MPFR, which is the argument [m]
-    here (see the section on MPFR above).
+    The elementary functions also call MPFR, through the functions that
+    are the argument [pt] here (see the record [point] above).
     [Interval::max] and [Interval::min] also read the backend's
     [HAS_MAXIMUM], whose value depends on the backend, so it is the
     argument [has_maximum] here.
@@ -1297,48 +1439,22 @@ Definition f64_is_infinite (x : f64) : bool :=
   match x with B754_infinity _ => true | _ => false end.
 
 (** [fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64], with
-    [round_rational] and [with_parse_range] of [src/mpfr_calls.rs]
-    inlined. [f] is [Float::new(f64::MANTISSA_DIGITS)], an MPFR number of
-    53 bits, which [mpfr::set_q] sets before anything reads it where C
-    [long] and GMP limbs have 64 bits, as on the targets that inari
-    supports with the feature [gmp] (see [set_q_ok] in [Mpfr.v]).
-    [round_rational] calls [mpfr::set_q], [mpfr::subnormalize] and
-    [get_d], which calls [mpfr::get_d], in a closure that it passes to
-    [with_parse_range]. [with_parse_range] calls [assert_thread_safe()]
-    of [src/mpfr_calls.rs], saves MPFR's exponent range, sets [emin] to
-    [f64::MIN_EXP - (f64::MANTISSA_DIGITS as i32) + 1], which is
-    [-1021 - 53 + 1 = -1073], and [emax] to [f64::MAX_EXP], which is
-    [1024], calls the closure, and restores the range. The model passes
-    that range to [mpfr_set_q] and [mpfr_subnormalize], and [parse_ok] in
-    [Mpfr.v] assumes [get_d_ok] of [mpfr_get_d] at it. The save and the
-    restore are left out: the range is the same after the call as before
-    it, which is the range that [Mpfr.v] assumes for the other MPFR
-    functions. No other thread can change the range between these calls
-    where MPFR keeps it per thread, as the MPFR that [gmp-mpfr-sys] builds
-    does (see the comment at the top of [Mpfr.v]). Where MPFR is not built
-    thread-safe, and so keeps the range global, [assert_thread_safe()]
-    panics before the range is set, and otherwise it does nothing, so it is
-    left out too. [after_set_q], which [round_rational] calls after
-    [mpfr::set_q] and which [rational_to_f64] passes as [|_, _| ()], does
-    nothing and is left out, as is the MPFR number [f] that
-    [round_rational] returns and [rational_to_f64] drops.
-    [ternary_to_ordering(t) != Ordering::Equal] is [t != 0], and
-    [f.is_infinite()], of the [f64] [f], is [f64_is_infinite f]. *)
-Definition rational_to_f64 (m : mpfr) (r : Q) (infsup : InfSup) : F64 :=
-  let rnd := as_rnd_t infsup in
-  let '(f, t) := mpfr_set_q m (-1073) 1024 rnd r in
-  let '(f, t) := mpfr_subnormalize m (-1073) 1024 rnd f t in
-  let f := mpfr_get_d m rnd f in
-  {| f64_f := f; f64_inexact := negb (t =? 0); f64_overflow := f64_is_infinite f |}.
+    [round_rational(r, infsup.as_rnd_t(), |_, _| ())] as
+    [p_round_rational pt (as_rnd_t infsup) r], which gives the [f64] [f]
+    and [ternary_to_ordering(t) != Ordering::Equal] as [inexact] (see the
+    record [point]), and [f.is_infinite()] as [f64_is_infinite f]. *)
+Definition rational_to_f64 (pt : point) (r : Q) (infsup : InfSup) : F64 :=
+  let '(f, inexact) := p_round_rational pt (as_rnd_t infsup) r in
+  {| f64_f := f; f64_inexact := inexact; f64_overflow := f64_is_infinite f |}.
 
 (** [fn number_to_f64(n: &Number, infsup: InfSup) -> F64], where
     [f64::NEG_INFINITY] and [f64::INFINITY] are [B754_infinity true] and
     [B754_infinity false]. *)
-Definition number_to_f64 (m : mpfr) (n : Number) (infsup : InfSup) : F64 :=
+Definition number_to_f64 (pt : point) (n : Number) (infsup : InfSup) : F64 :=
   match n with
   | NegInfinity =>
       {| f64_f := B754_infinity true; f64_inexact := false; f64_overflow := false |}
-  | Rational r => rational_to_f64 m r infsup
+  | Rational r => rational_to_f64 pt r infsup
   | Infinity =>
       {| f64_f := B754_infinity false; f64_inexact := false; f64_overflow := false |}
   end.
@@ -1508,10 +1624,10 @@ Definition try_from_bytes (a b : f64) : option Interval :=
 (** [fn try_from_ninterval_exact(x: NInterval) -> Result<Self>] in
     [src/parse.rs], with [Ok(x)] as [Some x] and the [Err] as [None].
     [unwrap_or(Self::EMPTY)] is the [match]. *)
-Definition try_from_ninterval_exact (m : mpfr) (x : NInterval) :
+Definition try_from_ninterval_exact (pt : point) (x : NInterval) :
     option Interval :=
-  let a := number_to_f64 m (ninf x) Inf in
-  let b := number_to_f64 m (nsup x) Sup in
+  let a := number_to_f64 pt (ninf x) Inf in
+  let b := number_to_f64 pt (nsup x) Sup in
   let x := match try_from (f64_f a) (f64_f b) with Some x => x | None => EMPTY end in
   if f64_inexact a || f64_inexact b then None else Some x.
 
@@ -2107,7 +2223,9 @@ Definition mul_rev_to_pair (has_fma : bool) (self numerator : Interval) :
 
 (** *** The elementary functions of [src/elementary.rs]
 
-    [m] is MPFR, [-1.0] is [opp (of_u64 1)], as in [sign], and [0.0] is
+    [pt] gives the functions of [src/mpfr_calls.rs] that compute bounds
+    (see the record [point]), [-1.0] is [opp (of_u64 1)], as in [sign],
+    and [0.0] is
     the float [Model.zero], i.e. +0, which [zero] shadows here. *)
 
 (** The functions [$f_impl] and [$f] that [impl_log!] defines, for its
@@ -2138,47 +2256,47 @@ Definition mono_inc (f_rd f_ru : f64 -> f64) (self : Interval) : Interval :=
 
 (** [fn acos_impl(self) -> (Self, Decoration)] and
     [pub fn acos(self) -> Self], with [return] as in [log_impl]. *)
-Definition acos_impl (m : mpfr) (self : Interval) : Interval * Decoration :=
+Definition acos_impl (pt : point) (self : Interval) : Interval * Decoration :=
   let DOM := const_interval (opp (of_u64 1)) (of_u64 1) in
   let x := intersection self DOM in
   if is_empty x then (x, Trv)
   else
-    let y := with_infsup_raw (acos_rd m (sup_raw x)) (acos_ru m (inf_raw x)) in
+    let y := with_infsup_raw (acos_rd pt (sup_raw x)) (acos_ru pt (inf_raw x)) in
     let d := if subset self DOM then Com else Trv in
     (y, d).
-Definition acos (m : mpfr) (self : Interval) : Interval := fst (acos_impl m self).
+Definition acos (pt : point) (self : Interval) : Interval := fst (acos_impl pt self).
 
 (** [fn acosh_impl(self) -> (Self, Decoration)] and
     [pub fn acosh(self) -> Self], with [f64::INFINITY] as
     [B754_infinity false] and [return] as in [log_impl]. *)
-Definition acosh_impl (m : mpfr) (self : Interval) : Interval * Decoration :=
+Definition acosh_impl (pt : point) (self : Interval) : Interval * Decoration :=
   let DOM := const_interval (of_u64 1) (B754_infinity false) in
   let x := intersection self DOM in
   if is_empty x then (x, Trv)
   else
-    let y := with_infsup_raw (acosh_rd m (inf_raw x)) (acosh_ru m (sup_raw x)) in
+    let y := with_infsup_raw (acosh_rd pt (inf_raw x)) (acosh_ru pt (sup_raw x)) in
     let d := if subset self DOM then Com else Trv in
     (y, d).
-Definition acosh (m : mpfr) (self : Interval) : Interval := fst (acosh_impl m self).
+Definition acosh (pt : point) (self : Interval) : Interval := fst (acosh_impl pt self).
 
 (** [fn asin_impl(self) -> (Self, Decoration)] and
     [pub fn asin(self) -> Self], with [return] as in [log_impl]. *)
-Definition asin_impl (m : mpfr) (self : Interval) : Interval * Decoration :=
+Definition asin_impl (pt : point) (self : Interval) : Interval * Decoration :=
   let DOM := const_interval (opp (of_u64 1)) (of_u64 1) in
   let x := intersection self DOM in
   if is_empty x then (x, Trv)
   else
-    let y := with_infsup_raw (asin_rd m (inf_raw x)) (asin_ru m (sup_raw x)) in
+    let y := with_infsup_raw (asin_rd pt (inf_raw x)) (asin_ru pt (sup_raw x)) in
     let d := if subset self DOM then Com else Trv in
     (y, d).
-Definition asin (m : mpfr) (self : Interval) : Interval := fst (asin_impl m self).
+Definition asin (pt : point) (self : Interval) : Interval := fst (asin_impl pt self).
 
 (** [impl_mono_inc!(asinh, asinh_rd, asinh_ru)] and
     [impl_mono_inc!(atan, atan_rd, atan_ru)] *)
-Definition asinh (m : mpfr) : Interval -> Interval :=
-  mono_inc (asinh_rd m) (asinh_ru m).
-Definition atan (m : mpfr) : Interval -> Interval :=
-  mono_inc (atan_rd m) (atan_ru m).
+Definition asinh (pt : point) : Interval -> Interval :=
+  mono_inc (asinh_rd pt) (asinh_ru pt).
+Definition atan (pt : point) : Interval -> Interval :=
+  mono_inc (atan_rd pt) (atan_ru pt).
 
 (** [fn atan2_impl(self, rhs: Self) -> (Self, Decoration)] and
     [pub fn atan2(self, rhs: Self) -> Self]. [(x, y) = (rhs, self)], so the
@@ -2187,7 +2305,7 @@ Definition atan (m : mpfr) : Interval -> Interval :=
     [0.0] is the float [Model.zero], i.e. +0, [Self::zero()] is [zero],
     [-Self::PI.sup_raw()] is [opp (sup_raw PI)], and [-Self::FRAC_PI_2] is
     [neg FRAC_PI_2]. *)
-Definition atan2_impl (m : mpfr) (self rhs : Interval) :
+Definition atan2_impl (pt : point) (self rhs : Interval) :
     option (Interval * Decoration) :=
   let x := rhs in
   let y := self in
@@ -2207,31 +2325,31 @@ Definition atan2_impl (m : mpfr) (self rhs : Interval) :
     (* First quadrant *)
     | (CP0, CP0) => (with_infsup_raw Model.zero (sup_raw FRAC_PI_2), Trv)
     | (CP0, CP1) | (CP1, CP0) | (CP1, CP1) | (CP1, CZ) | (CZ, CP1) =>
-        (with_infsup_raw (atan2_rd m c b) (atan2_ru m d a), Com)
+        (with_infsup_raw (atan2_rd pt c b) (atan2_ru pt d a), Com)
     (* First & second quadrant *)
     | (CM, CP0) | (CM, CZ) => (with_infsup_raw Model.zero (sup_raw PI), Trv)
-    | (CM, CP1) => (with_infsup_raw (atan2_rd m c b) (atan2_ru m c a), Com)
+    | (CM, CP1) => (with_infsup_raw (atan2_rd pt c b) (atan2_ru pt c a), Com)
     (* Second quadrant *)
     | (CN0, CP0) => (with_infsup_raw (inf_raw FRAC_PI_2) (sup_raw PI), Trv)
     | (CN0, CP1) | (CN1, CP1) =>
-        (with_infsup_raw (atan2_rd m d b) (atan2_ru m c a), Com)
-    | (CN1, CP0) => (with_infsup_raw (atan2_rd m d b) (sup_raw PI), Dac)
+        (with_infsup_raw (atan2_rd pt d b) (atan2_ru pt c a), Com)
+    | (CN1, CP0) => (with_infsup_raw (atan2_rd pt d b) (sup_raw PI), Dac)
     (* Second & third quadrant *)
     | (CN1, CM) | (CN1, CN0) =>
         (with_infsup_raw (opp (sup_raw PI)) (sup_raw PI), Def)
     (* Third quadrant *)
     | (CN0, CN1) | (CN1, CN1) =>
-        (with_infsup_raw (atan2_rd m d a) (atan2_ru m c b), Com)
+        (with_infsup_raw (atan2_rd pt d a) (atan2_ru pt c b), Com)
     (* Third & fourth quadrant *)
-    | (CM, CN1) => (with_infsup_raw (atan2_rd m d a) (atan2_ru m d b), Com)
+    | (CM, CN1) => (with_infsup_raw (atan2_rd pt d a) (atan2_ru pt d b), Com)
     (* Fourth quadrant *)
     | (CP0, CN0) => (with_infsup_raw (opp (sup_raw FRAC_PI_2)) Model.zero, Trv)
     | (CP0, CN1) | (CP1, CN0) | (CP1, CN1) | (CZ, CN1) =>
-        (with_infsup_raw (atan2_rd m c a) (atan2_ru m d b), Com)
+        (with_infsup_raw (atan2_rd pt c a) (atan2_ru pt d b), Com)
     (* Fourth & first quadrant *)
     | (CP0, CM) | (CZ, CM) =>
         (with_infsup_raw (opp (sup_raw FRAC_PI_2)) (sup_raw FRAC_PI_2), Trv)
-    | (CP1, CM) => (with_infsup_raw (atan2_rd m c a) (atan2_ru m d a), Com)
+    | (CP1, CM) => (with_infsup_raw (atan2_rd pt c a) (atan2_ru pt d a), Com)
     (* X axis *)
     | (CN0, CZ) => (PI, Trv)
     | (CN1, CZ) => (PI, Dac)
@@ -2240,23 +2358,23 @@ Definition atan2_impl (m : mpfr) (self rhs : Interval) :
     | (CZ, CN0) => (neg FRAC_PI_2, Trv)
     | (CZ, CP0) => (FRAC_PI_2, Trv)
     end.
-Definition atan2 (m : mpfr) (self rhs : Interval) : option Interval :=
-  let* p := atan2_impl m self rhs in
+Definition atan2 (pt : point) (self rhs : Interval) : option Interval :=
+  let* p := atan2_impl pt self rhs in
   Some (fst p).
 
 (** [fn atanh_impl(self) -> (Self, Decoration)] and
     [pub fn atanh(self) -> Self], with [return] as in [log_impl]. *)
-Definition atanh_impl (m : mpfr) (self : Interval) : Interval * Decoration :=
+Definition atanh_impl (pt : point) (self : Interval) : Interval * Decoration :=
   let DOM := const_interval (opp (of_u64 1)) (of_u64 1) in
   let x := intersection self DOM in
   let a := inf_raw x in
   let b := sup_raw x in
   if is_empty x || le b (opp (of_u64 1)) || ge a (of_u64 1) then (EMPTY, Trv)
   else
-    let y := with_infsup_raw (atanh_rd m a) (atanh_ru m b) in
+    let y := with_infsup_raw (atanh_rd pt a) (atanh_ru pt b) in
     let d := if interior self DOM then Com else Trv in
     (y, d).
-Definition atanh (m : mpfr) (self : Interval) : Interval := fst (atanh_impl m self).
+Definition atanh (pt : point) (self : Interval) : Interval := fst (atanh_impl pt self).
 
 (** [fn floors_exact(a: f64, b: f64, qa: f64, qb: f64, c: Interval) ->
     bool] in [src/elementary.rs]. Its [/] is [div], so [has_fma] is an
@@ -2288,7 +2406,7 @@ Definition floors_exact (has_fma : bool) (a b qa qb : f64) (c : Interval) :
     [frem qa (of_u64 2)], and Rust's [||] does not evaluate
     [floors_exact], whose [div]s make it an [option], when a test before it
     holds, so it is under an [if]. *)
-Definition cos (m : mpfr) (has_fma first : bool) (self : Interval) :
+Definition cos (pt : point) (has_fma first : bool) (self : Interval) :
     option Interval :=
   if is_empty self then Some self
   else
@@ -2306,49 +2424,49 @@ Definition cos (m : mpfr) (has_fma first : bool) (self : Interval) :
     let '(q, n) :=
       if exact then (q, n)
       else
-        let '(qa, n) := quadrants m a b in
+        let '(qa, n) := quadrants pt a b in
         (ffloor (Model.div qa (of_u64 2)),
          ffloor (Model.div (Model.add (frem qa (of_u64 2)) n) (of_u64 2))) in
     if Model.eq n Model.zero then
-      if Model.eq q Model.zero then Some (with_infsup_raw (cos_rd m b) (cos_ru m a))
-      else Some (with_infsup_raw (cos_rd m a) (cos_ru m b))
+      if Model.eq q Model.zero then Some (with_infsup_raw (cos_rd pt b) (cos_ru pt a))
+      else Some (with_infsup_raw (cos_rd pt a) (cos_ru pt b))
     else if Model.le n (of_u64 1) then
       if Model.eq q Model.zero then
-        Some (with_infsup_raw (opp (of_u64 1)) (fmax first (cos_ru m a) (cos_ru m b)))
-      else Some (with_infsup_raw (fmin first (cos_rd m a) (cos_rd m b)) (of_u64 1))
+        Some (with_infsup_raw (opp (of_u64 1)) (fmax first (cos_ru pt a) (cos_ru pt b)))
+      else Some (with_infsup_raw (fmin first (cos_rd pt a) (cos_rd pt b)) (of_u64 1))
     else Some (const_interval (opp (of_u64 1)) (of_u64 1)).
 
 (** [pub fn cosh(self) -> Self], with [1.0] as [of_u64 1],
     [(-a).max(b)] as [fmax first (opp a) b], where [-a] and [b] are not
     NaN, and [return] as in [log_impl]. *)
-Definition cosh (m : mpfr) (first : bool) (self : Interval) : Interval :=
+Definition cosh (pt : point) (first : bool) (self : Interval) : Interval :=
   if is_empty self then self
   else
     let a := inf_raw self in
     let b := sup_raw self in
-    if lt b Model.zero then with_infsup_raw (cosh_rd m b) (cosh_ru m a)
-    else if gt a Model.zero then with_infsup_raw (cosh_rd m a) (cosh_ru m b)
-    else with_infsup_raw (of_u64 1) (cosh_ru m (fmax first (opp a) b)).
+    if lt b Model.zero then with_infsup_raw (cosh_rd pt b) (cosh_ru pt a)
+    else if gt a Model.zero then with_infsup_raw (cosh_rd pt a) (cosh_ru pt b)
+    else with_infsup_raw (of_u64 1) (cosh_ru pt (fmax first (opp a) b)).
 
 (** [impl_mono_inc!(exp, exp_rd, exp_ru)] and those for [exp10] and
     [exp2] *)
-Definition exp (m : mpfr) : Interval -> Interval := mono_inc (exp_rd m) (exp_ru m).
-Definition exp10 (m : mpfr) : Interval -> Interval :=
-  mono_inc (exp10_rd m) (exp10_ru m).
-Definition exp2 (m : mpfr) : Interval -> Interval :=
-  mono_inc (exp2_rd m) (exp2_ru m).
+Definition exp (pt : point) : Interval -> Interval := mono_inc (exp_rd pt) (exp_ru pt).
+Definition exp10 (pt : point) : Interval -> Interval :=
+  mono_inc (exp10_rd pt) (exp10_ru pt).
+Definition exp2 (pt : point) : Interval -> Interval :=
+  mono_inc (exp2_rd pt) (exp2_ru pt).
 
 (** [impl_log!(ln, ln_impl, ln_rd, ln_ru)] and those for [log10] and
     [log2] *)
-Definition ln_impl (m : mpfr) : Interval -> Interval * Decoration :=
-  log_impl (ln_rd m) (ln_ru m).
-Definition ln (m : mpfr) (self : Interval) : Interval := fst (ln_impl m self).
-Definition log10_impl (m : mpfr) : Interval -> Interval * Decoration :=
-  log_impl (log10_rd m) (log10_ru m).
-Definition log10 (m : mpfr) (self : Interval) : Interval := fst (log10_impl m self).
-Definition log2_impl (m : mpfr) : Interval -> Interval * Decoration :=
-  log_impl (log2_rd m) (log2_ru m).
-Definition log2 (m : mpfr) (self : Interval) : Interval := fst (log2_impl m self).
+Definition ln_impl (pt : point) : Interval -> Interval * Decoration :=
+  log_impl (ln_rd pt) (ln_ru pt).
+Definition ln (pt : point) (self : Interval) : Interval := fst (ln_impl pt self).
+Definition log10_impl (pt : point) : Interval -> Interval * Decoration :=
+  log_impl (log10_rd pt) (log10_ru pt).
+Definition log10 (pt : point) (self : Interval) : Interval := fst (log10_impl pt self).
+Definition log2_impl (pt : point) : Interval -> Interval * Decoration :=
+  log_impl (log2_rd pt) (log2_ru pt).
+Definition log2 (pt : point) (self : Interval) : Interval := fst (log2_impl pt self).
 
 (** [fn pow_impl(self, rhs: Self) -> (Self, Decoration)] and
     [pub fn pow(self, rhs: Self) -> Self]. [DOM] is
@@ -2358,7 +2476,7 @@ Definition log2 (m : mpfr) (self : Interval) : Interval := fst (log2_impl m self
     the body. [z_ad.min(z_bc)] and [z_ac.max(z_bd)] are [fmin first_min]
     and [fmax first_max], with one argument each, as they are two calls
     on the same path. *)
-Definition pow_impl (m : mpfr) (first_min first_max : bool) (self rhs : Interval) :
+Definition pow_impl (pt : point) (first_min first_max : bool) (self rhs : Interval) :
     Interval * Decoration :=
   let DOM := const_interval Model.zero (B754_infinity false) in
   let x := intersection self DOM in
@@ -2373,28 +2491,28 @@ Definition pow_impl (m : mpfr) (first_min first_max : bool) (self rhs : Interval
       else
         let dec := if interior self DOM then Com else Trv in
         if Model.lt b (of_u64 1) then
-          (with_infsup_raw (pow_rd m b d) (pow_ru m a c), dec)
+          (with_infsup_raw (pow_rd pt b d) (pow_ru pt a c), dec)
         else if Model.gt a (of_u64 1) then
-          (with_infsup_raw (pow_rd m b c) (pow_ru m a d), dec)
-        else (with_infsup_raw (pow_rd m b c) (pow_ru m a c), dec)
+          (with_infsup_raw (pow_rd pt b c) (pow_ru pt a d), dec)
+        else (with_infsup_raw (pow_rd pt b c) (pow_ru pt a c), dec)
     else if Model.gt c Model.zero then
       let dec := if subset self DOM then Com else Trv in
       if Model.lt b (of_u64 1) then
-        (with_infsup_raw (pow_rd m a d) (pow_ru m b c), dec)
+        (with_infsup_raw (pow_rd pt a d) (pow_ru pt b c), dec)
       else if Model.gt a (of_u64 1) then
-        (with_infsup_raw (pow_rd m a c) (pow_ru m b d), dec)
-      else (with_infsup_raw (pow_rd m a d) (pow_ru m b d), dec)
+        (with_infsup_raw (pow_rd pt a c) (pow_ru pt b d), dec)
+      else (with_infsup_raw (pow_rd pt a d) (pow_ru pt b d), dec)
     else if Model.eq b Model.zero then (zero, Trv)
     else
-      let z_ac := pow_ru m a c in
-      let z_ad := pow_rd m a d in
-      let z_bc := pow_rd m b c in
-      let z_bd := pow_ru m b d in
+      let z_ac := pow_ru pt a c in
+      let z_ad := pow_rd pt a d in
+      let z_bc := pow_rd pt b c in
+      let z_bd := pow_ru pt b d in
       let dec := if interior self DOM then Com else Trv in
       (with_infsup_raw (fmin first_min z_ad z_bc) (fmax first_max z_ac z_bd), dec).
-Definition pow (m : mpfr) (first_min first_max : bool) (self rhs : Interval) :
+Definition pow (pt : point) (first_min first_max : bool) (self rhs : Interval) :
     Interval :=
-  fst (pow_impl m first_min first_max self rhs).
+  fst (pow_impl pt first_min first_max self rhs).
 
 (** [fn powi_impl(self, rhs: i32) -> (Self, Decoration)] and
     [pub fn powi(self, rhs: i32) -> Self], with [rhs] as the integer [n],
@@ -2404,7 +2522,7 @@ Definition pow (m : mpfr) (first_min first_max : bool) (self rhs : Interval) :
     are the floats [Model.zero] and [opp Model.zero], and the assignments
     to [a] and [b] are [let]s. Each [return] is the value of an [if] whose
     [else] holds the rest of the body. *)
-Definition powi_impl (m : mpfr) (n : Z) (self : Interval) :
+Definition powi_impl (pt : point) (n : Z) (self : Interval) :
     option (Interval * Decoration) :=
   if is_empty self then Some (self, Trv)
   else
@@ -2415,24 +2533,24 @@ Definition powi_impl (m : mpfr) (n : Z) (self : Interval) :
       if Model.eq a Model.zero && Model.eq b Model.zero then Some (EMPTY, d)
       else if Z.eqb (Z.rem n 2) 0 then
         let* abs := abs self in
-        Some (with_infsup_raw (pown_rd m (sup_raw abs) n) (pown_ru m (inf_raw abs) n), d)
+        Some (with_infsup_raw (pown_rd pt (sup_raw abs) n) (pown_ru pt (inf_raw abs) n), d)
       else if Model.lt a Model.zero && Model.gt b Model.zero then Some (ENTIRE, d)
       else
         let a := if Model.eq a Model.zero then Model.zero else a in
         let b := if Model.eq b Model.zero then opp Model.zero else b in
-        Some (with_infsup_raw (pown_rd m b n) (pown_ru m a n), d)
+        Some (with_infsup_raw (pown_rd pt b n) (pown_ru pt a n), d)
     else if Z.eqb (Z.rem n 2) 0 then
       let* abs := abs self in
-      Some (with_infsup_raw (pown_rd m (inf_raw abs) n) (pown_ru m (sup_raw abs) n), Com)
-    else Some (with_infsup_raw (pown_rd m a n) (pown_ru m b n), Com).
-Definition powi (m : mpfr) (n : Z) (self : Interval) : option Interval :=
-  let* p := powi_impl m n self in
+      Some (with_infsup_raw (pown_rd pt (inf_raw abs) n) (pown_ru pt (sup_raw abs) n), Com)
+    else Some (with_infsup_raw (pown_rd pt a n) (pown_ru pt b n), Com).
+Definition powi (pt : point) (n : Z) (self : Interval) : option Interval :=
+  let* p := powi_impl pt n self in
   Some (fst p).
 
 (** [pub fn sin(self) -> Self], written as [cos] is, with
     [qa.rem_euclid(4.0)] as [rem_euclid qa (of_u64 4)] and [n < 1.0] as
     [Model.lt]. Rust's [&&] binds tighter than its [||], as Rocq's do. *)
-Definition sin (m : mpfr) (has_fma first : bool) (self : Interval) :
+Definition sin (pt : point) (has_fma first : bool) (self : Interval) :
     option Interval :=
   if is_empty self then Some self
   else
@@ -2447,28 +2565,28 @@ Definition sin (m : mpfr) (has_fma first : bool) (self : Interval) :
     let* exact :=
       if Model.eq n Model.zero || Model.le (of_u64 8) (Model.sub b a) then Some true
       else floors_exact has_fma a b qa qb FRAC_PI_2 in
-    let '(q, n) := if exact then (q, n) else quadrants m a b in
+    let '(q, n) := if exact then (q, n) else quadrants pt a b in
     if Model.eq q Model.zero && Model.lt n (of_u64 1)
        || Model.eq q (of_u64 3) && Model.lt n (of_u64 2) then
-      Some (with_infsup_raw (sin_rd m a) (sin_ru m b))
+      Some (with_infsup_raw (sin_rd pt a) (sin_ru pt b))
     else if Model.eq q (of_u64 1) && Model.lt n (of_u64 2)
             || Model.eq q (of_u64 2) && Model.lt n (of_u64 1) then
-      Some (with_infsup_raw (sin_rd m b) (sin_ru m a))
+      Some (with_infsup_raw (sin_rd pt b) (sin_ru pt a))
     else if Model.eq q Model.zero && Model.lt n (of_u64 3)
             || Model.eq q (of_u64 3) && Model.lt n (of_u64 4) then
-      Some (with_infsup_raw (fmin first (sin_rd m a) (sin_rd m b)) (of_u64 1))
+      Some (with_infsup_raw (fmin first (sin_rd pt a) (sin_rd pt b)) (of_u64 1))
     else if Model.eq q (of_u64 1) && Model.lt n (of_u64 4)
             || Model.eq q (of_u64 2) && Model.lt n (of_u64 3) then
-      Some (with_infsup_raw (opp (of_u64 1)) (fmax first (sin_ru m a) (sin_ru m b)))
+      Some (with_infsup_raw (opp (of_u64 1)) (fmax first (sin_ru pt a) (sin_ru pt b)))
     else Some (const_interval (opp (of_u64 1)) (of_u64 1)).
 
 (** [impl_mono_inc!(sinh, sinh_rd, sinh_ru)] *)
-Definition sinh (m : mpfr) : Interval -> Interval :=
-  mono_inc (sinh_rd m) (sinh_ru m).
+Definition sinh (pt : point) : Interval -> Interval :=
+  mono_inc (sinh_rd pt) (sinh_ru pt).
 
 (** [fn tan_impl(self) -> (Self, Decoration)] and [pub fn tan(self) ->
     Self], written as [cos] and [sin] are. *)
-Definition tan_impl (m : mpfr) (has_fma : bool) (self : Interval) :
+Definition tan_impl (pt : point) (has_fma : bool) (self : Interval) :
     option (Interval * Decoration) :=
   if is_empty self then Some (self, Trv)
   else
@@ -2486,19 +2604,19 @@ Definition tan_impl (m : mpfr) (has_fma : bool) (self : Interval) :
     let '(q, n) :=
       if exact then (q, n)
       else
-        let '(qa, n) := quadrants m a b in
+        let '(qa, n) := quadrants pt a b in
         (frem qa (of_u64 2), n) in
     if Model.eq q Model.zero && Model.lt n (of_u64 1)
        || Model.eq q (of_u64 1) && Model.lt n (of_u64 2) then
-      Some (with_infsup_raw (tan_rd m a) (tan_ru m b), Com)
+      Some (with_infsup_raw (tan_rd pt a) (tan_ru pt b), Com)
     else Some (ENTIRE, Trv).
-Definition tan (m : mpfr) (has_fma : bool) (self : Interval) : option Interval :=
-  let* p := tan_impl m has_fma self in
+Definition tan (pt : point) (has_fma : bool) (self : Interval) : option Interval :=
+  let* p := tan_impl pt has_fma self in
   Some (fst p).
 
 (** [impl_mono_inc!(tanh, tanh_rd, tanh_ru)] *)
-Definition tanh (m : mpfr) : Interval -> Interval :=
-  mono_inc (tanh_rd m) (tanh_ru m).
+Definition tanh (pt : point) : Interval -> Interval :=
+  mono_inc (tanh_rd pt) (tanh_ru pt).
 
 End Interval.
 
@@ -2545,9 +2663,9 @@ Definition try_from (a b : f64) : option DecInterval :=
     [FromStr] for [DecInterval] calls, with the argument as [x] and its
     fields as [nx x] and [nd x]. [unwrap_or(Interval::EMPTY)] is the
     [match], and [d.min(Decoration::Dac)] is [dec_min (nd x) Dac]. *)
-Definition from_dec_ninterval (m : mpfr) (x : DecNInterval) : DecInterval :=
-  let a := number_to_f64 m (ninf (nx x)) Inf in
-  let b := number_to_f64 m (nsup (nx x)) Sup in
+Definition from_dec_ninterval (pt : point) (x : DecNInterval) : DecInterval :=
+  let a := number_to_f64 pt (ninf (nx x)) Inf in
+  let b := number_to_f64 pt (nsup (nx x)) Sup in
   let y :=
     match Interval.try_from (f64_f a) (f64_f b) with
     | Some y => y
@@ -2559,8 +2677,8 @@ Definition from_dec_ninterval (m : mpfr) (x : DecNInterval) : DecInterval :=
 (** [fn from(x: NInterval) -> Self] of [impl From<NInterval> for Interval]
     in [src/parse.rs], which [FromStr] for [Interval] calls:
     [DecInterval::from(DecNInterval::new(x)).x()]. *)
-Definition from_ninterval (m : mpfr) (x : NInterval) : Interval :=
-  itv (from_dec_ninterval m (dn_new x)).
+Definition from_ninterval (pt : point) (x : NInterval) : Interval :=
+  itv (from_dec_ninterval pt (dn_new x)).
 
 (** [pub const ENTIRE: Self] *)
 Definition ENTIRE : DecInterval := new_unchecked Interval.ENTIRE Dac.
@@ -2882,39 +3000,39 @@ Definition elem_dec_impl (f_impl : Interval -> Interval * Decoration)
 
 (** [impl_dec!(acos, acos_impl)] and the other uses of [impl_dec!] in
     [src/elementary.rs], but those for [cos], [sin] and [tan], which are
-    after [cosh]. [m] is MPFR, and [first] in [cosh] is that of
+    after [cosh]. [pt] is as in [Interval], and [first] in [cosh] is that of
     [Interval.cosh]. *)
-Definition acos (m : mpfr) := elem_dec_impl (Interval.acos_impl m).
-Definition acosh (m : mpfr) := elem_dec_impl (Interval.acosh_impl m).
-Definition asin (m : mpfr) := elem_dec_impl (Interval.asin_impl m).
-Definition asinh (m : mpfr) := elem_dec (Interval.asinh m).
-Definition atan (m : mpfr) := elem_dec (Interval.atan m).
-Definition atanh (m : mpfr) := elem_dec_impl (Interval.atanh_impl m).
-Definition cosh (m : mpfr) (first : bool) := elem_dec (Interval.cosh m first).
+Definition acos (pt : point) := elem_dec_impl (Interval.acos_impl pt).
+Definition acosh (pt : point) := elem_dec_impl (Interval.acosh_impl pt).
+Definition asin (pt : point) := elem_dec_impl (Interval.asin_impl pt).
+Definition asinh (pt : point) := elem_dec (Interval.asinh pt).
+Definition atan (pt : point) := elem_dec (Interval.atan pt).
+Definition atanh (pt : point) := elem_dec_impl (Interval.atanh_impl pt).
+Definition cosh (pt : point) (first : bool) := elem_dec (Interval.cosh pt first).
 
 (** [impl_dec!(cos)], [impl_dec!(sin)] and [impl_dec!(tan, tan_impl)], as
     [elem_dec] and [elem_dec_impl] but for interval functions that return
     an [option], with [has_fma] and [first] those of [Interval.cos] and
     [Interval.sin]. *)
-Definition cos (m : mpfr) (has_fma first : bool) (self : DecInterval) :
+Definition cos (pt : point) (has_fma first : bool) (self : DecInterval) :
     option DecInterval :=
-  let* y := Interval.cos m has_fma first (itv self) in
+  let* y := Interval.cos pt has_fma first (itv self) in
   Some (set_dec y (dec self)).
-Definition sin (m : mpfr) (has_fma first : bool) (self : DecInterval) :
+Definition sin (pt : point) (has_fma first : bool) (self : DecInterval) :
     option DecInterval :=
-  let* y := Interval.sin m has_fma first (itv self) in
+  let* y := Interval.sin pt has_fma first (itv self) in
   Some (set_dec y (dec self)).
-Definition tan (m : mpfr) (has_fma : bool) (self : DecInterval) :
+Definition tan (pt : point) (has_fma : bool) (self : DecInterval) :
     option DecInterval :=
-  let* p := Interval.tan_impl m has_fma (itv self) in
+  let* p := Interval.tan_impl pt has_fma (itv self) in
   Some (set_dec (fst p) (dec_min (dec self) (snd p))).
 
-Definition exp (m : mpfr) := elem_dec (Interval.exp m).
-Definition exp10 (m : mpfr) := elem_dec (Interval.exp10 m).
-Definition exp2 (m : mpfr) := elem_dec (Interval.exp2 m).
-Definition ln (m : mpfr) := elem_dec_impl (Interval.ln_impl m).
-Definition log10 (m : mpfr) := elem_dec_impl (Interval.log10_impl m).
-Definition log2 (m : mpfr) := elem_dec_impl (Interval.log2_impl m).
+Definition exp (pt : point) := elem_dec (Interval.exp pt).
+Definition exp10 (pt : point) := elem_dec (Interval.exp10 pt).
+Definition exp2 (pt : point) := elem_dec (Interval.exp2 pt).
+Definition ln (pt : point) := elem_dec_impl (Interval.ln_impl pt).
+Definition log10 (pt : point) := elem_dec_impl (Interval.log10_impl pt).
+Definition log2 (pt : point) := elem_dec_impl (Interval.log2_impl pt).
 
 (** The function [$f] that [impl_dec2!($f, $f_impl)] in
     [src/elementary.rs] defines, for [Interval::$f_impl] as [f_impl]. Like
@@ -2926,21 +3044,21 @@ Definition elem_dec2_impl (f_impl : Interval -> Interval -> Interval * Decoratio
 
 (** [impl_dec2!(atan2, atan2_impl)], as [elem_dec2_impl] but for
     [Interval.atan2_impl], which returns an [option]. *)
-Definition atan2 (m : mpfr) (self rhs : DecInterval) : option DecInterval :=
-  let* p := Interval.atan2_impl m (itv self) (itv rhs) in
+Definition atan2 (pt : point) (self rhs : DecInterval) : option DecInterval :=
+  let* p := Interval.atan2_impl pt (itv self) (itv rhs) in
   Some (set_dec (fst p) (dec_min (dec self) (dec_min (dec rhs) (snd p)))).
 
 (** [impl_dec2!(pow, pow_impl)], with [first_min] and [first_max] those
     of [Interval.pow_impl]. *)
-Definition pow (m : mpfr) (first_min first_max : bool) :=
-  elem_dec2_impl (Interval.pow_impl m first_min first_max).
+Definition pow (pt : point) (first_min first_max : bool) :=
+  elem_dec2_impl (Interval.pow_impl pt first_min first_max).
 
 (** [pub fn powi(self, rhs: i32) -> Self], with [rhs] as the integer [n],
     and an [option] as [Interval.powi_impl] returns one. *)
-Definition powi (m : mpfr) (n : Z) (self : DecInterval) : option DecInterval :=
-  let* p := Interval.powi_impl m n (itv self) in
+Definition powi (pt : point) (n : Z) (self : DecInterval) : option DecInterval :=
+  let* p := Interval.powi_impl pt n (itv self) in
   Some (set_dec (fst p) (dec_min (dec self) (snd p))).
-Definition sinh (m : mpfr) := elem_dec (Interval.sinh m).
-Definition tanh (m : mpfr) := elem_dec (Interval.tanh m).
+Definition sinh (pt : point) := elem_dec (Interval.sinh pt).
+Definition tanh (pt : point) := elem_dec (Interval.tanh pt).
 
 End DecInterval.
