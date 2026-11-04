@@ -1,6 +1,6 @@
 # Benchmarks
 
-A comparison of the backends of inari, in seven sittings:
+A comparison of the backends of inari, in eight sittings:
 
 - 2026-09-22: `avx_fma`, then the default for x86-64, which set MXCSR around
   every instruction to make the hardware round, against the portable backend
@@ -20,6 +20,8 @@ A comparison of the backends of inari, in seven sittings:
 - 2026-11-03: `sse42`, `wasm32` and `generic` on multiplications whose products
   are below 2^-968, before and after the changes that round them on the fast
   path after scaling, as `fma` does.
+- 2026-11-04: `sse42`, `wasm32` and `fma` on the same products, before and after
+  the change that rounds them with one TwoProduct.
 
 `avx_fma` is the base column of the first three x86-64 sections, so that the
 two explicit backends are measured against what they replaced, and against each
@@ -29,9 +31,10 @@ changed, so its multiplication is `avx_fma`'s. The fifth sitting, which replaces
 two rows of the `fma` section, builds `avx_fma` from `cc5e384`, the commit
 before its removal. The sixth compares builds of three commits, all with `fma`,
 rather than backends. The seventh, like the sixth, compares builds of commits:
-two, each in five configurations. No backend for x86-64 changes the rounding
-mode any more: `avx512f` uses per-instruction embedded rounding, and the other
-two round by correcting a round-to-nearest result.
+two, each in five configurations, and the eighth two, each in four. No backend
+for x86-64 changes the rounding mode any more: `avx512f` uses per-instruction
+embedded rounding, and the other two round by correcting a round-to-nearest
+result.
 
 ## Setup
 
@@ -201,6 +204,29 @@ the lanes its fast path rejects. There `mul` takes 0.99–1.02 times as long aft
 as before, and single rounds range from 0.96 to 1.03: that is how far these
 builds move on code they share. Not all of it is noise between rounds, though:
 `scalar` takes 1.015–1.032 times as long on `mul/MM` in every one of the nine.
+
+The section on tiny products with one TwoProduct was measured on 2026-11-04
+between 03:00 and 03:55. `3c0a19c`, the main branch then, and `77a4138`, which
+changes `mul_ru_tiny` in `sse42`, `wasm32` and `fma` and nothing in `bench/`,
+were built in four configurations: `sse42`, `fma` and `generic, Nehalem` with
+the flags of "Setup", and `wasm32` on `wasm32-wasip1`, compiled and run as in
+the previous sitting. The builds of `77a4138` were made from a commit with the
+same files and an earlier message. Each benchmark took 2 s of warm-up and 3 s of
+measurement. Eleven rounds ran the eight builds, in an order rotated and swapped
+as in the previous sitting, and ten were kept under the rule of the `mul_add_ru`
+rows above: in round 9, the sibling was 98.0% idle during one run. The ten ran
+at a load average of at most 1.3, with the sibling at least 99.5% idle and the
+other cores busy for at most 0.24 cores' worth of time, and the rows report
+their medians, and the spread as the previous sitting defines it. The ratios
+differ by at most 0.01 when the lowest of the ten or criterion's own median
+estimate is used instead. With `force-generic`, none of the three files that
+`77a4138` changes is compiled, so the two builds of `generic, Nehalem` compile
+the same source. There the ratios range from 0.98 to 1.06, and single rounds
+from 0.965 to 1.076. Not all of it is noise between rounds: `generic, Nehalem`
+takes 1.04–1.08 times as long on `mul/PP` after as before in every one of the
+ten. Before the change, `sse42`, `wasm32` and `generic, Nehalem` take within 2%
+of the "after" column of the previous sitting, whose code for these
+multiplications is the same.
 
 Composite benchmarks drift between sittings more than the primitives do: the
 `avx_fma` 3×3 determinant is 236 ns in the first section, 211 ns in the `sse42`
@@ -440,6 +466,47 @@ On `mul`, the `generic` configurations run the same code in both builds but for
 addresses (see "Variance"). In `sse42` and `wasm32`, `mul_ru` used to round
 both lanes and then test whether both passed the check; it now tests first, as
 `fma`'s does, and each branch rounds by itself.
+
+### `sse42`, `wasm32` and `fma`, tiny products with one TwoProduct
+
+Where the fast path of `mul_ru` rejects a lane, `mul_ru_tiny` in these three
+backends rounded two products upward in both lanes: `x * y`, which it keeps in
+the lanes that the fast path accepts, and `x * 2^128 * y`, which it scales back
+in the others. `77a4138` makes it select the factors in each lane and round one
+product: `x * y` where the fast path accepts the lane, and the scaled product
+where it rejects it. Every lane's result is the same as before, bit for bit.
+The branch of `mul_ru` that takes no tiny lane, which `mul` runs, compiles to
+the same instructions in `sse42` and `fma`, with other registers, and to the
+same WebAssembly in `wasm32`, with other locals; wasmtime's code for `mul_ru`
+saves one callee-saved register fewer.
+
+The columns are `3c0a19c`, the main branch when this was measured, and
+`77a4138`, each built in the configuration that the first column names, with
+the flags of "Setup" and `wasm32` on `wasm32-wasip1`. The classes are those of
+the section above. Times are in ns per interval multiplication, medians over
+ten rounds; see "Variance" above.
+
+| Configuration | Class | mul before (ns) | after (ns) | ratio | mul_tiny before (ns) | after (ns) | ratio | spread |
+|---|---|--:|--:|--:|--:|--:|--:|--:|
+| sse42 | PP | 7.73 | 7.70 | 1.00× | 30.13 | 11.67 | 0.39× | 2% |
+| sse42 | PM | 7.76 | 7.73 | 1.00× | 29.71 | 11.63 | 0.39× | 1% |
+| sse42 | MM | 13.95 | 13.91 | 1.00× | 59.11 | 22.37 | 0.38× | 2% |
+| fma | PP | 6.38 | 6.15 | 0.96× | 8.54 | 8.14 | 0.95× | 1% |
+| fma | PM | 6.39 | 6.37 | 1.00× | 8.55 | 8.30 | 0.97× | 1% |
+| fma | MM | 9.52 | 9.27 | 0.97× | 15.23 | 14.75 | 0.97× | 2% |
+| wasm32 | PP | 14.99 | 15.09 | 1.01× | 40.52 | 21.23 | 0.52× | 2% |
+| wasm32 | PM | 14.97 | 15.04 | 1.00× | 39.02 | 21.24 | 0.54× | 2% |
+| wasm32 | MM | 25.83 | 25.74 | 1.00× | 75.31 | 39.74 | 0.53× | 1% |
+| generic, Nehalem | PP | 15.99 | 16.91 | 1.06× | 52.12 | 52.01 | 1.00× | 4% |
+| generic, Nehalem | PM | 15.89 | 15.98 | 1.01× | 51.53 | 50.68 | 0.98× | 4% |
+| generic, Nehalem | MM | 30.74 | 31.01 | 1.01× | 101.76 | 101.25 | 0.99× | 1% |
+
+On `mul`, `sse42` takes 1.00 times as long as before and `wasm32` 1.00–1.01,
+within the 0.98–1.06 of `generic, Nehalem`, whose two builds compile the same
+source. `fma` takes 0.96–1.00 times as long, and less than 0.99 times on
+`mul/PP` and `mul/MM` in every round, but as `generic, Nehalem` takes more than
+1.04 times as long on `mul/PP` in every round, these builds cannot tell whether
+that comes from the change.
 
 ### x86-64 with AVX and FMA, trigonometric functions
 
@@ -704,10 +771,29 @@ its scalar square root matches the `generic, Nehalem` column exactly.
   0.95–1.04 and 1.04–1.08 times. They now take 0.57–0.58 and 0.60–0.63 times as
   long, against 0.45–0.48 and 0.47–0.49 on `mul`.
 - Tiny products still cost these backends far more, relative to ordinary ones,
-  than they cost `fma`: after the change, `mul_tiny` takes 3.8–4.2 times as long
+  than they cost `fma`: after the change, `mul_tiny` took 3.8–4.2 times as long
   as `mul` with `sse42`, 2.6–2.9 times with `wasm32`, 3.2–3.3 times with
   `generic, Nehalem` and 2.0–2.2 times with `generic, FMA` and `scalar`, against
-  1.32–1.35 times (1.60 on `mul/MM`) with `fma`. Why has not been traced.
+  1.32–1.35 times (1.60 on `mul/MM`) with `fma`. In `sse42`, most of the
+  difference was a TwoProduct that the tiny lanes did not need: `mul_ru_tiny`
+  also rounded `x * y` itself in every lane, by Dekker's TwoProduct, some of
+  whose partial products can underflow when the product is near 2^-1010, and
+  on Zen 2 a multiplication whose result is subnormal and inexact costs more.
+  In a probe on a loaded host, `mulpd` with such a result took 1.7 times as
+  long in throughput as with a normal one, and Dekker's TwoProduct with one
+  factor between 2^-1010 and 2^-1009 3.7 times as long as with ordinary ones,
+  while multiplications with subnormal inputs and a normal or exact result, and
+  additions with subnormal inputs or results, cost nothing extra. With MXCSR's
+  DAZ and FTZ set, which treat subnormal inputs and results as zero, `sse42`
+  took 0.40–0.44 times as long on `mul_tiny` in that probe, and as long as
+  before on `mul`. That `wasm32` paid in the same way is inferred only from
+  what removing that TwoProduct gained (below). Without an FMA, `generic`'s
+  `mul1_ru_fast` computes Dekker's TwoProduct of a lane's factors before it
+  checks whether it may use it, and in the same probe, DAZ and FTZ made
+  `generic, Nehalem` 1.5–1.6 times as fast on `mul_tiny`, which removed about
+  half of its extra cost. Whether that TwoProduct is what pays there, the rest
+  of that cost, the extra cost of `generic, FMA`, and whether `scalar` pays in
+  the same way have not been traced.
 - Ordinary products do not pay measurably for the change in `sse42`: on `mul`
   it takes 0.99–1.00 times as long as before, within the 0.99–1.02 of the
   `generic` configurations, which run the same code in both builds. `wasm32`
@@ -717,6 +803,14 @@ its scalar square root matches the `generic, Nehalem` column exactly.
   whether `wasm32` pays 2–3% on ordinary products or nothing. `76d2bab` reports
   that the fast path of `wasm32`'s `mul_ru` grew from 155 to 159 WebAssembly
   instructions, by four `local.tee`s.
+- Rounding only the product that each lane needs removes most of the extra cost
+  of tiny products in `sse42` and `wasm32`: on `mul_tiny`, `sse42` takes
+  0.38–0.39 times as long as before and `wasm32` 0.52–0.54. `mul_tiny` now takes
+  1.50–1.61 times as long as `mul` with `sse42` and 1.41–1.54 times with
+  `wasm32`, against 1.30–1.59 times with `fma` in the same rounds, where it took
+  3.83–4.24 and 2.61–2.92 times as long before. `fma` gains least, 0.95–0.97,
+  about as much as on `mul/PP` and `mul/MM`, which do not reach `mul_ru_tiny`;
+  in the probe above, DAZ and FTZ changed nothing in `fma`.
 - Making `sin`, `cos` and `tan` of intervals tightest costs nothing measurable
   on `small` and `narrow`, whose bounds are within about 100 of 0 and not chosen
   near a multiple of π/2: all three take 0.99–1.00 times as long as before
@@ -746,7 +840,7 @@ a dependency chain — a trade worth making, since interval code has independent
 operations to overlap far more often than it has serial ones. The operands of
 all these benchmarks are of ordinary size: products below 2^-968 made `fma`'s
 multiplication 4.7–5.0 times slower than 2.0.0's until it rounded them on its
-fast path too, and it now takes 0.81–0.83 times as long on them. `fma` is
+fast path too, after which it took 0.81–0.83 times as long on them. `fma` is
 therefore the default, and `avx_fma` has been removed.
 
 `generic` is not a replacement for either. It has no fixed rounding-mode cost
