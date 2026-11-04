@@ -80,6 +80,7 @@ theories/RealBounds.v
 theories/MpfrRound.v
 theories/Interior.v
 theories/ElemDec.v
+theories/IntegerDec.v
 theories/ExpReal.v
 theories/LogReal.v
 theories/TrigReal.v

@@ -246,7 +246,7 @@ macro_rules! impl_dec {
 // https://www.ocf.berkeley.edu/~horie/rounding.html
 impl DecInterval {
     // Discontinuities: ℤ.
-    // Proved correct in `rocq/theories/Integer.v` for the portable backend.
+    // Proved correct in `rocq/theories/IntegerDec.v` for the portable backend.
     // `rocq/theories/Model.v` transcribes these two lines, so it has to be updated along
     // with them.
     impl_dec!(ceil, x, y, x.sup_raw() == y.sup_raw()); // No need to check inf.

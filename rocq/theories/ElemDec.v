@@ -26,23 +26,16 @@
 
     [dec_neg_correct] in [Neg.v] and [dec_abs_correct] in [Abs.v] apply
     [elem_set_dec_trv_com] too, with all of R as the domain and the
-    decoration [com], and [dec_sign_correct] in [Sign.v] applies
+    decoration [com]. [dec_sign_correct] in [Sign.v], and
+    [impl_dec_correct] in [IntegerDec.v], from which the decorations of
+    [floor], [ceil], [round], [round_ties_even] and [trunc] follow, apply
     [elem_set_dec_correct] with all of R as the domain and the decoration
-    that [impl_dec!] in [src/integer.rs] computes. The three are stated
+    that [impl_dec!] in [src/integer.rs] computes. The four are stated
     with [is_hull], [image] and [strongest], the definitions for a
     function defined on all of R. The [*_all] lemmas at the end of this
     file show that on all of R, [image_dom] is [image], the hull of the
     image is the tightest interval that contains it, and for that hull,
-    [p_dom] and [strongest_dom] are [p] and [strongest].
-
-    [impl_dec_correct] in [Integer.v], from which the decorations of
-    [floor], [ceil], [round], [round_ties_even] and [trunc] follow, does
-    its own case analysis of [set_dec] instead. This file and
-    [DecBinary.v] import [Integer.v] for lemmas that precede its Section
-    [Round], so a proof of it that applies [elem_set_dec_correct] would
-    have to be in another file, with [dec_floor_correct] and
-    [dec_ceil_correct], or those lemmas would have to move to a file that
-    [Integer.v] imports. *)
+    [p_dom] and [strongest_dom] are [p] and [strongest]. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia Classical_Prop.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.

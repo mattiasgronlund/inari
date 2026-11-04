@@ -1,10 +1,13 @@
-(** * [floor] and [ceil] of intervals are tightest and decorated correctly
+(** * [floor] and [ceil] of intervals are tightest, and which decorations
+    are the strongest
 
     [Interval::floor] and [Interval::ceil] return the hull of the image of
     their argument, and [DecInterval::floor] and [DecInterval::ceil]
     decorate it with the minimum of the strongest decoration that holds and
     the decoration of their argument, as IEEE 1788 asks of a tightest
-    interval version of a function.
+    interval version of a function. This file proves the hull and which
+    decoration is the strongest, and [dec_floor_correct] and
+    [dec_ceil_correct] in [IntegerDec.v] the decorations.
 
     Both store [[a, b]] as [[-a; b]], negate the first lane to get
     [[a; b]], round both lanes in the same direction, and negate the first
@@ -12,7 +15,11 @@
     [[floor a, floor b]] and [[ceil a, ceil b]], which hold exactly the
     integers in the image, and every real between them. Section [Round]
     proves this once for both, and [Round.v] and [Trunc.v] use it for
-    [round], [round_ties_even] and [trunc].
+    [round], [round_ties_even] and [trunc]. Section [RoundDec] in
+    [IntegerDec.v] proves, once for all five, that [impl_dec!] then
+    decorates the result correctly if the decoration that it picks is the
+    strongest, which [floor_test] and [floor_strongest] below show for
+    [floor], and [ceil_test] and [ceil_strongest] for [ceil].
 
     [floor] is continuous except at the integers, where it jumps from
     below. If [floor a = floor b = n], the restriction of [floor] to
@@ -447,26 +454,7 @@ intros x Ha Hb. apply finite_common.
 - rewrite upper_f. now rewrite g_finite.
 Qed.
 
-(** ** The decorated version *)
-
-Lemma set_dec_empty :
-  forall y e, Interval.is_empty y = true -> e <> Ill ->
-  DecInterval.set_dec y (dec_min Trv e) = DecInterval.EMPTY.
-Proof.
-intros y e Hy He. unfold DecInterval.set_dec. rewrite Hy.
-destruct e; first [reflexivity | congruence].
-Qed.
-
-Lemma set_dec_nonempty :
-  forall y d e,
-  Interval.is_empty y = false -> d <> Ill -> e <> Ill ->
-  (d = Com -> Interval.is_common_interval y = true) ->
-  DecInterval.set_dec y (dec_min d e) = DecInterval.new_unchecked y (dec_min d e).
-Proof.
-intros y d e Hy Hd He Hc. unfold DecInterval.set_dec. rewrite Hy.
-destruct d, e; try congruence; try reflexivity.
-cbn. now rewrite Hc.
-Qed.
+(** ** Which decoration is the strongest *)
 
 Lemma p_Com_Dac : forall h x, p Com h x -> p Dac h x.
 Proof.
@@ -475,15 +463,6 @@ intros r Hr. specialize (Hc r Hr).
 intros eps Heps. destruct (Hc eps Heps) as (alp & Halp & H).
 exists alp. split; [exact Halp|].
 intros s [[_ Hs] Hd]. apply H. split; [split; [exact I | exact Hs] | exact Hd].
-Qed.
-
-Lemma strongest_Trv : forall h x, (forall r, ~ mem r x) -> strongest Trv h x.
-Proof.
-intros h x H. split; [exact I|].
-intros [] He; cbn [discriminant]; try lia; exfalso; cbn [p] in He.
-- destruct He as (r & Hr). exact (H r Hr).
-- destruct He as ((r & Hr) & _). exact (H r Hr).
-- destruct He as ((r & Hr) & _). exact (H r Hr).
 Qed.
 
 Lemma strongest_Def :
@@ -506,70 +485,6 @@ Lemma strongest_Com : forall h x, p Com h x -> strongest Com h x.
 Proof.
 intros h x Hc. split; [exact Hc|].
 intros [] _; cbn [discriminant]; lia.
-Qed.
-
-(** [is_not_com] is the test of [impl_dec], and [D lo hi] the strongest
-    decoration of [G] on the reals between [lo] and [hi]. *)
-Variable is_not_com : Interval -> Interval -> bool.
-Variable D : option R -> option R -> Decoration.
-
-Hypothesis D_test :
-  forall x, valid x -> is_nan (fst (rep x)) = false ->
-  (if Interval.is_singleton (f x) then
-     if is_not_com x (f x) then Dac else Com
-   else Def) = D (bound (opp (fst (rep x)))) (bound (snd (rep x))).
-
-Hypothesis D_strongest :
-  forall x lo hi,
-  (forall r, mem r x <-> in_bounds lo hi r) -> ordered lo hi ->
-  strongest (D lo hi) G x.
-
-Theorem impl_dec_correct :
-  forall x, valid (itv x) ->
-  if DecInterval.is_nai x then DecInterval.impl_dec f is_not_com x = x
-  else
-    is_hull (image G (itv x)) (itv (DecInterval.impl_dec f is_not_com x)) /\
-    exists d, strongest d G (itv x) /\
-      dec (DecInterval.impl_dec f is_not_com x) = dec_min d (dec x).
-Proof.
-intros x Hx. unfold DecInterval.impl_dec. cbv zeta.
-destruct (DecInterval.is_nai x) eqn:Hnai; [reflexivity|].
-assert (Hdx : dec x <> Ill).
-{ intros E. unfold DecInterval.is_nai in Hnai. now rewrite E in Hnai. }
-destruct (is_nan (fst (rep (itv x)))) eqn:Hn.
-- destruct (round_empty (itv x) Hx Hn) as [Hx' E].
-  assert (Hy : Interval.is_empty (f (itv x)) = true).
-  { unfold Interval.is_empty. now rewrite E. }
-  rewrite Hy, set_dec_empty by assumption. split.
-  + apply is_hull_empty. intros u (r & Hr & _). exact (Hx' r Hr).
-  + exists Trv. split; [now apply strongest_Trv|].
-    cbn. destruct (dec x); first [reflexivity | congruence].
-- destruct (round_nonempty (itv x) Hx Hn) as (HX & Hord & _).
-  rewrite (round_not_empty (itv x) Hx Hn).
-  set (d := if Interval.is_singleton (f (itv x)) then
-              if is_not_com (itv x) (f (itv x)) then Dac else Com
-            else Def).
-  assert (Ed : (if negb (Interval.is_singleton (f (itv x))) then Def
-                else if is_not_com (itv x) (f (itv x)) then Dac else Com) = d).
-  { unfold d. now destruct (Interval.is_singleton (f (itv x))). }
-  rewrite Ed.
-  assert (Hd : d <> Ill).
-  { unfold d. destruct (Interval.is_singleton _), (is_not_com _ _); discriminate. }
-  rewrite set_dec_nonempty.
-  + split; [now apply round_is_hull|].
-    exists d. split; [|reflexivity].
-    unfold d. rewrite D_test by assumption. now apply D_strongest.
-  + now apply round_not_empty.
-  + exact Hd.
-  + exact Hdx.
-  + intros Hc. unfold d in Hc.
-    destruct (Interval.is_singleton (f (itv x))) eqn:Hs; [|discriminate].
-    rewrite round_singleton in Hs by assumption.
-    destruct (valid_nonempty (itv x) Hx Hn) as (Ha & Hb & _).
-    unfold bound in Hs.
-    destruct (is_finite (opp (fst (rep (itv x))))) eqn:Fa; [|discriminate].
-    destruct (is_finite (snd (rep (itv x)))) eqn:Fb; [|discriminate].
-    now apply round_common.
 Qed.
 
 End Round.
@@ -812,22 +727,6 @@ exact (round_is_hull ffloor Rfloor Interval.floor ffloor_finite ffloor_inf
   ffloor_nan ffloor_B2R Rfloor_le Rfloor_near floor_rep).
 Qed.
 
-(** [DecInterval::floor] returns a NaI unchanged, and otherwise the result of
-    [Interval::floor] with the minimum of the strongest decoration of
-    [floor] on the interval and the decoration of its argument. *)
-Theorem dec_floor_correct :
-  forall x, valid (itv x) ->
-  if DecInterval.is_nai x then DecInterval.floor x = x
-  else
-    is_hull (image Rfloor (itv x)) (itv (DecInterval.floor x)) /\
-    exists d, strongest d Rfloor (itv x) /\
-      dec (DecInterval.floor x) = dec_min d (dec x).
-Proof.
-exact (impl_dec_correct ffloor Rfloor Interval.floor ffloor_finite ffloor_inf
-  ffloor_nan ffloor_B2R Rfloor_le Rfloor_near floor_rep _ floor_dec floor_test
-  floor_strongest).
-Qed.
-
 (** ** [ceil] *)
 
 Lemma fceil_finite : forall a, is_finite (fceil a) = is_finite a.
@@ -1053,20 +952,4 @@ Theorem ceil_correct :
 Proof.
 exact (round_is_hull fceil Rceil Interval.ceil fceil_finite fceil_inf
   fceil_nan fceil_B2R Rceil_le Rceil_near ceil_rep).
-Qed.
-
-(** [DecInterval::ceil] returns a NaI unchanged, and otherwise the result of
-    [Interval::ceil] with the minimum of the strongest decoration of [ceil]
-    on the interval and the decoration of its argument. *)
-Theorem dec_ceil_correct :
-  forall x, valid (itv x) ->
-  if DecInterval.is_nai x then DecInterval.ceil x = x
-  else
-    is_hull (image Rceil (itv x)) (itv (DecInterval.ceil x)) /\
-    exists d, strongest d Rceil (itv x) /\
-      dec (DecInterval.ceil x) = dec_min d (dec x).
-Proof.
-exact (impl_dec_correct fceil Rceil Interval.ceil fceil_finite fceil_inf
-  fceil_nan fceil_B2R Rceil_le Rceil_near ceil_rep _ ceil_dec ceil_test
-  ceil_strongest).
 Qed.
