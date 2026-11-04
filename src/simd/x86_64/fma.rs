@@ -140,9 +140,11 @@ fn mul_ru_tiny(x: F64X2, y: F64X2, p: F64X2, ok: F64X2, special: F64X2) -> F64X2
     // ps, and the lane fails the check at the end.
     let xs = mul_rn(x, splat(TWO_POW_128));
     let ps = mul_rn(xs, y);
-    // rs = RU(z * S) where `two_prod_is_exact(ps)`, as in `mul_ru`.
-    let rs = mul_ru_fast(xs, y, ps, special);
-    // Then RU(z) = RU(rs / S). As rs / S >= z, RU(rs / S) >= RU(z). Conversely,
+    // One TwoProduct for both kinds of lane: r = RU(z) in the lanes that pass
+    // `ok`, as in `mul_ru`, and r = rs = RU(z * S) in the others where
+    // `two_prod_is_exact(ps)`.
+    let r = mul_ru_fast(select(ok, x, xs), y, select(ok, p, ps), special);
+    // There, RU(z) = RU(rs / S). As rs / S >= z, RU(rs / S) >= RU(z). Conversely,
     // g = RU(z) is a float with |g| <= 2^-968, so g * S is a float, and since
     // g * S >= z * S, g * S >= rs: g is a float >= rs / S, so g >= RU(rs / S).
     // This holds whether RU(z) is normal or not.
@@ -150,8 +152,8 @@ fn mul_ru_tiny(x: F64X2, y: F64X2, p: F64X2, ok: F64X2, special: F64X2) -> F64X2
     // RU(rs / S) is q = RN(rs / S) if q >= rs / S, and the successor of q
     // otherwise: no float lies strictly between q and rs / S. q * S is exact, as
     // |q| <= 2^-968, so comparing it with rs compares q with rs / S.
-    let q = mul_rn(rs, splat(TWO_POW_M128));
-    let q = select(lt(mul_rn(q, splat(TWO_POW_128)), rs), step_up(q), q);
+    let q = mul_rn(r, splat(TWO_POW_M128));
+    let q = select(lt(mul_rn(q, splat(TWO_POW_128)), r), step_up(q), q);
     // If p = ±0, then |z| <= 2^-1075, and RU(z) is 2^-1074 for z > 0 and -0 for
     // z < 0. p has the sign of z, and as integers, -0 < 0 and 2^-1074 = 1.
     // Otherwise |z| > 2^-1075, so |z * S| > 2^-947, and `two_prod_is_exact(ps)`
@@ -159,7 +161,6 @@ fn mul_ru_tiny(x: F64X2, y: F64X2, p: F64X2, ok: F64X2, special: F64X2) -> F64X2
     // overflow go to the generic backend.
     let p_zero = eq(p, zero());
     let zero_rule = select(gt_i64(zero(), p), p, splat_i64(1));
-    let r = mul_ru_fast(x, y, p, special);
     let res = select(ok, r, select(p_zero, zero_rule, q));
     let ok = or(ok, or(p_zero, two_prod_is_exact(ps)));
     or_generic(ok, res, || generic::mul_ru(extract(x), extract(y)))

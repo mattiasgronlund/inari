@@ -137,12 +137,17 @@ fn mul_ru_tiny(x: F64X2, y: F64X2, p: F64X2, ok: F64X2, special: F64X2) -> F64X2
     // overflows, and the lane fails the check at the end.
     let xs = mul_rn(x, splat(TWO_POW_128));
     let ps = mul_rn(xs, y);
-    // rs = RU(z * S) where `two_prod_is_exact(xs, y, ps)`, as in `mul_ru`.
-    let rs = mul_ru_fast(xs, y, ps, special);
-    // RU(z) = RU(rs / S), which is q = RN(rs / S) or its successor. q * S is
-    // exact, so comparing it with rs decides which.
-    let q = mul_rn(rs, splat(TWO_POW_M128));
-    let q = select(lt(mul_rn(q, splat(TWO_POW_128)), rs), step_up(q), q);
+    // One TwoProduct for both kinds of lane: r = RU(z) in the lanes that pass
+    // `ok`, as in `mul_ru`, and r = RU(z * S) in the others where
+    // `two_prod_is_exact(xs, y, ps)`. Rounding z itself in the others too would
+    // run Dekker's TwoProduct on x and y there, where some of its partial
+    // products can underflow, and on Zen 2 that made it 2 to 3 times slower to
+    // multiply intervals whose products are near 2^-1010.
+    let r = mul_ru_fast(select(ok, x, xs), y, select(ok, p, ps), special);
+    // In the others, RU(z) = RU(r / S), which is q = RN(r / S) or its successor.
+    // q * S is exact, so comparing it with r decides which.
+    let q = mul_rn(r, splat(TWO_POW_M128));
+    let q = select(lt(mul_rn(q, splat(TWO_POW_128)), r), step_up(q), q);
     // If p = ±0, then |z| <= 2^-1075, and RU(z) is 2^-1074 for z > 0 and -0 for
     // z < 0. p has the sign of z, and as integers, -0 < 0 and 2^-1074 = 1.
     // Otherwise |z| > 2^-1075, so 2^-947 < |z * S| < 2^-840, and
@@ -151,7 +156,6 @@ fn mul_ru_tiny(x: F64X2, y: F64X2, p: F64X2, ok: F64X2, special: F64X2) -> F64X2
     // or more, go to the generic backend.
     let p_zero = eq(p, zero());
     let zero_rule = select(gt_i64(zero(), p), p, splat_i64(1));
-    let r = mul_ru_fast(x, y, p, special);
     let res = select(ok, r, select(p_zero, zero_rule, q));
     let ok = or(ok, or(p_zero, two_prod_is_exact(xs, y, ps)));
     or_generic(ok, res, || generic::mul_ru(extract(x), extract(y)))

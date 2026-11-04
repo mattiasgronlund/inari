@@ -248,13 +248,18 @@ fn mul_ru_tiny(x: F64X2, y: F64X2, p: F64X2, ok: F64X2, special: F64X2) -> F64X2
     // overflows, and the lane fails the check at the end.
     let xs = f64x2_mul(x, splat(TWO_POW_128));
     let ps = f64x2_mul(xs, y);
-    // rs = RU(z * S) where `two_prod_is_exact(xs, y, ps)`, as in `mul_ru`.
-    let rs = mul_ru_fast(xs, y, ps, special);
-    // RU(z) = RU(rs / S), which is q = RN(rs / S) or its successor. q * S is
-    // exact, so comparing it with rs decides which.
-    let q = f64x2_mul(rs, splat(TWO_POW_M128));
+    // One TwoProduct for both kinds of lane: r = RU(z) in the lanes that pass
+    // `ok`, as in `mul_ru`, and r = RU(z * S) in the others where
+    // `two_prod_is_exact(xs, y, ps)`. Rounding z itself in the others too would
+    // run Dekker's TwoProduct on x and y there, where some of its partial
+    // products can underflow, and on Zen 2, with wasmtime, that made multiplying
+    // intervals whose products are near 2^-1010 about twice as slow.
+    let r = mul_ru_fast(select(ok, x, xs), y, select(ok, p, ps), special);
+    // In the others, RU(z) = RU(r / S), which is q = RN(r / S) or its successor.
+    // q * S is exact, so comparing it with r decides which.
+    let q = f64x2_mul(r, splat(TWO_POW_M128));
     let qs = f64x2_mul(q, splat(TWO_POW_128));
-    let q = select(f64x2_lt(qs, rs), step_up(q), q);
+    let q = select(f64x2_lt(qs, r), step_up(q), q);
     // If p = ±0, then |z| <= 2^-1075, and RU(z) is 2^-1074 for z > 0 and -0 for
     // z < 0. p has the sign of z, and as integers, -0 < 0 and 2^-1074 = 1.
     // Otherwise |z| > 2^-1075, so 2^-947 < |z * S| < 2^-840, and
@@ -263,7 +268,6 @@ fn mul_ru_tiny(x: F64X2, y: F64X2, p: F64X2, ok: F64X2, special: F64X2) -> F64X2
     // or more, go to the generic backend.
     let p_zero = f64x2_eq(p, ZERO);
     let zero_rule = select(i64x2_lt(p, ZERO), p, i64x2_splat(1));
-    let r = mul_ru_fast(x, y, p, special);
     let res = select(ok, r, select(p_zero, zero_rule, q));
     let ok = or(ok, or(p_zero, two_prod_is_exact(xs, y, ps)));
     or_generic(ok, res, || generic::mul_ru(extract(x), extract(y)))
