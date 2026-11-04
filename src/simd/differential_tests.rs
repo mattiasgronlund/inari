@@ -154,6 +154,18 @@ impl Report {
             }
         }
     }
+
+    // As `check`, with the oracle as expected: on `avx512f`, the target backend,
+    // which rounds with embedded rounding; on `fma`, `sse42` and `wasm32`, the
+    // generic backend, whose fast paths they port and whose functions in
+    // `binary_ops` and `ternary_ops` are proved correct in `rocq/`.
+    fn check_target(&mut self, name: &str, args: &[f64], target: f64, generic: f64) {
+        if cfg!(target_feature = "avx512f") {
+            self.check(name, args, target, generic);
+        } else {
+            self.check(name, args, generic, target);
+        }
+    }
 }
 
 type HwUnary = fn(super::F64X2) -> super::F64X2;
@@ -213,9 +225,11 @@ fn unary_ops() -> Vec<(&'static str, HwUnary, Unary)> {
     vec![("sqrt_rd_ru", super::sqrt_rd_ru, sqrt_rd_ru_reference)]
 }
 
-// An independent reference for `sqrt_rd_ru`: on x86-64, the square root with the
-// rounding mode switched; on wasm32, the generic backend, whose fast paths the
-// `wasm32` one vectorizes.
+// A reference for `sqrt_rd_ru`: on x86-64, the square root that the hardware
+// rounds, with the rounding mode switched under `fma` and `sse42`, and with
+// embedded rounding under `avx512f`, whose `sqrt_rd_ru` calls the same two
+// functions; on wasm32, the generic backend, whose fast paths the `wasm32` one
+// vectorizes.
 #[cfg(target_arch = "x86_64")]
 fn sqrt_rd_ru_reference(x: generic::F64X2) -> generic::F64X2 {
     [hw_sqrt1_rd(x[0]), hw_sqrt1_ru(x[1])]
@@ -252,8 +266,9 @@ fn unary1_ops() -> Vec<(&'static str, Unary1, Unary1)> {
 }
 
 fn check_unary(r: &mut Report, name: &str, hw: HwUnary, f: Unary, a: [f64; 2]) {
-    let expected = super::extract(hw(super::constant(a[0], a[1])));
-    let actual = f(a);
+    let actual = super::extract(hw(super::constant(a[0], a[1])));
+    // `unary_ops` pairs the target backend with a reference.
+    let expected = f(a);
     for i in 0..2 {
         // Both lanes of the argument are reported: the lanes are rounded in
         // opposite directions, so a mismatch depends on which one this is.
@@ -262,10 +277,10 @@ fn check_unary(r: &mut Report, name: &str, hw: HwUnary, f: Unary, a: [f64; 2]) {
 }
 
 fn check_binary(r: &mut Report, name: &str, hw: HwBinary, f: Binary, a: [f64; 2], b: [f64; 2]) {
-    let expected = super::extract(hw(super::constant(a[0], a[1]), super::constant(b[0], b[1])));
-    let actual = f(a, b);
+    let target = super::extract(hw(super::constant(a[0], a[1]), super::constant(b[0], b[1])));
+    let generic = f(a, b);
     for i in 0..2 {
-        r.check(name, &[a[i], b[i]], expected[i], actual[i]);
+        r.check_target(name, &[a[i], b[i]], target[i], generic[i]);
     }
 }
 
@@ -278,14 +293,14 @@ fn check_ternary(
     b: [f64; 2],
     c: [f64; 2],
 ) {
-    let expected = super::extract(hw(
+    let target = super::extract(hw(
         super::constant(a[0], a[1]),
         super::constant(b[0], b[1]),
         super::constant(c[0], c[1]),
     ));
-    let actual = f(a, b, c);
+    let generic = f(a, b, c);
     for i in 0..2 {
-        r.check(name, &[a[i], b[i], c[i]], expected[i], actual[i]);
+        r.check_target(name, &[a[i], b[i], c[i]], target[i], generic[i]);
     }
 }
 
