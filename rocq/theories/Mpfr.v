@@ -2,22 +2,21 @@
 
     [Model.v] leaves abstract, as the fields of a record [m : mpfr], the
     MPFR functions with which [src/mpfr_calls/mpfr.rs] rounds the bounds
-    of the elementary functions and of interval literals. In [Model.v],
-    the elementary functions and the conversions of [src/parse.rs] take a
-    record [point] of the functions that round their bounds to [f64]s,
-    and the theorems about them, all but the two of [PointTheorems.v]
-    below, are stated for [mpfr_point m], the record [point] that
-    [src/mpfr_calls/mpfr.rs] makes of [m]. This file states what the
-    theorems assume of [m]: what the MPFR manual documents. Like
+    of the elementary functions. In [Model.v], the elementary functions
+    take a record [point] of the functions that round their bounds to
+    [f64]s, and the theorems about them, all but the one of
+    [PointTheorems.v] below, are stated for [mpfr_point m], the record
+    [point] that [src/mpfr_calls/mpfr.rs] makes of [m]. This file states
+    what the theorems assume of [m]: what the MPFR manual documents. Like
     [Model.v] and [Ieee1788.v], it has to be checked by reading, against
     the MPFR manual: its sections on rounding, on the exponent range, on
     special values and exceptions, the entry of [mpfr_get_d], and those of
     the functions. It assumes as little as the proofs use: the rounding of
     each function for finite arguments in its domain, and only the special
     values that the Rust code passes. The rounding and the special values
-    of the fields of [m] that the elementary functions use, all but
-    [mpfr_get_d], which converts their results, are stated only at the
-    MPFR numbers that [with_val] makes of [f64]s, as the code passes them.
+    of the fields of [m], all but [mpfr_get_d], which converts their
+    results, are stated only at the MPFR numbers that [with_val] makes of
+    [f64]s, as the code passes them.
     A special value at a finite argument other than 0, such as
     [atan2(y, -inf)] for [y > 0], is thus assumed only where that argument
     is the real of a finite [f64], not at every real. A special value that
@@ -30,21 +29,7 @@
     [src/mpfr_calls/mpfr.rs] that it calls set MPFR's exponent range,
     [emin] and [emax]. The theorems about the functions of
     [src/elementary.rs] hold for every range that contains that of [f64]
-    ([range_ok]), as MPFR's default range does. [rational_to_f64] in
-    [src/parse.rs] sets the range around its calls, and the hypotheses
-    about them, in the last section, are stated at the range that it sets.
-
-    The range is per thread in an MPFR built thread-safe, as
-    [gmp-mpfr-sys] builds it, and global in one built without
-    thread-local storage (§4.7 "Memory Handling" of the MPFR manual).
-    [range_per_thread] in [src/elementary/mpfr_tests.rs] tests that the
-    linked MPFR keeps it per thread, so that no other thread can change
-    it while [rational_to_f64] has it set. A system MPFR built without
-    thread-local storage, which the feature [use-system-libs] of
-    [gmp-mpfr-sys] can link, fails that test, and with such an MPFR,
-    [assert_thread_safe] in [src/mpfr_calls/mpfr.rs], which
-    [with_parse_range] calls first, panics before [rational_to_f64] sets
-    the range.
+    ([range_ok]), as MPFR's default range does.
 
     [mpfr_ok_consistent] in [MpfrConsistent.v] shows that the hypotheses
     on [m] that the theorems take can all hold at once: at every range with
@@ -53,20 +38,15 @@
 
     [Contract.v] states what each field of a record [point] must do, at
     the level of [f64]s. [MpfrPoint.v] shows that each field of
-    [mpfr_point m] for an elementary function does it where [m]
-    satisfies, at a range with [range_ok], [get_d_ok] and the hypothesis
-    of the MPFR function that the field calls, such as [exp_ok] for
-    [p_exp], and that its [p_round_rational] does it where [m] satisfies
-    [parse_ok]. [PointTheorems.v] restates [exp_correct] as
-    [exp_correct_point], for every record [point] whose [p_exp] does what
-    [Contract.v] asks of it, and [from_ninterval_correct] as
-    [from_ninterval_correct_point], for every one whose [p_round_rational]
-    does. All the others about the elementary functions and the
-    conversions of [src/parse.rs], [exp_correct] and
-    [from_ninterval_correct] among them, assume of [m] only what this
-    file states. *)
+    [mpfr_point m] does it where [m] satisfies, at a range with
+    [range_ok], [get_d_ok] and the hypothesis of the MPFR function that
+    the field calls, such as [exp_ok] for [p_exp]. [PointTheorems.v]
+    restates [exp_correct] as [exp_correct_point], for every record
+    [point] whose [p_exp] does what [Contract.v] asks of it. All the
+    others about the elementary functions, [exp_correct] among them,
+    assume of [m] only what this file states. *)
 
-From Stdlib Require Import ZArith Reals Qreals.
+From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Elementary.
 
@@ -354,94 +334,3 @@ Definition tanh_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct emin emax real_dom tanh (mpfr_tanh m) /\
   mpfr_tanh m RNDD (MInf true) = MNum (-1) /\
   mpfr_tanh m RNDU (MInf false) = MNum 1.
-
-(** ** The conversions of [src/parse.rs]
-
-    [rational_to_f64] sets MPFR's exponent range to [emin = -1073] and
-    [emax = 1024] around its calls to [mpfr_set_q], [mpfr_subnormalize]
-    and [mpfr_get_d], the range of the example in §5.13 of the MPFR
-    manual, after the entry of [mpfr_subnormalize], of how to emulate
-    IEEE 754 binary64 arithmetic with MPFR. *)
-
-(** The ternary value [t] of an MPFR result [v] for the exact result [r]
-    (§4.4 "Rounding"): 0 if [v] is [r], positive if [v] is above [r], and
-    negative if below. An infinity is above or below every real, so its
-    ternary value is not 0 here, as for an infinity that a function
-    returns by overflow, and no NaN is the result for a real. *)
-Definition ternary_ok (r : R) (v : mpfr_t) (t : Z) : Prop :=
-  match v with
-  | MNaN => False
-  | MInf s => if s then (t < 0)%Z else (0 < t)%Z
-  | MZero _ => ((t < 0)%Z <-> 0 < r) /\ (t = 0%Z <-> r = 0)
-  | MNum y => ((t < 0)%Z <-> y < r) /\ (t = 0%Z <-> y = r)
-  end.
-
-(** [mpfr_set_q] (§5.2 "Assignment Functions"): the rational [q] rounded
-    in the direction [rnd] to an MPFR number of 53 bits, and its ternary
-    value. The entry says that [mpfr_set_q] might fail if the numerator or
-    the denominator of [q] cannot be represented as an [mpfr_t], which this
-    leaves out: it assumes the rounding for every [q].
-
-    The [mpfr_set_q] of MPFR 4.2.2 (set_q.c) does fail for some [q] where
-    C [long], MPFR's [mpfr_prec_t] and [mpfr_exp_t], has 32 bits, as on
-    32-bit targets and on 64-bit Windows. There, [MPFR_PREC_MAX] is
-    [2^31 - 257]. If the numerator or the denominator has more bits than
-    that, not counting its low zero limbs, [mpfr_set_q] aborts, in an
-    assertion of [mpfr_init2], or, if its limbs without the low zero ones
-    hold at least [2^31] bits, overflows the [long] in which it computes
-    that width. MPFR's widest exponent range is then from [1 - 2^30] to
-    [2^30 - 1]. Where GMP limbs have 64 bits, as on 64-bit Windows,
-    [mpfr_set_q] scales the quotient by a power of 2 in that range, and
-    checks only in a build with assertions that this neither overflows nor
-    underflows. So it can return the ternary value 0 for a [q] that
-    overflows or underflows that range, such as +inf for [2^1100000000]
-    toward +inf. Where limbs have 32 bits, as on most 32-bit targets, it
-    can give such a [q] the sign of the number it overwrites. None of these
-    can happen where C [long] and GMP limbs have 64 bits, as on the targets
-    that inari supports with the feature [gmp]. [MPFR_PREC_MAX] is then
-    [2^63 - 257], more than the at most [(2^31 - 1) * 64] bits of a GMP
-    integer, which counts its limbs in a C [int]. The scaling changes the
-    exponent by less than [2^37], which keeps it in the widest exponent
-    range, from [1 - 2^62] to [2^62 - 1]. And the code that gives the wrong
-    sign is compiled only for limbs of at most 32 bits.
-
-    Where [long] or limbs are narrower, [check_width] in [src/parse.rs]
-    rejects a literal with a bound whose numerator or denominator has more
-    than [2^29] bits. By a reading of [set_q.c], but not of [mpfr_div] or
-    the other functions that it calls, that keeps [mpfr_set_q] clear of the
-    cases above: the MPFR numbers that it makes of the numerator and the
-    denominator have at most [2^29] bits, the quotient that it scales gets
-    an exponent from [1 - 2^29] to [2^29 + 1], and with 32-bit limbs, the
-    numerator and the denominator are fewer than [2^24] limbs apart. But
-    neither [set_q_ok] nor the theorems that assume it are claimed for
-    these targets. *)
-Definition set_q_ok (emin emax : Z) (m : mpfr) : Prop :=
-  forall rnd q,
-  mpfr_round (mpfr_format emin emax) rnd (Q2R q) (fst (mpfr_set_q m emin emax rnd q)) /\
-  ternary_ok (Q2R q) (fst (mpfr_set_q m emin emax rnd q))
-    (snd (mpfr_set_q m emin emax rnd q)).
-
-(** The reals that [mpfr_subnormalize] rounds to: the MPFR numbers of 53
-    bits that are integer multiples of [2^(emin - 1)]. That is all of
-    those whose MPFR exponent [e] is at least [emin + 52], and below that,
-    in what the manual calls the subnormal exponent range, those with
-    [e - emin + 1] bits. *)
-Definition sub_format (emin emax : Z) (y : R) : Prop :=
-  mpfr_format emin emax y /\ generic_format radix2 (FLT_exp (emin - 1) 53) y.
-
-(** [mpfr_subnormalize] (§5.13 "Exception Related Functions"): if [x] is
-    the real [r] rounded in the direction [rnd] to an MPFR number of 53
-    bits, with the ternary value [t], it rounds [r] in the direction [rnd]
-    to [sub_format], and returns the ternary value of that against [r],
-    not against [x], as the manual says. *)
-Definition subnormalize_ok (emin emax : Z) (m : mpfr) : Prop :=
-  forall rnd r x t,
-  mpfr_round (mpfr_format emin emax) rnd r x -> ternary_ok r x t ->
-  mpfr_round (sub_format emin emax) rnd r (fst (mpfr_subnormalize m emin emax rnd x t)) /\
-  ternary_ok r (fst (mpfr_subnormalize m emin emax rnd x t))
-    (snd (mpfr_subnormalize m emin emax rnd x t)).
-
-(** What the theorems about [rational_to_f64] assume of MPFR: [set_q_ok],
-    [subnormalize_ok] and [get_d_ok] at the exponent range that it sets. *)
-Definition parse_ok (m : mpfr) : Prop :=
-  set_q_ok (-1073) 1024 m /\ subnormalize_ok (-1073) 1024 m /\ get_d_ok (-1073) 1024 m.

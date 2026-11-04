@@ -1,9 +1,9 @@
 (** * The hypotheses of [Mpfr.v] can all hold at once
 
     [mpfr_ok emin emax m] is the conjunction of every hypothesis on [m]
-    that the theorems take, besides [range_ok emin emax]: [get_d_ok], the
-    21 [<f>_ok] of the functions of [src/elementary.rs], and [parse_ok] for
-    [src/parse.rs]. No theorem takes [mpfr_ok] itself: they keep their own
+    that the theorems take, besides [range_ok emin emax]: [get_d_ok] and
+    the 21 [<f>_ok] of the functions of [src/elementary.rs]. No theorem
+    takes [mpfr_ok] itself: they keep their own
     hypotheses on [m], all of them among these. [MpfrExamples.v] checks
     this in the build for the theorems that [Assumptions.v] prints and the
     constructors of [made] and [dmade], and its header says which
@@ -18,8 +18,8 @@
     default exponent range. *)
 
 From Stdlib Require Import ZArith Reals Lia.
-From Inari Require Import Model Elementary Mpfr MpfrIdeal IdealRound IdealGetD IdealParse
-  IdealElem IdealPow IdealAtan2.
+From Inari Require Import Model Elementary Mpfr MpfrIdeal IdealRound IdealGetD IdealElem
+  IdealPow IdealAtan2.
 
 Definition mpfr_ok (emin emax : Z) (m : mpfr) : Prop :=
   get_d_ok emin emax m /\
@@ -43,18 +43,7 @@ Definition mpfr_ok (emin emax : Z) (m : mpfr) : Prop :=
   sin_ok emin emax m /\
   sinh_ok emin emax m /\
   tan_ok emin emax m /\
-  tanh_ok emin emax m /\
-  parse_ok m.
-
-Theorem ideal_parse_ok : forall a b, parse_ok (ideal a b).
-Proof.
-intros a b.
-assert (Hr : range_ok (-1073) 1024) by (split; lia).
-split; [|split].
-- exact (ideal_set_q_ok _ _ a b Hr).
-- exact (ideal_subnormalize_ok _ _ a b Hr).
-- exact (ideal_get_d_ok _ _ a b).
-Qed.
+  tanh_ok emin emax m.
 
 Theorem ideal_mpfr_ok :
   forall emin emax, range_ok emin emax -> mpfr_ok emin emax (ideal emin emax).
@@ -82,8 +71,7 @@ split; [exact (ideal_pown_ok emin emax Hr)|].
 split; [exact (ideal_sin_ok emin emax Hr)|].
 split; [exact (ideal_sinh_ok emin emax Hr)|].
 split; [exact (ideal_tan_ok emin emax Hr)|].
-split; [exact (ideal_tanh_ok emin emax Hr)|].
-exact (ideal_parse_ok emin emax).
+exact (ideal_tanh_ok emin emax Hr).
 Qed.
 
 Theorem mpfr_ok_consistent :

@@ -3,8 +3,9 @@
     [try_from_ninterval_exact] returns [Ok] exactly when both bounds of [x]
     are exact, and then an interval that holds exactly the reals that [x]
     denotes, which is the tightest one. Unlike [From<NInterval>], it needs
-    no hypothesis on [x]: bounds in the wrong order give the empty
-    interval, which holds no real, as [x] then denotes none. *)
+    no hypothesis on [x] other than [number_ok] of its bounds, under which
+    it does not panic: bounds in the wrong order give the empty interval,
+    which holds no real, as [x] then denotes none. *)
 
 From Stdlib Require Import ZArith Reals Qreals Lra.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -56,7 +57,7 @@ intros [|q|] w Hn Hw r; cbn [number_round number_exact above_num as_rnd_t] in *.
   + (* [Rnd_DN_pt] of a float is that float, here 0. *)
     pose proof (Rnd_DN_pt_idempotent _ _ _ Hw Hn) as E.
     cbn [B2R]. split; intros; lra.
-  + (* -inf is below every float, and [Q2R q] is one. *)
+  + (* -inf is below every float, and [rat_R q] is one. *)
     pose proof (Hw _ Hn). lra.
   + contradiction.
   + contradiction.
@@ -78,7 +79,7 @@ intros [|q|] w Hn Hw r; cbn [number_round number_exact below_num as_rnd_t] in *.
   + pose proof (Rnd_UP_pt_idempotent _ _ _ Hw Hn) as E.
     cbn [B2R]. split; intros; lra.
   + contradiction.
-  + (* +inf is above every float, and [Q2R q] is one. *)
+  + (* +inf is above every float, and [rat_R q] is one. *)
     pose proof (Hw _ Hn). lra.
   + contradiction.
   + destruct Hw as [_ Hw].
@@ -118,20 +119,20 @@ destruct a as [sa|[|]| |sa ma ea Ea], b as [sb|[|]| |sb mb eb Eb];
 Qed.
 
 Theorem try_from_ninterval_exact_correct :
-  forall m x, parse_ok m ->
-  match Interval.try_from_ninterval_exact m x with
+  forall x, number_ok (ninf x) -> number_ok (nsup x) ->
+  exists z, Interval.try_from_ninterval_exact x = Some z /\
+  match z with
   | Some y =>
       number_exact (ninf x) /\ number_exact (nsup x) /\
       is_tightest (ninterval_set x) y /\ (forall r, mem r y <-> ninterval_set x r)
   | None => ~ (number_exact (ninf x) /\ number_exact (nsup x))
   end.
 Proof.
-intros m x Hm.
-destruct (number_to_f64_correct m (ninf x) Inf Hm) as (Ra & Ea & _).
-destruct (number_to_f64_correct m (nsup x) Sup Hm) as (Rb & Eb & _).
-unfold Interval.try_from_ninterval_exact. cbv zeta.
-set (a := number_to_f64 m (ninf x) Inf) in *.
-set (b := number_to_f64 m (nsup x) Sup) in *.
+intros x Oa Ob.
+destruct (number_to_f64_correct (ninf x) Inf Oa) as (a & Sa & Ra & Ea & _).
+destruct (number_to_f64_correct (nsup x) Sup Ob) as (b & Sb & Rb & Eb & _).
+unfold Interval.try_from_ninterval_exact. rewrite Sa, Sb. cbv zeta.
+eexists. split; [reflexivity|].
 destruct (f64_inexact a) eqn:Ia; [|destruct (f64_inexact b) eqn:Ib]; cbn [orb].
 - (* An inexact bound gives [Err], and the bound is not exact. *)
   intros [Na _]. apply Ea in Na. congruence.

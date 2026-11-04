@@ -1,15 +1,13 @@
 (** * MPFR meets the contract
 
     The record [mpfr_point m] that [src/mpfr_calls/mpfr.rs] makes of the
-    MPFR functions [m] satisfies each part of [Contract.v]. Each [<f>_c],
-    about an elementary function, holds where [m] satisfies [get_d_ok] and
-    the hypothesis [<f>_ok] of [Mpfr.v], at an exponent range with
-    [range_ok]. [round_rational_c] holds where [m] satisfies [parse_ok]. *)
+    MPFR functions [m] satisfies each part of [Contract.v]: each [<f>_c]
+    holds where [m] satisfies [get_d_ok] and the hypothesis [<f>_ok] of
+    [Mpfr.v], at an exponent range with [range_ok]. *)
 
-From Stdlib Require Import ZArith Reals Qreals Lra Lia.
+From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Elementary Mpfr MpfrRound PowMpfr Atan2Mpfr ParseRound
-  Contract.
+From Inari Require Import Model Elementary Mpfr MpfrRound PowMpfr Atan2Mpfr Contract.
 
 Open Scope R_scope.
 
@@ -304,20 +302,4 @@ split; [|split].
 - unfold mpfr_fn. cbn [with_val]. rewrite H2.
   apply (mpfr_fn_round emin emax m RNDU _ _ Hr Hget).
   apply mpfr_round_exact; [lra | exact F1].
-Qed.
-
-Theorem mpfr_round_rational_c :
-  forall m, parse_ok m -> round_rational_c (p_round_rational (mpfr_point m)).
-Proof.
-intros m Hp rnd q.
-(* [rational_to_f64] at [Inf] and [Sup] is [p_round_rational] at [RNDD]
-   and [RNDU], with [f64_f] for the [f64] and [f64_inexact] for the flag. *)
-assert (E : forall i, p_round_rational (mpfr_point m) (as_rnd_t i) q =
-  (f64_f (rational_to_f64 m q i), f64_inexact (rational_to_f64 m q i))).
-{ intros i. unfold rational_to_f64.
-  destruct (p_round_rational (mpfr_point m) (as_rnd_t i) q) as [f b]. reflexivity. }
-destruct rnd; [change RNDD with (as_rnd_t Inf) | change RNDU with (as_rnd_t Sup)];
-  rewrite E; cbn [fst snd].
-- destruct (rational_to_f64_correct m q Inf Hp) as (H1 & H2 & _). split; assumption.
-- destruct (rational_to_f64_correct m q Sup Hp) as (H1 & H2 & _). split; assumption.
 Qed.

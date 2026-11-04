@@ -104,17 +104,16 @@ end.
 Qed.
 
 Theorem try_from_ninterval_exact_valid :
-  forall (m : mpfr) x y, Interval.try_from_ninterval_exact m x = Some y -> valid y.
+  forall x y, Interval.try_from_ninterval_exact x = Some (Some y) -> valid y.
 Proof.
-intros m x y H. unfold Interval.try_from_ninterval_exact in H.
+intros x y H. unfold Interval.try_from_ninterval_exact in H.
+destruct (number_to_f64 (ninf x) Inf) as [a|]; [|discriminate].
+destruct (number_to_f64 (nsup x) Sup) as [b|]; [|discriminate].
 cbv zeta in H.
-destruct (f64_inexact (number_to_f64 m (ninf x) Inf) ||
-          f64_inexact (number_to_f64 m (nsup x) Sup)); [discriminate|].
+destruct (f64_inexact a || f64_inexact b); [discriminate|].
 injection H as <-.
-set (a := f64_f (number_to_f64 m (ninf x) Inf)).
-set (b := f64_f (number_to_f64 m (nsup x) Sup)).
-destruct (Interval.try_from a b) as [z|] eqn:E.
-- exact (try_from_valid a b z E).
+destruct (Interval.try_from (f64_f a) (f64_f b)) as [z|] eqn:E.
+- exact (try_from_valid _ _ z E).
 - exact EMPTY_valid.
 Qed.
 
@@ -195,13 +194,14 @@ end.
 Qed.
 
 Theorem from_dec_ninterval_valid :
-  forall (m : mpfr) x, valid (itv (DecInterval.from_dec_ninterval m x)).
+  forall x z, DecInterval.from_dec_ninterval x = Some z -> valid (itv z).
 Proof.
-intros m x. unfold DecInterval.from_dec_ninterval. cbv zeta.
+intros x z H. unfold DecInterval.from_dec_ninterval in H.
+destruct (number_to_f64 (ninf (nx x)) Inf) as [a|]; [|discriminate].
+destruct (number_to_f64 (nsup (nx x)) Sup) as [b|]; [|discriminate].
+cbv zeta in H. injection H as <-.
 apply set_dec_valid.
-set (a := f64_f (number_to_f64 m (ninf (nx x)) Inf)).
-set (b := f64_f (number_to_f64 m (nsup (nx x)) Sup)).
-destruct (Interval.try_from a b) as [y|] eqn:E.
-- exact (try_from_valid a b y E).
+destruct (Interval.try_from (f64_f a) (f64_f b)) as [y|] eqn:E.
+- exact (try_from_valid _ _ y E).
 - exact EMPTY_valid.
 Qed.

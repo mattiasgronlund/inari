@@ -1,21 +1,29 @@
-// Tests the linked MPFR against what `rocq/theories/Mpfr.v` assumes of it: the special
-// values of the `<f>_ok` definitions, `get_d_ok` at its edges, and the conversions of
-// `parse_ok`. It calls the MPFR functions that `Mpfr.v` states hypotheses about through the
-// code: the arms of `mpfr_fn!`, `mpfr_fn2!` and `mpfr_fn_si!` that give the MPFR number that
-// the functions they define convert with `get_d`, and `get_d`, `round_rational` and
-// `with_parse_range`, all in `src/mpfr_calls/mpfr.rs`, through which
-// `rational_to_f64` in `src/parse.rs` calls `mpfr::set_q`, `mpfr::subnormalize` and
-// `mpfr::get_d`.
+// Tests the linked MPFR against what `rocq/theories/Mpfr.v` assumes of it: `range_ok`, the
+// special values of the `<f>_ok` definitions and `get_d_ok` at its edges. It calls the MPFR
+// functions that `Mpfr.v` states hypotheses about through the code: the arms of `mpfr_fn!`,
+// `mpfr_fn2!` and `mpfr_fn_si!` that give the MPFR number that the functions they define
+// convert with `get_d`, and `get_d`, all in `src/mpfr_calls/mpfr.rs`.
+//
+// It also tests `round_rational` and `with_parse_range` there, which only the tests compile:
+// the MPFR rounding of a rational to an `f64` against which `src/parse/diff_tests.rs` checks
+// `rational_to_f64` of `src/parse.rs`. `round_rational` rounds with `mpfr::set_q`,
+// `mpfr::subnormalize` and `mpfr::get_d` at the exponent range `[-1073, 1024]` that
+// `with_parse_range` sets. `round_rational_oracle` checks it, on rationals worked out by
+// hand, against what the MPFR manual (of MPFR 4.2.2, which `gmp-mpfr-sys` 1.7.1 bundles)
+// states of these three functions. `Mpfr.v` states nothing of `mpfr_set_q` or
+// `mpfr_subnormalize`, and no theorem assumes anything of `round_rational`.
 //
 // Each check names, in a comment, the definition of `Mpfr.v` and the clause of it that it
-// checks. A clause stated `forall rnd` is checked with `RNDD` and with `RNDU`. The checks
-// look at the MPFR number itself, not only at its `mpfr::get_d`: `value` reads it as `mpfr_t`
-// in `rocq/theories/Model.v` has it, so that a special value is checked with the sign of a
-// zero. Where `Mpfr.v` states a rounding (`mpfr_round`), which gives a result of 0 as a zero
-// of either sign, the check compares `Float`s or `f64`s with `==`, which does not tell the
-// zeros apart. Where `Mpfr.v` states a special value only as a zero of some sign, the check
-// matches it with `Zero(_)`. A second check there tests more than `Mpfr.v` assumes, the sign of
-// that zero, and its comment says so.
+// checks, or, in `with_val`, the definition of `Model.v` that `Mpfr.v` relies on, or, in
+// `range_per_thread` and `round_rational_oracle`, the section of the MPFR manual. A clause
+// stated `forall rnd` is checked with `RNDD` and with `RNDU`. The checks look at the MPFR
+// number itself, not only at its `mpfr::get_d`: `value` reads it as `mpfr_t` in
+// `rocq/theories/Model.v` has it, so that a special value is checked with the sign of a zero.
+// Where `Mpfr.v` states a rounding (`mpfr_round`), which gives a result of 0 as a zero of
+// either sign, the check compares `Float`s or `f64`s with `==`, which does not tell the zeros
+// apart. Where `Mpfr.v` states a special value only as a zero of some sign, the check matches
+// it with `Zero(_)`. A second check there tests more than `Mpfr.v` assumes, the sign of that
+// zero, and its comment says so.
 //
 // MPFR's exponent range is per thread in an MPFR built thread-safe, as `gmp-mpfr-sys` builds
 // it, which `range_per_thread` tests, so that `with_parse_range` in one test does not change
@@ -122,9 +130,11 @@ fn least() -> Float {
     float(1, emin - 1)
 }
 
-// `ternary_ok r v t` of `Mpfr.v`: `t` is the ternary value of the MPFR result `v` for the
-// exact result `r`.
-fn ternary_ok(r: &Rational, v: &Value, t: i32) -> bool {
+// `t` is the ternary value of the MPFR result `v` for the exact result `r`, as §4.4
+// "Rounding" of the MPFR manual defines it: 0 if `v` is `r`, positive if `v` is greater and
+// negative if it is lower. `r` is a rational, so an infinite `v` can only come from an
+// overflow, which the manual counts as inexact, and a NaN `v` fails.
+fn is_ternary(r: &Rational, v: &Value, t: i32) -> bool {
     match v {
         Value::NaN => false,
         Inf(s) => {
@@ -148,14 +158,15 @@ fn range_ok() {
     assert!(1024 <= emax, "{emax}");
 }
 
-// MPFR keeps its exponent range per thread, as the comment at the top of
-// `rocq/theories/Mpfr.v` says, so that no other thread can change it between the calls of
-// `rational_to_f64` in `src/parse.rs`: MPFR is built thread-safe (`mpfr_buildopt_tls_p`,
-// §5.12 "Miscellaneous Functions" of the MPFR manual), and a range set in another thread
-// leaves this thread's as it was. A system MPFR built without thread-local storage, which
-// the feature `use-system-libs` of `gmp-mpfr-sys` can link, fails this test, and in a program
-// linked with such an MPFR, `assert_thread_safe` in `src/mpfr_calls/mpfr.rs`, which
-// `with_parse_range` calls first, panics before `rational_to_f64` sets the range.
+// MPFR keeps its exponent range per thread, so that no other thread, such as another test,
+// can change it while `with_parse_range` has it set for `round_rational`: MPFR is built
+// thread-safe (`mpfr_buildopt_tls_p`, §5.12 "Miscellaneous Functions" of the MPFR manual),
+// which makes the range per thread (§4.7 "Memory Handling"), and a range set in another
+// thread leaves this thread's as it was. Only tests set the range. A system MPFR built
+// without thread-local storage, which the feature `use-system-libs` of `gmp-mpfr-sys` can
+// link, fails this test, and with such an MPFR, `assert_thread_safe` in
+// `src/mpfr_calls/mpfr.rs`, which `with_parse_range` calls first, panics before
+// `with_parse_range` sets the range.
 #[test]
 fn range_per_thread() {
     assert_ne!(unsafe { mpfr::buildopt_tls_p() }, 0);
@@ -689,8 +700,8 @@ fn overflow() {
 }
 
 // `get_d_ok emin emax` at its edges, in MPFR's exponent range in this thread, and the same
-// cases at the range of `rational_to_f64`, `get_d_ok (-1073) 1024` of `parse_ok`, where they
-// are MPFR numbers.
+// cases, where they are MPFR numbers, at the range `[-1073, 1024]` that `with_parse_range`
+// sets, at which `round_rational` converts with `get_d`: `get_d_ok (-1073) 1024`.
 #[test]
 fn get_d_ok() {
     let max = f64::MAX;
@@ -701,7 +712,7 @@ fn get_d_ok() {
     assert!(emin < -1074 && 1024 < emax, "{emin}, {emax}");
 
     // `(y, y rounded down to f64, y rounded up to f64, whether y is an MPFR number at the
-    // range of rational_to_f64)`, for MPFR numbers `y > 0`. A rounding of 0 is a zero of
+    // range of with_parse_range)`, for MPFR numbers `y > 0`. A rounding of 0 is a zero of
     // either sign.
     let cases = [
         // The largest `f64`, `(1 - 2^-53) * 2^1024`.
@@ -761,7 +772,7 @@ fn get_d_ok() {
         for (y, rnd, d) in checks {
             assert!(is_f64(get_d(y, rnd), d), "{y}, {rnd:?}");
             if at_parse {
-                // The same in `get_d_ok (-1073) 1024` of `parse_ok`.
+                // The same in `get_d_ok (-1073) 1024`, at the range of `with_parse_range`.
                 let e = with_parse_range(|| get_d(y, rnd));
                 assert!(is_f64(e, d), "{y}, {rnd:?}");
             }
@@ -786,15 +797,17 @@ fn get_d_ok() {
     }
 }
 
-// `parse_ok`: `set_q_ok (-1073) 1024` and `subnormalize_ok (-1073) 1024`, through
-// `round_rational` in `src/mpfr_calls/mpfr.rs`, which `rational_to_f64` calls, and
-// `get_d_ok (-1073) 1024` of the result. The rationals are small. `mpfr_set_q` aborts on an
-// operand wider than `MPFR_PREC_MAX` bits, but no GMP integer is that wide where C `long` and
-// GMP limbs have 64 bits, as on the targets that inari supports with `gmp` (see `set_q_ok`).
+// `round_rational` in `src/mpfr_calls/mpfr.rs`, the oracle of `src/parse/diff_tests.rs`, on
+// rationals worked out by hand, against what the MPFR manual (of MPFR 4.2.2, which
+// `gmp-mpfr-sys` 1.7.1 bundles) states of the functions that it calls: `mpfr_set_q` (§5.2
+// "Assignment Functions"), `mpfr_subnormalize` (§5.13 "Exception Related Functions") and
+// `mpfr_get_d` (§5.4 "Conversion Functions"), with the directed roundings and the ternary
+// value of §4.4 "Rounding". The rationals are small, as `mpfr_set_q` "might fail if the
+// numerator (or the denominator) cannot be represented as a `mpfr_t`" (§5.2).
 #[test]
-fn parse_ok() {
-    // `with_parse_range` sets the range `[-1073, 1024]` that `parse_ok` states, and then
-    // restores this thread's.
+fn round_rational_oracle() {
+    // `with_parse_range` sets the range `[-1073, 1024]`, at which the example in §5.13
+    // emulates binary64 with `mpfr_subnormalize`, and then restores this thread's.
     let before = range();
     assert_eq!(with_parse_range(range), (-1073, 1024));
     assert_eq!(range(), before);
@@ -804,9 +817,9 @@ fn parse_ok() {
     let one_3rd_dn = f64::from_bits(0x3fd5555555555555);
     let one_3rd_up = f64::from_bits(0x3fd5555555555556);
 
-    // `(q, rnd, set_q, subnormalize)`: the rational, the direction, `q` rounded to
-    // `mpfr_format (-1073) 1024` and `q` rounded to `sub_format (-1073) 1024`. A rounding of
-    // 0 is a zero of either sign.
+    // `(q, rnd, set_q, subnormalize)`: the rational, the direction, `q` rounded to an MPFR
+    // number of 53 bits at this range or an infinity, and `q` rounded to an `f64`. A rounding
+    // of 0 is a zero of either sign.
     let cases = [
         // 1, exactly, with the ternary value 0.
         (Rational::from(1), RNDD, of_f64(1.0), of_f64(1.0)),
@@ -904,8 +917,9 @@ fn parse_ok() {
         (rational((1 << 53) - 1, 971), RNDU, of_f64(max), of_f64(max)),
     ];
 
-    // Each case, and its negation in the other direction: `mpfr_format` and `sub_format` are
-    // symmetric, so `-q` rounds to `-x` and `-y` there, and the cases cover both signs.
+    // Each case, and its negation in the other direction: the MPFR numbers of 53 bits at this
+    // range and the `f64`s are both symmetric about 0, so `-q` rounds to `-x` and `-y` there,
+    // and the cases cover both signs.
     let flip = |rnd| match rnd {
         RNDD => RNDU,
         _ => RNDD,
@@ -919,24 +933,26 @@ fn parse_ok() {
 
     for (q, rnd, x_ok, y_ok) in cases {
         // `round_rational`, with the MPFR number and the ternary value after `mpfr::set_q`
-        // (`after_set_q`) and after `mpfr::subnormalize`.
+        // (`after_set_q`) and after `mpfr::subnormalize`, and the `f64` of `get_d`.
         let mut set_q = None;
         let (y, u, d) = round_rational(&q, rnd, |x, t| set_q = Some((x.clone(), t)));
         let (x, t) = set_q.unwrap();
 
-        // `set_q_ok`: `mpfr_round (mpfr_format emin emax) rnd (Q2R q) (fst (mpfr_set_q m emin
-        // emax rnd q))` and `ternary_ok (Q2R q) (fst ..) (snd ..)`
+        // `mpfr_set_q` (§5.2): `x` is `q` rounded in the direction `rnd` (§4.4) to an MPFR
+        // number of 53 bits at this range or an infinity, and `t` is its ternary value against
+        // `q`
         assert_eq!(x, x_ok, "{q}, {rnd:?}");
-        assert!(ternary_ok(&q, &value(&x), t), "{q}, {rnd:?}, {t}");
+        assert!(is_ternary(&q, &value(&x), t), "{q}, {rnd:?}, {t}");
 
-        // `subnormalize_ok`: `mpfr_round (sub_format emin emax) rnd r (fst (mpfr_subnormalize
-        // m emin emax rnd x t))` and `ternary_ok r (fst ..) (snd ..)`, with `r = Q2R q`, the
-        // real that `x` rounds
+        // `mpfr_subnormalize` (§5.13): `y` is `x` rounded in the direction `rnd` to an `f64`,
+        // which is `q` rounded once, as the `f64`s are among the MPFR numbers of 53 bits at
+        // this range and the infinities, and `u` is its ternary value against `q`, not against
+        // `x`, as "the ternary value is propagated"
         assert_eq!(y, y_ok, "{q}, {rnd:?}");
-        assert!(ternary_ok(&q, &value(&y), u), "{q}, {rnd:?}, {u}");
+        assert!(is_ternary(&q, &value(&y), u), "{q}, {rnd:?}, {u}");
 
-        // `get_d_ok`: the first clause for `y`, which is in `sub_format`, so an `f64`, or the
-        // second or the third
+        // `mpfr_get_d` (§5.4): `y` is an `f64`, so `d` is `y`. A zero converts to a zero that
+        // keeps its sign "if possible", which `==` does not check
         assert_eq!(y, d, "{q}, {rnd:?}");
     }
 }

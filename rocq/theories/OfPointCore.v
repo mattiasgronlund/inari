@@ -3,9 +3,9 @@
     [OfPoint.v] makes, of every record [point] [p], MPFR functions
     [of_point p] with [mpfr_point (of_point p) = p]. This file has the
     pieces that it builds them of. MPFR's exponent range is that of
-    [f64], [emin = -1073] and [emax = 1024], as [rational_to_f64] sets it:
-    the least positive MPFR number of 53 bits, [2^(emin - 1)], and the
-    largest, [(2^53 - 1) * 2^(emax - 53)], are then those of [f64]. *)
+    [f64], [emin = -1073] and [emax = 1024]: the least positive MPFR
+    number of 53 bits, [2^(emin - 1)], and the largest,
+    [(2^53 - 1) * 2^(emax - 53)], are then those of [f64]. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia Eqdep_dec.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.

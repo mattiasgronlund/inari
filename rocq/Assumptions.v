@@ -13,11 +13,11 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu A
   DecBinary DecTernary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
   MulRevSets MulRev CancelSpec Cancel MpfrRound ElemDec ClosedDom Elem Atanh Cosh
   PiBounds PiIrrational TrigQuad TrigCount TrigCert Cos Sin Tan Dom2 Pow Powi AtanReal
-  PiTight Atan2 ParseFormat ParseRound ParseHull ParseExact ParseDec ConstTight
+  PiTight Atan2 ParseScale ParseRound ParseHull ParseExact ParseDec ConstTight
   ConstPi ConstInv ConstLn ConstLog ValidMake ValidSetOp ValidOps ValidDecOps
-  ValidElem Valid MpfrIdeal IdealRound IdealGetD IdealParse IdealElem IdealPow
-  IdealAtan2 MpfrConsistent Contract OfPointCore OfPoint OfPointElem OfPointPow
-  OfPointParse MpfrPoint PointTheorems.
+  ValidElem Valid MpfrIdeal IdealRound IdealGetD IdealElem IdealPow IdealAtan2
+  MpfrConsistent Contract OfPointCore OfPoint OfPointElem OfPointPow MpfrPoint
+  PointTheorems.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -163,7 +163,7 @@ Print Assumptions FRAC_PI_2_up.
 Print Assumptions FRAC_PI_2_dn.
 Print Assumptions atan2_correct.
 Print Assumptions dec_atan2_correct.
-Print Assumptions sub_format_f64.
+Print Assumptions scale_correct.
 Print Assumptions rational_to_f64_correct.
 Print Assumptions number_to_f64_correct.
 Print Assumptions number_neg_correct.
@@ -313,8 +313,6 @@ Print Assumptions dec_intersection_valid.
 Print Assumptions made_valid.
 Print Assumptions round_mpfr_correct.
 Print Assumptions ideal_get_d_ok.
-Print Assumptions ideal_set_q_ok.
-Print Assumptions ideal_subnormalize_ok.
 Print Assumptions ideal_acos_ok.
 Print Assumptions ideal_acosh_ok.
 Print Assumptions ideal_asin_ok.
@@ -336,22 +334,18 @@ Print Assumptions ideal_tanh_ok.
 Print Assumptions ideal_pow_ok.
 Print Assumptions ideal_pown_ok.
 Print Assumptions ideal_atan2_ok.
-Print Assumptions ideal_parse_ok.
 Print Assumptions ideal_mpfr_ok.
 Print Assumptions mpfr_ok_consistent.
 Print Assumptions mpfr_ok_default.
 
 (** The contract of [Contract.v]. [of_point p], the MPFR functions made
     of a record [point] [p], gives back [p] by [mpfr_point]. At the
-    exponent range of [f64], it satisfies [get_d_ok], each [<f>_ok] of
-    [Mpfr.v] where the field of [p] satisfies [<f>_c], and [parse_ok]
-    where [p_round_rational p] satisfies [round_rational_c].
-    [mpfr_point m] satisfies each [<f>_c] where [m] satisfies [get_d_ok]
-    and [<f>_ok], at an exponent range with [range_ok], and
-    [round_rational_c] where [m] satisfies [parse_ok]. Last,
-    [exp_correct] and [from_ninterval_correct] stated for every record
-    [point] whose fields satisfy the parts of [Contract.v] that they need
-    ([PointTheorems.v]). *)
+    exponent range of [f64], it satisfies [get_d_ok] and each [<f>_ok] of
+    [Mpfr.v] where the field of [p] satisfies [<f>_c]. [mpfr_point m]
+    satisfies each [<f>_c] where [m] satisfies [get_d_ok] and [<f>_ok],
+    at an exponent range with [range_ok]. Last, [exp_correct] stated for
+    every record [point] whose fields satisfy the parts of [Contract.v]
+    that it needs ([PointTheorems.v]). *)
 Print Assumptions mpfr_point_of_point.
 Print Assumptions of_point_get_d_ok.
 Print Assumptions of_point_acos_ok.
@@ -375,7 +369,6 @@ Print Assumptions of_point_tanh_ok.
 Print Assumptions of_point_atan2_ok.
 Print Assumptions of_point_pow_ok.
 Print Assumptions of_point_pown_ok.
-Print Assumptions of_point_parse_ok.
 Print Assumptions mpfr_acos_c.
 Print Assumptions mpfr_acosh_c.
 Print Assumptions mpfr_asin_c.
@@ -397,9 +390,7 @@ Print Assumptions mpfr_sin_c.
 Print Assumptions mpfr_sinh_c.
 Print Assumptions mpfr_tan_c.
 Print Assumptions mpfr_tanh_c.
-Print Assumptions mpfr_round_rational_c.
 Print Assumptions exp_correct_point.
-Print Assumptions from_ninterval_correct_point.
 
 (** The names whose types quantify over an MPFR anywhere, and those of
     them that [Valid.v] declares, for the check of [MpfrExamples.v] in the

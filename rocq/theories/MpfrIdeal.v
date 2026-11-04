@@ -7,11 +7,10 @@
     arguments the values that [Mpfr.v] states. Where [Mpfr.v] states a
     special value only as a zero, they return one with the sign that MPFR
     returns. Its [mpfr_get_d] rounds every real to an [f64] in the
-    direction asked, with Flocq's [binary_normalize]. Its [mpfr_set_q] and
-    [mpfr_subnormalize] take the range as their first two arguments, as
-    the fields do. [MpfrConsistent.v] shows that, at every range with
-    [range_ok], it satisfies every hypothesis on MPFR that the theorems
-    take, so they can all hold at once.
+    direction asked, with Flocq's [binary_normalize]. [MpfrConsistent.v]
+    shows that, at every range with [range_ok], it satisfies every
+    hypothesis on MPFR that the theorems take, so they can all hold at
+    once.
 
     It is a witness, not a model of the MPFR that the Rust code links: it
     has to agree with what [Mpfr.v] states, and nothing else. At the
@@ -24,7 +23,7 @@
     choice operator, and [Assumptions.v] shows that the theorems about
     [ideal] depend only on the four axioms of the other proofs. *)
 
-From Stdlib Require Import ZArith Reals Qreals.
+From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Elementary Mpfr.
 
@@ -226,43 +225,6 @@ Definition ideal_pow_si (emin emax : Z) (rnd : mpfr_rnd) (x : mpfr_t) (n : Z) : 
   | MNum y => round_mpfr emin emax rnd (powerRZ y n)
   end.
 
-(** ** The conversions of [src/parse.rs] *)
-
-(** The ternary value of [v] for [r]: the sign of [v - r], -1 for -inf and
-    1 for +inf. *)
-Definition ternary (r : R) (v : mpfr_t) : Z :=
-  match v with
-  | MInf s => if s then (-1)%Z else 1%Z
-  | _ => match Rcompare (mval v) r with Lt => (-1)%Z | Eq => 0%Z | Gt => 1%Z end
-  end.
-
-(** [mpfr_set_q]: [q] rounded as the functions round, and its ternary
-    value. It never fails, unlike MPFR 4.2.2's on a target where C [long]
-    has 32 bits, which inari does not support with the feature [gmp] (see
-    [set_q_ok] in [Mpfr.v]). *)
-Definition ideal_set_q (emin emax : Z) (rnd : mpfr_rnd) (q : Q) : mpfr_t * Z :=
-  let v := round_mpfr emin emax rnd (Q2R q) in (v, ternary (Q2R q) v).
-
-(** [y] rounded in the direction [rnd] to the multiples of [2^(emin - 1)]
-    with 53 bits, as Flocq's [FLT_exp (emin - 1) 53] has them. *)
-Definition round_sub (emin : Z) (rnd : mpfr_rnd) (y : R) : R :=
-  round radix2 (FLT_exp (emin - 1) 53) (round_mode (f64_mode rnd)) y.
-
-(** [mpfr_subnormalize]: [x] rounded again, in the same direction, to
-    [sub_format]. If that keeps [x], the ternary value [t] stays, and
-    otherwise the result is on the side of [x] away from [r], so its
-    ternary value is -1 toward -inf and 1 toward +inf. A zero or an
-    infinity stays as it is. *)
-Definition ideal_subnormalize (emin _ : Z) (rnd : mpfr_rnd) (x : mpfr_t) (t : Z) :
-    mpfr_t * Z :=
-  match x with
-  | MNum y =>
-      let z := round_sub emin rnd y in
-      if Req_dec_T z y then (x, t)
-      else (MNum z, match rnd with RNDD => (-1)%Z | RNDU => 1%Z end)
-  | _ => (x, t)
-  end.
-
 (** ** The record *)
 
 Definition ideal (emin emax : Z) : mpfr := {|
@@ -287,9 +249,7 @@ Definition ideal (emin emax : Z) : mpfr := {|
   mpfr_sin := ideal_fn (rnd_fn emin emax sin) (rnd_zero emin emax sin) no_inf;
   mpfr_sinh := ideal_fn (rnd_fn emin emax sinh) (rnd_zero emin emax sinh) odd_inf;
   mpfr_tan := ideal_fn (rnd_fn emin emax tan) (rnd_zero emin emax tan) no_inf;
-  mpfr_tanh := ideal_fn (rnd_fn emin emax tanh) (rnd_zero emin emax tanh) tanh_inf;
-  mpfr_set_q := ideal_set_q;
-  mpfr_subnormalize := ideal_subnormalize
+  mpfr_tanh := ideal_fn (rnd_fn emin emax tanh) (rnd_zero emin emax tanh) tanh_inf
 |}.
 
 (** ** Finite floats as MPFR numbers *)

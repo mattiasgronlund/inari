@@ -55,7 +55,7 @@
     it may make, and returns [None] if it would make more. If it returns
     [Some r] for any number, the Rust function returns [r]. *)
 
-From Stdlib Require Import ZArith Rdefinitions QArith_base.
+From Stdlib Require Import ZArith Rdefinitions.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Flocq Require IEEE754.Binary IEEE754.Bits.
 
@@ -801,36 +801,34 @@ End Generic.
 (** ** MPFR
 
     [src/elementary.rs] computes the bounds of [exp] and the other
-    elementary functions, and [src/parse.rs] rounds the bounds of an
-    interval literal to [f64]s, with functions of [src/mpfr_calls.rs],
-    which call MPFR through [rug] and [gmp_mpfr_sys]. Those functions are
-    the fields of the record [point] below, which the elementary functions
-    and the conversions of [parse.rs] take as their first argument [pt].
+    elementary functions with functions of [src/mpfr_calls.rs], which call
+    MPFR through [rug] and [gmp_mpfr_sys]. Those functions are the fields
+    of the record [point] below, which the elementary functions take as
+    their first argument [pt].
 
     The model leaves MPFR's functions abstract: an MPFR number is an
     [mpfr_t], and the MPFR functions with which [src/mpfr_calls/mpfr.rs]
-    computes those bounds, [mpfr::get_d], the 21 that the uses of
-    [mpfr_fn!], [mpfr_fn2!] and [mpfr_fn_si!] there call, [mpfr::set_q]
-    and [mpfr::subnormalize], are the fields of a record [mpfr], of which
-    [mpfr_point] makes the record [point] that inari uses. [Mpfr.v] states
-    what the MPFR manual says of them, and the theorems stated for MPFR
-    functions [m] assume it of [m]. The other functions of
-    [gmp_mpfr_sys::mpfr] that [src/mpfr_calls/mpfr.rs] calls are not
-    fields: the exponent range that [with_parse_range] reads and sets with
-    [mpfr::get_emin], [mpfr::get_emax], [mpfr::set_emin] and
-    [mpfr::set_emax] is an argument of [mpfr_set_q] and
-    [mpfr_subnormalize]; [assert_thread_safe()], which calls
-    [mpfr::buildopt_tls_p], is left out; and [fmt_bounds], which prints
-    the bounds of an interval for [src/format.rs] with [mpfr::asprintf]
-    and [mpfr::free_str], is not modelled. Outside [fmt_bounds], what it
-    does through [rug] is [Float::with_val], which is [with_val] below, and
-    the allocation and freeing of MPFR numbers, which are left out.
+    computes those bounds, [mpfr::get_d] and the 21 that the uses of
+    [mpfr_fn!], [mpfr_fn2!] and [mpfr_fn_si!] there call, are the fields
+    of a record [mpfr], of which [mpfr_point] makes the record [point]
+    that inari uses. [Mpfr.v] states what the MPFR manual says of them,
+    and the theorems stated for MPFR functions [m] assume it of [m]. The
+    other functions of [gmp_mpfr_sys::mpfr] that [src/mpfr_calls/mpfr.rs]
+    calls are not fields: [assert_thread_safe()], which calls
+    [mpfr::buildopt_tls_p], is left out; [fmt_bounds], which prints the
+    bounds of an interval for [src/format.rs] with [mpfr::asprintf] and
+    [mpfr::free_str], is not modelled; and [with_parse_range] and
+    [round_rational], which call [mpfr::get_emin], [mpfr::get_emax],
+    [mpfr::set_emin], [mpfr::set_emax], [mpfr::set_q] and
+    [mpfr::subnormalize], are compiled only for the tests, and are not
+    modelled either. Outside these, what it does through [rug] is
+    [Float::with_val], which is [with_val] below, and the allocation and
+    freeing of MPFR numbers, which are left out.
 
     [Contract.v] states what each field of [point] must do at the level
     of [f64]s; [MpfrPoint.v] shows that [mpfr_point m] does it under
-    [Mpfr.v]'s hypotheses, and [PointTheorems.v] proves [exp_correct] and
-    [from_ninterval_correct] for every record that does (as
-    [exp_correct_point] and [from_ninterval_correct_point]). *)
+    [Mpfr.v]'s hypotheses, and [PointTheorems.v] proves [exp_correct] for
+    every record that does (as [exp_correct_point]). *)
 
 (** [mpfr::rnd_t::RNDD] and [mpfr::rnd_t::RNDU], rounding toward -inf and
     toward +inf. *)
@@ -860,11 +858,10 @@ Definition with_val (x : f64) : mpfr_t :=
 
 (** The MPFR functions with which [src/mpfr_calls/mpfr.rs] computes
     bounds; the others that it calls are not fields (see the start of this
-    section). The fields but the last two are each a function of the
-    rounding direction and of the argument: [mpfr_get_d], through [get_d],
-    and [mpfr_acos] and the 20 others that the uses of [mpfr_fn!],
-    [mpfr_fn2!] and [mpfr_fn_si!] call, of which [mpfr_log] is MPFR's
-    [log].
+    section). The fields are each a function of the rounding direction
+    and of the argument: [mpfr_get_d], through [get_d], and [mpfr_acos]
+    and the 20 others that the uses of [mpfr_fn!], [mpfr_fn2!] and
+    [mpfr_fn_si!] call, of which [mpfr_log] is MPFR's [log].
     [mpfr::f(x.as_raw_mut(), x.as_raw(), rnd)] sets the MPFR number [x] to
     [f rnd x], rounded to the 53 bits of [x], which is both the argument
     and the result. [mpfr_atan2] and [mpfr_pow] take a second MPFR number,
@@ -874,23 +871,10 @@ Definition with_val (x : f64) : mpfr_t :=
     [mpfr::pow(x.as_raw_mut(), x.as_raw(), y.as_raw(), rnd)] to
     [mpfr_pow rnd x y], and
     [mpfr::pow_si(x.as_raw_mut(), x.as_raw(), n, rnd)] to
-    [mpfr_pow_si rnd x n].
-
-    The last two fields are the MPFR functions that [rational_to_f64] in
-    [src/parse.rs] calls through [round_rational]. They return the ternary
-    value as well, an integer here:
-    [mpfr::set_q(f.as_raw_mut(), r.as_raw(), rnd)] sets the MPFR number
-    [f] of 53 bits to [fst (mpfr_set_q emin emax rnd r)] for the rational
-    [r] and returns [snd (mpfr_set_q emin emax rnd r)], and
-    [mpfr::subnormalize(f.as_raw_mut(), t, rnd)] sets [f] to
-    [fst (mpfr_subnormalize emin emax rnd f t)] and returns
-    [snd (mpfr_subnormalize emin emax rnd f t)]. Their first two arguments
-    are MPFR's exponent range, [emin] and [emax], during the call, which
-    [with_parse_range] sets around them. The other fields do not take it,
-    as the functions that [mpfr_fn!] and the other macros define do not
-    set it, and
-    [Mpfr.v] states what it assumes of them for any range that contains
-    that of [f64].
+    [mpfr_pow_si rnd x n]. No field takes MPFR's exponent range, [emin]
+    and [emax], as the functions that [mpfr_fn!] and the other macros
+    define do not set it, and [Mpfr.v] states what it assumes of them for
+    any range that contains that of [f64].
 
     [ideal] in [MpfrIdeal.v] is a record of this type, which
     [MpfrConsistent.v] shows satisfies those hypotheses, so a change to
@@ -917,9 +901,7 @@ Record mpfr : Type := {
   mpfr_sin : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_sinh : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_tan : mpfr_rnd -> mpfr_t -> mpfr_t;
-  mpfr_tanh : mpfr_rnd -> mpfr_t -> mpfr_t;
-  mpfr_set_q : Z -> Z -> mpfr_rnd -> Q -> mpfr_t * Z;
-  mpfr_subnormalize : Z -> Z -> mpfr_rnd -> mpfr_t -> Z -> mpfr_t * Z
+  mpfr_tanh : mpfr_rnd -> mpfr_t -> mpfr_t
 }.
 
 (** The body [mpfr_fn!(let x = $mpfr_f(x, rnd)); get_d(&x, rnd)] of the
@@ -957,31 +939,21 @@ Definition mpfr_fn_si (m : mpfr) (f : mpfr_rnd -> mpfr_t -> Z -> mpfr_t)
 Definition is_i32 (n : Z) : Prop := (- 2 ^ 31 <= n < 2 ^ 31)%Z.
 
 (** The functions that [src/mpfr_calls.rs] gives the elementary functions
-    and the conversions of [src/parse.rs] to compute bounds with, each a
-    function of the rounding direction: a field [p_f] for each pair of
-    functions [f_rd] and [f_ru] that [mpfr_fn!], [mpfr_fn2!] or
-    [mpfr_fn_si!] defines in [src/mpfr_calls/mpfr.rs], with [f_rd] as
-    [p_f pt RNDD] and [f_ru] as [p_f pt RNDU], and the field
-    [p_round_rational] for [round_rational], which is defined there too.
-    The fields are in the order of the uses of those macros there, which
-    is that of the record [mpfr], and are named after the Rust functions:
-    [p_ln] is [ln_rd] and [ln_ru], which call MPFR's [log], and [p_pown]
-    is [pown_rd] and [pown_ru], which call [pow_si].
+    to compute bounds with, each a function of the rounding direction: a
+    field [p_f] for each pair of functions [f_rd] and [f_ru] that
+    [mpfr_fn!], [mpfr_fn2!] or [mpfr_fn_si!] defines in
+    [src/mpfr_calls/mpfr.rs], with [f_rd] as [p_f pt RNDD] and [f_ru] as
+    [p_f pt RNDU]. The fields are in the order of the uses of those macros
+    there, which is that of the record [mpfr], and are named after the
+    Rust functions: [p_ln] is [ln_rd] and [ln_ru], which call MPFR's
+    [log], and [p_pown] is [pown_rd] and [pown_ru], which call [pow_si].
 
-    [p_round_rational pt rnd r] is the pair of [d] and of [t != 0] for the
-    [(f, t, d)] that [round_rational(r, rnd, |_, _| ())] returns, which is
-    what [rational_to_f64] in [src/parse.rs] uses of it: [d] is an [f64],
-    and [t] is a ternary value, of which [rational_to_f64] only asks
-    whether [ternary_to_ordering(t) != Ordering::Equal], that is
-    [t != 0]. It drops the MPFR number [f].
-
-    The elementary functions and the conversions of [src/parse.rs] below
-    take such a record as their first argument [pt]. [mpfr_point m] is the
-    one that [src/mpfr_calls/mpfr.rs] makes of the MPFR functions [m].
-    [Contract.v] states what each field must do at the level of [f64]s;
-    [MpfrPoint.v] shows that [mpfr_point m] does it under [Mpfr.v]'s
-    hypotheses, and [PointTheorems.v] proves [exp_correct] and
-    [from_ninterval_correct] for every record that does. *)
+    The elementary functions below take such a record as their first
+    argument [pt]. [mpfr_point m] is the one that [src/mpfr_calls/mpfr.rs]
+    makes of the MPFR functions [m]. [Contract.v] states what each field
+    must do at the level of [f64]s; [MpfrPoint.v] shows that
+    [mpfr_point m] does it under [Mpfr.v]'s hypotheses, and
+    [PointTheorems.v] proves [exp_correct] for every record that does. *)
 Record point : Type := {
   p_acos : mpfr_rnd -> f64 -> f64;
   p_acosh : mpfr_rnd -> f64 -> f64;
@@ -1003,8 +975,7 @@ Record point : Type := {
   p_sin : mpfr_rnd -> f64 -> f64;
   p_sinh : mpfr_rnd -> f64 -> f64;
   p_tan : mpfr_rnd -> f64 -> f64;
-  p_tanh : mpfr_rnd -> f64 -> f64;
-  p_round_rational : mpfr_rnd -> Q -> f64 * bool
+  p_tanh : mpfr_rnd -> f64 -> f64
 }.
 
 (** The record [point] that [src/mpfr_calls/mpfr.rs] makes of the MPFR
@@ -1012,32 +983,7 @@ Record point : Type := {
     and [acos_ru] as [mpfr_fn m (mpfr_acos m)] in the directions [RNDD]
     and [RNDU], and the other uses of [mpfr_fn!] the same, those of
     [mpfr_fn2!] with [mpfr_fn2] and that of [mpfr_fn_si!] with
-    [mpfr_fn_si].
-
-    [p_round_rational] is [round_rational] with [with_parse_range]
-    inlined. [f] is [Float::new(f64::MANTISSA_DIGITS)], an MPFR number of
-    53 bits, which [mpfr::set_q] sets before anything reads it where C
-    [long] and GMP limbs have 64 bits, as on the targets that inari
-    supports with the feature [gmp] (see [set_q_ok] in [Mpfr.v]).
-    [round_rational] calls [mpfr::set_q], [mpfr::subnormalize] and
-    [get_d], which calls [mpfr::get_d], in a closure that it passes to
-    [with_parse_range]. [with_parse_range] calls [assert_thread_safe()],
-    saves MPFR's exponent range, sets [emin] to
-    [f64::MIN_EXP - (f64::MANTISSA_DIGITS as i32) + 1], which is
-    [-1021 - 53 + 1 = -1073], and [emax] to [f64::MAX_EXP], which is
-    [1024], calls the closure, and restores the range. The model passes
-    that range to [mpfr_set_q] and [mpfr_subnormalize], and [parse_ok] in
-    [Mpfr.v] assumes [get_d_ok] of [mpfr_get_d] at it. The save and the
-    restore are left out: the range is the same after the call as before
-    it, which is the range that [Mpfr.v] assumes for the other MPFR
-    functions. No other thread can change the range between these calls
-    where MPFR keeps it per thread, as the MPFR that [gmp-mpfr-sys] builds
-    does (see the comment at the top of [Mpfr.v]). Where MPFR is not built
-    thread-safe, and so keeps the range global, [assert_thread_safe()]
-    panics before the range is set, and otherwise it does nothing, so it is
-    left out too. [after_set_q], which [round_rational] calls after
-    [mpfr::set_q] and which [rational_to_f64] passes as [|_, _| ()], does
-    nothing and is left out. *)
+    [mpfr_fn_si]. *)
 Definition mpfr_point (m : mpfr) : point := {|
   p_acos := mpfr_fn m (mpfr_acos m);
   p_acosh := mpfr_fn m (mpfr_acosh m);
@@ -1059,17 +1005,13 @@ Definition mpfr_point (m : mpfr) : point := {|
   p_sin := mpfr_fn m (mpfr_sin m);
   p_sinh := mpfr_fn m (mpfr_sinh m);
   p_tan := mpfr_fn m (mpfr_tan m);
-  p_tanh := mpfr_fn m (mpfr_tanh m);
-  p_round_rational := fun rnd r =>
-    let '(f, t) := mpfr_set_q m (-1073) 1024 rnd r in
-    let '(f, t) := mpfr_subnormalize m (-1073) 1024 rnd f t in
-    (mpfr_get_d m rnd f, negb (t =? 0))
+  p_tanh := mpfr_fn m (mpfr_tanh m)
 |}.
 
-(** The theorems about the elementary functions and the conversions of
-    [src/parse.rs], other than the two of [PointTheorems.v], are stated for
-    the MPFR functions [m], and apply the functions below to
-    [mpfr_point m], which this coercion lets them write as [m]. *)
+(** The theorems about the elementary functions, other than
+    [exp_correct_point] of [PointTheorems.v], are stated for the MPFR
+    functions [m], and apply the functions below to [mpfr_point m], which
+    this coercion lets them write as [m]. *)
 Coercion mpfr_point : mpfr >-> point.
 
 (** The functions that [mpfr_fn!(acos, acos_rd, acos_ru)] and the other
@@ -1199,9 +1141,9 @@ Definition quadrants (pt : point) (a b : f64) : f64 * f64 :=
     [intersection] of [Interval], and the conversions in [src/parse.rs]
     that [FromStr] and [interval_exact!] call. [convex_hull] and
     [intersection] call the backend's [max] and [min]. The conversions in
-    [parse.rs] round the bounds of an interval literal with MPFR, in
-    [number_to_f64] and [rational_to_f64], which [Parse*.v] prove correct
-    given the MPFR hypotheses of [Mpfr.v]. *)
+    [parse.rs] round the bounds of an interval literal in [number_to_f64]
+    and [rational_to_f64], with [Nat]s and the portable backend's
+    [round_up_exact], which [Parse*.v] prove correct. *)
 
 (** [pub struct Interval], whose only field is [rep: F64X2]. *)
 Record Interval : Type := { rep : Generic.F64X2 }.
@@ -1307,39 +1249,77 @@ Definition transmute_class2 (c : Z) : option (IntervalClass * IntervalClass) :=
     interval literal into [f64]s, and the step of its grammar that
     decorates a literal. The rest of the [nom] grammar of [parse.rs], which
     reads the literal and computes its bounds as exact rationals, is not
-    modelled. Rust's [Rational], an exact GMP rational, is Stdlib's [Q]
-    here. A [Q] need not be in lowest terms, as a [Rational] is, but the
-    definitions below and [Mpfr.v] look at a [Q] only through its value. *)
+    modelled. Each [Nat] of [src/parse/nat.rs], the unsigned integer of
+    any width that [parse.rs] computes with, is the [Z] that it holds, and
+    each of its operations is the operation on [Z] that it computes: the
+    loops on its limbs are not proved. *)
 
 (** [enum InfSup { Inf, Sup }], which says whether a bound is the lower or
-    the upper one, and its [fn as_rnd_t(self) -> mpfr::rnd_t]. *)
+    the upper one. [as_rnd_t] is not Rust: it names the direction in which
+    the proofs round the bound, toward -inf for [Inf] and toward +inf for
+    [Sup]. *)
 Inductive InfSup : Type := Inf | Sup.
 
 Definition as_rnd_t (infsup : InfSup) : mpfr_rnd :=
   match infsup with Inf => RNDD | Sup => RNDU end.
 
-(** [enum Number { NegInfinity, Rational(Rational), Infinity }], and
-    [fn neg(self) -> Self] of [impl Neg for Number]. *)
-Inductive Number : Type := NegInfinity | Rational (r : Q) | Infinity.
+(** [struct Rat { neg: bool, num: Nat, den: Nat, e2: i32, e5: i32 }] of
+    [src/parse/rat.rs], with its fields as [rat_neg], [rat_num],
+    [rat_den], [rat_e2] and [rat_e5], and the value
+    [(-1)^neg * num * 2^e2 * 5^e5 / den] that its comment gives it as
+    [rat_R]. *)
+Record Rat : Type :=
+  { rat_neg : bool; rat_num : Z; rat_den : Z; rat_e2 : Z; rat_e5 : Z }.
+
+Definition radix5 : radix := Build_radix 5 eq_refl.
+
+Definition rat_R (x : Rat) : R :=
+  let v :=
+    Rdiv (Rmult (Rmult (IZR (rat_num x)) (bpow radix2 (rat_e2 x))) (bpow radix5 (rat_e5 x)))
+      (IZR (rat_den x)) in
+  if rat_neg x then Ropp v else v.
+
+(** What the grammar guarantees of each [Rat] that it makes, which is not
+    proved: [den > 0], as the comment of [Rat] says, and [e2] and [e5] are
+    [i32]s. [num] and [den] have at most [2^63] bits, which is
+    [2^60] bytes, more memory than any machine has. *)
+Definition rat_ok (x : Rat) : Prop :=
+  0 <= rat_num x < 2 ^ 2 ^ 63 /\ 0 < rat_den x < 2 ^ 2 ^ 63 /\
+  - 2 ^ 31 <= rat_e2 x < 2 ^ 31 /\ - 2 ^ 31 <= rat_e5 x < 2 ^ 31.
+
+(** [n.bits()] of a [Nat] [n]: the number of bits of [n], 0 for 0. *)
+Definition nat_bits (n : Z) : Z := if n =? 0 then 0 else Z.log2 n + 1.
+
+(** [enum Number { NegInfinity, Rational(Rat), Infinity }], and
+    [fn neg(self) -> Self] of [impl Neg for Number], which negates a [Rat]
+    by [impl Neg for Rat], flipping [neg]. *)
+Inductive Number : Type := NegInfinity | Rational (r : Rat) | Infinity.
 
 Definition number_neg (n : Number) : Number :=
   match n with
   | NegInfinity => Infinity
-  | Rational r => Rational (Qopp r)
+  | Rational r =>
+      Rational {| rat_neg := negb (rat_neg r); rat_num := rat_num r; rat_den := rat_den r;
+                  rat_e2 := rat_e2 r; rat_e5 := rat_e5 r |}
   | Infinity => NegInfinity
   end.
 
 (** [a <= b] for [Number]s, by the derived [PartialOrd], which compares
     the variants in the order of their declaration, and two [Rational]s by
-    their values. *)
+    [impl Ord for Rat], which compares their values. That [impl Ord for
+    Rat] compares the values is tested, not proved. *)
 Definition number_le (a b : Number) : Prop :=
   match a, b with
   | NegInfinity, _ => True
-  | Rational p, Rational q => Qle p q
+  | Rational p, Rational q => Rle (rat_R p) (rat_R q)
   | Rational _, Infinity => True
   | Infinity, Infinity => True
   | _, _ => False
   end.
+
+(** What the grammar guarantees of a bound: [rat_ok] of a [Rational]. *)
+Definition number_ok (n : Number) : Prop :=
+  match n with Rational x => rat_ok x | _ => True end.
 
 (** [enum NInterval { InfSup(Number, Number), Point(Number) }], with the
     variants as [NInfSup] and [NPoint], as [InfSup] is the type above, and
@@ -1372,10 +1352,11 @@ Definition nis_empty (x : NInterval) : bool :=
     [NInterval::EMPTY], [NInterval::ENTIRE], a [Point] of a [Rational], or,
     in [uncertain_interval], bounds that are [center - radius] or [center],
     and [center + radius] or [center], for a radius that is not negative,
-    or [NegInfinity] and [Infinity]. *)
+    or [NegInfinity] and [Infinity]. Each bound has [number_ok]. *)
 Definition ninterval_ok (x : NInterval) : Prop :=
-  nis_empty x = true \/
-  (number_le (ninf x) (nsup x) /\ ninf x <> Infinity /\ nsup x <> NegInfinity).
+  (nis_empty x = true \/
+   (number_le (ninf x) (nsup x) /\ ninf x <> Infinity /\ nsup x <> NegInfinity)) /\
+  number_ok (ninf x) /\ number_ok (nsup x).
 
 (** [struct DecNInterval { x: NInterval, d: Decoration }], with its fields
     as [nx] and [nd]. *)
@@ -1438,25 +1419,98 @@ Record F64 : Type := { f64_f : f64; f64_inexact : bool; f64_overflow : bool }.
 Definition f64_is_infinite (x : f64) : bool :=
   match x with B754_infinity _ => true | _ => false end.
 
-(** [fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64], with
-    [round_rational(r, infsup.as_rnd_t(), |_, _| ())] as
-    [p_round_rational pt (as_rnd_t infsup) r], which gives the [f64] [f]
-    and [ternary_to_ordering(t) != Ordering::Equal] as [inexact] (see the
-    record [point]), and [f.is_infinite()] as [f64_is_infinite f]. *)
-Definition rational_to_f64 (pt : point) (r : Q) (infsup : InfSup) : F64 :=
-  let '(f, inexact) := p_round_rational pt (as_rnd_t infsup) r in
-  {| f64_f := f; f64_inexact := inexact; f64_overflow := f64_is_infinite f |}.
+(** [enum Scaled { Huge, Tiny, Mid(u128, i32, bool) }] *)
+Inductive Scaled : Type := Huge | Tiny | Mid (q e : Z) (sticky : bool).
+
+(** [fn scale(x: &Rat) -> Scaled]. The [i128] operations are checked,
+    [i128::from] of a [u64] or an [i32] keeps the value, and [as] keeps the
+    low bits, as a cast between integers does. [&a * &b],
+    [&a << s], [a.div_rem(&b)], [a.is_zero()] and [a.low_u128()] of [Nat]s
+    are [a * b], [Z.shiftl a s], [(a / b, a mod b)], which panics for
+    [b = 0] as [div_u] and [rem_u] say, [a =? 0] and [a mod 2^128], and
+    [Nat::pow5(k)] is [5 ^ k]. *)
+Definition scale (x : Rat) : option Scaled :=
+  let e2 := rat_e2 x in
+  let e5 := rat_e5 x in
+  let* t := checked_i 128 (nat_bits (rat_num x) - nat_bits (rat_den x)) in
+  let* b0 := checked_i 128 (t + e2) in
+  let* lohi :=
+    if 0 <=? e5 then
+      let* lo5 := checked_i 128 (2 * e5) in
+      let* hi5 := checked_i 128 (3 * e5) in
+      Some (lo5, hi5)
+    else
+      let* lo5 := checked_i 128 (3 * e5) in
+      let* hi5 := checked_i 128 (2 * e5) in
+      Some (lo5, hi5) in
+  let (lo5, hi5) := lohi in
+  let* u := checked_i 128 (b0 + lo5) in
+  if 1025 <=? u then Some Huge else
+  let* v := checked_i 128 (b0 + hi5) in
+  if v <=? -1075 then Some Tiny else
+  (* [x.e5.unsigned_abs()] is [Z.abs e5]. *)
+  let p := 5 ^ Z.abs e5 in
+  let (n, d) := if 0 <=? e5 then (rat_num x * p, rat_den x) else (rat_num x, rat_den x * p) in
+  let* t' := checked_i 128 (nat_bits n - nat_bits d) in
+  let* b := checked_i 128 (t' + e2) in
+  if 1025 <=? b then Some Huge else
+  if b <=? -1075 then Some Tiny else
+  let* e := checked_i 128 (b - 56) in
+  let* sh := checked_i 128 (e2 - e) in
+  let* qr :=
+    if 0 <=? sh then
+      (* [sh as u64] *)
+      let s := sh mod 2 ^ 64 in
+      let* q := div_u (Z.shiftl n s) d in
+      let* r := rem_u (Z.shiftl n s) d in
+      Some (q, r)
+    else
+      let* ns := checked_i 128 (- sh) in
+      (* [(-sh) as u64] *)
+      let s := ns mod 2 ^ 64 in
+      let* q := div_u n (Z.shiftl d s) in
+      let* r := rem_u n (Z.shiftl d s) in
+      Some (q, r) in
+  let (q, r) := qr in
+  (* [e as i32], which keeps the low 32 bits of [e] as a two's complement
+     [i32]. *)
+  let e32 := (e + 2 ^ 31) mod 2 ^ 32 - 2 ^ 31 in
+  Some (Mid (q mod 2 ^ 128) e32 (negb (r =? 0))).
+
+(** [fn round_up_scaled(neg: bool, s: &Scaled) -> f64], where
+    [f64::MIN], [f64::INFINITY], [-0.0] and [f64::from_bits(1)] are
+    [min_f64], [infinity], [B754_zero true] and [from_bits 1]. *)
+Definition round_up_scaled (neg : bool) (s : Scaled) : option f64 :=
+  match s with
+  | Huge => Some (if neg then min_f64 else infinity)
+  | Tiny => Some (if neg then B754_zero true else from_bits 1)
+  | Mid q e sticky => Generic.round_up_exact neg q e sticky
+  end.
+
+(** [fn rational_to_f64(x: &Rat, infsup: InfSup) -> F64], where [0.0] is
+    [zero], [-round_up_scaled(..)] is [opp], [up != down] is
+    [negb (eq up down)], and [f.is_infinite()] is [f64_is_infinite f]. *)
+Definition rational_to_f64 (x : Rat) (infsup : InfSup) : option F64 :=
+  if rat_num x =? 0 then
+    Some {| f64_f := zero; f64_inexact := false; f64_overflow := false |}
+  else
+    let* s := scale x in
+    let* up := round_up_scaled (rat_neg x) s in
+    let* down := round_up_scaled (negb (rat_neg x)) s in
+    let down := opp down in
+    let f := match infsup with Inf => down | Sup => up end in
+    Some {| f64_f := f; f64_inexact := negb (eq up down); f64_overflow := f64_is_infinite f |}.
 
 (** [fn number_to_f64(n: &Number, infsup: InfSup) -> F64], where
     [f64::NEG_INFINITY] and [f64::INFINITY] are [B754_infinity true] and
     [B754_infinity false]. *)
-Definition number_to_f64 (pt : point) (n : Number) (infsup : InfSup) : F64 :=
+Definition number_to_f64 (n : Number) (infsup : InfSup) : option F64 :=
   match n with
   | NegInfinity =>
-      {| f64_f := B754_infinity true; f64_inexact := false; f64_overflow := false |}
-  | Rational r => rational_to_f64 pt r infsup
+      Some {| f64_f := B754_infinity true; f64_inexact := false; f64_overflow := false |}
+  | Rational r => rational_to_f64 r infsup
   | Infinity =>
-      {| f64_f := B754_infinity false; f64_inexact := false; f64_overflow := false |}
+      Some {| f64_f := B754_infinity false; f64_inexact := false; f64_overflow := false |}
   end.
 
 Module Interval.
@@ -1622,14 +1676,14 @@ Definition try_from_bytes (a b : f64) : option Interval :=
   else None.
 
 (** [fn try_from_ninterval_exact(x: NInterval) -> Result<Self>] in
-    [src/parse.rs], with [Ok(x)] as [Some x] and the [Err] as [None].
+    [src/parse.rs], with [Ok(x)] as [Some (Some x)], the [Err] as
+    [Some None], and a panic as [None].
     [unwrap_or(Self::EMPTY)] is the [match]. *)
-Definition try_from_ninterval_exact (pt : point) (x : NInterval) :
-    option Interval :=
-  let a := number_to_f64 pt (ninf x) Inf in
-  let b := number_to_f64 pt (nsup x) Sup in
+Definition try_from_ninterval_exact (x : NInterval) : option (option Interval) :=
+  let* a := number_to_f64 (ninf x) Inf in
+  let* b := number_to_f64 (nsup x) Sup in
   let x := match try_from (f64_f a) (f64_f b) with Some x => x | None => EMPTY end in
-  if f64_inexact a || f64_inexact b then None else Some x.
+  Some (if f64_inexact a || f64_inexact b then None else Some x).
 
 (** [pub fn is_common_interval(self) -> bool] *)
 Definition is_common_interval (self : Interval) : bool :=
@@ -2662,23 +2716,25 @@ Definition try_from (a b : f64) : option DecInterval :=
     [impl From<DecNInterval> for DecInterval] in [src/parse.rs], which
     [FromStr] for [DecInterval] calls, with the argument as [x] and its
     fields as [nx x] and [nd x]. [unwrap_or(Interval::EMPTY)] is the
-    [match], and [d.min(Decoration::Dac)] is [dec_min (nd x) Dac]. *)
-Definition from_dec_ninterval (pt : point) (x : DecNInterval) : DecInterval :=
-  let a := number_to_f64 pt (ninf (nx x)) Inf in
-  let b := number_to_f64 pt (nsup (nx x)) Sup in
+    [match], and [d.min(Decoration::Dac)] is [dec_min (nd x) Dac]. [None]
+    is a panic. *)
+Definition from_dec_ninterval (x : DecNInterval) : option DecInterval :=
+  let* a := number_to_f64 (ninf (nx x)) Inf in
+  let* b := number_to_f64 (nsup (nx x)) Sup in
   let y :=
     match Interval.try_from (f64_f a) (f64_f b) with
     | Some y => y
     | None => Interval.EMPTY
     end in
   let d := if f64_overflow a || f64_overflow b then dec_min (nd x) Dac else nd x in
-  set_dec y d.
+  Some (set_dec y d).
 
 (** [fn from(x: NInterval) -> Self] of [impl From<NInterval> for Interval]
     in [src/parse.rs], which [FromStr] for [Interval] calls:
-    [DecInterval::from(DecNInterval::new(x)).x()]. *)
-Definition from_ninterval (pt : point) (x : NInterval) : Interval :=
-  itv (from_dec_ninterval pt (dn_new x)).
+    [DecInterval::from(DecNInterval::new(x)).x()]. [None] is a panic. *)
+Definition from_ninterval (x : NInterval) : option Interval :=
+  let* y := from_dec_ninterval (dn_new x) in
+  Some (itv y).
 
 (** [pub const ENTIRE: Self] *)
 Definition ENTIRE : DecInterval := new_unchecked Interval.ENTIRE Dac.

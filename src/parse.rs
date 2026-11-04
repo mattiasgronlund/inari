@@ -1,5 +1,5 @@
-use crate::{interval::*, mpfr_calls::round_rational};
-use gmp_mpfr_sys::{gmp, mpfr};
+use crate::{interval::*, simd::round_up_exact};
+use nat::Nat;
 use nom::{
     branch::alt,
     bytes::complete::{tag_no_case, take_while},
@@ -8,8 +8,13 @@ use nom::{
     sequence::{delimited, pair, preceded, separated_pair, tuple},
     IResult,
 };
-use rug::{Integer, Rational};
-use std::{cmp::Ordering, result, str::FromStr};
+use rat::Rat;
+use std::{result, str::FromStr};
+
+#[cfg(test)]
+mod diff_tests;
+mod nat;
+mod rat;
 
 #[derive(Clone, Debug)]
 struct ParseNumberError;
@@ -28,33 +33,25 @@ impl From<std::num::TryFromIntError> for ParseNumberError {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum InfSup {
+    // `rocq/theories/Model.v` transcribes this enum for the proofs of the conversions of this
+    // file in `rocq/theories/ParseRound.v`, `rocq/theories/ParseHull.v`,
+    // `rocq/theories/ParseExact.v` and `rocq/theories/ParseDec.v`, so it has to be updated
+    // along with them.
     Inf,
     Sup,
-}
-
-impl InfSup {
-    fn as_rnd_t(self) -> mpfr::rnd_t {
-        // `rocq/theories/Model.v` transcribes this enum and this function for the proofs of
-        // the conversions of this file in `rocq/theories/ParseRound.v`,
-        // `rocq/theories/ParseHull.v`, `rocq/theories/ParseExact.v` and
-        // `rocq/theories/ParseDec.v`, so it has to be updated along with them.
-        match self {
-            Self::Inf => mpfr::rnd_t::RNDD,
-            Self::Sup => mpfr::rnd_t::RNDU,
-        }
-    }
 }
 
 /// An extended rational number.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Number {
-    // `rocq/theories/Model.v` transcribes this enum, with `Rational` as Stdlib's `Q`, and
-    // its derived `PartialOrd` for the proofs of the conversions of this file in
+    // `rocq/theories/Model.v` transcribes this enum, and its derived `PartialOrd` with `Rat`
+    // compared by value, for the proofs of the conversions of this file in
     // `rocq/theories/ParseRound.v`, `rocq/theories/ParseHull.v`,
     // `rocq/theories/ParseExact.v` and `rocq/theories/ParseDec.v`, so it has to be
-    // updated along with them.
+    // updated along with them. That `impl Ord for Rat` compares by value is tested, not
+    // proved.
     NegInfinity,
-    Rational(Rational),
+    Rational(Rat),
     Infinity,
 }
 
@@ -288,22 +285,7 @@ fn uncertain_direction(s: &str) -> IResult<&str, UncertainDirection> {
     )(s)
 }
 
-// Whether C `long` (`mpfr::prec_t`) and GMP limbs have 64 bits, as on the targets that inari
-// supports with the feature `gmp`. Where they do not, `parse_dec_float_with_ulp` and
-// `check_width` reject a literal before GMP computes a power of ten, or MPFR rounds a rational,
-// wider than 2^29 bits, as GMP and MPFR can fail on wider ones there.
-const LONG_AND_LIMBS_64: bool = std::mem::size_of::<mpfr::prec_t>() == 8 && gmp::NUMB_BITS == 64;
-
-fn pow(base: u32, exp: i32) -> Rational {
-    let i = Integer::from(Integer::u_pow_u(base, exp.unsigned_abs()));
-    let mut r = Rational::from(i);
-    if exp < 0 {
-        r.recip_mut();
-    }
-    r
-}
-
-fn parse_hex_float(mant: &str, exp: &str) -> result::Result<Rational, ParseNumberError> {
+fn parse_hex_float(mant: &str, exp: &str) -> result::Result<Rat, ParseNumberError> {
     let e = exp.parse::<i32>()?;
     let mut parts = mant.split('.');
     let int_part = parts.next().unwrap();
@@ -314,18 +296,28 @@ fn parse_hex_float(mant: &str, exp: &str) -> result::Result<Rational, ParseNumbe
         .checked_mul(4)
         .ok_or(ParseNumberError)?;
     let log2_ulp = e.checked_sub(frac_bits).ok_or(ParseNumberError)?;
-    let ulp = pow(2, log2_ulp);
 
     let i_str = [int_part, frac_part].concat();
-    let i = Integer::parse_radix(i_str, 16).unwrap();
-    Ok(Rational::from(i) * &ulp)
+    Ok(Rat {
+        neg: false,
+        num: Nat::from_hex(&i_str),
+        den: Nat::from_u64(1),
+        e2: log2_ulp,
+        e5: 0,
+    })
 }
 
+// The sign, the digits and the exponent `k` of the decimal `mant` `e` `exp`, whose value is
+// `(-1)^neg * digits * 10^k`. `mant` can start with a sign in an uncertain interval.
 fn parse_dec_float_with_ulp(
     mant: &str,
     exp: &str,
-) -> result::Result<(Rational, Rational), ParseNumberError> {
+) -> result::Result<(bool, Nat, i32), ParseNumberError> {
     let e = exp.parse::<i32>()?;
+    let (neg, mant) = match mant.strip_prefix('-') {
+        Some(m) => (true, m),
+        None => (false, mant.strip_prefix('+').unwrap_or(mant)),
+    };
     let mut parts = mant.split('.');
     let int_part = parts.next().unwrap();
     let frac_part = parts.next().unwrap_or_default();
@@ -333,41 +325,31 @@ fn parse_dec_float_with_ulp(
     // 123.456e7 -> 123456e4 (ulp == 1e4)
     let frac_digits = i32::try_from(frac_part.len())?;
     let log10_ulp = e.checked_sub(frac_digits).ok_or(ParseNumberError)?;
-    // `pow` has GMP compute 10^|log10_ulp| as an integer, and where `long` has 32 bits, GMP
-    // can crash there. On 32-bit x86, GMP 6.3.0, as `gmp-mpfr-sys` builds it, raises SIGFPE,
-    // as it does when it detects an overflow of its integer type, for 10^1272582864 through
-    // 10^1808407287, where the number of limbs that `mpz_n_pow_ui` computes to allocate
-    // exceeds what `_mpz_realloc` accepts. From 10^1808407288 to 10^2147483648, the widest
-    // power of ten that `pow` asks for, the product in which it computes that number in an
-    // `unsigned long` (`mpz/n_pow_ui.c`, l.371) wraps around, as GMP does not test it for
-    // overflow, a gap that GMP's NEWS for 4.2.3 already names. GMP then allocates too little,
-    // which crashed with SIGSEGV for each power tried, such as 10^1900000000 in
-    // `[1e1900000000]`. So where `long` or limbs are narrower than 64 bits, reject a power of
-    // ten wider than `check_width` accepts before GMP computes it: 10^161614248 has 536870911
-    // bits, at most 2^29, and 10^161614249 has 536870915. This also rejects some literals that
-    // `check_width` would accept, such as `[0e161614249]` and `[8e-161614249]`.
-    const MAX_LOG10_ULP: u32 = 161_614_248;
-    if !LONG_AND_LIMBS_64 && log10_ulp.unsigned_abs() > MAX_LOG10_ULP {
-        return Err(ParseNumberError);
-    }
-    let ulp = pow(10, log10_ulp);
 
     let i_str = [int_part, frac_part].concat();
-    let i = Integer::parse_radix(i_str, 10).unwrap();
-    Ok((Rational::from(i) * &ulp, ulp))
+    Ok((neg, Nat::from_dec(&i_str), log10_ulp))
 }
 
-fn parse_dec_float(mant: &str, exp: &str) -> result::Result<Rational, ParseNumberError> {
-    parse_dec_float_with_ulp(mant, exp).map(|(r, _)| r)
+fn parse_dec_float(mant: &str, exp: &str) -> result::Result<Rat, ParseNumberError> {
+    let (neg, num, k) = parse_dec_float_with_ulp(mant, exp)?;
+    Ok(Rat {
+        neg,
+        num,
+        den: Nat::from_u64(1),
+        e2: k,
+        e5: k,
+    })
 }
 
-fn parse_rational(s: &str) -> Rational {
-    unsafe {
-        let mut r = Rational::new();
-        let c_string = std::ffi::CString::new(s).unwrap();
-        gmp::mpq_set_str(r.as_raw_mut(), c_string.as_ptr(), 10);
-        gmp::mpq_canonicalize(r.as_raw_mut());
-        r
+// The rational `p/q` of the literal `s`, where the grammar makes `q` positive.
+fn parse_rational(s: &str) -> Rat {
+    let (p, q) = s.split_once('/').unwrap();
+    Rat {
+        neg: false,
+        num: Nat::from_dec(p),
+        den: Nat::from_dec(q),
+        e2: 0,
+        e5: 0,
     }
 }
 
@@ -411,11 +393,13 @@ fn infsup_interval(s: &str) -> IResult<&str, Result<NInterval>> {
             let a = parse_opt_number(na, InfSup::Inf)?;
             let b = parse_opt_number(nb, InfSup::Sup)?;
             // `ninterval_ok` in `rocq/theories/Model.v` states what this test and the other
-            // rules of the grammar guarantee of the `NInterval`s that they return. It is
-            // checked by reading, not proved, and the proofs of `From<DecNInterval>` and
-            // `From<NInterval>` and of the decorations that the grammar gives, in
-            // `rocq/theories/ParseHull.v` and `rocq/theories/ParseDec.v`, assume it, so it has
-            // to be updated along with the grammar.
+            // rules of the grammar guarantee of the `NInterval`s that they return, with
+            // `number_ok` of each bound. It is checked by reading, not proved, and the proofs
+            // of `From<DecNInterval>` and `From<NInterval>` and of the decorations that the
+            // grammar gives, in `rocq/theories/ParseHull.v` and `rocq/theories/ParseDec.v`,
+            // assume it, as the proof of `try_from_ninterval_exact` in
+            // `rocq/theories/ParseExact.v` assumes `number_ok`, so it has to be updated along
+            // with the grammar.
             if a <= b && a != Number::Infinity && b != Number::NegInfinity {
                 Ok(NInterval::InfSup(a, b))
             } else {
@@ -455,9 +439,10 @@ fn bracket_interval(s: &str) -> IResult<&str, Result<NInterval>> {
     )(s)
 }
 
+// `center` and the radius have the same `den`, `e2` and `e5`, which `add_same_scale` needs.
 fn uncertain_bound(
-    center: &Rational,
-    radius_or_unbounded: &Option<Rational>,
+    center: &Rat,
+    radius_or_unbounded: &Option<Rat>,
     dir: UncertainDirection,
     infsup: InfSup,
 ) -> Number {
@@ -468,8 +453,8 @@ fn uncertain_bound(
     if directions_match {
         match radius_or_unbounded {
             Some(radius) => match infsup {
-                InfSup::Inf => Number::Rational(Rational::from(center - radius)),
-                InfSup::Sup => Number::Rational(Rational::from(center + radius)),
+                InfSup::Inf => Number::Rational(center.add_same_scale(&-radius.clone())),
+                InfSup::Sup => Number::Rational(center.add_same_scale(radius)),
             },
             None => match infsup {
                 InfSup::Inf => Number::NegInfinity,
@@ -489,14 +474,28 @@ fn uncertain_interval(s: &str) -> IResult<&str, Result<NInterval>> {
             tuple((uncertain_radius, uncertain_direction, dec_exponent)),
         ),
         |(n, (rad, dir, exp))| {
-            let (center, ulp) = parse_dec_float_with_ulp(n, exp)?;
-            let radius_or_unbounded = match rad {
-                UncertainRadius::HalfUlp => Some(ulp / 2),
-                UncertainRadius::MultipleOfUlp(x) => {
-                    let xi = Integer::parse_radix(x, 10).unwrap();
-                    Some(Rational::from(xi) * ulp)
-                }
-                UncertainRadius::Unbounded => None,
+            let (neg, c, k) = parse_dec_float_with_ulp(n, exp)?;
+            // The center is `(-1)^neg * c * 10^k`, and the radius `x * 10^k` or `10^k / 2`,
+            // which are written over the same denominator, 1 or 2, so that their sum and
+            // difference need no power of ten.
+            let (c, den, radius) = match rad {
+                UncertainRadius::HalfUlp => (&c << 1, Nat::from_u64(2), Some(Nat::from_u64(1))),
+                UncertainRadius::MultipleOfUlp(x) => (c, Nat::from_u64(1), Some(Nat::from_dec(x))),
+                UncertainRadius::Unbounded => (c, Nat::from_u64(1), None),
+            };
+            let radius_or_unbounded = radius.map(|r| Rat {
+                neg: false,
+                num: r,
+                den: den.clone(),
+                e2: k,
+                e5: k,
+            });
+            let center = Rat {
+                neg,
+                num: c,
+                den,
+                e2: k,
+                e5: k,
             };
             let a = uncertain_bound(&center, &radius_or_unbounded, dir, InfSup::Inf);
             let b = uncertain_bound(&center, &radius_or_unbounded, dir, InfSup::Sup);
@@ -505,50 +504,8 @@ fn uncertain_interval(s: &str) -> IResult<&str, Result<NInterval>> {
     )(s)
 }
 
-// `Ok(x)`, unless C `long`, MPFR's `mpfr_prec_t` and `mpfr_exp_t`, or GMP limbs are narrower
-// than 64 bits and a bound of `x` is a rational whose numerator or denominator has more than
-// 2^29 bits, which gives an `Err` of the kind `PossiblyUndefinedOperation`, as an exponent
-// beyond `i32` does. `interval` applies it to each literal that it reads, so that the grammar
-// can return this `Err` as well as the `Ok` values that `ninterval_ok` in
-// `rocq/theories/Model.v` describes, and so that where `long` or limbs are narrower,
-// `rational_to_f64` never gets such a rational. Where `long` and limbs have 64 bits, as on the
-// targets that inari supports with the feature `gmp`, it is `Ok(x)`, and none of the failures
-// of `mpfr_set_q` that the comment of `set_q_ok` in `rocq/theories/Mpfr.v` describes can
-// happen. Where `long` has 32 bits, `mpfr_set_q` fails or gives a wrong result on some
-// rationals whose numerator or denominator has more than about 2^30 bits. By a reading of
-// MPFR 4.2.2's `set_q.c`, but not of `mpfr_div` or the other functions that it calls, at most
-// 2^29 bits each keep the precisions of the MPFR numbers that it makes of them below
-// `MPFR_PREC_MAX`, which is then `2^31 - 257`, and the exponent of the quotient that it scales
-// inside MPFR's widest exponent range, `[1 - 2^30, 2^30 - 1]`. With 32-bit limbs, they also
-// keep the numerator and the denominator fewer than 2^24 limbs apart, while its early overflow
-// and underflow tests fire only from 2^25 limbs apart. Neither `set_q_ok` nor the proofs are
-// claimed for these targets. GMP keeps the most significant limb of an integer nonzero, so an
-// integer of at most `(1 << 29) / NUMB_BITS` limbs has at most 2^29 bits, and with limbs of
-// 32 or 64 bits, one of more limbs has more. The grammar has GMP compute each number before
-// this checks it, and GMP can crash on a much wider power of ten there, so where `long` or
-// limbs are narrower, `parse_dec_float_with_ulp` rejects a power of ten wider than this
-// accepts before GMP computes it.
-fn check_width(x: NInterval) -> Result<NInterval> {
-    const MAX_LIMBS: usize = (1 << 29) / gmp::NUMB_BITS as usize;
-    let too_wide = |n: &Number| match n {
-        Number::Rational(r) => {
-            r.numer().as_limbs().len() > MAX_LIMBS || r.denom().as_limbs().len() > MAX_LIMBS
-        }
-        _ => false,
-    };
-    if !LONG_AND_LIMBS_64 && (too_wide(x.inf()) || too_wide(x.sup())) {
-        Err(IntervalError {
-            kind: IntervalErrorKind::PossiblyUndefinedOperation,
-        })
-    } else {
-        Ok(x)
-    }
-}
-
 fn interval(s: &str) -> IResult<&str, Result<NInterval>> {
-    map(alt((bracket_interval, uncertain_interval)), |x| {
-        x.and_then(check_width)
-    })(s)
+    alt((bracket_interval, uncertain_interval))(s)
 }
 
 fn decoration(s: &str) -> IResult<&str, Decoration> {
@@ -609,32 +566,146 @@ struct F64 {
     overflow: bool,
 }
 
-// Proved correct in `rocq/theories/ParseRound.v` (`rational_to_f64_correct`), assuming what
-// `rocq/theories/Mpfr.v` says of `mpfr::set_q`, `mpfr::subnormalize` and `mpfr::get_d` at
-// the exponent range that `with_parse_range` in `src/mpfr_calls/mpfr.rs` sets (`parse_ok`):
-// `f` is `r` rounded toward -∞ for `Inf` and toward +∞ for `Sup` to an `f64`, `inexact` is
-// false exactly when `r` is the value of a finite `f64`, and `overflow` is true exactly when
-// `f` is infinite. `rocq/theories/Model.v` transcribes this function, with `round_rational` as
-// the field `p_round_rational` of the record `point`, which `mpfr_point` defines with
-// `with_parse_range` inlined and the MPFR functions abstract, so it has to be updated along
-// with it.
-fn rational_to_f64(r: &Rational, infsup: InfSup) -> F64 {
-    fn ternary_to_ordering(t: i32) -> Ordering {
-        t.cmp(&0)
-    }
+// What `rational_to_f64` computes of the magnitude `|x|` of a nonzero `Rat` `x` before it rounds
+// it. `rocq/theories/Model.v` transcribes this enum for the proofs of `scale` and
+// `round_up_scaled` in `rocq/theories/ParseScale.v` and `rocq/theories/ParseRound.v`, so it
+// has to be updated along with them.
+enum Scaled {
+    // `|x| > 2^1024`.
+    Huge,
+    // `0 < |x| < 2^-1074`.
+    Tiny,
+    // `Mid(q, e, sticky)`: `|x| = (q + δ) * 2^e` with `2^55 <= q < 2^57`,
+    // `-2^20 <= e <= 2^20` and `0 <= δ < 1`, where `δ > 0` exactly when `sticky`.
+    // `round_up_exact` asks for the bound on `e` (`round_up_exact_pre` in
+    // `rocq/theories/Spec.v`).
+    Mid(u128, i32, bool),
+}
 
-    let (_, t, f) = round_rational(r, infsup.as_rnd_t(), |_, _| ());
+// `|x|` of a nonzero `x` as a `Scaled`. It decides `Huge` and `Tiny` from the numbers of bits
+// and the exponents, before it computes `5^|e5|`, so that it never computes a power of five
+// for a literal whose exponent only puts it far outside the range of `f64`. Otherwise, the
+// grammar makes `e5` 0 or `e2`, and then `|e5|` and the widths of the numbers below are at
+// most linear in the length of the literal. Proved correct in `rocq/theories/ParseScale.v`
+// (`scale_correct`) for a nonzero `x` that the grammar can make (`rat_ok`), assuming that each
+// operation of `Nat` computes the operation on integers that `rocq/theories/Model.v` reads it
+// as: it does not panic, and returns a `Scaled` that describes `|x|` as the comments of
+// `Scaled` say. `rocq/theories/Model.v` transcribes this function, with each `Nat` as the
+// integer that it holds, for that proof and the one of `rational_to_f64` in
+// `rocq/theories/ParseRound.v`, so it has to be updated along with them.
+fn scale(x: &Rat) -> Scaled {
+    let e2 = i128::from(x.e2);
+    let e5 = i128::from(x.e5);
+    // 2^(b - 1) <= num < 2^b for a nonzero `num` of b bits, and 4^k <= 5^k <= 8^k for
+    // k >= 0, so 2^lo5 <= 5^e5 <= 2^hi5 and 2^(b0 - 1 + lo5) < |x| < 2^(b0 + 1 + hi5).
+    let b0 = i128::from(x.num.bits()) - i128::from(x.den.bits()) + e2;
+    let (lo5, hi5) = if e5 >= 0 {
+        (2 * e5, 3 * e5)
+    } else {
+        (3 * e5, 2 * e5)
+    };
+    if b0 + lo5 >= 1025 {
+        return Scaled::Huge;
+    }
+    if b0 + hi5 <= -1075 {
+        return Scaled::Tiny;
+    }
+    // |x| = n / d * 2^e2.
+    let p = Nat::pow5(x.e5.unsigned_abs());
+    let (n, d) = if x.e5 >= 0 {
+        (&x.num * &p, x.den.clone())
+    } else {
+        (x.num.clone(), &x.den * &p)
+    };
+    // 2^(b - 1) < |x| < 2^(b + 1).
+    let b = i128::from(n.bits()) - i128::from(d.bits()) + e2;
+    if b >= 1025 {
+        return Scaled::Huge;
+    }
+    if b <= -1075 {
+        return Scaled::Tiny;
+    }
+    // q = floor(|x| / 2^e) = floor(n * 2^sh / d), which is in [2^55, 2^57) as
+    // 2^55 < |x| / 2^e < 2^57. `b` is in (-1075, 1025), so `e` is in (-1131, 969), within
+    // the bounds of `Mid`, and `e2` is an `i32`, so `sh` and `-sh` fit a `u64`.
+    let e = b - 56;
+    let sh = e2 - e;
+    let (q, r) = if sh >= 0 {
+        (&n << sh as u64).div_rem(&d)
+    } else {
+        n.div_rem(&(&d << (-sh) as u64))
+    };
+    Scaled::Mid(q.low_u128(), e as i32, !r.is_zero())
+}
+
+// `(-1)^neg * |x|` rounded toward +∞ to an `f64`, for the `Scaled` `s` of `|x|`, by
+// `round_up_exact` of `src/simd/generic.rs` for `Mid`. Proved correct in
+// `rocq/theories/ParseRound.v` (`round_up_scaled_correct`) for a nonzero `x`, with `neg` true
+// exactly when `x < 0`, and any `s` that describes `|x|` as the comments of `Scaled` say: it
+// does not panic, and returns `(-1)^neg * |x|` rounded toward +∞, a zero with the sign of
+// `x`. `rocq/theories/Model.v` transcribes this function, so it has to be updated along with
+// it.
+fn round_up_scaled(neg: bool, s: &Scaled) -> f64 {
+    match *s {
+        Scaled::Huge => {
+            if neg {
+                f64::MIN
+            } else {
+                f64::INFINITY
+            }
+        }
+        // A tiny negative number rounds to -0, as `round_up_exact` rounds it.
+        Scaled::Tiny => {
+            if neg {
+                -0.0
+            } else {
+                f64::from_bits(1)
+            }
+        }
+        Scaled::Mid(q, e, sticky) => round_up_exact(neg, q, e, sticky),
+    }
+}
+
+// Proved correct in `rocq/theories/ParseRound.v` (`rational_to_f64_correct`) for an `x` that
+// the grammar can make (`rat_ok`), assuming that each operation of `Nat` computes the
+// operation on integers that `rocq/theories/Model.v` reads it as (see "What is assumed" in
+// `rocq/README.md`): it does not panic, `f` is `x` rounded toward -∞ for `Inf` and toward +∞
+// for `Sup` to an `f64`, `inexact` is false exactly when `x` is the value of a finite `f64`,
+// and `overflow` is true exactly when `f` is infinite. Rounding toward -∞ is
+// `-round_up(-x)`, and `x` is the value of an `f64` exactly when its two roundings agree. A
+// zero `x` gives +0, whatever `neg` is, as MPFR does, against which `src/parse/diff_tests.rs`
+// tests this function. `rocq/theories/Model.v` transcribes this function, so it has to be
+// updated along with it.
+fn rational_to_f64(x: &Rat, infsup: InfSup) -> F64 {
+    if x.num.is_zero() {
+        return F64 {
+            f: 0.0,
+            inexact: false,
+            overflow: false,
+        };
+    }
+    let s = scale(x);
+    let up = round_up_scaled(x.neg, &s);
+    let down = -round_up_scaled(!x.neg, &s);
+    let f = match infsup {
+        InfSup::Inf => down,
+        InfSup::Sup => up,
+    };
     F64 {
         f,
-        inexact: ternary_to_ordering(t) != Ordering::Equal,
+        inexact: up != down,
         overflow: f.is_infinite(),
     }
 }
 
-// Proved correct in `rocq/theories/ParseRound.v` (`number_to_f64_correct`), under the
-// assumptions of `rational_to_f64`: it returns `rational_to_f64` of a `Rational`, and an
-// infinity as it is, neither inexact nor overflowed. `rocq/theories/Model.v` transcribes
-// this function, so it has to be updated along with it.
+// Proved correct in `rocq/theories/ParseRound.v` (`number_to_f64_correct`) for an `n` that
+// the grammar can make (`number_ok`, which is `rat_ok` of a `Rational`), assuming that each
+// operation of `Nat` computes the operation on integers that `rocq/theories/Model.v` reads it
+// as: it does not panic, `f` is an infinity `n` as it is, and a `Rational` `n` rounded toward
+// -∞ for `Inf` and toward +∞ for `Sup` to an `f64`, `inexact` is false exactly when `n` is an
+// infinity or the value of a finite `f64`, and `overflow` is true exactly when `n` is a
+// `Rational` that rounds to an infinity. `rocq/theories/Model.v` transcribes this function,
+// so it has to be updated along with it.
 fn number_to_f64(n: &Number, infsup: InfSup) -> F64 {
     match n {
         Number::NegInfinity => F64 {
@@ -654,10 +725,12 @@ fn number_to_f64(n: &Number, infsup: InfSup) -> F64 {
 impl From<NInterval> for Interval {
     fn from(x: NInterval) -> Self {
         // Proved correct in `rocq/theories/ParseDec.v` (`from_ninterval_correct`) for the
-        // portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR (`parse_ok`)
-        // and that `x` is what the grammar can return (`ninterval_ok`): the tightest
-        // interval that contains the reals of `x`. `from_ninterval_new` shows that
-        // `From<DecNInterval>` of `DecNInterval::new(x)` is `DecInterval::new` of it.
+        // portable backend, assuming that `x` is what the grammar can return
+        // (`ninterval_ok`, with `number_ok` of its bounds) and that each operation of `Nat`
+        // computes the operation on integers that `rocq/theories/Model.v` reads it as: the
+        // tightest interval that contains the reals of `x`.
+        // `from_ninterval_new` shows that `From<DecNInterval>` of `DecNInterval::new(x)` is
+        // `DecInterval::new` of it.
         // `rocq/theories/Model.v` transcribes this function as
         // `DecInterval.from_ninterval`, also for the proof that every `Interval` that the
         // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`),
@@ -669,11 +742,12 @@ impl From<NInterval> for Interval {
 impl From<DecNInterval> for DecInterval {
     fn from(DecNInterval { x, d }: DecNInterval) -> Self {
         // Proved correct in `rocq/theories/ParseDec.v` (`from_dec_ninterval_correct`) for
-        // the portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR
-        // (`parse_ok`) and that `x` and `d` are what the grammar can return
-        // (`dec_ninterval_ok`): NaI if `d` is `ill`, and otherwise the tightest interval
-        // that contains the reals of `x`, decorated `d`, except `dac` in place of `com` if
-        // overflow occurred, that is, `x` is bounded and the result is not, as IEEE 1788's
+        // the portable backend, assuming that `x` and `d` are what the grammar can return
+        // (`dec_ninterval_ok`, with `number_ok` of the bounds of `x`) and that each
+        // operation of `Nat` computes the operation on integers that `rocq/theories/Model.v`
+        // reads it as: NaI if `d` is `ill`, and otherwise the tightest interval that contains
+        // the reals of `x`, decorated `d`, except `dac` in place of `com` if overflow
+        // occurred, that is, `x` is bounded and the result is not, as IEEE 1788's
         // textToInterval asks (§12.12.7 of the draft P1788/D9.5, §6.7.5 of the draft
         // P1788.1/D9.8). For a `com` literal, that holds exactly when
         // `a.overflow || b.overflow`.
@@ -730,13 +804,14 @@ impl FromStr for DecInterval {
 impl Interval {
     fn try_from_ninterval_exact(x: NInterval) -> Result<Self> {
         // Proved correct in `rocq/theories/ParseExact.v` (`try_from_ninterval_exact_correct`)
-        // for the portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR
-        // (`parse_ok`), for any `x`: `Ok` exactly when each bound of `x` is an infinity or
-        // the value of a finite `f64`, and then of the interval that holds exactly the reals
-        // of `x`, which is the tightest one, and `Err` otherwise. `rocq/theories/Model.v`
-        // transcribes this function, also for the proof that every `Interval` that the
-        // constructors and the proved operations make is `valid` (`rocq/theories/Valid.v`),
-        // so it has to be updated along with it.
+        // for the portable backend, for any `x` whose bounds the grammar can make
+        // (`number_ok`), assuming that each operation of `Nat` computes the operation on
+        // integers that `rocq/theories/Model.v` reads it as: `Ok` exactly when each bound of
+        // `x` is an infinity or the value of a finite `f64`, and then of the interval that
+        // holds exactly the reals of `x`, which is the tightest one, and `Err` otherwise.
+        // `rocq/theories/Model.v` transcribes this function, also for the proof that every
+        // `Interval` that the constructors and the proved operations make is `valid`
+        // (`rocq/theories/Valid.v`), so it has to be updated along with it.
         let a = number_to_f64(x.inf(), InfSup::Inf);
         let b = number_to_f64(x.sup(), InfSup::Sup);
         let x = Self::try_from((a.f, b.f)).unwrap_or(Self::EMPTY);

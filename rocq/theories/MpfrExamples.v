@@ -25,8 +25,8 @@
 
 From Stdlib Require Import ZArith.
 From Inari Require Import Model Mpfr MpfrIdeal MpfrConsistent MpfrRound ClosedDom Elem
-  Atanh Cosh TrigQuad TrigCount Cos Sin Tan Pow Powi Atan2 ParseRound ParseHull ParseExact
-  ParseDec ValidMake ValidElem Valid MpfrPoint.
+  Atanh Cosh TrigQuad TrigCount Cos Sin Tan Pow Powi Atan2 ValidMake ValidElem Valid
+  MpfrPoint.
 
 (** [app_head t] is the function of the application [t], or [t] if [t] is
     not an application. *)
@@ -34,7 +34,7 @@ Ltac app_head t := lazymatch t with ?f _ => app_head f | _ => t end.
 
 (** [mpfr_pred emin emax P] succeeds if [P] is [range_ok] or the predicate
     of a conjunct of [mpfr_ok emin emax (ideal emin emax)], such as
-    [get_d_ok] or [parse_ok]. *)
+    [get_d_ok] or [exp_ok]. *)
 Ltac mpfr_pred emin emax P :=
   let T := eval cbv delta [mpfr_ok] beta in
     (range_ok emin emax /\ mpfr_ok emin emax (ideal emin emax)) in
@@ -166,15 +166,6 @@ Example powi_correct_ideal := ltac:(mpfr_example powi_correct).
 Example dec_powi_correct_ideal := ltac:(mpfr_example dec_powi_correct).
 Example atan2_correct_ideal := ltac:(mpfr_example atan2_correct).
 Example dec_atan2_correct_ideal := ltac:(mpfr_example dec_atan2_correct).
-Example rational_to_f64_correct_ideal := ltac:(mpfr_example rational_to_f64_correct).
-Example number_to_f64_correct_ideal := ltac:(mpfr_example number_to_f64_correct).
-Example bounds_tightest_ideal := ltac:(mpfr_example bounds_tightest).
-Example try_from_ninterval_exact_correct_ideal := ltac:(mpfr_example try_from_ninterval_exact_correct).
-Example from_dec_ninterval_correct_ideal := ltac:(mpfr_example from_dec_ninterval_correct).
-Example from_ninterval_correct_ideal := ltac:(mpfr_example from_ninterval_correct).
-Example from_ninterval_new_ideal := ltac:(mpfr_example from_ninterval_new).
-Example try_from_ninterval_exact_valid_ideal := ltac:(mpfr_example try_from_ninterval_exact_valid).
-Example from_dec_ninterval_valid_ideal := ltac:(mpfr_example from_dec_ninterval_valid).
 Example acos_valid_ideal := ltac:(mpfr_example acos_valid).
 Example acosh_valid_ideal := ltac:(mpfr_example acosh_valid).
 Example asin_valid_ideal := ltac:(mpfr_example asin_valid).
@@ -238,11 +229,9 @@ Example mpfr_sin_c_ideal := ltac:(mpfr_example mpfr_sin_c).
 Example mpfr_sinh_c_ideal := ltac:(mpfr_example mpfr_sinh_c).
 Example mpfr_tan_c_ideal := ltac:(mpfr_example mpfr_tan_c).
 Example mpfr_tanh_c_ideal := ltac:(mpfr_example mpfr_tanh_c).
-Example mpfr_round_rational_c_ideal := ltac:(mpfr_example mpfr_round_rational_c).
 
 (** The constructors of [made] and [dmade] in [Valid.v] that quantify over
     an MPFR, in their order. *)
-Example made_try_from_ninterval_exact_ideal := ltac:(mpfr_example made_try_from_ninterval_exact).
 Example made_acos_ideal := ltac:(mpfr_example made_acos).
 Example made_acosh_ideal := ltac:(mpfr_example made_acosh).
 Example made_asin_ideal := ltac:(mpfr_example made_asin).
@@ -264,7 +253,6 @@ Example made_sin_ideal := ltac:(mpfr_example made_sin).
 Example made_sinh_ideal := ltac:(mpfr_example made_sinh).
 Example made_tan_ideal := ltac:(mpfr_example made_tan).
 Example made_tanh_ideal := ltac:(mpfr_example made_tanh).
-Example dmade_from_dec_ninterval_ideal := ltac:(mpfr_example dmade_from_dec_ninterval).
 Example dmade_acos_ideal := ltac:(mpfr_example dmade_acos).
 Example dmade_acosh_ideal := ltac:(mpfr_example dmade_acosh).
 Example dmade_asin_ideal := ltac:(mpfr_example dmade_asin).

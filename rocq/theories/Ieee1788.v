@@ -518,11 +518,11 @@ Definition cancel_result (X Y : R -> Prop) (z : Interval) : Prop :=
 
 (** [r] is at or above the lower bound [a]. *)
 Definition above_num (a : Number) (r : R) : Prop :=
-  match a with NegInfinity => True | Rational q => Q2R q <= r | Infinity => False end.
+  match a with NegInfinity => True | Rational q => rat_R q <= r | Infinity => False end.
 
 (** [r] is at or below the upper bound [b]. *)
 Definition below_num (b : Number) (r : R) : Prop :=
-  match b with NegInfinity => False | Rational q => r <= Q2R q | Infinity => True end.
+  match b with NegInfinity => False | Rational q => r <= rat_R q | Infinity => True end.
 
 Definition ninterval_set (x : NInterval) : R -> Prop :=
   fun r => above_num (ninf x) r /\ below_num (nsup x) r.

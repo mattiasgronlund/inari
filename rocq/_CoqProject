@@ -125,7 +125,7 @@ theories/Atan2Right.v
 theories/Atan2Lower.v
 theories/Atan2Left.v
 theories/Atan2.v
-theories/ParseFormat.v
+theories/ParseScale.v
 theories/ParseRound.v
 theories/ParseHull.v
 theories/ParseExact.v
@@ -145,7 +145,6 @@ theories/Valid.v
 theories/MpfrIdeal.v
 theories/IdealRound.v
 theories/IdealGetD.v
-theories/IdealParse.v
 theories/IdealElem.v
 theories/IdealPow.v
 theories/IdealAtan2.v
@@ -155,7 +154,6 @@ theories/OfPointCore.v
 theories/OfPoint.v
 theories/OfPointElem.v
 theories/OfPointPow.v
-theories/OfPointParse.v
 theories/MpfrPoint.v
 theories/PointTheorems.v
 theories/MpfrExamples.v

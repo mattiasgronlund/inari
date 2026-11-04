@@ -7,7 +7,7 @@
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Elementary Mpfr MpfrRound ParseFormat MpfrIdeal.
+From Inari Require Import Model Elementary Mpfr MpfrRound MpfrIdeal.
 
 Open Scope R_scope.
 

@@ -1176,7 +1176,11 @@ fn sum_round_up(sx: bool, mx: u128, ex: i32, sy: bool, my: u128, ey: i32) -> f64
 // Returns (-1)^neg * (m + δ) * 2^e rounded toward +∞, where m > 0, and
 // 0 < δ < 1 if sticky, otherwise δ = 0. If sticky, m must be at least 2^52, so
 // that δ * 2^e is below the last bit of the result.
-fn round_up_exact(neg: bool, m: u128, e: i32, sticky: bool) -> f64 {
+// Proved correct in `rocq/theories/RoundUpExact.v` if |e| <= 2^20. The proofs of
+// `add1_ru_slow`, `mul1_ru_slow`, `div1_ru_slow`, `mul_add1_ru_slow` and of
+// `round_up_scaled` in `src/parse.rs` rely on that proof. `rocq/theories/Model.v`
+// transcribes this function and `pow2`, so it has to be updated along with them.
+pub(crate) fn round_up_exact(neg: bool, m: u128, e: i32, sticky: bool) -> f64 {
     let top = 127 - m.leading_zeros() as i32;
     // The exponent of the leading bit of the result, and that of its last bit,
     // which is fixed at -1074 for subnormal numbers.

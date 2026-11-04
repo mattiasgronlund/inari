@@ -1,16 +1,14 @@
 (** * What the functions that compute bounds must do
 
-    The elementary functions and the conversions of [src/parse.rs] take
-    as their first argument a record [point] of [Model.v]: the functions
-    of [src/mpfr_calls.rs] that compute their bounds, each a function of
-    a rounding direction and of its arguments. This file states, for each
-    field, what it must do, at the level of [f64]s: that it rounds a real
-    function once, in the direction asked, to an [f64], for finite
-    arguments in the domain of that function, and the special values that
-    the Rust code passes it, at infinities and at some finite points, and
-    for [p_round_rational], that it rounds a rational and says whether
-    that changed it. Like [Model.v], [Ieee1788.v] and [Mpfr.v], it has to
-    be checked by reading.
+    The elementary functions take as their first argument a record
+    [point] of [Model.v]: the functions of [src/mpfr_calls.rs] that
+    compute their bounds, each a function of a rounding direction and of
+    its arguments. This file states, for each field, what it must do, at
+    the level of [f64]s: that it rounds a real function once, in the
+    direction asked, to an [f64], for finite arguments in the domain of
+    that function, and the special values that the Rust code passes it,
+    at infinities and at some finite points. Like [Model.v], [Ieee1788.v]
+    and [Mpfr.v], it has to be checked by reading.
 
     Each of the definitions [acos_c] to [tanh_c] below transcribes the
     hypothesis of the same name in [Mpfr.v], with [_c] for [_ok], as
@@ -22,28 +20,22 @@
     becomes one rounded to an [f64], and a result 1 or -1 becomes that
     real rounded to an [f64], which is the [f64] 1 or -1. A special value
     that is a zero again need only be a zero, of either sign.
-    [round_rational_c], in the last section, has no hypothesis of the same
-    name: its counterpart in [Mpfr.v] is [parse_ok].
 
     [MpfrPoint.v] shows that the record [mpfr_point m], which
     [src/mpfr_calls/mpfr.rs] makes of the MPFR functions [m], satisfies
     each of these where [m] satisfies the hypotheses of [Mpfr.v] that it
     needs: for each function [f], [f_c] where [m] satisfies [get_d_ok] and
-    [f_ok] at an exponent range that satisfies [range_ok], and
-    [round_rational_c] where [m] satisfies [parse_ok]. [OfPoint.v],
-    [OfPointElem.v], [OfPointPow.v] and [OfPointParse.v] go the other way:
-    of every record [p], they make MPFR functions [of_point p] with
+    [f_ok] at an exponent range that satisfies [range_ok]. [OfPoint.v],
+    [OfPointElem.v] and [OfPointPow.v] go the other way: of every record
+    [p], they make MPFR functions [of_point p] with
     [mpfr_point (of_point p) = p], which satisfy [get_d_ok] at the
-    exponent range of [f64], [f_ok] at that range where [p] satisfies
-    [f_c], and [parse_ok] where [p] satisfies [round_rational_c]. With
-    them, [PointTheorems.v] proves [exp_correct] and
-    [from_ninterval_correct] for every record [p] that does what they need
-    of it, as [exp_correct_point] and [from_ninterval_correct_point]. The
-    other theorems about the elementary functions and the conversions of
-    [src/parse.rs] are stated for MPFR functions [m], and what they assume
-    of [m] is stated in [Mpfr.v]. *)
+    exponent range of [f64] and [f_ok] at that range where [p] satisfies
+    [f_c]. With them, [PointTheorems.v] proves [exp_correct] for every
+    record [p] that does what it needs of it, as [exp_correct_point]. The
+    other theorems about the elementary functions are stated for MPFR
+    functions [m], and what they assume of [m] is stated in [Mpfr.v]. *)
 
-From Stdlib Require Import ZArith Reals Qreals.
+From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Elementary Mpfr.
 
@@ -237,15 +229,3 @@ Definition tanh_c (h : mpfr_rnd -> f64 -> f64) : Prop :=
   point_correct real_dom tanh h /\
   mpfr_round f64_format RNDD (-1) (with_val (h RNDD (B754_infinity true))) /\
   mpfr_round f64_format RNDU 1 (with_val (h RNDU (B754_infinity false))).
-
-(** ** The conversion of [src/parse.rs]
-
-    [h rnd q] is the rational [q] rounded in the direction [rnd] to an
-    [f64], and whether that changed it: [true] exactly when [q] is not
-    the real of a finite [f64]. These are the first two parts of what
-    [rational_to_f64_correct] in [ParseRound.v] shows of
-    [rational_to_f64]. *)
-Definition round_rational_c (h : mpfr_rnd -> Q -> f64 * bool) : Prop :=
-  forall rnd q,
-  mpfr_round f64_format rnd (Q2R q) (with_val (fst (h rnd q))) /\
-  (snd (h rnd q) = false <-> f64_format (Q2R q)).

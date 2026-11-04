@@ -37,9 +37,9 @@
     hypotheses of [Mpfr.v]: [range_ok], [get_d_ok], and the function's own
     hypothesis, such as [exp_ok]. Those of [powi] also assume that the
     exponent is an [i32] ([is_i32] in [Model.v]). Those of
-    [try_from_ninterval_exact] and [From<DecNInterval>] hold for any MPFR
-    [m], as any floats that MPFR returns for the bounds make a [valid]
-    interval. *)
+    [try_from_ninterval_exact] and [From<DecNInterval>] assume nothing of
+    the literal, as any floats that its bounds convert to make a [valid]
+    interval. They take the result of a call that does not panic. *)
 
 From Inari Require Import Model Mpfr ValidMake ValidSetOp ValidOps ValidDecOps
   ValidElem.
@@ -55,7 +55,7 @@ Inductive made : Interval -> Prop :=
   | made_try_from_bytes :
       forall a b x, Interval.try_from_bytes a b = Some x -> made x
   | made_try_from_ninterval_exact :
-      forall (m : mpfr) x y, Interval.try_from_ninterval_exact m x = Some y -> made y
+      forall x y, Interval.try_from_ninterval_exact x = Some (Some y) -> made y
   | made_itv : forall d, dmade d -> made (itv d)
   | made_abs : forall x y, made x -> Interval.abs x = Some y -> made y
   | made_ceil : forall x, made x -> made (Interval.ceil x)
@@ -190,7 +190,7 @@ with dmade : DecInterval -> Prop :=
   | dmade_try_from_bytes :
       forall a b c z, DecInterval.try_from_bytes a b c = Some z -> dmade z
   | dmade_from_dec_ninterval :
-      forall (m : mpfr) x, dmade (DecInterval.from_dec_ninterval m x)
+      forall x z, DecInterval.from_dec_ninterval x = Some z -> dmade z
   | dmade_abs : forall x z, dmade x -> DecInterval.abs x = Some z -> dmade z
   | dmade_ceil : forall x, dmade x -> dmade (DecInterval.ceil x)
   | dmade_floor : forall x, dmade x -> dmade (DecInterval.floor x)
