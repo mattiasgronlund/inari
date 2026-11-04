@@ -86,6 +86,16 @@ jobs:
       - name: Check docs
         run: cargo rustdoc
 
+      # With `--cfg docsrs`, as on docs.rs, `src/simd.rs` selects the stubs in
+      # `src/simd/unimplemented.rs`. Rustdoc does not report a call to a missing
+      # function inside a function body, so `cargo rustdoc` passes when a stub is
+      # missing. This step checks the crate with that configuration. Like docs.rs,
+      # it passes `--cfg docsrs` to this crate alone: in `RUSTFLAGS` it would also
+      # reach the dependencies, where a crate may use it to document an API of
+      # another platform, which does not compile here.
+      - name: Check docs.rs configuration
+        run: cargo rustc --lib --all-features --profile check -- --cfg docsrs
+
   coverage:
     runs-on: ubuntu-latest
 

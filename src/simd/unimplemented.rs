@@ -6,7 +6,7 @@ pub(crate) fn abs(_: F64X2) -> F64X2 {
     unimplemented!()
 }
 
-pub(crate) fn add_rn(x: F64X2, y: F64X2) -> F64X2 {
+pub(crate) fn add_rn(_: F64X2, _: F64X2) -> F64X2 {
     unimplemented!()
 }
 
@@ -46,7 +46,7 @@ pub(crate) fn eq(_: F64X2, _: F64X2) -> F64X2 {
     unimplemented!()
 }
 
-pub(crate) fn extract(x: F64X2) -> [f64; 2] {
+pub(crate) fn extract(_: F64X2) -> [f64; 2] {
     unimplemented!()
 }
 
@@ -70,7 +70,7 @@ pub(crate) fn gt(_: F64X2, _: F64X2) -> F64X2 {
     unimplemented!()
 }
 
-pub(crate) fn hadd_rn(x: F64X2, y: F64X2) -> F64X2 {
+pub(crate) fn hadd_rn(_: F64X2, _: F64X2) -> F64X2 {
     unimplemented!()
 }
 
@@ -146,6 +146,10 @@ pub(crate) fn sqrt_rd_ru(_: F64X2) -> F64X2 {
     unimplemented!()
 }
 
+// Part of the backend interface, but nothing calls it here: `Interval::sqrt`
+// needs a lone square root only for an interval containing zero, which rounds
+// up.
+#[allow(dead_code)]
 pub(crate) fn sqrt1_rd(_: f64) -> f64 {
     unimplemented!()
 }
@@ -154,7 +158,11 @@ pub(crate) fn sqrt1_ru(_: f64) -> f64 {
     unimplemented!()
 }
 
-pub(crate) fn sub_rn(x: F64X2, y: F64X2) -> F64X2 {
+pub(crate) fn sub_rn(_: F64X2, _: F64X2) -> F64X2 {
+    unimplemented!()
+}
+
+pub(crate) fn sub_ru(_: F64X2, _: F64X2) -> F64X2 {
     unimplemented!()
 }
 
