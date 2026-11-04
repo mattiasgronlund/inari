@@ -27,8 +27,9 @@ crate-wide `#[allow]`s. Local allows need a comment explaining why.
   paper/algorithm for error-free transformations.
 - Use `cfg_if!` for target selection, as in `src/simd.rs` and `src/lib.rs`.
 - Keep `unsafe` blocks minimal, as in the existing code.
-- Every mismatch that a random test or a fuzzer finds goes into `regressions()` in
-  `src/simd/differential_tests.rs`, with what it broke and where it was found.
+- Every mismatch that a random test or a fuzzer finds goes into a `regressions()`
+  list, with what it broke and where it was found: SIMD operations in
+  `src/simd/differential_tests.rs`, literals (the parser) in `src/parse/diff_tests.rs`.
 
 ## Documentation to update alongside code
 - README.md, "Supported Platforms": add new architectures in the same format,
