@@ -22,7 +22,9 @@ A comparison of the backends of inari, in nine sittings:
   path after scaling, as `fma` does.
 - 2026-11-04: `sse42`, `wasm32` and `fma` on the same products, before and after
   the change that rounds them with one TwoProduct.
-- 2026-11-05: `fma` against inari 2.0.0 again, on the same products.
+- 2026-11-05: `generic` before and after the change that rounds up without a
+  branch where there is no FMA, and `fma` against inari 2.0.0 again, on the same
+  products.
 
 `avx_fma` is the base column of the first three x86-64 sections, so that the
 two explicit backends are measured against what they replaced, and against each
@@ -32,11 +34,11 @@ changed, so its multiplication is `avx_fma`'s. The fifth sitting, which replaces
 two rows of the `fma` section, builds `avx_fma` from `cc5e384`, the commit
 before its removal. The sixth compares builds of three commits, all with `fma`,
 rather than backends. The seventh, like the sixth, compares builds of commits:
-two, each in five configurations, and the eighth two, each in four. The ninth
-compares the main branch with inari 2.0.0, both with `fma`'s flags. No backend
-for x86-64 changes the rounding mode any more: `avx512f` uses per-instruction
-embedded rounding, and the other two round by correcting a round-to-nearest
-result.
+two, each in five configurations, and the eighth and the ninth two, each in
+four. The ninth also compares the first of its two, the main branch then, with
+inari 2.0.0, both with `fma`'s flags. No backend for x86-64 changes the rounding
+mode any more: `avx512f` uses per-instruction embedded rounding, and the other
+two round by correcting a round-to-nearest result.
 
 ## Setup
 
@@ -230,25 +232,47 @@ ten. Before the change, `sse42`, `wasm32` and `generic, Nehalem` take within 2%
 of the "after" column of the previous sitting, whose code for these
 multiplications is the same.
 
-The section on `fma` against inari 2.0.0 was measured on 2026-11-05 between
-03:00 and 03:56. `d894347`, the main branch then, was built with
-`RUSTFLAGS=-Ctarget-cpu=haswell`, so with `fma`, and inari 2.0.0 as in "Running
-the benchmarks", with the same flags. Each benchmark took 2 s of warm-up and 3 s
-of measurement. Nine rounds ran the two builds one after the other, in an order
-swapped every other round, among seven builds that this file does not report,
-and six were kept under the rule of the `mul_add_ru` rows above: in rounds 5, 6
-and 7, the load average was between 3.0 and 3.6 at the start or the end of two
-or three runs, although the sibling stayed at least 99.8% idle and the other
-cores were busy for at most 0.30 cores' worth of time. The six ran at a load
-average of at most 3.0, with the sibling at least 99.4% idle and the other cores
-busy for at most 0.37 cores' worth of time, and the rows report their medians,
-and the spread over the two cells of a row as the seventh sitting defines it.
-The ratios differ by at most 0.01 when the lowest of the six or criterion's own
-median estimate is used instead. 2.0.0 takes within 0.5% of the time it took in
-the fourth sitting on each of the six rows. `fma` takes up to 5% longer on
-`mul`, and up to 3% on `mul_tiny`, than in the "after" column of the previous
-sitting, whose code for these multiplications is the same; on `mul`, it is
-within 1% of that sitting's "before" column.
+The section on rounding up without a branch, and the section on `fma` against
+inari 2.0.0 after it, were measured on 2026-11-05 between 03:00 and 03:56.
+`d894347`, the main branch then, and `d2a2f0c`, which changes
+`generic::mul1_ru_fast` and nothing in `bench/`, were built in four
+configurations: `generic, Nehalem`, `generic, FMA` and `fma` with the flags of
+"Setup", and `scalar` on `wasm32-wasip1`, compiled and run as in the seventh
+sitting. The builds of `d2a2f0c` were made from the same change on top of
+`d894347`. With `-Ctarget-cpu=nehalem` and `force-generic`, `generic::mul_ru`
+and `generic::mul1_ru_tiny` compile to the same instructions, at the same
+addresses, in the build measured and in one of `d2a2f0c` itself. inari 2.0.0
+was built as in "Running the benchmarks", with `RUSTFLAGS=-Ctarget-cpu=haswell`.
+Each benchmark took 2 s of warm-up and 3 s of measurement. Nine rounds ran the
+nine builds, the two of each configuration, and 2.0.0 with those of `fma`, one
+after the other, in an order rotated from round to round and reversed within
+each configuration every other round, and six were kept under the rule of the
+`mul_add_ru` rows above: in rounds 5, 6 and 7, the load average was between 3.0
+and 3.6 at the start or the end of two or three runs, although the sibling
+stayed at least 99.8% idle and the other cores were busy for at most 0.30 cores'
+worth of time. The six ran at a load average of at most 3.0, with the sibling at
+least 99.4% idle and the other cores busy for at most 0.37 cores' worth of time,
+and the rows report their medians, and the spread as the seventh sitting
+defines it: over the four cells of a row in the first of the two sections, and
+over the two in the second. The ratios differ by at most 0.01 when the lowest
+of the six or criterion's own median estimate is used instead, except for the
+lowest in `generic, Nehalem`. In round 4, its build of `d2a2f0c` ran all six
+benchmarks faster than in the other five rounds, `mul_tiny/PP` and
+`mul_tiny/PM` at 43.3–43.7 ns against 47.9–49.1 ns, and it did the same in
+round 7, which is not kept. This is where the spreads of 11–12% come from, and
+the lowest gives 0.86–0.87 on `mul/PP` and `mul/PM`, 0.84 on `mul_tiny/PP` and
+`mul_tiny/PM`, and 0.95 on `mul_tiny/MM`. In `fma`, `fma::mul_ru` and the
+`generic::mul1_ru_tiny` that it can fall back on compile to the same
+instructions, at the same addresses, in both builds. There the ratios are 1.00
+on every row, and single rounds range from 0.99 to 1.01: that is how far these
+builds move on code they share. Before the change, `generic, Nehalem`,
+`generic, FMA` and `scalar` take within 2.5% of the "after" column of the
+seventh sitting, whose code for these multiplications is the same. 2.0.0 takes
+within 0.5% of the time it took in the fourth sitting on each of the six rows of
+its table. `fma` at `d894347` takes up to 5% longer on `mul`, and up to 3% on
+`mul_tiny`, than in the "after" column of the previous sitting, whose code for
+these multiplications is the same; on `mul`, it is within 1% of that sitting's
+"before" column.
 
 Composite benchmarks drift between sittings more than the primitives do: the
 `avx_fma` 3×3 determinant is 236 ns in the first section, 211 ns in the `sse42`
@@ -530,14 +554,58 @@ source. `fma` takes 0.96–1.00 times as long, and less than 0.99 times on
 1.04 times as long on `mul/PP` in every round, these builds cannot tell whether
 that comes from the change.
 
+### `generic`, rounding up without a branch
+
+Without an FMA, `generic::mul1_ru_fast` rounded a product `p` upward by
+branching on the sign of its error `e`, which Dekker's TwoProduct computes:
+`step_up(p)` if `e > 0`, and `p` otherwise. `d2a2f0c` computes it from the bit
+pattern of `p` without a branch (`step_up_if`, in `src/simd/generic.rs`), with
+the same result wherever `mul_ru` uses it. With an FMA, the code is unchanged:
+`generic::mul_ru` and `generic::mul1_ru_tiny` in `generic, FMA`, and
+`fma::mul_ru` in `fma`, compile to the same instructions before and after, but
+for addresses. In `generic, Nehalem`, `generic::mul_ru` now has 205
+instructions and 11 conditional jumps, against 221 and 19 before: `seta` reads
+the comparison of each lane's error with zero, where the code before branched
+with `ja` or `jbe` on eight comparisons with zero.
+
+The columns are `d894347`, the main branch when this was measured, and
+`d2a2f0c` (see "Variance"), each built in the configuration that the first
+column names, with the flags of "Setup" and `scalar` on `wasm32-wasip1`. The
+classes are those of the section above. Times are in ns per interval
+multiplication, medians over six rounds; see "Variance" above.
+
+| Configuration | Class | mul before (ns) | after (ns) | ratio | mul_tiny before (ns) | after (ns) | ratio | spread |
+|---|---|--:|--:|--:|--:|--:|--:|--:|
+| generic, Nehalem | PP | 16.37 | 14.49 | 0.89× | 52.04 | 48.85 | 0.94× | 12% |
+| generic, Nehalem | PM | 16.28 | 14.56 | 0.89× | 51.59 | 47.98 | 0.93× | 11% |
+| generic, Nehalem | MM | 30.77 | 32.24 | 1.05× | 100.72 | 97.43 | 0.97× | 3% |
+| generic, FMA | PP | 13.33 | 13.36 | 1.00× | 25.85 | 26.10 | 1.01× | 3% |
+| generic, FMA | PM | 13.19 | 13.22 | 1.00× | 25.68 | 25.97 | 1.01× | 2% |
+| generic, FMA | MM | 22.70 | 23.24 | 1.02× | 50.00 | 49.42 | 0.99× | 2% |
+| scalar | PP | 31.53 | 20.27 | 0.64× | 63.84 | 48.27 | 0.76× | 1% |
+| scalar | PM | 31.08 | 20.47 | 0.66× | 64.07 | 47.91 | 0.75× | 2% |
+| scalar | MM | 56.05 | 39.22 | 0.70× | 124.65 | 98.27 | 0.79× | 1% |
+| fma | PP | 6.43 | 6.40 | 1.00× | 8.34 | 8.38 | 1.00× | 1% |
+| fma | PM | 6.42 | 6.42 | 1.00× | 8.36 | 8.39 | 1.00× | 1% |
+| fma | MM | 9.54 | 9.55 | 1.00× | 14.84 | 14.81 | 1.00× | 2% |
+
+`generic, Nehalem` takes 1.05 times as long as before on `mul/MM`, and 1.03–1.08
+times in every round. `generic, FMA`, whose `mul_ru` and `mul1_ru_tiny` compile
+to the same instructions in both builds but for addresses, takes 1.02 times as
+long there, and 1.01–1.04 times in every round, so these builds cannot tell how
+much of the 1.05 comes from the change. `fma`, whose code for these
+multiplications is the same in both builds, takes 1.00 times as long on every
+row.
+
 ### `fma` against inari 2.0.0, tiny products with one TwoProduct
 
-The columns are the benchmarks of the two sections above built against inari
-2.0.0 from crates.io, as in the first section on tiny products, and at
-`d894347`, the main branch when this was measured, which includes `77a4138`.
-Both were built with `RUSTFLAGS=-Ctarget-cpu=haswell` and ran in the same
-rounds. The classes are those of the two sections above. Times are in ns per
-interval multiplication, medians over six rounds; see "Variance" above.
+The columns are `mul` and `mul_tiny` built against inari 2.0.0 from crates.io,
+as in the first section on tiny products, and at `d894347`, the main branch
+when this was measured, which includes `77a4138`. Both were built with
+`RUSTFLAGS=-Ctarget-cpu=haswell` and ran in the same rounds: the `fma` column is
+the "before" column of `fma` in the section above. The classes are those of the
+section above. Times are in ns per interval multiplication, medians over six
+rounds; see "Variance" above.
 
 | Benchmark | 2.0.0 (ns) | fma (ns) | ratio | spread |
 |---|--:|--:|--:|--:|
@@ -859,6 +927,23 @@ its scalar square root matches the `generic, Nehalem` column exactly.
   where the first section on tiny products had 0.81–0.82 on the same three
   classes. `mul_tiny` takes 1.30 times as long as `mul` with `fma` there, and
   1.56 times on `MM`.
+- Rounding up without a branch in `generic::mul1_ru_fast`, which `d2a2f0c` does
+  only without an FMA, makes `generic, Nehalem` take 0.89 times as long as
+  before on `mul/PP` and `mul/PM`, and `scalar` 0.64–0.70 times on `mul`. But
+  `generic, Nehalem` takes 1.05 times as long on `mul/MM`, and at least 1.03
+  times in every round, where `generic, FMA`, whose `mul_ru` compiles to the
+  same instructions in both builds but for addresses, takes 1.02 times as long.
+  On `mul_tiny`, `generic, Nehalem` takes 0.93–0.97 times as long as before, and
+  `scalar` 0.75–0.79. `d2a2f0c` does not move Dekker's TwoProduct, which
+  `mul1_ru_fast` computes before it checks whether the lane may use it (above),
+  and tiny products still cost `generic, Nehalem` far more than ordinary ones:
+  `mul_tiny` takes 3.0–3.4 times as long as `mul` after the change, against
+  3.2–3.3 times before. In a probe outside criterion, on a host at a load
+  average of 1.2–1.6, DAZ and FTZ made `generic, Nehalem` about 1.7 times as
+  fast on `mul_tiny` after the change. The columns of `generic` without an FMA
+  in the sections on x86-64, x86-64 without AVX and WebAssembly, `generic, no
+  FMA`, `generic, Nehalem`, `scalar` and `simd128`, were measured before
+  `d2a2f0c`.
 - Making `sin`, `cos` and `tan` of intervals tightest costs nothing measurable
   on `small` and `narrow`, whose bounds are within about 100 of 0 and not chosen
   near a multiple of π/2: all three take 0.99–1.00 times as long as before
