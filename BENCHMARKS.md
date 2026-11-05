@@ -1,6 +1,6 @@
 # Benchmarks
 
-A comparison of the backends of inari, in eight sittings:
+A comparison of the backends of inari, in nine sittings:
 
 - 2026-09-22: `avx_fma`, then the default for x86-64, which set MXCSR around
   every instruction to make the hardware round, against the portable backend
@@ -22,6 +22,7 @@ A comparison of the backends of inari, in eight sittings:
   path after scaling, as `fma` does.
 - 2026-11-04: `sse42`, `wasm32` and `fma` on the same products, before and after
   the change that rounds them with one TwoProduct.
+- 2026-11-05: `fma` against inari 2.0.0 again, on the same products.
 
 `avx_fma` is the base column of the first three x86-64 sections, so that the
 two explicit backends are measured against what they replaced, and against each
@@ -31,7 +32,8 @@ changed, so its multiplication is `avx_fma`'s. The fifth sitting, which replaces
 two rows of the `fma` section, builds `avx_fma` from `cc5e384`, the commit
 before its removal. The sixth compares builds of three commits, all with `fma`,
 rather than backends. The seventh, like the sixth, compares builds of commits:
-two, each in five configurations, and the eighth two, each in four. No backend
+two, each in five configurations, and the eighth two, each in four. The ninth
+compares the main branch with inari 2.0.0, both with `fma`'s flags. No backend
 for x86-64 changes the rounding mode any more: `avx512f` uses per-instruction
 embedded rounding, and the other two round by correcting a round-to-nearest
 result.
@@ -227,6 +229,26 @@ takes 1.04–1.08 times as long on `mul/PP` after as before in every one of the
 ten. Before the change, `sse42`, `wasm32` and `generic, Nehalem` take within 2%
 of the "after" column of the previous sitting, whose code for these
 multiplications is the same.
+
+The section on `fma` against inari 2.0.0 was measured on 2026-11-05 between
+03:00 and 03:56. `d894347`, the main branch then, was built with
+`RUSTFLAGS=-Ctarget-cpu=haswell`, so with `fma`, and inari 2.0.0 as in "Running
+the benchmarks", with the same flags. Each benchmark took 2 s of warm-up and 3 s
+of measurement. Nine rounds ran the two builds one after the other, in an order
+swapped every other round, among seven builds that this file does not report,
+and six were kept under the rule of the `mul_add_ru` rows above: in rounds 5, 6
+and 7, the load average was between 3.0 and 3.6 at the start or the end of two
+or three runs, although the sibling stayed at least 99.8% idle and the other
+cores were busy for at most 0.30 cores' worth of time. The six ran at a load
+average of at most 3.0, with the sibling at least 99.4% idle and the other cores
+busy for at most 0.37 cores' worth of time, and the rows report their medians,
+and the spread over the two cells of a row as the seventh sitting defines it.
+The ratios differ by at most 0.01 when the lowest of the six or criterion's own
+median estimate is used instead. 2.0.0 takes within 0.5% of the time it took in
+the fourth sitting on each of the six rows. `fma` takes up to 5% longer on
+`mul`, and up to 3% on `mul_tiny`, than in the "after" column of the previous
+sitting, whose code for these multiplications is the same; on `mul`, it is
+within 1% of that sitting's "before" column.
 
 Composite benchmarks drift between sittings more than the primitives do: the
 `avx_fma` 3×3 determinant is 236 ns in the first section, 211 ns in the `sse42`
@@ -507,6 +529,27 @@ source. `fma` takes 0.96–1.00 times as long, and less than 0.99 times on
 `mul/PP` and `mul/MM` in every round, but as `generic, Nehalem` takes more than
 1.04 times as long on `mul/PP` in every round, these builds cannot tell whether
 that comes from the change.
+
+### `fma` against inari 2.0.0, tiny products with one TwoProduct
+
+The columns are the benchmarks of the two sections above built against inari
+2.0.0 from crates.io, as in the first section on tiny products, and at
+`d894347`, the main branch when this was measured, which includes `77a4138`.
+Both were built with `RUSTFLAGS=-Ctarget-cpu=haswell` and ran in the same
+rounds. The classes are those of the two sections above. Times are in ns per
+interval multiplication, medians over six rounds; see "Variance" above.
+
+| Benchmark | 2.0.0 (ns) | fma (ns) | ratio | spread |
+|---|--:|--:|--:|--:|
+| mul/PP | 10.50 | 6.43 | 0.61× | 1% |
+| mul/PM | 10.50 | 6.42 | 0.61× | 1% |
+| mul/MM | 19.06 | 9.54 | 0.50× | 2% |
+| mul_tiny/PP | 10.50 | 8.34 | 0.79× | 1% |
+| mul_tiny/PM | 10.53 | 8.36 | 0.79× | 1% |
+| mul_tiny/MM | 18.99 | 14.84 | 0.78× | 1% |
+
+2.0.0 takes 1.00 times as long on `mul_tiny` as on `mul` in each class, as it
+lets the hardware round.
 
 ### x86-64 with AVX and FMA, trigonometric functions
 
@@ -811,6 +854,11 @@ its scalar square root matches the `generic, Nehalem` column exactly.
   3.83–4.24 and 2.61–2.92 times as long before. `fma` gains least, 0.95–0.97,
   about as much as on `mul/PP` and `mul/MM`, which do not reach `mul_ru_tiny`;
   in the probe above, DAZ and FTZ changed nothing in `fma`.
+- Since `77a4138`, `fma` takes 0.61 times as long as 2.0.0 on `mul` (0.50 on
+  `mul/MM`) and 0.78–0.79 times on `mul_tiny`, measured in the same rounds,
+  where the first section on tiny products had 0.81–0.82 on the same three
+  classes. `mul_tiny` takes 1.30 times as long as `mul` with `fma` there, and
+  1.56 times on `MM`.
 - Making `sin`, `cos` and `tan` of intervals tightest costs nothing measurable
   on `small` and `narrow`, whose bounds are within about 100 of 0 and not chosen
   near a multiple of π/2: all three take 0.99–1.00 times as long as before
@@ -840,8 +888,10 @@ a dependency chain — a trade worth making, since interval code has independent
 operations to overlap far more often than it has serial ones. The operands of
 all these benchmarks are of ordinary size: products below 2^-968 made `fma`'s
 multiplication 4.7–5.0 times slower than 2.0.0's until it rounded them on its
-fast path too, after which it took 0.81–0.83 times as long on them. `fma` is
-therefore the default, and `avx_fma` has been removed.
+fast path too, after which it took 0.81–0.83 times as long on them (0.81–0.82
+on `PP`, `PM` and `MM`), and 0.78–0.79 times on those three once it rounded
+only the product that each lane needs. `fma` is therefore the default, and
+`avx_fma` has been removed.
 
 `generic` is not a replacement for either. It has no fixed rounding-mode cost
 but needs many more instructions: against `avx_fma` it was within about 1.3×
@@ -881,9 +931,10 @@ RUSTFLAGS=-Ctarget-cpu=haswell cargo bench -- --save-baseline fma
 RUSTFLAGS=-Ctarget-cpu=haswell cargo bench --features force-generic -- --baseline fma
 ```
 
-The 2.0.0 column of the tiny-products section comes from `benches/intervals.rs`
-copied into a package of its own that depends on `inari = "=2.0.0"` with
-`default-features = false`, with the same `[profile.bench]`.
+The 2.0.0 columns of the sections on tiny products come from
+`benches/intervals.rs` copied into a package of its own that depends on
+`inari = "=2.0.0"` with `default-features = false`, with the same
+`[profile.bench]`.
 
 The trigonometric functions call MPFR, so their benchmark, `benches/trig.rs`,
 needs the package's `gmp` feature, which builds GMP and MPFR through
