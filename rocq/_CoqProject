@@ -126,6 +126,10 @@ theories/Atan2Right.v
 theories/Atan2Lower.v
 theories/Atan2Left.v
 theories/Atan2.v
+theories/Limbs.v
+theories/KnuthStep.v
+theories/Knuth.v
+theories/NatOps.v
 theories/ParseScale.v
 theories/ParseRound.v
 theories/ParseHull.v
@@ -134,6 +138,11 @@ theories/ParseDec.v
 theories/FormatCut.v
 theories/FormatDec.v
 theories/FormatHex.v
+theories/DyRound.v
+theories/DyConv.v
+theories/DyIsqrt.v
+theories/DyOps.v
+theories/DyDriver.v
 theories/ConstTight.v
 theories/ExpSeries.v
 theories/ConstPi.v

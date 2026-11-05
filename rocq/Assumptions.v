@@ -6,7 +6,13 @@
     [made_valid] is printed here, to [ideal emin emax] and to proofs that
     the tactic [mpfr_example] builds from [range_ok] and [ideal_mpfr_ok],
     which is printed here too. At the end, two [Search]es write the names
-    from which [make] takes those that must have an [Example] there. *)
+    from which [make] takes those that must have an [Example] there.
+
+    The files about the limbs of [Nat] and the dyadic kernel, from
+    [Limbs.v] to [DyDriver.v], are required without being imported, as
+    some of their names, such as [add_correct], are those of other
+    theorems printed here, and their theorems are printed by qualified
+    name. None of them quantifies over an MPFR. *)
 
 From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu AddOdd
   EmulatedFma MulAddRuSlow MulAddRu Integer IntegerDec RoundTiesEven Trunc Round Sign Abs MaxMin
@@ -18,6 +24,7 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu A
   ValidElem Valid MpfrIdeal IdealRound IdealGetD IdealElem IdealPow IdealAtan2
   MpfrConsistent Contract OfPointCore OfPoint OfPointElem OfPointPow MpfrPoint
   PointTheorems.
+From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyDriver.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -182,6 +189,72 @@ Print Assumptions format_sci_correct.
 Print Assumptions format_hex_exact_correct.
 Print Assumptions format_hex_bin_correct.
 Print Assumptions format_hex_digits_correct.
+Print Assumptions Limbs.bit_len_correct.
+Print Assumptions Limbs.cmp_correct.
+Print Assumptions Limbs.add_assign_correct.
+Print Assumptions Limbs.sub_assign_correct.
+Print Assumptions Limbs.mul_add_limb_correct.
+Print Assumptions Limbs.mul_into_correct.
+Print Assumptions Limbs.shl_into_correct.
+Print Assumptions Limbs.shr_into_correct.
+Print Assumptions Limbs.div_rem_limb_correct.
+Print Assumptions KnuthStep.knuth_step_correct.
+Print Assumptions Knuth.div_rem_knuth_correct.
+Print Assumptions Knuth.div_rem_correct.
+Print Assumptions Knuth.div_rem_zero.
+Print Assumptions NatOps.to_limbs_correct.
+Print Assumptions NatOps.to_limbs_val.
+Print Assumptions NatOps.from_limbs_correct.
+Print Assumptions NatOps.mul_z_correct.
+Print Assumptions NatOps.shl_z_correct.
+Print Assumptions NatOps.div_rem_z_correct.
+Print Assumptions NatOps.div_rem_z_zero.
+Print Assumptions NatOps.bits_z_correct.
+Print Assumptions NatOps.is_zero_z_correct.
+Print Assumptions NatOps.low_u128_z_correct.
+Print Assumptions NatOps.pow5_z_correct.
+Print Assumptions NatOps.add_z_correct.
+Print Assumptions NatOps.from_u64_z_correct.
+Print Assumptions NatOps.digits10_z_correct.
+Print Assumptions DyRound.dround_width.
+Print Assumptions DyRound.encl_round_width.
+Print Assumptions DyRound.round_correct.
+Print Assumptions DyRound.is_zero_correct.
+Print Assumptions DyRound.neg_correct.
+Print Assumptions DyRound.shl_correct.
+Print Assumptions DyRound.cmp_abs_correct.
+Print Assumptions DyRound.cmp_correct.
+Print Assumptions DyRound.dmin_correct.
+Print Assumptions DyRound.dmax_correct.
+Print Assumptions DyConv.from_f64_correct.
+Print Assumptions DyConv.to_f64_correct.
+Print Assumptions DyIsqrt.isqrt_correct.
+Print Assumptions DyOps.add_correct.
+Print Assumptions DyOps.sub_correct.
+Print Assumptions DyOps.mul_correct.
+Print Assumptions DyOps.mul_u64_correct.
+Print Assumptions DyOps.div_u64_correct.
+Print Assumptions DyOps.div_u64_zero.
+Print Assumptions DyOps.div_correct.
+Print Assumptions DyOps.div_zero.
+Print Assumptions DyOps.sqrt_correct.
+Print Assumptions DyOps.sqrt_neg.
+Print Assumptions DyDriver.encl_point_correct.
+Print Assumptions DyDriver.encl_neg_correct.
+Print Assumptions DyDriver.encl_add_correct.
+Print Assumptions DyDriver.encl_sub_correct.
+Print Assumptions DyDriver.encl_mul_correct.
+Print Assumptions DyDriver.encl_div_correct.
+Print Assumptions DyDriver.encl_div_zero.
+Print Assumptions DyDriver.encl_sqrt_correct.
+Print Assumptions DyDriver.encl_sqrt_neg.
+Print Assumptions DyDriver.encl_mul_u64_correct.
+Print Assumptions DyDriver.encl_div_u64_correct.
+Print Assumptions DyDriver.encl_shl_correct.
+Print Assumptions DyDriver.encl_add_width.
+Print Assumptions DyDriver.encl_sub_width.
+Print Assumptions DyDriver.ziv_correct.
+Print Assumptions DyDriver.ziv_at_passes.
 Print Assumptions E_tightest.
 Print Assumptions FRAC_1_PI_tightest.
 Print Assumptions FRAC_1_SQRT_2_tightest.

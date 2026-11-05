@@ -3,11 +3,19 @@
 //
 // A `Nat` is its 64-bit limbs, the least significant first, with no zero limb at the top, so
 // that 0 has no limbs and each number has exactly one representation. Products of limbs, with
-// their carries, are computed in `u128`. `rocq/theories/Model.v` takes each operation below as
-// the operation on `Z` that it computes, which is not proved, so each has to compute exactly
-// that; `to_dec`, which only the layout of the printed text uses, is not modelled. The tests
-// at the end compare them with `rug::Integer`.
+// their carries, are computed in `u128`, by the loops of `src/limbs.rs`. `rocq/theories/Model.v`
+// transcribes the operations below that `scale` in `src/parse.rs` and the functions of
+// `src/format/digits.rs` call, `from_limbs`, `from_u64`, `is_zero`, `bits`, `low_u128`, `pow5`
+// with `mul_add_u64`, `div_rem`, `digits10` with `pow10` and `cmp`, `+`, `*` and `<<`, so it has
+// to be updated along with them. `rocq/theories/NatOps.v` proves, with the theorems about the
+// loops in `rocq/theories/Limbs.v` and `rocq/theories/Knuth.v`, that each computes its
+// operation on integers and returns limbs with no zero limb at the top. `from_dec`, `from_hex`
+// and `-`, with which the grammar of `src/parse.rs` and `src/parse/rat.rs` compute the bounds
+// of a literal, and `to_dec`, which only the layout of the printed text uses, are not modelled;
+// that the first three return no zero limb at the top is checked by reading. The tests at the
+// end compare them all with `rug::Integer`.
 
+use crate::limbs;
 use std::{
     cmp::Ordering,
     ops::{Add, Mul, Shl, Sub},
@@ -57,10 +65,7 @@ impl Nat {
 
     /// The number of bits of `self`, which is 0 for 0: `2^(b - 1) <= self < 2^b` otherwise.
     pub(crate) fn bits(&self) -> u64 {
-        match self.0.last() {
-            None => 0,
-            Some(top) => 64 * self.0.len() as u64 - u64::from(top.leading_zeros()),
-        }
+        limbs::bit_len(&self.0)
     }
 
     /// `self mod 2^128`.
@@ -90,28 +95,10 @@ impl Nat {
     /// `(self / d, self % d)`, the quotient rounded down. Panics if `d` is 0.
     pub(crate) fn div_rem(&self, d: &Nat) -> (Nat, Nat) {
         assert!(!d.is_zero(), "division by zero");
-        if self < d {
-            return (Self(Vec::new()), self.clone());
-        }
-        // For the `j` zero limbs at the bottom of `d`, d = d1 * B^j and self = s1 * B^j + s0
-        // with B = 2^64 and s0 < B^j. Then self = (s1 / d1) * d + (s1 % d1) * B^j + s0, and
-        // (s1 % d1) * B^j + s0 <= (d1 - 1) * B^j + B^j - 1 < d, so the quotient is s1 / d1
-        // and the remainder (s1 % d1) * B^j + s0. A power of two, such as the divisor that
-        // `scale` in `src/parse.rs` makes for `1e300`, thus takes a division by one limb. As
-        // s0 < B^j, self >= d makes s1 > d1 - 1, so s1 >= d1.
-        let j = d.0.iter().take_while(|&&x| x == 0).count();
-        let (s0, s1) = self.0.split_at(j);
-        let d1 = &d.0[j..];
-        // The limbs of the remainder: those of s0, then those of s1 % d1 < d1.
-        let mut r = Vec::with_capacity(d.0.len());
-        r.extend_from_slice(s0);
-        let q = if let [c] = *d1 {
-            let (q, rc) = div_rem_u64(s1, c);
-            r.push(rc);
-            q
-        } else {
-            div_rem_knuth(s1, d1, &mut r)
-        };
+        let mut q = vec![0; self.0.len()];
+        let mut r = vec![0; d.0.len()];
+        let mut scratch = vec![0; self.0.len() + d.0.len() + 2];
+        limbs::div_rem(&mut q, &mut r, &self.0, &d.0, &mut scratch);
         (Self::from_limbs(q), Self::from_limbs(r))
     }
 
@@ -141,8 +128,8 @@ impl Nat {
         let mut chunks = Vec::new();
         let mut x = self.clone();
         while !x.is_zero() {
-            let (q, r) = div_rem_u64(&x.0, CHUNK);
-            chunks.push(r);
+            let mut q = vec![0; x.0.len()];
+            chunks.push(limbs::div_rem_limb(&mut q, &x.0, CHUNK));
             x = Self::from_limbs(q);
         }
         let mut s = match chunks.pop() {
@@ -159,13 +146,7 @@ impl Nat {
     // `self := self * m + a` for `m > 0`, which keeps the top limb nonzero.
     fn mul_add_u64(&mut self, m: u64, a: u64) {
         debug_assert!(m > 0);
-        let mut carry = a;
-        for x in &mut self.0 {
-            // x * m + carry <= (2^64 - 1)^2 + 2^64 - 1 < 2^128.
-            let t = u128::from(*x) * u128::from(m) + u128::from(carry);
-            *x = t as u64;
-            carry = (t >> 64) as u64;
-        }
+        let carry = limbs::mul_add_limb(&mut self.0, m, a);
         if carry != 0 {
             self.0.push(carry);
         }
@@ -184,94 +165,6 @@ fn pow5_limbs(k: u32) -> usize {
     usize::try_from(u64::from(k) * 149 / 4096 + 1).unwrap()
 }
 
-// The quotient `x / d` and the remainder `x % d` of the limbs `x` and a nonzero `d`, with the
-// limbs of the quotient, the top ones of which may be 0.
-fn div_rem_u64(x: &[u64], d: u64) -> (Vec<u64>, u64) {
-    let d = u128::from(d);
-    let mut q = vec![0; x.len()];
-    let mut r = 0;
-    // From the top limb down: `r < d`, so `(r * 2^64 + x) / d < 2^64`.
-    for (q, &x) in q.iter_mut().zip(x).rev() {
-        let t = r << 64 | u128::from(x);
-        *q = (t / d) as u64;
-        r = t % d;
-    }
-    (q, r as u64)
-}
-
-// The quotient `x / d` of the limbs `x` and `d`, for `x >= d`, a `d` of at least 2 limbs and
-// no zero limb at the top of either, by Algorithm D of Knuth, The Art of Computer
-// Programming, vol. 2, 3rd ed., 4.3.1, with base B = 2^64. It returns the limbs of the
-// quotient, the top ones of which may be 0, and pushes those of the remainder `x % d` onto `r`,
-// as many as `d` has. The comments name its steps.
-fn div_rem_knuth(x: &[u64], d: &[u64], r: &mut Vec<u64>) -> Vec<u64> {
-    const B: u128 = 1 << 64;
-    let n = d.len();
-    let m = x.len() - n;
-    // D1: shift both by `s` bits so that the top limb of the divisor `v` is at least B/2,
-    // which keeps each estimate of a quotient limb at most 2 too large (Theorem B). The
-    // dividend `u` gets a limb more, which may be 0.
-    let s = d[n - 1].leading_zeros();
-    let mut v = Vec::with_capacity(n + 1);
-    push_shl_bits(&mut v, d, s);
-    v.pop();
-    let mut u = Vec::with_capacity(x.len() + 1);
-    push_shl_bits(&mut u, x, s);
-    let (v1, v2) = (u128::from(v[n - 1]), u128::from(v[n - 2]));
-    let mut q = vec![0; m + 1];
-    // D2, D7: the limbs of the quotient from the top down. Before each step,
-    // u[j..=j + n] < B * v, so that the quotient limb q[j] is below B.
-    for j in (0..=m).rev() {
-        // D3: estimate q[j] from the top two limbs of u[j..=j + n] and the top limb of
-        // `v`, capped at B - 1, which gives a `qhat` with `qhat - 2 <= q[j] <= qhat`
-        // (Theorems A and B), and `rhat = top - qhat * v1`. While `qhat` times the top two
-        // limbs of `v` exceeds the top three limbs of u[j..=j + n], `qhat` is too large:
-        // lower it. That cannot hold once `rhat >= B`, and it leaves `qhat` at `q[j]` or
-        // `q[j] + 1`. The test computes `rhat * B` only for `rhat < B`, and the products
-        // of `qhat < B`, so each fits a `u128`.
-        let top = u128::from(u[j + n]) << 64 | u128::from(u[j + n - 1]);
-        let mut qhat = (top / v1).min(B - 1);
-        let mut rhat = top - qhat * v1;
-        while rhat < B && qhat * v2 > (rhat << 64 | u128::from(u[j + n - 2])) {
-            qhat -= 1;
-            rhat += v1;
-        }
-        // D4: u[j..=j + n] -= qhat * v.
-        let mut mul_carry = 0;
-        let mut borrow = false;
-        for (x, &y) in u[j..j + n].iter_mut().zip(&v) {
-            // qhat * y + mul_carry <= (B - 1)^2 + B - 1 < B^2.
-            let p = qhat * u128::from(y) + mul_carry;
-            mul_carry = p >> 64;
-            let (t, b1) = x.overflowing_sub(p as u64);
-            let (t, b2) = t.overflowing_sub(u64::from(borrow));
-            *x = t;
-            borrow = b1 | b2;
-        }
-        let (t, b1) = u[j + n].overflowing_sub(mul_carry as u64);
-        let (t, b2) = t.overflowing_sub(u64::from(borrow));
-        u[j + n] = t;
-        // D5, D6: if that went below 0, `qhat` was `q[j] + 1`: add `v` back once. This
-        // happens with a probability of about 2/B, so the tests make it happen.
-        if b1 | b2 {
-            qhat -= 1;
-            let mut carry = false;
-            for (x, &y) in u[j..j + n].iter_mut().zip(&v) {
-                let (t, c1) = x.overflowing_add(y);
-                let (t, c2) = t.overflowing_add(u64::from(carry));
-                *x = t;
-                carry = c1 | c2;
-            }
-            // The carry out of the top limb cancels the borrow of D4.
-            u[j + n] = u[j + n].wrapping_add(u64::from(carry));
-        }
-        q[j] = qhat as u64;
-    }
-    // D8: the remainder is u[..n], shifted back by `s` bits. It is below `v`, so u[n] is 0.
-    r.extend((0..n).map(|i| ((u128::from(u[i + 1]) << 64 | u128::from(u[i])) >> s) as u64));
-    q
-}
-
 // The value of the ASCII digits `s` in base `radix`, which has to fit a `u64`. Panics on a
 // byte that is not a digit.
 fn digits(s: &[u8], radix: u32) -> u64 {
@@ -280,27 +173,10 @@ fn digits(s: &[u8], radix: u32) -> u64 {
     })
 }
 
-// Pushes onto `out` the limbs `x` shifted left by `s < 64` bits, with a limb more for the bits
-// that leave the top, which may be 0.
-fn push_shl_bits(out: &mut Vec<u64>, x: &[u64], s: u32) {
-    let mut carry = 0;
-    for &a in x {
-        let t = u128::from(a) << s;
-        out.push(t as u64 | carry);
-        carry = (t >> 64) as u64;
-    }
-    out.push(carry);
-}
-
 impl Ord for Nat {
     fn cmp(&self, other: &Self) -> Ordering {
-        // With no zero limb at the top, more limbs make a larger number, and between as many,
-        // the top limb that differs decides. The derived `Ord` of `Vec` would compare the
-        // lowest limbs first.
-        self.0
-            .len()
-            .cmp(&other.0.len())
-            .then_with(|| self.0.iter().rev().cmp(other.0.iter().rev()))
+        // The derived `Ord` of `Vec` would compare the lowest limbs first.
+        limbs::cmp(&self.0, &other.0)
     }
 }
 
@@ -319,15 +195,11 @@ impl Add<&Nat> for &Nat {
         } else {
             (&rhs.0, &self.0)
         };
+        // The limb more at the top takes the carry, so none leaves it.
         let mut out = Vec::with_capacity(a.len() + 1);
-        let mut carry = false;
-        for (i, &x) in a.iter().enumerate() {
-            let (t, c1) = x.overflowing_add(b.get(i).copied().unwrap_or(0));
-            let (t, c2) = t.overflowing_add(u64::from(carry));
-            out.push(t);
-            carry = c1 | c2;
-        }
-        out.push(u64::from(carry));
+        out.extend_from_slice(a);
+        out.push(0);
+        limbs::add_assign(&mut out, b);
         Nat::from_limbs(out)
     }
 }
@@ -338,14 +210,9 @@ impl Sub<&Nat> for &Nat {
 
     fn sub(self, rhs: &Nat) -> Nat {
         assert!(self >= rhs, "subtraction below zero");
-        let mut out = Vec::with_capacity(self.0.len());
-        let mut borrow = false;
-        for (i, &x) in self.0.iter().enumerate() {
-            let (t, b1) = x.overflowing_sub(rhs.0.get(i).copied().unwrap_or(0));
-            let (t, b2) = t.overflowing_sub(u64::from(borrow));
-            out.push(t);
-            borrow = b1 | b2;
-        }
+        // With no zero limb at the top, `rhs` has no more limbs than `self`.
+        let mut out = self.0.clone();
+        limbs::sub_assign(&mut out, &rhs.0, false);
         Nat::from_limbs(out)
     }
 }
@@ -353,19 +220,11 @@ impl Sub<&Nat> for &Nat {
 impl Mul<&Nat> for &Nat {
     type Output = Nat;
 
+    // The `+` adds the numbers of limbs of the factors, which the product has room for.
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn mul(self, rhs: &Nat) -> Nat {
-        // Schoolbook: out[i..] += x * rhs for each limb x = self[i].
         let mut out = vec![0; self.0.len() + rhs.0.len()];
-        for (i, &x) in self.0.iter().enumerate() {
-            let mut carry = 0;
-            for (o, &y) in out[i..].iter_mut().zip(&rhs.0) {
-                // x * y + o + carry <= (2^64 - 1)^2 + 2 * (2^64 - 1) = 2^128 - 1.
-                let t = u128::from(x) * u128::from(y) + u128::from(*o) + carry;
-                *o = t as u64;
-                carry = t >> 64;
-            }
-            out[i + rhs.0.len()] = carry as u64;
-        }
+        limbs::mul_into(&mut out, &self.0, &rhs.0);
         Nat::from_limbs(out)
     }
 }
@@ -378,11 +237,11 @@ impl Shl<u64> for &Nat {
         if self.is_zero() {
             return Nat(Vec::new());
         }
-        // `rhs / 64` zero limbs, then the limbs shifted by the remaining bits, in one `Vec`.
+        // `rhs / 64` zero limbs, then the limbs shifted by the remaining bits, with a limb more
+        // for the bits that leave the top.
         let j = usize::try_from(rhs / 64).unwrap();
-        let mut out = Vec::with_capacity(j + self.0.len() + 1);
-        out.resize(j, 0);
-        push_shl_bits(&mut out, &self.0, (rhs % 64) as u32);
+        let mut out = vec![0; j + self.0.len() + 1];
+        limbs::shl_into(&mut out, &self.0, rhs);
         Nat::from_limbs(out)
     }
 }

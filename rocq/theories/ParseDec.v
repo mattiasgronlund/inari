@@ -174,7 +174,7 @@ Lemma rational_overflow :
   f64_overflow F = f64_is_infinite (f64_f F).
 Proof.
 intros q s F E. unfold rational_to_f64 in E.
-destruct (rat_num q =? 0)%Z; [injection E as <-; reflexivity|].
+destruct (NatLimbs.is_zero_z (rat_num q)); [injection E as <-; reflexivity|].
 destruct (scale q); [|discriminate E].
 destruct (round_up_scaled _ _); [|discriminate E].
 destruct (round_up_scaled _ _); [|discriminate E].

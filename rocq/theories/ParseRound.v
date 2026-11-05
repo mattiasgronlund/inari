@@ -372,6 +372,7 @@ Theorem rational_to_f64_correct :
   f64_overflow F = negb (is_finite (f64_f F)).
 Proof.
 intros x infsup Hx. unfold rational_to_f64.
+rewrite NatOps.is_zero_z_correct by exact (proj1 (proj1 Hx)).
 destruct (Z.eqb_spec (rat_num x) 0) as [E0|N0].
 - (* A zero numerator gives the exact +0. *)
   eexists. split; [reflexivity|]. cbn [f64_f f64_inexact f64_overflow].

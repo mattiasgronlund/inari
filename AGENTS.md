@@ -30,7 +30,8 @@ crate-wide `#[allow]`s. Local allows need a comment explaining why.
 - Every mismatch that a random test or a fuzzer finds goes into a `regressions()`
   list, with what it broke and where it was found: SIMD operations in
   `src/simd/differential_tests.rs`, literals (the parser) in `src/parse/diff_tests.rs`,
-  formatted bounds in `src/format/diff_tests.rs`.
+  formatted bounds in `src/format/diff_tests.rs`, operations of the dyadic kernel in
+  `src/dyadic/tests.rs`.
 
 ## Documentation to update alongside code
 - README.md, "Supported Platforms": add new architectures in the same format,

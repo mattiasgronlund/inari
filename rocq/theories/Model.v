@@ -13,7 +13,11 @@
     operation that is not proved here, for the step of the grammar of
     [src/parse.rs] that decorates an interval literal, and for the
     functions of [src/format/digits.rs] that round the bounds that
-    [src/format.rs] prints to their digits. This file has to be
+    [src/format.rs] prints to their digits. The sections [Limbs], [NatLimbs]
+    and [Dyadic] do the same for the loops on limbs of [src/limbs.rs], for
+    the operations of [Nat] in [src/nat.rs] that those functions of
+    [src/parse.rs] and [src/format/digits.rs] call, and for the dyadic
+    kernel of [src/dyadic.rs]. This file has to be
     checked against the Rust code, and so do the headers of [ComCommon.v]
     and [Valid.v], which argue from the Rust code that the library makes
     every [DecInterval] and every [Interval] at the places and by the
@@ -55,14 +59,17 @@
     Rocq functions must terminate, so a Rust function that calls itself,
     [sqrt1_rd_impl] and [sqrt1_ru_impl], takes the number of nested calls
     it may make, and returns [None] if it would make more. If it returns
-    [Some r] for any number, the Rust function returns [r]. *)
+    [Some r] for any number, the Rust function returns [r]. A loop whose
+    number of steps no slice bounds, such as the [while] of [knuth_step],
+    takes fuel in the same way. *)
 
-From Stdlib Require Import ZArith Rdefinitions.
+From Stdlib Require Import ZArith Rdefinitions List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Flocq Require IEEE754.Binary IEEE754.Bits.
 
 Open Scope Z_scope.
 Open Scope bool_scope.
+Open Scope list_scope.
 
 #[global] Instance prec_gt_0_53 : Prec_gt_0 53 := eq_refl.
 #[global] Instance prec_lt_emax_53_1024 : Prec_lt_emax 53 1024 := eq_refl.
@@ -800,6 +807,682 @@ Definition or (x y : F64X2) : F64X2 :=
 
 End Generic.
 
+(** ** Limbs
+
+    The loops of [src/limbs.rs], which [Nat] and the dyadic kernel share.
+    A slice of limbs is a [list Z], the least significant limb first,
+    holding [val]. A function that writes [out: &mut [u64]] returns its
+    new contents, and takes [out.len()] as a [nat] if it reads nothing
+    else of [out]. [x.get(i).copied().unwrap_or(0)] is [limb x i], and so
+    is [x[i]] for an [i] in bounds: the bounds checks of slices and the
+    [usize] arithmetic on lengths and bit counts are not modelled, as
+    every range and index is in bounds for the lengths that the callers
+    pass. [Ordering] is [comparison]. *)
+Module Limbs.
+
+Fixpoint val (x : list Z) : Z :=
+  match x with nil => 0 | a :: x' => a + 2 ^ 64 * val x' end.
+
+Definition limb (x : list Z) (i : nat) : Z := nth i x 0.
+
+(** [out[i..i + w.len()] = w] *)
+Definition update (out : list Z) (i : nat) (w : list Z) : list Z :=
+  firstn i out ++ w ++ skipn (i + length w) out.
+
+(** [a.overflowing_add(b)] and [a.overflowing_sub(b)] of [u64]s *)
+Definition ovf_add (a b : Z) : Z * bool := ((a + b) mod 2 ^ 64, 2 ^ 64 <=? a + b).
+Definition ovf_sub (a b : Z) : Z * bool := ((a - b) mod 2 ^ 64, a <? b).
+
+(** [x.iter().rposition(|&l| l != 0)] *)
+Fixpoint rposition_nonzero (x : list Z) : option nat :=
+  match x with
+  | nil => None
+  | a :: x' =>
+      match rposition_nonzero x' with
+      | Some i => Some (S i)
+      | None => if a =? 0 then None else Some O
+      end
+  end.
+
+(** [fn bit_len(x: &[u64]) -> u64] *)
+Definition bit_len (x : list Z) : Z :=
+  match rposition_nonzero x with
+  | None => 0
+  | Some i => 64 * Z.of_nat i + 64 - leading_zeros 64 (limb x i)
+  end.
+
+(** [fn cmp(x: &[u64], y: &[u64]) -> Ordering]: [for i in (0..k).rev()] *)
+Fixpoint cmp_from (x y : list Z) (k : nat) : comparison :=
+  match k with
+  | O => Eq
+  | S i =>
+      let a := limb x i in
+      let b := limb y i in
+      if negb (a =? b) then Z.compare a b else cmp_from x y i
+  end.
+
+Definition cmp (x y : list Z) : comparison :=
+  cmp_from x y (Nat.max (length x) (length y)).
+
+(** [fn add_assign(x: &mut [u64], y: &[u64]) -> bool], where [hd 0] and
+    [tl] walk [y] as [limb y i] does. *)
+Fixpoint add_assign_from (x y : list Z) (carry : bool) : list Z * bool :=
+  match x with
+  | nil => (nil, carry)
+  | a :: x' =>
+      let (t, c1) := ovf_add a (hd 0 y) in
+      let (t, c2) := ovf_add t (Z.b2z carry) in
+      let (r, c) := add_assign_from x' (tl y) (c1 || c2) in
+      (t :: r, c)
+  end.
+
+Definition add_assign (x y : list Z) : list Z * bool := add_assign_from x y false.
+
+(** [fn sub_assign(x: &mut [u64], y: &[u64], borrow: bool) -> bool] *)
+Fixpoint sub_assign (x y : list Z) (borrow : bool) : list Z * bool :=
+  match x with
+  | nil => (nil, borrow)
+  | a :: x' =>
+      let (t, b1) := ovf_sub a (hd 0 y) in
+      let (t, b2) := ovf_sub t (Z.b2z borrow) in
+      let (r, b) := sub_assign x' (tl y) (b1 || b2) in
+      (t :: r, b)
+  end.
+
+(** [fn mul_add_limb(x: &mut [u64], m: u64, a: u64) -> u64]. The [u128]
+    product and sum are checked as one, as each of them is at most their
+    final sum. *)
+Fixpoint mul_add_limb (x : list Z) (m carry : Z) : option (list Z * Z) :=
+  match x with
+  | nil => Some (nil, carry)
+  | l :: x' =>
+      let* t := checked_u 128 (l * m + carry) in
+      (* [t as u64] and [(t >> 64) as u64] *)
+      let* (r, c) := mul_add_limb x' m (Z.shiftr t 64 mod 2 ^ 64) in
+      Some (t mod 2 ^ 64 :: r, c)
+  end.
+
+(** [fn mul_add_row(row: &mut [u64], y: &[u64], a: u64) -> u64]:
+    [row.iter_mut().zip(y)] stops at the shorter of the two, and the
+    carry is a [u128], returned as a [u64]. *)
+Fixpoint mul_add_row_from (row y : list Z) (a carry : Z) : option (list Z * Z) :=
+  match row, y with
+  | o :: row', b :: y' =>
+      let* t := checked_u 128 (a * b + o + carry) in
+      let* (r, c) := mul_add_row_from row' y' a (Z.shiftr t 64) in
+      Some (t mod 2 ^ 64 :: r, c)
+  | _, _ => Some (row, carry)
+  end.
+
+Definition mul_add_row (row y : list Z) (a : Z) : option (list Z * Z) :=
+  let* (r, c) := mul_add_row_from row y a 0 in Some (r, c mod 2 ^ 64).
+
+(** [fn mul_into(out: &mut [u64], x: &[u64], y: &[u64])] for
+    [n = out.len()]: [out.fill(0)], then the row of each limb [x[i]]. *)
+Fixpoint mul_into_from (out x y : list Z) (i : nat) : option (list Z) :=
+  match x with
+  | nil => Some out
+  | a :: x' =>
+      let row := firstn (length y) (skipn i out) in
+      let* (row', top) := mul_add_row row y a in
+      mul_into_from (update out i (row' ++ top :: nil)) x' y (S i)
+  end.
+
+Definition mul_into (n : nat) (x y : list Z) : option (list Z) :=
+  mul_into_from (repeat 0 n) x y 0.
+
+(** [fn shl_into(out: &mut [u64], x: &[u64], sh: u64)] for
+    [n = out.len()], where
+    [usize::try_from(sh / 64).unwrap_or(usize::MAX).min(out.len())] is
+    [Nat.min (Z.to_nat (sh / 64)) n] on any target, and the [u128] shift
+    is by [sh % 64 < 64] bits. *)
+Fixpoint shl_limbs (k : nat) (x : list Z) (s carry : Z) : list Z :=
+  match k with
+  | O => nil
+  | S k' =>
+      let t := Z.shiftl (hd 0 x) s mod 2 ^ 128 in
+      Z.lor (t mod 2 ^ 64) carry :: shl_limbs k' (tl x) s (Z.shiftr t 64 mod 2 ^ 64)
+  end.
+
+Definition shl_into (n : nat) (x : list Z) (sh : Z) : list Z :=
+  let j := Nat.min (Z.to_nat (sh / 64)) n in
+  repeat 0 j ++ shl_limbs (n - j) x (sh mod 64) 0.
+
+(** [fn shr_into(out: &mut [u64], x: &[u64], sh: u64)] for
+    [n = out.len()], where [x.get(j..).unwrap_or(&[])] is [skipn j x]. *)
+Definition shr_into (n : nat) (x : list Z) (sh : Z) : list Z :=
+  let x' := skipn (Z.to_nat (sh / 64)) x in
+  map (fun i =>
+         Z.shiftr (Z.lor (Z.shiftl (limb x' (S i)) 64 mod 2 ^ 128) (limb x' i)) (sh mod 64)
+         mod 2 ^ 64)
+    (seq 0 n).
+
+(** [fn div_rem_limb(q: &mut [u64], x: &[u64], d: u64) -> u64] for
+    [q.len() == x.len()], from the top limb down: the tail first. *)
+Fixpoint div_rem_limb_from (x : list Z) (d : Z) : option (list Z * Z) :=
+  match x with
+  | nil => Some (nil, 0)
+  | a :: x' =>
+      let* (qs, r) := div_rem_limb_from x' d in
+      let t := Z.lor (Z.shiftl r 64 mod 2 ^ 128) a in
+      let* q := div_u t d in
+      let* r' := rem_u t d in
+      Some (q mod 2 ^ 64 :: qs, r')
+  end.
+
+Definition div_rem_limb (x : list Z) (d : Z) : option (list Z * Z) :=
+  let* (q, r) := div_rem_limb_from x d in Some (q, r mod 2 ^ 64).
+
+(** The loop of D3 in [knuth_step], with fuel: [KnuthStep.v] proves that the
+    condition is tested at most 3 times, so [None], out of fuel, does not
+    happen. [rhat < B &&] short-circuits: the product is computed only
+    for [rhat < 2^64]. *)
+Fixpoint knuth_qhat (fuel : nat) (qhat rhat v1 v2 w2 : Z) : option Z :=
+  match fuel with
+  | O => None
+  | S f =>
+      if rhat <? 2 ^ 64 then
+        let* p := checked_u 128 (qhat * v2) in
+        if Z.lor (Z.shiftl rhat 64 mod 2 ^ 128) w2 <? p then
+          let* q' := checked_u 128 (qhat - 1) in
+          let* r' := checked_u 128 (rhat + v1) in
+          knuth_qhat f q' r' v1 v2 w2
+        else Some qhat
+      else Some qhat
+  end.
+
+(** The loop of D4 in [knuth_step]: [w[..n] -= qhat * v]. *)
+Fixpoint knuth_submul (w v : list Z) (qhat mc : Z) (borrow : bool)
+  : option (list Z * Z * bool) :=
+  match w, v with
+  | x :: w', y :: v' =>
+      let* p := checked_u 128 (qhat * y + mc) in
+      let (t, b1) := ovf_sub x (p mod 2 ^ 64) in
+      let (t, b2) := ovf_sub t (Z.b2z borrow) in
+      let* (r, mc', b') := knuth_submul w' v' qhat (Z.shiftr p 64) (b1 || b2) in
+      Some (t :: r, mc', b')
+  | _, _ => Some (w, mc, borrow)
+  end.
+
+(** [fn knuth_step(w: &mut [u64], v: &[u64]) -> u64] *)
+Definition knuth_step (w v : list Z) : option (Z * list Z) :=
+  let n := length v in
+  let v1 := limb v (n - 1) in
+  let v2 := limb v (n - 2) in
+  let top := Z.lor (Z.shiftl (limb w n) 64 mod 2 ^ 128) (limb w (n - 1)) in
+  let* t := div_u top v1 in
+  let qhat := Z.min t (2 ^ 64 - 1) in
+  let* qv1 := checked_u 128 (qhat * v1) in
+  let* rhat := checked_u 128 (top - qv1) in
+  let* qhat := knuth_qhat 3 qhat rhat v1 v2 (limb w (n - 2)) in
+  let* (lo, mc, borrow) := knuth_submul (firstn n w) v qhat 0 false in
+  let (t, b1) := ovf_sub (limb w n) (mc mod 2 ^ 64) in
+  let (t, b2) := ovf_sub t (Z.b2z borrow) in
+  if b1 || b2 then
+    let* qhat := checked_u 128 (qhat - 1) in
+    let (lo', c) := add_assign lo v in
+    Some (qhat mod 2 ^ 64, lo' ++ (t + Z.b2z c) mod 2 ^ 64 :: nil)
+  else Some (qhat mod 2 ^ 64, lo ++ t :: nil).
+
+(** D2 and D7 of [div_rem_knuth]: step [j] works on [u[j..=j + n]], and
+    [q[j]] is consed, so that the list is the least significant first. *)
+Fixpoint knuth_loop (k : nat) (u v acc : list Z) : option (list Z * list Z) :=
+  match k with
+  | O => Some (acc, u)
+  | S j =>
+      let* (qj, w') := knuth_step (firstn (S (length v)) (skipn j u)) v in
+      knuth_loop j (update u j w') v (qj :: acc)
+  end.
+
+(** [fn div_rem_knuth(q, r, x: &[u64], d: &[u64], scratch)], returning
+    [q] and [r] *)
+Definition div_rem_knuth (x d : list Z) : option (list Z * list Z) :=
+  let n := length d in
+  let s := leading_zeros 64 (limb d (n - 1)) in
+  let v := firstn n (shl_into (S n) d s) in
+  let u := shl_into (S (length x)) x s in
+  let* (q, u') := knuth_loop (S (length x - n)) u v nil in
+  Some (q, shr_into n (firstn n u') s).
+
+(** [d.iter().take_while(|&&l| l == 0).count()] *)
+Fixpoint zeros_low (d : list Z) : nat :=
+  match d with nil => O | a :: d' => if a =? 0 then S (zeros_low d') else O end.
+
+(** [fn div_rem(q, r, x: &[u64], d: &[u64], scratch)], returning [q] and
+    [r], for the [q.len() == x.len()] and [r.len() == d.len()] that every
+    caller passes. [expect] is [None]. *)
+Definition div_rem (x d : list Z) : option (list Z * list Z) :=
+  let* n0 := rposition_nonzero d in
+  let n := S n0 in
+  match cmp x d with
+  | Lt => Some (repeat 0 (length x), map (limb x) (seq 0 (length d)))
+  | _ =>
+      let j := zeros_low d in
+      let s0 := firstn j x in
+      let s1 := skipn j x in
+      let d1 := firstn (n - j) (skipn j d) in
+      match d1 with
+      | c :: nil =>
+          let* (q1, r1) := div_rem_limb s1 c in
+          Some (q1 ++ repeat 0 (length x - length s1),
+                s0 ++ r1 :: repeat 0 (length d - j - 1))
+      | _ =>
+          let* (q1, r1) := div_rem_knuth s1 d1 in
+          Some (q1 ++ repeat 0 (length x - (length s1 - length d1 + 1)),
+                s0 ++ r1 ++ repeat 0 (length d - n))
+      end
+  end.
+
+End Limbs.
+
+(** ** Nat
+
+    The operations of [Nat] in [src/nat.rs] that [scale] and the
+    functions of [src/format/digits.rs] below call. A [Nat] is its limbs,
+    with no zero limb at the top. *)
+Module NatLimbs.
+
+(** [fn from_limbs(v: Vec<u64>) -> Nat]: the zero limbs at the top go. *)
+Fixpoint from_limbs (v : list Z) : list Z :=
+  match v with
+  | nil => nil
+  | a :: v' =>
+      match from_limbs v' with
+      | nil => if a =? 0 then nil else a :: nil
+      | t => a :: t
+      end
+  end.
+
+(** [Nat::from_u64(x)] *)
+Definition from_u64 (x : Z) : list Z := from_limbs (x :: nil).
+
+(** [n.is_zero()] *)
+Definition is_zero (n : list Z) : bool := match n with nil => true | _ => false end.
+
+(** [n.bits()] *)
+Definition bits (n : list Z) : Z := Limbs.bit_len n.
+
+(** [n.low_u128()]: [limb(0) | limb(1) << 64] *)
+Definition low_u128 (n : list Z) : Z :=
+  Z.lor (Limbs.limb n 0) (Z.shiftl (Limbs.limb n 1) 64 mod 2 ^ 128).
+
+(** [fn mul_add_u64(&mut self, m: u64, a: u64)] *)
+Definition mul_add_u64 (n : list Z) (m a : Z) : option (list Z) :=
+  let* (n', c) := Limbs.mul_add_limb n m a in
+  Some (if c =? 0 then n' else n' ++ c :: nil).
+
+Fixpoint pow5_loop (k : nat) (p : list Z) : option (list Z) :=
+  match k with
+  | O => Some p
+  | S k' => let* p' := mul_add_u64 p (5 ^ 27) 0 in pow5_loop k' p'
+  end.
+
+(** [Nat::pow5(k)], where [Vec::with_capacity] only reserves memory. *)
+Definition pow5 (k : Z) : option (list Z) :=
+  pow5_loop (Z.to_nat (k / 27)) (5 ^ (k mod 27) :: nil).
+
+(** [n.div_rem(&d)] *)
+Definition div_rem (a d : list Z) : option (list Z * list Z) :=
+  if is_zero d then None else
+  let* (q, r) := Limbs.div_rem a d in
+  Some (from_limbs q, from_limbs r).
+
+(** [&x + &y] *)
+Definition add (x y : list Z) : list Z :=
+  let '(a, b) := if (length y <=? length x)%nat then (x, y) else (y, x) in
+  from_limbs (fst (Limbs.add_assign (a ++ 0 :: nil) b)).
+
+(** [&x * &y] *)
+Definition mul (x y : list Z) : option (list Z) :=
+  let* out := Limbs.mul_into (length x + length y) x y in Some (from_limbs out).
+
+(** [&x << k], where [usize::try_from(k / 64).unwrap()] holds on the
+    64-bit targets that [gmp] needs. *)
+Definition shl (x : list Z) (k : Z) : list Z :=
+  if is_zero x then nil
+  else from_limbs (Limbs.shl_into (Z.to_nat (k / 64) + length x + 1) x k).
+
+(** [fn pow10(k: u64) -> Nat], where [u32::try_from(k).unwrap()] is
+    checked. *)
+Definition pow10 (k : Z) : option (list Z) :=
+  let* k32 := checked_u 32 k in
+  let* p := pow5 k32 in
+  Some (shl p k).
+
+(** [while *self >= pow10(d + 1) { d += 1 }], with fuel. *)
+Fixpoint digits10_loop (fuel : nat) (n : list Z) (d : Z) : option Z :=
+  match fuel with
+  | O => None
+  | S f =>
+      let* d1 := checked_u 64 (d + 1) in
+      let* p := pow10 d1 in
+      match Limbs.cmp n p with
+      | Lt => Some d
+      | _ => digits10_loop f n d1
+      end
+  end.
+
+(** [n.digits10()]. The fuel, one more than the number of bits, is more
+    than the number of steps, as [NatOps.v] proves. *)
+Definition digits10 (n : list Z) : option Z :=
+  let b := bits n in
+  if b =? 0 then Some 0 else
+  let* b1 := checked_u 64 (b - 1) in
+  let* t := checked_u 128 (b1 * 1233) in
+  let* d0 := checked_u 64 (t / 4096) in
+  let* d := digits10_loop (S (Z.to_nat b)) n d0 in
+  checked_u 64 (d + 1).
+
+(** The limbs of a [Nat] that holds [z >= 0]: the only list of limbs with
+    no zero limb at the top that holds it ([NatOps.v]). *)
+Fixpoint to_limbs_fuel (f : nat) (z : Z) : list Z :=
+  match f with
+  | O => nil
+  | S f' => if z =? 0 then nil else z mod 2 ^ 64 :: to_limbs_fuel f' (z / 2 ^ 64)
+  end.
+
+Definition to_limbs (z : Z) : list Z := to_limbs_fuel (Z.to_nat (Z.log2 z + 1)) z.
+
+(** The operations above on the [Z]s that [Nat]s hold. *)
+Definition mul_z (a b : Z) : option Z :=
+  let* l := mul (to_limbs a) (to_limbs b) in Some (Limbs.val l).
+Definition shl_z (a s : Z) : Z := Limbs.val (shl (to_limbs a) s).
+Definition div_rem_z (a b : Z) : option (Z * Z) :=
+  let* (q, r) := div_rem (to_limbs a) (to_limbs b) in Some (Limbs.val q, Limbs.val r).
+Definition bits_z (a : Z) : Z := bits (to_limbs a).
+Definition is_zero_z (a : Z) : bool := is_zero (to_limbs a).
+Definition low_u128_z (a : Z) : Z := low_u128 (to_limbs a).
+Definition pow5_z (k : Z) : option Z := let* l := pow5 k in Some (Limbs.val l).
+Definition add_z (a b : Z) : Z := Limbs.val (add (to_limbs a) (to_limbs b)).
+Definition from_u64_z (x : Z) : Z := Limbs.val (from_u64 x).
+Definition digits10_z (a : Z) : option Z := digits10 (to_limbs a).
+
+End NatLimbs.
+
+(** ** The dyadic kernel
+
+    The functions of [src/dyadic.rs], for [N] the [nat] [n]. [with_buf]
+    is not modelled, nor is the [scratch] of [Limbs.div_rem]: each
+    function, here and in [src/limbs.rs], writes every limb of the scratch
+    that it reads before it reads it, so the contents of the scratch do
+    not matter. *)
+Module Dyadic.
+
+(** [struct Dyadic<N> { neg: bool, exp: i64, m: [u64; N] }] and
+    [struct Encl<N> { lo, hi }] *)
+Record dyadic : Type := { dy_neg : bool; dy_exp : Z; dy_m : list Z }.
+Record encl : Type := { en_lo : dyadic; en_hi : dyadic }.
+
+(** The value [(-1)^neg * m * 2^exp] that the comment of [Dyadic] gives. *)
+Definition dy_R (x : dyadic) : R :=
+  let v := Rmult (IZR (Limbs.val (dy_m x))) (bpow radix2 (dy_exp x)) in
+  if dy_neg x then Ropp v else v.
+
+(** [Dyadic::ZERO] *)
+Definition dy_zero (n : nat) : dyadic := {| dy_neg := false; dy_exp := 0; dy_m := repeat 0 n |}.
+
+(** [fn low_bits_nonzero(x: &[u64], k: u64) -> bool] *)
+Definition low_bits_nonzero (x : list Z) (k : Z) : bool :=
+  existsb (fun l => negb (l =? 0)) (firstn (Z.to_nat (k / 64)) x)
+  || negb (Z.land (Limbs.limb x (Z.to_nat (k / 64))) (Z.shiftl 1 (k mod 64) - 1) =? 0).
+
+(** [fn round<N>(neg: bool, x: &[u64], e: i64, sticky: bool, up: bool)],
+    where [sh] is computed without a check, as it cannot overflow. *)
+Definition round (n : nat) (neg : bool) (x : list Z) (e : Z) (sticky up : bool)
+  : option dyadic :=
+  let l := Limbs.bit_len x in
+  if l =? 0 then Some (dy_zero n) else
+  let sh := l - 64 * Z.of_nat n in
+  let m := if 0 <=? sh then Limbs.shr_into n x sh else Limbs.shl_into n x (- sh) in
+  let* exp := checked_i 64 (e + sh) in
+  let dropped := sticky || ((0 <? sh) && low_bits_nonzero x sh) in
+  if dropped && negb (Bool.eqb up neg) then
+    let (m', c) := Limbs.add_assign m (1 :: nil) in
+    if c then
+      let* exp' := checked_i 64 (exp + 1) in
+      Some {| dy_neg := neg; dy_exp := exp'; dy_m := Limbs.update m' (n - 1) (2 ^ 63 :: nil) |}
+    else Some {| dy_neg := neg; dy_exp := exp; dy_m := m' |}
+  else Some {| dy_neg := neg; dy_exp := exp; dy_m := m |}.
+
+(** [Dyadic::from_f64(x)], where [assert!(x.is_finite())] is [None]. *)
+Definition from_f64 (n : nat) (x : f64) : option dyadic :=
+  if negb (is_finite x) then None else
+  let bits := to_bits x in
+  let neg := negb (Z.shiftr bits 63 =? 0) in
+  let be := Z.land (Z.shiftr bits 52) 0x7ff in
+  let f := Z.land bits (Z.shiftl 1 52 - 1) in
+  let '(m, e) := if be =? 0 then (f, -1074) else (Z.lor f (Z.shiftl 1 52), be - 1075) in
+  round n neg (m :: nil) e false false.
+
+(** [x.is_zero()], [x.neg()] and [x.shl(k)] *)
+Definition is_zero (n : nat) (x : dyadic) : bool := Limbs.limb (dy_m x) (n - 1) =? 0.
+
+Definition neg (n : nat) (x : dyadic) : dyadic :=
+  if is_zero n x then x
+  else {| dy_neg := negb (dy_neg x); dy_exp := dy_exp x; dy_m := dy_m x |}.
+
+Definition shl (n : nat) (x : dyadic) (k : Z) : option dyadic :=
+  if is_zero n x then Some x else
+  let* e := checked_i 64 (dy_exp x + k) in
+  Some {| dy_neg := dy_neg x; dy_exp := e; dy_m := dy_m x |}.
+
+(** [x.cmp_abs(&y)] *)
+Definition cmp_abs (n : nat) (x y : dyadic) : comparison :=
+  match is_zero n x, is_zero n y with
+  | true, true => Eq
+  | true, false => Lt
+  | false, true => Gt
+  | false, false =>
+      match Z.compare (dy_exp x) (dy_exp y) with
+      | Eq => Limbs.cmp (dy_m x) (dy_m y)
+      | o => o
+      end
+  end.
+
+(** [a.add(&b, up)] and [a.sub(&b, up)] *)
+Definition add (n : nat) (a b : dyadic) (up : bool) : option dyadic :=
+  if is_zero n b then Some a else
+  if is_zero n a then Some b else
+  let '(x, y) := match cmp_abs n a b with Lt => (b, a) | _ => (a, b) end in
+  (* [x.exp.wrapping_sub(y.exp) as u64] *)
+  let d := (dy_exp x - dy_exp y) mod 2 ^ 64 in
+  let* e := checked_i 64 (dy_exp x - 64) in
+  let w := 0 :: dy_m x ++ 0 :: nil in
+  let '(wy, sticky) :=
+    if d <=? 64 then (Limbs.shl_into (S n) (dy_m y) (64 - d), false)
+    else (Limbs.shr_into (S n) (dy_m y) (d - 64), low_bits_nonzero (dy_m y) (d - 64)) in
+  let w' :=
+    if Bool.eqb (dy_neg x) (dy_neg y) then fst (Limbs.add_assign w wy)
+    else fst (Limbs.sub_assign w wy sticky) in
+  round n (dy_neg x) w' e sticky up.
+
+Definition sub (n : nat) (a b : dyadic) (up : bool) : option dyadic := add n a (neg n b) up.
+
+(** [a.mul(&b, up)] *)
+Definition mul (n : nat) (a b : dyadic) (up : bool) : option dyadic :=
+  if is_zero n a || is_zero n b then Some (dy_zero n) else
+  let* e := checked_i 64 (dy_exp a + dy_exp b) in
+  let* w := Limbs.mul_into (2 * n) (dy_m a) (dy_m b) in
+  round n (negb (Bool.eqb (dy_neg a) (dy_neg b))) w e false up.
+
+(** [a.mul_u64(k, up)] *)
+Definition mul_u64 (n : nat) (a : dyadic) (k : Z) (up : bool) : option dyadic :=
+  if is_zero n a || (k =? 0) then Some (dy_zero n) else
+  let* (m', c) := Limbs.mul_add_limb (dy_m a) k 0 in
+  round n (dy_neg a) (m' ++ c :: nil) (dy_exp a) false up.
+
+(** [a.div_u64(k, up)] *)
+Definition div_u64 (n : nat) (a : dyadic) (k : Z) (up : bool) : option dyadic :=
+  if k =? 0 then None else
+  if is_zero n a then Some (dy_zero n) else
+  let* e := checked_i 64 (dy_exp a - 64) in
+  let* (q, r) := Limbs.div_rem_limb (0 :: dy_m a) k in
+  round n (dy_neg a) q e (negb (r =? 0)) up.
+
+(** [a.div(&b, up)] *)
+Definition div (n : nat) (a b : dyadic) (up : bool) : option dyadic :=
+  if is_zero n b then None else
+  if is_zero n a then Some (dy_zero n) else
+  let* e1 := checked_i 64 (dy_exp a - dy_exp b) in
+  let* e := checked_i 64 (e1 - 64 * Z.of_nat n) in
+  let* (q, r) := Limbs.div_rem (repeat 0 n ++ dy_m a) (dy_m b) in
+  round n (negb (Bool.eqb (dy_neg a) (dy_neg b))) q e (existsb (fun l => negb (l =? 0)) r) up.
+
+(** The [loop] of [fn isqrt(s, x, scratch)], with fuel ([DyIsqrt.v] proves
+    that the fuel of [isqrt] is enough). [s] and [y] have [n + 1] limbs. *)
+Fixpoint isqrt_loop (fuel : nat) (n : nat) (x s : list Z) (first : bool) : option (list Z) :=
+  match fuel with
+  | O => None
+  | S f =>
+      let* (q, _) := Limbs.div_rem x s in
+      let q' := fst (Limbs.add_assign q s) in
+      let y := Limbs.shr_into (S n) q' 1 in
+      if negb first && negb (match Limbs.cmp y s with Lt => true | _ => false end) then Some s
+      else isqrt_loop f n x y false
+  end.
+
+(** [fn isqrt(s, x, scratch)], returning [s], where [l - 63] is checked
+    and [t[0] as f64] is [of_u64]. *)
+Definition isqrt (n : nat) (x : list Z) : option (list Z) :=
+  let* l63 := checked_u 64 (Limbs.bit_len x - 63) in
+  let k := l63 / 2 in
+  let t := Limbs.shr_into 1 x (2 * k) in
+  let c :=
+    Z.shiftr
+      (Z.lor (Z.land (to_bits (fsqrt (of_u64 (Limbs.limb t 0)))) (Z.shiftl 1 52 - 1))
+         (Z.shiftl 1 52))
+      21 in
+  isqrt_loop (Z.to_nat (Limbs.val x) + 2) n x (Limbs.shl_into (S n) (c :: nil) k) true.
+
+(** [a.sqrt(up)], where [exp.rem_euclid(2)] and [exp.div_euclid(2)] are
+    [exp mod 2] and [exp / 2], and the [i64] subtraction, which cannot
+    overflow, is checked. *)
+Definition sqrt (n : nat) (a : dyadic) (up : bool) : option dyadic :=
+  if is_zero n a then Some (dy_zero n) else
+  if dy_neg a then None else
+  let* e := checked_i 64 (dy_exp a / 2 - 32 * Z.of_nat n) in
+  let x := Limbs.shl_into (2 * n + 1) (dy_m a) (64 * Z.of_nat n + dy_exp a mod 2) in
+  let* s := isqrt n x in
+  let* sq := Limbs.mul_into (2 * n + 2) s s in
+  round n false s e (match Limbs.cmp sq x with Eq => false | _ => true end) up.
+
+(** [x.round_up(neg)], where [(b - 128) as i32] keeps the low 32 bits. *)
+Definition round_up (n : nat) (x : dyadic) (neg : bool) : option f64 :=
+  let* b := checked_i 128 (dy_exp x + 64 * Z.of_nat n) in
+  if 1025 <=? b then Some (if neg then min_f64 else infinity) else
+  if b <=? -1074 then Some (if neg then B754_zero true else from_bits 1) else
+  let lo := if (2 <=? n)%nat then Limbs.limb (dy_m x) (n - 2) else 0 in
+  let q := Z.lor (Z.shiftl (Limbs.limb (dy_m x) (n - 1)) 64 mod 2 ^ 128) lo in
+  let sticky := existsb (fun l => negb (l =? 0)) (firstn (n - 2) (dy_m x)) in
+  let* b128 := checked_i 128 (b - 128) in
+  Generic.round_up_exact neg q ((b128 + 2 ^ 31) mod 2 ^ 32 - 2 ^ 31) sticky.
+
+(** [x.to_f64(up)] *)
+Definition to_f64 (n : nat) (x : dyadic) (up : bool) : option f64 :=
+  if is_zero n x then Some zero
+  else if up then round_up n x (dy_neg x)
+  else let* r := round_up n x (negb (dy_neg x)) in Some (opp r).
+
+(** [x.cmp(&y)] of [impl Ord for Dyadic<N>] *)
+Definition sign (n : nat) (x : dyadic) : Z :=
+  if is_zero n x then 0 else if dy_neg x then -1 else 1.
+
+Definition cmp (n : nat) (x y : dyadic) : comparison :=
+  match Z.compare (sign n x) (sign n y) with
+  | Eq => if dy_neg x then cmp_abs n y x else cmp_abs n x y
+  | o => o
+  end.
+
+(** [x.min(y)] and [x.max(y)] of [Ord]: [min] keeps [x] unless [x > y],
+    and [max] takes [y] unless [x > y]. *)
+Definition dmin (n : nat) (x y : dyadic) : dyadic := match cmp n x y with Gt => y | _ => x end.
+Definition dmax (n : nat) (x y : dyadic) : dyadic := match cmp n x y with Gt => x | _ => y end.
+
+(** The functions of [impl Encl<N>]: [Encl::point(x)], [a.neg()], ... *)
+Definition encl_point (n : nat) (x : f64) : option encl :=
+  let* d := from_f64 n x in Some {| en_lo := d; en_hi := d |}.
+
+Definition encl_neg (n : nat) (a : encl) : encl :=
+  {| en_lo := neg n (en_hi a); en_hi := neg n (en_lo a) |}.
+
+Definition encl_add (n : nat) (a b : encl) : option encl :=
+  let* lo := add n (en_lo a) (en_lo b) false in
+  let* hi := add n (en_hi a) (en_hi b) true in
+  Some {| en_lo := lo; en_hi := hi |}.
+
+Definition encl_sub (n : nat) (a b : encl) : option encl :=
+  let* lo := sub n (en_lo a) (en_hi b) false in
+  let* hi := sub n (en_hi a) (en_lo b) true in
+  Some {| en_lo := lo; en_hi := hi |}.
+
+(** [a.mul(&b)]: [x.min(y)] chains in the order of the Rust code. *)
+Definition encl_mul (n : nat) (a b : encl) : option encl :=
+  let '(x, y, c, d) := (en_lo a, en_hi a, en_lo b, en_hi b) in
+  let* xc := mul n x c false in let* xd := mul n x d false in
+  let* yc := mul n y c false in let* yd := mul n y d false in
+  let* xc' := mul n x c true in let* xd' := mul n x d true in
+  let* yc' := mul n y c true in let* yd' := mul n y d true in
+  Some {| en_lo := dmin n (dmin n (dmin n xc xd) yc) yd;
+          en_hi := dmax n (dmax n (dmax n xc' xd') yc') yd' |}.
+
+(** [a.div(&b)], where the [assert!] is [None]. *)
+Definition encl_div (n : nat) (a b : encl) : option encl :=
+  let '(x, y, c, d) := (en_lo a, en_hi a, en_lo b, en_hi b) in
+  if negb ((match cmp n c (dy_zero n) with Gt => true | _ => false end)
+           || (match cmp n d (dy_zero n) with Lt => true | _ => false end)) then None else
+  let* xc := div n x c false in let* xd := div n x d false in
+  let* yc := div n y c false in let* yd := div n y d false in
+  let* xc' := div n x c true in let* xd' := div n x d true in
+  let* yc' := div n y c true in let* yd' := div n y d true in
+  Some {| en_lo := dmin n (dmin n (dmin n xc xd) yc) yd;
+          en_hi := dmax n (dmax n (dmax n xc' xd') yc') yd' |}.
+
+Definition encl_sqrt (n : nat) (a : encl) : option encl :=
+  let* lo := sqrt n (dmax n (en_lo a) (dy_zero n)) false in
+  let* hi := sqrt n (en_hi a) true in
+  Some {| en_lo := lo; en_hi := hi |}.
+
+Definition encl_mul_u64 (n : nat) (a : encl) (k : Z) : option encl :=
+  let* lo := mul_u64 n (en_lo a) k false in
+  let* hi := mul_u64 n (en_hi a) k true in
+  Some {| en_lo := lo; en_hi := hi |}.
+
+Definition encl_div_u64 (n : nat) (a : encl) (k : Z) : option encl :=
+  let* lo := div_u64 n (en_lo a) k false in
+  let* hi := div_u64 n (en_hi a) k true in
+  Some {| en_lo := lo; en_hi := hi |}.
+
+Definition encl_shl (n : nat) (a : encl) (k : Z) : option encl :=
+  let* lo := shl n (en_lo a) k in
+  let* hi := shl n (en_hi a) k in
+  Some {| en_lo := lo; en_hi := hi |}.
+
+(** [fn ziv_at<N, E>(f: &E, up: bool) -> Option<f64>], for [ev n] the
+    [f.eval::<N>()] of [N = n], [None] where it panics. *)
+Definition ziv_at (ev : nat -> option encl) (n : nat) (up : bool) : option (option f64) :=
+  let* x := ev n in
+  let* lo := to_f64 n (en_lo x) up in
+  let* hi := to_f64 n (en_hi x) up in
+  Some (if eq lo hi then Some lo else None).
+
+(** [fn ziv<E>(f: &E, up: bool, start: usize) -> f64]: the [panic!] at
+    the cap, after the last level, is [None]. *)
+Fixpoint ziv_levels (ev : nat -> option encl) (up : bool) (start : nat) (levels : list nat)
+  : option f64 :=
+  match levels with
+  | nil => None
+  | n :: ls =>
+      if (start <=? n)%nat then
+        let* r := ziv_at ev n up in
+        match r with Some x => Some x | None => ziv_levels ev up start ls end
+      else ziv_levels ev up start ls
+  end.
+
+Definition ziv (ev : nat -> option encl) (up : bool) (start : nat) : option f64 :=
+  ziv_levels ev up start (1 :: 2 :: 4 :: 8 :: 16 :: 32 :: 64 :: nil)%nat.
+
+End Dyadic.
+
 (** ** MPFR
 
     [src/elementary.rs] computes the bounds of [exp] and the other
@@ -1252,9 +1935,15 @@ Definition transmute_class2 (c : Z) : option (IntervalClass * IntervalClass) :=
     decorates a literal. The rest of the [nom] grammar of [parse.rs], which
     reads the literal and computes its bounds as exact rationals, is not
     modelled. Each [Nat] of [src/nat.rs], the unsigned integer of
-    any width that [parse.rs] computes with, is the [Z] that it holds, and
-    each of its operations is the operation on [Z] that it computes: the
-    loops on its limbs are not proved. *)
+    any width that [parse.rs] computes with, is the [Z] [z >= 0] that it
+    holds, with the limbs [NatLimbs.to_limbs z], the only limbs with no
+    zero limb at the top that hold [z]. Each of its operations is the loop
+    of [NatLimbs] above on those limbs, through the wrapper of [NatLimbs]
+    on [Z]s, such as [NatLimbs.mul_z] for [&a * &b]. [NatOps.v] proves what
+    each wrapper computes, and that the loops of [NatLimbs] return limbs
+    with no zero limb at the top. That the operations of [src/nat.rs] that
+    are not modelled, such as [Nat::from_dec], [Nat::from_hex] and [-],
+    return such limbs too is checked by reading, not proved. *)
 
 (** [enum InfSup { Inf, Sup }], which says whether a bound is the lower or
     the upper one. [as_rnd_t] is not Rust: it names the direction in which
@@ -1289,7 +1978,8 @@ Definition rat_ok (x : Rat) : Prop :=
   0 <= rat_num x < 2 ^ 2 ^ 63 /\ 0 < rat_den x < 2 ^ 2 ^ 63 /\
   - 2 ^ 31 <= rat_e2 x < 2 ^ 31 /\ - 2 ^ 31 <= rat_e5 x < 2 ^ 31.
 
-(** [n.bits()] of a [Nat] [n]: the number of bits of [n], 0 for 0. *)
+(** The number of bits of an integer [n >= 0], 0 for 0, which
+    [n.bits()] of a [Nat] computes ([NatOps.v]). *)
 Definition nat_bits (n : Z) : Z := if n =? 0 then 0 else Z.log2 n + 1.
 
 (** [enum Number { NegInfinity, Rational(Rat), Infinity }], and
@@ -1426,15 +2116,16 @@ Inductive Scaled : Type := Huge | Tiny | Mid (q e : Z) (sticky : bool).
 
 (** [fn scale(x: &Rat) -> Scaled]. The [i128] operations are checked,
     [i128::from] of a [u64] or an [i32] keeps the value, and [as] keeps the
-    low bits, as a cast between integers does. [&a * &b],
-    [&a << s], [a.div_rem(&b)], [a.is_zero()] and [a.low_u128()] of [Nat]s
-    are [a * b], [Z.shiftl a s], [(a / b, a mod b)], which panics for
-    [b = 0] as [div_u] and [rem_u] say, [a =? 0] and [a mod 2^128], and
-    [Nat::pow5(k)] is [5 ^ k]. *)
+    low bits, as a cast between integers does. [a.bits()],
+    [Nat::pow5(k)], [&a * &b], [&a << s], [a.div_rem(&b)], which panics for
+    [b = 0], [a.low_u128()] and [a.is_zero()] of [Nat]s are
+    [NatLimbs.bits_z a], [NatLimbs.pow5_z k], [NatLimbs.mul_z a b],
+    [NatLimbs.shl_z a s], [NatLimbs.div_rem_z a b], [NatLimbs.low_u128_z a]
+    and [NatLimbs.is_zero_z a], as the comment of this section says. *)
 Definition scale (x : Rat) : option Scaled :=
   let e2 := rat_e2 x in
   let e5 := rat_e5 x in
-  let* t := checked_i 128 (nat_bits (rat_num x) - nat_bits (rat_den x)) in
+  let* t := checked_i 128 (NatLimbs.bits_z (rat_num x) - NatLimbs.bits_z (rat_den x)) in
   let* b0 := checked_i 128 (t + e2) in
   let* lohi :=
     if 0 <=? e5 then
@@ -1451,9 +2142,14 @@ Definition scale (x : Rat) : option Scaled :=
   let* v := checked_i 128 (b0 + hi5) in
   if v <=? -1075 then Some Tiny else
   (* [x.e5.unsigned_abs()] is [Z.abs e5]. *)
-  let p := 5 ^ Z.abs e5 in
-  let (n, d) := if 0 <=? e5 then (rat_num x * p, rat_den x) else (rat_num x, rat_den x * p) in
-  let* t' := checked_i 128 (nat_bits n - nat_bits d) in
+  let* p := NatLimbs.pow5_z (Z.abs e5) in
+  let* nd :=
+    if 0 <=? e5 then
+      let* n := NatLimbs.mul_z (rat_num x) p in Some (n, rat_den x)
+    else
+      let* d := NatLimbs.mul_z (rat_den x) p in Some (rat_num x, d) in
+  let (n, d) := nd in
+  let* t' := checked_i 128 (NatLimbs.bits_z n - NatLimbs.bits_z d) in
   let* b := checked_i 128 (t' + e2) in
   if 1025 <=? b then Some Huge else
   if b <=? -1075 then Some Tiny else
@@ -1463,21 +2159,17 @@ Definition scale (x : Rat) : option Scaled :=
     if 0 <=? sh then
       (* [sh as u64] *)
       let s := sh mod 2 ^ 64 in
-      let* q := div_u (Z.shiftl n s) d in
-      let* r := rem_u (Z.shiftl n s) d in
-      Some (q, r)
+      NatLimbs.div_rem_z (NatLimbs.shl_z n s) d
     else
       let* ns := checked_i 128 (- sh) in
       (* [(-sh) as u64] *)
       let s := ns mod 2 ^ 64 in
-      let* q := div_u n (Z.shiftl d s) in
-      let* r := rem_u n (Z.shiftl d s) in
-      Some (q, r) in
+      NatLimbs.div_rem_z n (NatLimbs.shl_z d s) in
   let (q, r) := qr in
   (* [e as i32], which keeps the low 32 bits of [e] as a two's complement
      [i32]. *)
   let e32 := (e + 2 ^ 31) mod 2 ^ 32 - 2 ^ 31 in
-  Some (Mid (q mod 2 ^ 128) e32 (negb (r =? 0))).
+  Some (Mid (NatLimbs.low_u128_z q) e32 (negb (NatLimbs.is_zero_z r))).
 
 (** [fn round_up_scaled(neg: bool, s: &Scaled) -> f64], where
     [f64::MIN], [f64::INFINITY], [-0.0] and [f64::from_bits(1)] are
@@ -1489,11 +2181,12 @@ Definition round_up_scaled (neg : bool) (s : Scaled) : option f64 :=
   | Mid q e sticky => Generic.round_up_exact neg q e sticky
   end.
 
-(** [fn rational_to_f64(x: &Rat, infsup: InfSup) -> F64], where [0.0] is
+(** [fn rational_to_f64(x: &Rat, infsup: InfSup) -> F64], where
+    [x.num.is_zero()] is [NatLimbs.is_zero_z (rat_num x)], [0.0] is
     [zero], [-round_up_scaled(..)] is [opp], [up != down] is
     [negb (eq up down)], and [f.is_infinite()] is [f64_is_infinite f]. *)
 Definition rational_to_f64 (x : Rat) (infsup : InfSup) : option F64 :=
-  if rat_num x =? 0 then
+  if NatLimbs.is_zero_z (rat_num x) then
     Some {| f64_f := zero; f64_inexact := false; f64_overflow := false |}
   else
     let* s := scale x in
@@ -1523,16 +2216,13 @@ Definition number_to_f64 (n : Number) (infsup : InfSup) : option F64 :=
     [src/format.rs], which writes the text of [d] and [k] with
     [Nat::to_dec], the point, the zeros, the exponent and the sign, and
     the text of zeros and infinities, is not modelled. As in the section
-    above, each [Nat] is the [Z] that it holds, and each of its operations
-    is the operation on [Z] that it computes. [usize] is [u64], as the
-    feature [gmp] is supported only on 64-bit targets. *)
+    above, each [Nat] is the [Z] that it holds, with the limbs
+    [NatLimbs.to_limbs] of that [Z], and each of its operations is the loop
+    of [NatLimbs] on those limbs, through its wrapper on [Z]s. [usize] is
+    [u64], as the feature [gmp] is supported only on 64-bit targets. *)
 
 Definition radix10 : radix := Build_radix 10 eq_refl.
 Definition radix16 : radix := Build_radix 16 eq_refl.
-
-(** [n.digits10()] of a [Nat] [n]: the number of its decimal digits, 0
-    for 0. *)
-Definition nat_digits10 (n : Z) : Z := Zdigits radix10 n.
 
 (** [fn decompose(x: f64) -> (u64, i64)], where [!(1 << 63)] of a [u64]
     is [2 ^ 63 - 1]. *)
@@ -1546,36 +2236,41 @@ Definition format_decompose (x : f64) : option (Z * Z) :=
   let* e := checked_i 64 (b - 1075) in
   Some (m, e).
 
-(** [fn exact_dec(x: f64) -> (Nat, i64)], where [Nat::from_u64(m)] is [m],
-    [&m << s] is [Z.shiftl m s], [&a * &b] is [a * b] and [Nat::pow5(k)]
-    is [5 ^ k]. *)
+(** [fn exact_dec(x: f64) -> (Nat, i64)], where [Nat::from_u64(m)],
+    [&m << s], [&a * &b] and [Nat::pow5(k)] are [NatLimbs.from_u64_z m],
+    [NatLimbs.shl_z m s], [NatLimbs.mul_z a b] and [NatLimbs.pow5_z k]. *)
 Definition format_exact_dec (x : f64) : option (Z * Z) :=
   let* (m, e) := format_decompose x in
+  let m := NatLimbs.from_u64_z m in
   if 0 <=? e then
     (* [e as u64] *)
-    Some (Z.shiftl m (e mod 2 ^ 64), 0)
+    Some (NatLimbs.shl_z m (e mod 2 ^ 64), 0)
   else
     let* ne := checked_i 64 (- e) in
     (* [-e as u32] *)
-    Some (m * 5 ^ (ne mod 2 ^ 32), e).
+    let* p := NatLimbs.pow5_z (ne mod 2 ^ 32) in
+    let* n := NatLimbs.mul_z m p in
+    Some (n, e).
 
 (** [fn away(x: f64, up: bool) -> bool], where [x.is_sign_negative()] is
     [Bsign x], as [x] is not NaN here, and [a != b] is [negb (Bool.eqb a b)]. *)
 Definition format_away (x : f64) (up : bool) : bool := negb (Bool.eqb (Bsign x) up).
 
 (** [fn cut_dec(n: Nat, s: i64, t: i64, away: bool) -> (Nat, i64)], where
-    [n.div_rem(&b)] is [(n / b, n mod b)], which panics for [b = 0] as
-    [div_u] and [rem_u] say, [r.is_zero()] is [r =? 0], [&q + &a] is
-    [q + a], and [u64::from] keeps the value. *)
+    [Nat::pow5(k)], [&a << s], [n.div_rem(&b)], which panics for [b = 0],
+    [r.is_zero()], [&a + &b] and [Nat::from_u64(x)] are
+    [NatLimbs.pow5_z k], [NatLimbs.shl_z a s], [NatLimbs.div_rem_z n b],
+    [NatLimbs.is_zero_z r], [NatLimbs.add_z a b] and
+    [NatLimbs.from_u64_z x], and [u64::from] keeps the value. *)
 Definition format_cut_dec (n s t : Z) (away : bool) : option (Z * Z) :=
   if t <=? s then Some (n, s) else
   let* ts := checked_i 64 (t - s) in
   (* [(t - s) as u32] *)
   let j := ts mod 2 ^ 32 in
-  let b := Z.shiftl (5 ^ j) j in
-  let* q := div_u n b in
-  let* r := rem_u n b in
-  if away && negb (r =? 0) then Some (q + 1, t) else Some (q, t).
+  let* p := NatLimbs.pow5_z j in
+  let* (q, r) := NatLimbs.div_rem_z n (NatLimbs.shl_z p j) in
+  if away && negb (NatLimbs.is_zero_z r) then Some (NatLimbs.add_z q (NatLimbs.from_u64_z 1), t)
+  else Some (q, t).
 
 (** [fn fixed(x: f64, p: usize, up: bool) -> (Nat, i64)], where
     [ALL_DIGITS] is 1100. *)
@@ -1586,11 +2281,13 @@ Definition format_fixed (x : f64) (p : Z) (up : bool) : option (Z * Z) :=
   let* t := checked_i 64 (- c) in
   format_cut_dec n s t (format_away x up).
 
-(** [fn sci(x: f64, p: usize, up: bool) -> (Nat, i64)] *)
+(** [fn sci(x: f64, p: usize, up: bool) -> (Nat, i64)], where
+    [n.digits10()] is [NatLimbs.digits10_z n]. *)
 Definition format_sci (x : f64) (p : Z) (up : bool) : option (Z * Z) :=
   let* (n, s) := format_exact_dec x in
+  let* dg := NatLimbs.digits10_z n in
   (* [n.digits10() as i64] *)
-  let dg := (nat_digits10 n + 2 ^ 63) mod 2 ^ 64 - 2 ^ 63 in
+  let dg := (dg + 2 ^ 63) mod 2 ^ 64 - 2 ^ 63 in
   let* t1 := checked_i 64 (dg + s) in
   let* t2 := checked_i 64 (t1 - 1) in
   (* [p.min(ALL_DIGITS) as i64] *)

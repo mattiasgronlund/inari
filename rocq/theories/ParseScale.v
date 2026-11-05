@@ -20,11 +20,15 @@
     [e] with [|x| / 2^e] in [(2^55, 2^57)]. The integer division then
     gives [q] and the sticky bit ([mid_ok]). Every [i128], [u64] and [i32]
     operation stays in range, as [num] and [den] have at most [2^63] bits
-    and [n] and [d] at most [2^64] ([nat_bits_le], [nat_bits_mul_pow5]). *)
+    and [n] and [d] at most [2^64] ([nat_bits_le], [nat_bits_mul_pow5]).
+    Each operation of [Nat] is a loop of [NatLimbs] on the limbs of the
+    integers that the [Nat]s hold, which computes the operation on those
+    integers ([NatOps.v]); the ranges above give the conditions of those
+    lemmas, such as [s < 2^64] for [NatLimbs.shl_z]. *)
 
 From Stdlib Require Import ZArith Reals Lia Lra.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model.
+From Inari Require Import Model NatOps.
 
 Open Scope R_scope.
 
@@ -291,6 +295,7 @@ Proof.
   { rewrite HA0. apply Rmult_lt_0_compat; [apply Rmult_lt_0_compat|]; [|apply bpow_gt_0..].
     apply Rdiv_lt_0_compat; apply IZR_lt; lia. }
   unfold scale. cbn [rat_num rat_den rat_e2 rat_e5].
+  rewrite (bits_z_correct num), (bits_z_correct den) by lia.
   rewrite (checked_i_128 (nat_bits num - nat_bits den)) by lia. cbv beta iota zeta.
   rewrite (checked_i_128 (nat_bits num - nat_bits den + e2)) by lia. cbv beta iota zeta.
   remember (nat_bits num - nat_bits den + e2)%Z as b0 eqn:Hb0.
@@ -326,6 +331,15 @@ Proof.
   { exists Tiny. split; [reflexivity|]. cbn [scaled_ok].
     split; [exact PA|]. apply Rlt_le_trans with (1 := Ch). apply bpow_le. lia. }
   (* [|x| = n / d * 2^e2]. *)
+  rewrite (pow5_z_correct (Z.abs e5)) by lia. cbv beta iota.
+  assert (P5 : (0 <= 5 ^ Z.abs e5)%Z) by (apply Z.pow_nonneg; lia).
+  assert (Hmul : (if 0 <=? e5 then
+      let* n := NatLimbs.mul_z num (5 ^ Z.abs e5) in Some (n, den)
+    else
+      let* d := NatLimbs.mul_z den (5 ^ Z.abs e5) in Some (num, d)) =
+    Some (if 0 <=? e5 then (num * 5 ^ Z.abs e5, den) else (num, den * 5 ^ Z.abs e5))%Z).
+  { destruct (0 <=? e5)%Z; rewrite mul_z_correct by lia; reflexivity. }
+  rewrite Hmul. clear Hmul. cbv beta iota.
   remember (if 0 <=? e5 then (num * 5 ^ Z.abs e5, den) else (num, den * 5 ^ Z.abs e5))%Z
     as nd eqn:Hnd.
   destruct nd as [n d].
@@ -350,6 +364,7 @@ Proof.
   pose proof (proj1 (nat_bits_spec d Pd)) as Bd1.
   cbv beta iota.
   (* The fine bound [2^(b - 1) < |x| < 2^(b + 1)]. *)
+  rewrite (bits_z_correct n), (bits_z_correct d) by lia.
   rewrite (checked_i_128 (nat_bits n - nat_bits d)) by lia. cbv beta iota zeta.
   rewrite (checked_i_128 (nat_bits n - nat_bits d + e2)) by lia. cbv beta iota zeta.
   remember (nat_bits n - nat_bits d + e2)%Z as b eqn:Hb.
@@ -379,22 +394,29 @@ Proof.
   destruct (Z.leb_spec 0 (e2 - (b - 56))) as [Hsh|Hsh].
   - (* [sh >= 0]: [q = floor(n * 2^sh / d)]. *)
     rewrite (as_u64_small (e2 - (b - 56))) by lia. cbv beta iota zeta.
+    rewrite shl_z_correct by lia.
     rewrite Z.shiftl_mul_pow2 by exact Hsh.
-    rewrite div_u_some, rem_u_some by lia. cbv beta iota zeta.
+    assert (PN : (0 <= n * 2 ^ (e2 - (b - 56)))%Z).
+    { apply Z.mul_nonneg_nonneg; [lia | apply Z.pow_nonneg; lia]. }
+    rewrite div_rem_z_correct by lia. cbv beta iota zeta.
+    rewrite low_u128_z_correct by (apply Z.div_pos; lia).
+    rewrite is_zero_z_correct by (apply Z.mod_pos_bound; lia).
     rewrite (as_i32_small (b - 56)) by lia.
     eexists. split; [reflexivity|].
-    apply mid_ok; [| exact Pd | lia | | exact Fe].
-    { apply Z.mul_nonneg_nonneg; [lia | apply Z.pow_nonneg; lia]. }
+    apply mid_ok; [exact PN | exact Pd | lia | | exact Fe].
     assert (E : bpow radix2 e2 = bpow radix2 (e2 - (b - 56)) * bpow radix2 (b - 56)).
     { rewrite <- bpow_plus. f_equal. ring. }
     rewrite HA, E, mult_IZR, IZR_pow2 by exact Hsh. unfold Rdiv. ring.
   - (* [sh < 0]: [q = floor(n / (d * 2^(-sh)))]. *)
     rewrite (checked_i_128 (- (e2 - (b - 56)))) by lia. cbv beta iota.
     rewrite (as_u64_small (- (e2 - (b - 56)))) by lia. cbv beta iota zeta.
+    rewrite shl_z_correct by lia.
     rewrite Z.shiftl_mul_pow2 by lia.
     assert (PD : (0 < d * 2 ^ (- (e2 - (b - 56))))%Z).
     { apply Z.mul_pos_pos; [exact Pd | apply Z.pow_pos_nonneg; lia]. }
-    rewrite div_u_some, rem_u_some by lia. cbv beta iota zeta.
+    rewrite div_rem_z_correct by lia. cbv beta iota zeta.
+    rewrite low_u128_z_correct by (apply Z.div_pos; lia).
+    rewrite is_zero_z_correct by (apply Z.mod_pos_bound; lia).
     rewrite (as_i32_small (b - 56)) by lia.
     eexists. split; [reflexivity|].
     apply mid_ok; [lia | exact PD | lia | | exact Fe].

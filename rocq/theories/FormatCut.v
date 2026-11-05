@@ -11,6 +11,7 @@
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Encoding Spec Decompose.
+From Inari Require NatOps.
 
 Open Scope Z_scope.
 
@@ -130,10 +131,11 @@ Proof.
 intros x Fx Hz.
 destruct (format_decompose_correct x Fx Hz) as (m & e & Hd & Hm & He & Hx).
 unfold format_exact_dec. rewrite Hd. cbv beta iota.
+rewrite NatOps.from_u64_z_correct by lia. cbv zeta.
 destruct (Z.leb_spec 0 e) as [He0|He0].
 - (* An integer: [m * 2^e < 2^53 * 2^971 = 2^1024 < 10^767]. *)
   exists (m * 2^e), 0.
-  rewrite (Z.mod_small e (2^64)), Z.shiftl_mul_pow2 by lia.
+  rewrite (Z.mod_small e (2^64)), NatOps.shl_z_correct, Z.shiftl_mul_pow2 by lia.
   assert (Hp : 0 < 2^e) by (apply Z.pow_pos_nonneg; lia).
   assert (Hp' : 2^e <= 2^971) by (apply Z.pow_le_mono_r; lia).
   assert (Hmp : m * 2^e < 2^53 * 2^971).
@@ -153,6 +155,8 @@ destruct (Z.leb_spec 0 e) as [He0|He0].
   rewrite (Z.mod_small (- e) (2^32)) by lia.
   exists (m * 5^(- e)), e.
   assert (Hp : 0 < 5^(- e)) by (apply Z.pow_pos_nonneg; lia).
+  rewrite NatOps.pow5_z_correct by lia. cbv beta iota.
+  rewrite NatOps.mul_z_correct by lia. cbv beta iota.
   assert (Hp' : 5^(- e) <= 5^1074) by (apply Z.pow_le_mono_r; lia).
   assert (Hmp : m * 5^(- e) < 2^53 * 5^1074).
   { apply Z.lt_le_trans with (2^53 * 5^(- e)).
@@ -205,10 +209,16 @@ destruct (Z.leb_spec t s) as [Hle|Hlt].
 - (* [t - s] fits, and [5^(t - s) << (t - s)] is [10^(t - s)]. *)
   rewrite Z.max_r by lia.
   rewrite checked_i_ok by lia. cbv beta iota.
-  rewrite (Z.mod_small (t - s) (2^32)), Z.shiftl_mul_pow2 by lia.
+  rewrite (Z.mod_small (t - s) (2^32)) by lia.
+  rewrite NatOps.pow5_z_correct by lia. cbv beta iota.
+  rewrite NatOps.shl_z_correct by first [apply Z.pow_nonneg; lia | lia].
+  rewrite Z.shiftl_mul_pow2 by lia.
   rewrite <- Z.pow_mul_l. change (5 * 2) with 10.
   assert (Hb : 0 < 10 ^ (t - s)) by (apply Z.pow_pos_nonneg; lia).
-  unfold div_u, rem_u. rewrite (proj2 (Z.eqb_neq _ 0)) by lia. cbv beta iota.
+  rewrite NatOps.div_rem_z_correct by lia. cbv beta iota.
+  rewrite NatOps.is_zero_z_correct by (apply Z.mod_pos_bound; lia).
+  rewrite (NatOps.from_u64_z_correct 1) by lia.
+  rewrite (NatOps.add_z_correct (n / 10 ^ (t - s)) 1) by (try apply Z.div_pos; lia).
   exists (n / 10 ^ (t - s) +
           (if away && negb (n mod 10 ^ (t - s) =? 0) then 1 else 0)).
   split; [|split].

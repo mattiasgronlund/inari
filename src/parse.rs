@@ -585,12 +585,13 @@ enum Scaled {
 // for a literal whose exponent only puts it far outside the range of `f64`. Otherwise, the
 // grammar makes `e5` 0 or `e2`, and then `|e5|` and the widths of the numbers below are at
 // most linear in the length of the literal. Proved correct in `rocq/theories/ParseScale.v`
-// (`scale_correct`) for a nonzero `x` that the grammar can make (`rat_ok`), assuming that each
-// operation of `Nat` computes the operation on integers that `rocq/theories/Model.v` reads it
-// as: it does not panic, and returns a `Scaled` that describes `|x|` as the comments of
-// `Scaled` say. `rocq/theories/Model.v` transcribes this function, with each `Nat` as the
-// integer that it holds, for that proof and the one of `rational_to_f64` in
-// `rocq/theories/ParseRound.v`, so it has to be updated along with them.
+// (`scale_correct`) for a nonzero `x` that the grammar can make (`rat_ok`), assuming that its
+// `Nat`s have no zero limb at the top, as the header of `src/nat.rs` says: it does not panic,
+// and returns a `Scaled` that describes `|x|` as the comments of `Scaled` say.
+// `rocq/theories/Model.v` transcribes this function, with each `Nat` as the integer that it
+// holds and each operation of `Nat` as its loop on the limbs of that integer, for that proof
+// and the one of `rational_to_f64` in `rocq/theories/ParseRound.v`, so it has to be updated
+// along with them.
 fn scale(x: &Rat) -> Scaled {
     let e2 = i128::from(x.e2);
     let e5 = i128::from(x.e5);
@@ -665,11 +666,10 @@ fn round_up_scaled(neg: bool, s: &Scaled) -> f64 {
 }
 
 // Proved correct in `rocq/theories/ParseRound.v` (`rational_to_f64_correct`) for an `x` that
-// the grammar can make (`rat_ok`), assuming that each operation of `Nat` computes the
-// operation on integers that `rocq/theories/Model.v` reads it as (see "What is assumed" in
-// `rocq/README.md`): it does not panic, `f` is `x` rounded toward -∞ for `Inf` and toward +∞
-// for `Sup` to an `f64`, `inexact` is false exactly when `x` is the value of a finite `f64`,
-// and `overflow` is true exactly when `f` is infinite. Rounding toward -∞ is
+// the grammar can make (`rat_ok`), assuming that its `Nat`s have no zero limb at the top (see
+// "What is assumed" in `rocq/README.md`): it does not panic, `f` is `x` rounded toward -∞ for
+// `Inf` and toward +∞ for `Sup` to an `f64`, `inexact` is false exactly when `x` is the value
+// of a finite `f64`, and `overflow` is true exactly when `f` is infinite. Rounding toward -∞ is
 // `-round_up(-x)`, and `x` is the value of an `f64` exactly when its two roundings agree. A
 // zero `x` gives +0, whatever `neg` is, as MPFR does, against which `src/parse/diff_tests.rs`
 // tests this function. `rocq/theories/Model.v` transcribes this function, so it has to be
@@ -697,13 +697,12 @@ fn rational_to_f64(x: &Rat, infsup: InfSup) -> F64 {
 }
 
 // Proved correct in `rocq/theories/ParseRound.v` (`number_to_f64_correct`) for an `n` that
-// the grammar can make (`number_ok`, which is `rat_ok` of a `Rational`), assuming that each
-// operation of `Nat` computes the operation on integers that `rocq/theories/Model.v` reads it
-// as: it does not panic, `f` is an infinity `n` as it is, and a `Rational` `n` rounded toward
-// -∞ for `Inf` and toward +∞ for `Sup` to an `f64`, `inexact` is false exactly when `n` is an
-// infinity or the value of a finite `f64`, and `overflow` is true exactly when `n` is a
-// `Rational` that rounds to an infinity. `rocq/theories/Model.v` transcribes this function,
-// so it has to be updated along with it.
+// the grammar can make (`number_ok`, which is `rat_ok` of a `Rational`), assuming that the
+// `Nat`s of a `Rational` have no zero limb at the top: it does not panic, `f` is an infinity
+// `n` as it is, and a `Rational` `n` rounded toward -∞ for `Inf` and toward +∞ for `Sup` to an
+// `f64`, `inexact` is false exactly when `n` is an infinity or the value of a finite `f64`, and
+// `overflow` is true exactly when `n` is a `Rational` that rounds to an infinity.
+// `rocq/theories/Model.v` transcribes this function, so it has to be updated along with it.
 fn number_to_f64(n: &Number, infsup: InfSup) -> F64 {
     match n {
         Number::NegInfinity => F64 {
@@ -724,9 +723,8 @@ impl From<NInterval> for Interval {
     fn from(x: NInterval) -> Self {
         // Proved correct in `rocq/theories/ParseDec.v` (`from_ninterval_correct`) for the
         // portable backend, assuming that `x` is what the grammar can return
-        // (`ninterval_ok`, with `number_ok` of its bounds) and that each operation of `Nat`
-        // computes the operation on integers that `rocq/theories/Model.v` reads it as: the
-        // tightest interval that contains the reals of `x`.
+        // (`ninterval_ok`, with `number_ok` of its bounds) and that the `Nat`s of its bounds
+        // have no zero limb at the top: the tightest interval that contains the reals of `x`.
         // `from_ninterval_new` shows that `From<DecNInterval>` of `DecNInterval::new(x)` is
         // `DecInterval::new` of it.
         // `rocq/theories/Model.v` transcribes this function as
@@ -741,13 +739,12 @@ impl From<DecNInterval> for DecInterval {
     fn from(DecNInterval { x, d }: DecNInterval) -> Self {
         // Proved correct in `rocq/theories/ParseDec.v` (`from_dec_ninterval_correct`) for
         // the portable backend, assuming that `x` and `d` are what the grammar can return
-        // (`dec_ninterval_ok`, with `number_ok` of the bounds of `x`) and that each
-        // operation of `Nat` computes the operation on integers that `rocq/theories/Model.v`
-        // reads it as: NaI if `d` is `ill`, and otherwise the tightest interval that contains
-        // the reals of `x`, decorated `d`, except `dac` in place of `com` if overflow
-        // occurred, that is, `x` is bounded and the result is not, as IEEE 1788's
-        // textToInterval asks (§12.12.7 of the draft P1788/D9.5, §6.7.5 of the draft
-        // P1788.1/D9.8). For a `com` literal, that holds exactly when
+        // (`dec_ninterval_ok`, with `number_ok` of the bounds of `x`) and that the `Nat`s of
+        // the bounds of `x` have no zero limb at the top: NaI if `d` is `ill`, and otherwise
+        // the tightest interval that contains the reals of `x`, decorated `d`, except `dac` in
+        // place of `com` if overflow occurred, that is, `x` is bounded and the result is not,
+        // as IEEE 1788's textToInterval asks (§12.12.7 of the draft P1788/D9.5, §6.7.5 of the
+        // draft P1788.1/D9.8). For a `com` literal, that holds exactly when
         // `a.overflow || b.overflow`.
         // `rocq/theories/Model.v` transcribes this function as
         // `DecInterval.from_dec_ninterval`, also for the proof that every `Interval` that
@@ -803,10 +800,10 @@ impl Interval {
     fn try_from_ninterval_exact(x: NInterval) -> Result<Self> {
         // Proved correct in `rocq/theories/ParseExact.v` (`try_from_ninterval_exact_correct`)
         // for the portable backend, for any `x` whose bounds the grammar can make
-        // (`number_ok`), assuming that each operation of `Nat` computes the operation on
-        // integers that `rocq/theories/Model.v` reads it as: `Ok` exactly when each bound of
-        // `x` is an infinity or the value of a finite `f64`, and then of the interval that
-        // holds exactly the reals of `x`, which is the tightest one, and `Err` otherwise.
+        // (`number_ok`), assuming that the `Nat`s of its bounds have no zero limb at the top:
+        // `Ok` exactly when each bound of `x` is an infinity or the value of a finite `f64`,
+        // and then of the interval that holds exactly the reals of `x`, which is the tightest
+        // one, and `Err` otherwise.
         // `rocq/theories/Model.v` transcribes this function, also for the proof that every
         // `Interval` that the constructors and the proved operations make is `valid`
         // (`rocq/theories/Valid.v`), so it has to be updated along with it.

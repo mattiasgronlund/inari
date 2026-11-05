@@ -11,6 +11,7 @@
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Encoding Spec FormatCut.
+From Inari Require NatOps.
 
 Open Scope Z_scope.
 
@@ -100,7 +101,8 @@ assert (Hmag :
   mag radix10 (IZR n * bpow radix10 s) = Zdigits radix10 n + s :> Z).
 { change (IZR n * bpow radix10 s)%R with (F2R (Float radix10 n s)).
   apply mag_F2R_Zdigits. lia. }
-unfold format_sci. rewrite Hex. cbv beta iota zeta. unfold nat_digits10.
+unfold format_sci. rewrite Hex. cbv beta iota zeta.
+rewrite NatOps.digits10_z_correct by lia. cbv beta iota zeta.
 (* [n.digits10() as i64] and [p.min(ALL_DIGITS) as i64] keep their
    values, and the exponents [t1], [t2] and [t] fit an [i64]. *)
 rewrite (as_i64_small (Zdigits radix10 n)) by lia.
