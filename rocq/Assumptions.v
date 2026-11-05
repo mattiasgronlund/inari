@@ -9,7 +9,9 @@
     from which [make] takes those that must have an [Example] there.
 
     The files about the limbs of [Nat] and the dyadic kernel, from
-    [Limbs.v] to [DyDriver.v], are required without being imported, as
+    [Limbs.v] to [DyDriver.v], and those about the kernel's constants and
+    its exponential and hyperbolic functions, [DyConst.v], [DyExp.v],
+    [DyHyp.v] and [DyPoint.v], are required without being imported, as
     some of their names, such as [add_correct], are those of other
     theorems printed here, and their theorems are printed by qualified
     name. None of them quantifies over an MPFR. *)
@@ -24,7 +26,8 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu A
   ValidElem Valid MpfrIdeal IdealRound IdealGetD IdealElem IdealPow IdealAtan2
   MpfrConsistent Contract OfPointCore OfPoint OfPointElem OfPointPow MpfrPoint
   PointTheorems.
-From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyDriver.
+From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyDriver
+  DyConst DyExp DyHyp DyPoint.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -256,6 +259,26 @@ Print Assumptions DyDriver.encl_add_width.
 Print Assumptions DyDriver.encl_sub_width.
 Print Assumptions DyDriver.ziv_correct.
 Print Assumptions DyDriver.ziv_at_passes.
+Print Assumptions DyConst.ln2_correct.
+Print Assumptions DyConst.ln10_correct.
+Print Assumptions DyExp.exp_dir_correct.
+Print Assumptions DyExp.exp2_dir_correct.
+Print Assumptions DyExp.exp10_dir_correct.
+Print Assumptions DyHyp.sinh_dir_correct.
+Print Assumptions DyHyp.cosh_dir_correct.
+Print Assumptions DyHyp.tanh_dir_correct.
+Print Assumptions DyPoint.k_exp_c.
+Print Assumptions DyPoint.k_exp2_c.
+Print Assumptions DyPoint.k_exp10_c.
+Print Assumptions DyPoint.k_sinh_c.
+Print Assumptions DyPoint.k_cosh_c.
+Print Assumptions DyPoint.k_tanh_c.
+Print Assumptions DyPoint.kernel_exp_correct.
+Print Assumptions DyPoint.kernel_exp2_correct.
+Print Assumptions DyPoint.kernel_exp10_correct.
+Print Assumptions DyPoint.kernel_sinh_correct.
+Print Assumptions DyPoint.kernel_cosh_correct.
+Print Assumptions DyPoint.kernel_tanh_correct.
 Print Assumptions E_tightest.
 Print Assumptions FRAC_1_PI_tightest.
 Print Assumptions FRAC_1_SQRT_2_tightest.
@@ -422,9 +445,10 @@ Print Assumptions mpfr_ok_default.
     exponent range of [f64], it satisfies [get_d_ok] and each [<f>_ok] of
     [Mpfr.v] where the field of [p] satisfies [<f>_c]. [mpfr_point m]
     satisfies each [<f>_c] where [m] satisfies [get_d_ok] and [<f>_ok],
-    at an exponent range with [range_ok]. Last, [exp_correct] stated for
-    every record [point] whose fields satisfy the parts of [Contract.v]
-    that it needs ([PointTheorems.v]). *)
+    at an exponent range with [range_ok]. Last, [exp_correct],
+    [exp2_correct], [exp10_correct], [sinh_correct], [tanh_correct] and
+    [cosh_correct] stated for every record [point] whose fields satisfy
+    the parts of [Contract.v] that they need ([PointTheorems.v]). *)
 Print Assumptions mpfr_point_of_point.
 Print Assumptions of_point_get_d_ok.
 Print Assumptions of_point_acos_ok.
@@ -470,6 +494,11 @@ Print Assumptions mpfr_sinh_c.
 Print Assumptions mpfr_tan_c.
 Print Assumptions mpfr_tanh_c.
 Print Assumptions exp_correct_point.
+Print Assumptions exp2_correct_point.
+Print Assumptions exp10_correct_point.
+Print Assumptions sinh_correct_point.
+Print Assumptions tanh_correct_point.
+Print Assumptions cosh_correct_point.
 
 (** The names whose types quantify over an MPFR anywhere, and those of
     them that [Valid.v] declares, for the check of [MpfrExamples.v] in the

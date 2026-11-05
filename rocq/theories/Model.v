@@ -1425,9 +1425,15 @@ Definition encl_sub (n : nat) (a b : encl) : option encl :=
   let* hi := sub n (en_hi a) (en_lo b) true in
   Some {| en_lo := lo; en_hi := hi |}.
 
-(** [a.mul(&b)]: [x.min(y)] chains in the order of the Rust code. *)
+(** [a.mul(&b)]: two products if neither lower bound is negative, and
+    otherwise [x.min(y)] chains in the order of the Rust code. *)
 Definition encl_mul (n : nat) (a b : encl) : option encl :=
   let '(x, y, c, d) := (en_lo a, en_hi a, en_lo b, en_hi b) in
+  if negb (dy_neg x) && negb (dy_neg c) then
+    let* lo := mul n x c false in
+    let* hi := mul n y d true in
+    Some {| en_lo := lo; en_hi := hi |}
+  else
   let* xc := mul n x c false in let* xd := mul n x d false in
   let* yc := mul n y c false in let* yd := mul n y d false in
   let* xc' := mul n x c true in let* xd' := mul n x d true in
@@ -1493,6 +1499,385 @@ Definition ziv (ev : nat -> option encl) (up : bool) (start : nat) : option f64 
 
 End Dyadic.
 
+(** ** ln 2 and ln 10 for the dyadic kernel
+
+    The tables and [split] of [src/dyadic/consts.rs]. [DyConst.v] proves
+    the bounds that their comments state. *)
+Module DyadicConsts.
+
+Import ListNotations.
+
+(** [const LN2: [u64; 66]], floor(ln 2 * 2^4224), the least significant
+    limb first. *)
+Definition LN2 : list Z := [
+  0xc0b1b31d8a0e23fa; 0x85db6ab03a49bd0d; 0x175eb4afc8daadd8; 0xf07afff3a892374e;
+  0x8f6826250dea891e; 0xcecb72f19c38339d; 0x5f6f7cebac9f45ae; 0x6c472096e76115c0;
+  0x972cd18bfbbd9d42; 0x0ab111bbbd67c724; 0x473826fda0c238b9; 0x61c1696dd24aaebd;
+  0x156e0c292413d5e3; 0x95184460dc4e7487; 0xd7622658901e646a; 0xef2f0ce2d7373958;
+  0x2ac5b61cc4e9207c; 0x57339ba2beba7d05; 0x0060e49908391a0c; 0x621363196af50302;
+  0x05c128d53d0bd2f9; 0x36e02b20cee886b9; 0x0bbb16faf3d949f2; 0x422183edc9942109;
+  0x5e9222b88c66d3c5; 0x61affd446b1ca3cf; 0x268a5c1f9538b982; 0x8d6f5177fbcf0755;
+  0xa17293d1228a4ef9; 0x44a02554731cdc8e; 0x96d4e6d330af889b; 0x5570b6c68f969834;
+  0x7598a1951ae273ee; 0x4d162db3b365853d; 0x5f50b5185064c18b; 0x078f735d1b2db31b;
+  0xae313cdb6c606cb1; 0x955d5179b1e17b9d; 0x0c480a5417350d2c; 0x074db6015cfe7aa3;
+  0x6a9c7f8a5e148e82; 0x25669b333564a337; 0x4c1a1e0bd1d6095d; 0xcccc4e659393514c;
+  0xc943e732b479cd33; 0x17460775db8990e5; 0x7d2e23de1400b396; 0xee569d6dfc1efa15;
+  0x610d30f88fe551a2; 0x07f4ca11fb5bfb90; 0xda2d97c50f3fd5c6; 0x655fa1872f20e3a2;
+  0xf5dfa6bd38303248; 0x72ce87b19d6548ca; 0x256fa0ec7657f74b; 0xb9ea9bc3b136603b;
+  0x1acbda11317c387e; 0x3e96ca16224ae8c5; 0x27573b291169b825; 0xed2eae35c1382144;
+  0x559552fb4afa1b10; 0xe7b876206debac98; 0x8a0d175b8baafa2b; 0x40f343267298b62d;
+  0xc9e3b39803f2f6af; 0xb17217f7d1cf79ab].
+
+(** [const LN10: [u64; 66]], floor(ln 10 * 2^4222), the least significant
+    limb first. *)
+Definition LN10 : list Z := [
+  0xfa9d8c598c574502; 0xfb5f06c358ac8f70; 0x8e668aeaba83c7f8; 0xb81c4a5b53d49ea6;
+  0x48a93f5f5e3b6eb4; 0xa2d6fe91388e9e3e; 0x4b40ed7a56c6cdcd; 0xc4b83301006bf062;
+  0x1be5a9a967fddc57; 0xff3065c40cfceec8; 0x89bf752fb5dfb353; 0x6a36ceccb2d5ae5b;
+  0xbc1261c8b3e4daad; 0xdf3ccbb3189da49d; 0xd006f8b4be145a2a; 0x99d6d20ea2defd2b;
+  0xb6524dc18c167e86; 0xed69b13dc1a03730; 0xf42c58def8a3c52d; 0xf6ff363db00b6b33;
+  0xa0d9c260794a976f; 0x421ef5e0b00410a0; 0xdef85a05eb56323a; 0x8fcd08324a7b32a6;
+  0x0a62d18e478f7bd5; 0x4d5e843f20642b97; 0x1f1d366c20663834; 0xbc64ea806e198566;
+  0xaa6604a5324ec3dc; 0xb5e4b1c8c0e5a10a; 0x3b70fcda2d732d47; 0x0942617819127a6e;
+  0x3982a78ca45ddfc8; 0xef99c8e5f6974f36; 0x4cb0466d61ba648e; 0xad6bfbffd821ba0a;
+  0xe38a5700ffde2db1; 0xf77e37604e943960; 0xa949eaaadf69e8a5; 0xe88047f17b0d9b50;
+  0x3848c8d25faf1bca; 0x3dfd3c51748e6d6e; 0xaf88486ea9b7401e; 0xf47fa96deb271060;
+  0x45765cde268339db; 0xe40bf3cc1e14126a; 0xdb1d28ea57d4fdc0; 0xa47ecb26978c5d4f;
+  0x9cd5b42e6a271619; 0xe2478fcaad3aee98; 0x469ea58e9305e981; 0x5b08b057d5ede20f;
+  0x8e93368d44789c4f; 0xca67b35b23605085; 0x5161bb49d219c7bb; 0xef66ceb04ab3c6fa;
+  0x765aa6c3b0d831fb; 0x782cf8a28a8c911e; 0xfb8f788402e516d6; 0x2c622418410be2da;
+  0xcc70cbc02c5f0d68; 0x962f02d7b1a8105c; 0x83c61e8201f02d72; 0xe28fecf9da5df90e;
+  0xea56d62b82d30a28; 0x935d8dddaaa8ac16].
+
+(** [fn split<N>(t: &[u64; 66], e: i64, z: u32) -> (Dyadic<N>, Encl<N>)]:
+    [m] is [t[66 - N..]] with [m[0] &= u64::MAX << z], and [w] the limbs
+    [t[..67 - N]] with [w[66 - N] &= (1 << z) - 1], followed by the zero
+    limb [w[67 - N]] that [limbs::add_assign(&mut w[..68 - N], &[1])]
+    carries into. *)
+Definition split (n : nat) (t : list Z) (e : Z) (z : Z) : option (Dyadic.dyadic * Dyadic.encl) :=
+  let top := skipn (66 - n) t in
+  let m := Limbs.update top 0 (Z.land (Limbs.limb top 0) (Z.shiftl (2 ^ 64 - 1) z mod 2 ^ 64) :: nil) in
+  let h := {| Dyadic.dy_neg := false; Dyadic.dy_exp := e + 64 * Z.of_nat (66 - n); Dyadic.dy_m := m |} in
+  let w0 := firstn (67 - n) t in
+  let w := Limbs.update w0 (66 - n) (Z.land (Limbs.limb w0 (66 - n)) (Z.shiftl 1 z - 1) :: nil) in
+  let* lo := Dyadic.round n false w e false false in
+  let w' := fst (Limbs.add_assign (w ++ 0 :: nil) (1 :: nil)) in
+  let* hi := Dyadic.round n false w' e false true in
+  Some (h, {| Dyadic.en_lo := lo; Dyadic.en_hi := hi |}).
+
+(** [fn ln2<N>()] and [fn ln10<N>()] *)
+Definition ln2 (n : nat) : option (Dyadic.dyadic * Dyadic.encl) := split n LN2 (-4224) 12.
+Definition ln10 (n : nat) : option (Dyadic.dyadic * Dyadic.encl) := split n LN10 (-4222) 53.
+
+End DyadicConsts.
+
+(** ** The exponential and hyperbolic functions of the dyadic kernel
+
+    The functions of [src/dyadic/exp.rs]: [exp_dir x up] is [exp(x, up)],
+    and the same for [exp2], [exp10], [sinh], [cosh] and [tanh], with
+    [None] where the Rust function panics: an [assert!] of this file,
+    [ziv] at its cap, or any operation of the kernel that panics. The
+    [Eval]s are the functions [ev_exp x] and the others of a level [n].
+    [DyExpCore.v], [DyExp.v] and [DyHyp.v] prove them, with the rules
+    before the loop proved in [DyExpRules.v], [DyHypRules.v],
+    [DySinhTiny.v] and [DyTanhTiny.v], and [DyPoint.v] makes a [point] of
+    them. *)
+Module DyadicExp.
+
+(** The [f64] literals of the file, written with [from_bits]: [1.0],
+    [2.0], [-1.0], [-2.0], [f64::NEG_INFINITY], [f64::MAX], [1.0 +
+    f64::EPSILON], [1.0 - f64::EPSILON / 2.0], [f64::from_bits(1)], and
+    [std::f64::consts::LOG2_E] and [LOG2_10]. *)
+Definition one : f64 := from_bits 0x3ff0000000000000.
+Definition two : f64 := from_bits 0x4000000000000000.
+Definition m_one : f64 := from_bits 0xbff0000000000000.
+Definition m_two : f64 := from_bits 0xc000000000000000.
+Definition neg_infinity : f64 := from_bits 0xfff0000000000000.
+Definition max_f64 : f64 := from_bits 0x7fefffffffffffff.
+Definition one_plus_ulp : f64 := from_bits 0x3ff0000000000001.
+Definition one_minus_ulp : f64 := from_bits 0x3fefffffffffffff.
+Definition min_pos : f64 := from_bits 1.
+Definition log2_e : f64 := from_bits 0x3ff71547652b82fe.
+Definition log2_10 : f64 := from_bits 0x400a934f0979a371.
+
+(** [TINY_HYP], [TINY_EXP] and [TINY_EXP10]: 2^-26, 2^-54 and 2^-56. *)
+Definition tiny_hyp : f64 := from_bits 0x3e50000000000000.
+Definition tiny_exp : f64 := from_bits 0x3c90000000000000.
+Definition tiny_exp10 : f64 := from_bits 0x3c70000000000000.
+
+(** [POW10[k]], the literal [1e<k>], which is 10^k rounded to nearest. *)
+Definition pow10 (k : Z) : f64 := binary_normalize 53 1024 _ _ mode_NE (10 ^ k) 0 false.
+
+(** [c as i64], which saturates, and is 0 for NaN. *)
+Definition to_i64 (c : f64) : Z :=
+  match c with
+  | B754_infinity s => if s then - 2 ^ 63 else 2 ^ 63 - 1
+  | _ => Z.max (- 2 ^ 63) (Z.min (2 ^ 63 - 1) (Btrunc c))
+  end.
+
+(** [fn params<N>() -> (i64, u64)]: (j, K) *)
+Definition params (n : nat) : Z * Z :=
+  if Nat.eqb n 1 then (4, 11) else
+  if Nat.eqb n 2 then (8, 13) else
+  if Nat.eqb n 4 then (12, 18) else
+  if Nat.eqb n 8 then (16, 27) else
+  if Nat.eqb n 16 then (16, 50) else
+  if Nat.eqb n 32 then (16, 95) else (16, 182).
+
+(** The loop of [fn series<N>(s, k)], for [i] from [k] down to 2. *)
+Fixpoint series_loop (n : nat) (one_e s : Dyadic.encl) (i : nat) (t : Dyadic.encl)
+  : option Dyadic.encl :=
+  match i with
+  | O | S O => Some t
+  | S i' =>
+      let* q := Dyadic.encl_mul n s t in
+      let* q' := Dyadic.encl_div_u64 n q (Z.of_nat i) in
+      let* t' := Dyadic.encl_sub n one_e q' in
+      series_loop n one_e s i' t'
+  end.
+
+(** [fn series<N>(s: &Encl<N>, k: u64) -> Encl<N>] *)
+Definition series (n : nat) (s : Dyadic.encl) (k : Z) : option Dyadic.encl :=
+  let* one_e := Dyadic.encl_point n one in
+  let* hi := Dyadic.from_f64 n one in
+  let* t := series_loop n one_e s (Z.to_nat k) {| Dyadic.en_lo := Dyadic.dy_zero n; Dyadic.en_hi := hi |} in
+  Dyadic.encl_mul n s t.
+
+(** The loop [for _ in 0..j { e = e.mul(&e) }] of [exp_neg]. *)
+Fixpoint square_loop (n : nat) (j : nat) (e : Dyadic.encl) : option Dyadic.encl :=
+  match j with
+  | O => Some e
+  | S j' => let* e' := Dyadic.encl_mul n e e in square_loop n j' e'
+  end.
+
+(** [fn exp_neg<N>(y: &Encl<N>) -> Encl<N>] *)
+Definition exp_neg (n : nat) (y : Dyadic.encl) : option Dyadic.encl :=
+  let '(j, k) := params n in
+  let* one_e := Dyadic.encl_point n one in
+  let* s := Dyadic.encl_shl n y (- j) in
+  let* u := series n s k in
+  let* e := Dyadic.encl_sub n one_e u in
+  square_loop n (Z.to_nat j) e.
+
+(** The loop [for _ in 0..j { u = u.mul(&two.sub(&u)) }] of [expm1_neg]. *)
+Fixpoint double_loop (n : nat) (two_e : Dyadic.encl) (j : nat) (u : Dyadic.encl)
+  : option Dyadic.encl :=
+  match j with
+  | O => Some u
+  | S j' =>
+      let* d := Dyadic.encl_sub n two_e u in
+      let* u' := Dyadic.encl_mul n u d in
+      double_loop n two_e j' u'
+  end.
+
+(** [fn expm1_neg<N>(y: &Encl<N>) -> Encl<N>] *)
+Definition expm1_neg (n : nat) (y : Dyadic.encl) : option Dyadic.encl :=
+  let '(j, k) := params n in
+  let* two_e := Dyadic.encl_point n two in
+  let* s := Dyadic.encl_shl n y (- j) in
+  let* u := series n s k in
+  double_loop n two_e (Z.to_nat j) u.
+
+(** [fn to_k(c: f64) -> i64], where the [assert!] is [None]. *)
+Definition to_k (c : f64) : option Z :=
+  let k := to_i64 c in
+  if Z.abs k <=? 2048 then Some k else None.
+
+(** [fn mul_int<N>(a: &Encl<N>, k: i64) -> Encl<N>] *)
+Definition mul_int (n : nat) (a : Dyadic.encl) (k : Z) : option Dyadic.encl :=
+  let* p := Dyadic.encl_mul_u64 n a (Z.abs k) in
+  Some (if k <? 0 then Dyadic.encl_neg n p else p).
+
+(** [fn mul_f64<N>(a: &Encl<N>, x: f64) -> Encl<N>] *)
+Definition mul_f64 (n : nat) (a : Dyadic.encl) (x : f64) : option Dyadic.encl :=
+  let* px := Dyadic.encl_point n (fabs x) in
+  let* p := Dyadic.encl_mul n px a in
+  Some (if lt x zero then Dyadic.encl_neg n p else p).
+
+(** [x < y] and [x > y] of [PartialOrd], which compares with [x.cmp(&y)],
+    so that [x >= y] is [negb (dy_lt n x y)] and [x <= y] is [negb (dy_gt
+    n x y)]. *)
+Definition dy_lt (n : nat) (x y : Dyadic.dyadic) : bool :=
+  match Dyadic.cmp n x y with Lt => true | _ => false end.
+Definition dy_gt (n : nat) (x y : Dyadic.dyadic) : bool :=
+  match Dyadic.cmp n x y with Gt => true | _ => false end.
+
+(** [fn scaled<N>(y, k, h, l) -> Encl<N>], where [k + 1], which cannot
+    overflow, as [|k| <= 2048], is computed without a check, and the
+    [assert!] is [None]. *)
+Definition scaled (n : nat) (y : Dyadic.encl) (k : Z) (h : Dyadic.dyadic) (l : Dyadic.encl)
+  : option Dyadic.encl :=
+  let* (y', k') :=
+    if dy_lt n (Dyadic.en_lo y) (Dyadic.dy_zero n) then
+      let* y1 := Dyadic.encl_add n y {| Dyadic.en_lo := h; Dyadic.en_hi := h |} in
+      let* y2 := Dyadic.encl_add n y1 l in
+      Some (y2, k + 1)
+    else Some (y, k) in
+  let* two_d := Dyadic.from_f64 n two in
+  if dy_lt n (Dyadic.en_lo y') (Dyadic.dy_zero n) || dy_gt n (Dyadic.en_hi y') two_d then None else
+  let* e := exp_neg n y' in
+  Dyadic.encl_shl n e k'.
+
+(** [fn exp_encl<N>(x: f64) -> Encl<N>] *)
+Definition exp_encl (n : nat) (x : f64) : option Dyadic.encl :=
+  let* k := to_k (fceil (mul x log2_e)) in
+  let* (h, l) := DyadicConsts.ln2 n in
+  let* a := mul_int n {| Dyadic.en_lo := h; Dyadic.en_hi := h |} k in
+  let* px := Dyadic.encl_point n x in
+  let* b := Dyadic.encl_sub n a px in
+  let* c := mul_int n l k in
+  let* y := Dyadic.encl_add n b c in
+  scaled n y k h l.
+
+(** The [eval::<N>()] of [Exp(x)], [Exp2(x)], [Exp10(x)], [Cosh(t)],
+    [Sinh(x)] and [Tanh(x)]. *)
+Definition ev_exp (x : f64) (n : nat) : option Dyadic.encl := exp_encl n x.
+
+Definition ev_exp2 (x : f64) (n : nat) : option Dyadic.encl :=
+  let c := fceil x in
+  let* m := to_k c in
+  let* (h, l) := DyadicConsts.ln2 n in
+  let* ln2 := Dyadic.encl_add n {| Dyadic.en_lo := h; Dyadic.en_hi := h |} l in
+  let* pc := Dyadic.encl_point n c in
+  let* px := Dyadic.encl_point n x in
+  let* g := Dyadic.encl_sub n pc px in
+  let* y := Dyadic.encl_mul n g ln2 in
+  scaled n y m h l.
+
+Definition ev_exp10 (x : f64) (n : nat) : option Dyadic.encl :=
+  let* k := to_k (fceil (mul x log2_10)) in
+  let* (h2, l2) := DyadicConsts.ln2 n in
+  let* (h10, l10) := DyadicConsts.ln10 n in
+  let* a := mul_int n {| Dyadic.en_lo := h2; Dyadic.en_hi := h2 |} k in
+  let* b := mul_f64 n {| Dyadic.en_lo := h10; Dyadic.en_hi := h10 |} x in
+  let* ab := Dyadic.encl_sub n a b in
+  let* c := mul_int n l2 k in
+  let* d := mul_f64 n l10 x in
+  let* cd := Dyadic.encl_sub n c d in
+  let* y := Dyadic.encl_add n ab cd in
+  scaled n y k h2 l2.
+
+Definition ev_cosh (t : f64) (n : nat) : option Dyadic.encl :=
+  let* e := exp_encl n t in
+  let* one_e := Dyadic.encl_point n one in
+  let* r := Dyadic.encl_div n one_e e in
+  let* s := Dyadic.encl_add n e r in
+  Dyadic.encl_shl n s (-1).
+
+Definition ev_sinh (x : f64) (n : nat) : option Dyadic.encl :=
+  let t := fabs x in
+  let* one_e := Dyadic.encl_point n one in
+  let* s :=
+    if gt t one then
+      let* e := exp_encl n t in
+      let* r := Dyadic.encl_div n one_e e in
+      let* d := Dyadic.encl_sub n e r in
+      Dyadic.encl_shl n d (-1)
+    else
+      let* pt := Dyadic.encl_point n t in
+      let* u := expm1_neg n pt in
+      let* two_e := Dyadic.encl_point n two in
+      let* a := Dyadic.encl_sub n two_e u in
+      let* num := Dyadic.encl_mul n u a in
+      let* b := Dyadic.encl_sub n one_e u in
+      let* den := Dyadic.encl_shl n b 1 in
+      Dyadic.encl_div n num den in
+  Some (if lt x zero then Dyadic.encl_neg n s else s).
+
+Definition ev_tanh (x : f64) (n : nat) : option Dyadic.encl :=
+  let t := fabs x in
+  let* u :=
+    if gt t one then
+      let* one_e := Dyadic.encl_point n one in
+      let* e := exp_encl n (mul m_two t) in
+      Dyadic.encl_sub n one_e e
+    else
+      let* p := Dyadic.encl_point n (mul two t) in
+      expm1_neg n p in
+  let* two_e := Dyadic.encl_point n two in
+  let* d := Dyadic.encl_sub n two_e u in
+  let* r := Dyadic.encl_div n u d in
+  Some (if lt x zero then Dyadic.encl_neg n r else r).
+
+(** [fn overflow(up: bool) -> f64] and [fn underflow(up: bool) -> f64] *)
+Definition overflow (up : bool) : f64 := if up then infinity else max_f64.
+Definition underflow (up : bool) : f64 := if up then min_pos else zero.
+
+(** [fn near_one(x: f64, up: bool) -> f64] *)
+Definition near_one (x : f64) (up : bool) : f64 :=
+  if eq x zero then one
+  else if gt x zero then (if up then one_plus_ulp else one)
+  else if up then one else one_minus_ulp.
+
+(** [fn away(x: f64, up: bool) -> f64] and [fn toward_zero(x: f64, up:
+    bool) -> f64] *)
+Definition away (x : f64) (up : bool) : f64 :=
+  if eq x zero || negb (Bool.eqb (gt x zero) up) then x else from_bits (to_bits x + 1).
+Definition toward_zero (x : f64) (up : bool) : f64 :=
+  if eq x zero || Bool.eqb (gt x zero) up then x else from_bits (to_bits x - 1).
+
+(** [pub(crate) fn exp(x: f64, up: bool) -> f64] *)
+Definition exp_dir (x : f64) (up : bool) : option f64 :=
+  if is_nan x || eq x infinity then Some x
+  else if eq x neg_infinity then Some zero
+  else if ge x (from_bits 0x4086300000000000) (* 710.0 *) then Some (overflow up)
+  else if le x (from_bits 0xc087500000000000) (* -746.0 *) then Some (underflow up)
+  else if lt (fabs x) tiny_exp then Some (near_one x up)
+  else Dyadic.ziv (ev_exp x) up 1.
+
+(** [pub(crate) fn exp2(x: f64, up: bool) -> f64] *)
+Definition exp2_dir (x : f64) (up : bool) : option f64 :=
+  if is_nan x || eq x infinity then Some x
+  else if eq x neg_infinity then Some zero
+  else if ge x (from_bits 0x4090000000000000) (* 1024.0 *) then Some (overflow up)
+  else if lt x (from_bits 0xc090cc0000000000) (* -1075.0 *) then Some (underflow up)
+  else if lt (fabs x) tiny_exp then Some (near_one x up)
+  else Dyadic.ziv (ev_exp2 x) up 1.
+
+(** [pub(crate) fn exp10(x: f64, up: bool) -> f64], where
+    [(1.0..=22.0).contains(&x)] is [1.0 <= x && x <= 22.0], and [x as
+    usize], for such an integer [x], is [to_i64 x]. *)
+Definition exp10_dir (x : f64) (up : bool) : option f64 :=
+  if is_nan x || eq x infinity then Some x
+  else if eq x neg_infinity then Some zero
+  else if ge x (from_bits 0x4073500000000000) (* 309.0 *) then Some (overflow up)
+  else if le x (from_bits 0xc074400000000000) (* -324.0 *) then Some (underflow up)
+  else if lt (fabs x) tiny_exp10 then Some (near_one x up)
+  else if le one x && le x (from_bits 0x4036000000000000) (* 22.0 *) && eq x (ffloor x) then
+    Some (pow10 (to_i64 x))
+  else Dyadic.ziv (ev_exp10 x) up 1.
+
+(** [pub(crate) fn sinh(x: f64, up: bool) -> f64], where [x.is_infinite()]
+    is [x == f64::INFINITY || x == f64::NEG_INFINITY]. *)
+Definition sinh_dir (x : f64) (up : bool) : option f64 :=
+  if is_nan x || (eq x infinity || eq x neg_infinity) then Some x
+  else if ge x (from_bits 0x4086380000000000) (* 711.0 *) then Some (overflow up)
+  else if le x (from_bits 0xc086380000000000) (* -711.0 *) then Some (opp (overflow (negb up)))
+  else if lt (fabs x) tiny_hyp then Some (away x up)
+  else Dyadic.ziv (ev_sinh x) up 1.
+
+(** [pub(crate) fn cosh(x: f64, up: bool) -> f64] *)
+Definition cosh_dir (x : f64) (up : bool) : option f64 :=
+  let t := fabs x in
+  if is_nan t || eq t infinity then Some t
+  else if ge t (from_bits 0x4086380000000000) (* 711.0 *) then Some (overflow up)
+  else if lt t tiny_hyp then Some (near_one t up)
+  else Dyadic.ziv (ev_cosh t) up 1.
+
+(** [pub(crate) fn tanh(x: f64, up: bool) -> f64] *)
+Definition tanh_dir (x : f64) (up : bool) : option f64 :=
+  if is_nan x then Some x
+  else if eq x infinity then Some one
+  else if eq x neg_infinity then Some m_one
+  else if ge x (from_bits 0x4033000000000000) (* 19.0 *) then
+    Some (if up then one else one_minus_ulp)
+  else if le x (from_bits 0xc033000000000000) (* -19.0 *) then
+    Some (if up then opp one_minus_ulp else m_one)
+  else if lt (fabs x) tiny_hyp then Some (toward_zero x up)
+  else Dyadic.ziv (ev_tanh x) up 1.
+
+End DyadicExp.
+
 (** ** MPFR
 
     [src/elementary.rs] computes the bounds of [exp] and the other
@@ -1522,8 +1907,9 @@ End Dyadic.
 
     [Contract.v] states what each field of [point] must do at the level
     of [f64]s; [MpfrPoint.v] shows that [mpfr_point m] does it under
-    [Mpfr.v]'s hypotheses, and [PointTheorems.v] proves [exp_correct] for
-    every record that does (as [exp_correct_point]). *)
+    [Mpfr.v]'s hypotheses, and [PointTheorems.v] proves [exp_correct] and
+    five other theorems for every record that does (as
+    [exp_correct_point] and the others). *)
 
 (** [mpfr::rnd_t::RNDD] and [mpfr::rnd_t::RNDU], rounding toward -inf and
     toward +inf. *)
@@ -1703,8 +2089,8 @@ Definition mpfr_point (m : mpfr) : point := {|
   p_tanh := mpfr_fn m (mpfr_tanh m)
 |}.
 
-(** The theorems about the elementary functions, other than
-    [exp_correct_point] of [PointTheorems.v], are stated for the MPFR
+(** The theorems about the elementary functions, other than those of
+    [PointTheorems.v] and [DyPoint.v], are stated for the MPFR
     functions [m], and apply the functions below to [mpfr_point m], which
     this coercion lets them write as [m]. *)
 Coercion mpfr_point : mpfr >-> point.

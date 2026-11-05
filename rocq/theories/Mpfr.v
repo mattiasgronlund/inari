@@ -42,8 +42,10 @@
     [range_ok], [get_d_ok] and the hypothesis of the MPFR function that
     the field calls, such as [exp_ok] for [p_exp]. [PointTheorems.v]
     restates [exp_correct] as [exp_correct_point], for every record
-    [point] whose [p_exp] does what [Contract.v] asks of it. All the
-    others about the elementary functions, [exp_correct] among them,
+    [point] whose [p_exp] does what [Contract.v] asks of it, and five
+    other theorems the same way, and [DyPoint.v] applies them to the
+    dyadic kernel's functions. The theorems about the elementary
+    functions that are stated for [m], [exp_correct] among them,
     assume of [m] only what this file states. *)
 
 From Stdlib Require Import ZArith Reals.

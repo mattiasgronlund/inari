@@ -5,7 +5,7 @@
 
 use super::*;
 
-pub(super) struct Rng(u64);
+pub(super) struct Rng(pub(super) u64);
 
 impl Rng {
     // SplitMix64.

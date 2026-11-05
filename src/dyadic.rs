@@ -20,11 +20,16 @@
 // `rocq/theories/Model.v` transcribes each function of this file except `with_buf` and the
 // tests, so it has to be updated along with them. `rocq/theories/DyRound.v`,
 // `rocq/theories/DyConv.v`, `rocq/theories/DyIsqrt.v`, `rocq/theories/DyOps.v` and
-// `rocq/theories/DyDriver.v` prove them correct.
+// `rocq/theories/DyDriver.v` prove them correct, and `rocq/theories/DyGrow.v` bounds the
+// exponents of the enclosures that they return. The constants ln 2 and ln 10 are in
+// `src/dyadic/consts.rs`, and the exponentials and the hyperbolic functions computed with the
+// kernel in `src/dyadic/exp.rs`, which have their own headers.
 
 use crate::{limbs, simd::round_up_exact};
 use std::cmp::Ordering;
 
+mod consts;
+mod exp;
 #[cfg(test)]
 mod tests;
 
@@ -437,9 +442,18 @@ impl<const N: usize> Encl<N> {
     }
 
     pub(crate) fn mul(&self, other: &Self) -> Self {
-        // The extremes of x * y over the enclosures are among the products of their bounds.
-        // Choosing the products by the signs of the bounds would save most of them.
         let (a, b, c, d) = (&self.lo, &self.hi, &other.lo, &other.hi);
+        if !a.neg && !c.neg {
+            // Over enclosures of nonnegative numbers, x * y is least at the lower bounds and
+            // greatest at the upper bounds. A zero has `neg == false`.
+            return Self {
+                lo: a.mul(c, false),
+                hi: b.mul(d, true),
+            };
+        }
+        // The extremes of x * y over the enclosures are among the products of their bounds.
+        // Choosing the products by the signs of the bounds would save most of them in the
+        // other cases too.
         Self {
             lo: a
                 .mul(c, false)

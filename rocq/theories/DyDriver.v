@@ -273,36 +273,65 @@ Lemma encl_mul_correct :
   forall x y, encl_has a x -> encl_has b y -> encl_has c (x * y).
 Proof.
   intros n a b Hn (Hla & Hha & Ha) (Hlb & Hhb & Hb) (Sla & Sha) (Slb & Shb).
-  destruct (mul_correct n _ _ false Hn Hla Hlb Sla Slb) as (xc & Exc & Okxc & Vxc).
-  destruct (mul_correct n _ _ false Hn Hla Hhb Sla Shb) as (xd & Exd & Okxd & Vxd).
-  destruct (mul_correct n _ _ false Hn Hha Hlb Sha Slb) as (yc & Eyc & Okyc & Vyc).
-  destruct (mul_correct n _ _ false Hn Hha Hhb Sha Shb) as (yd & Eyd & Okyd & Vyd).
-  destruct (mul_correct n _ _ true Hn Hla Hlb Sla Slb) as (xc' & Exc' & Okxc' & Vxc').
-  destruct (mul_correct n _ _ true Hn Hla Hhb Sla Shb) as (xd' & Exd' & Okxd' & Vxd').
-  destruct (mul_correct n _ _ true Hn Hha Hlb Sha Slb) as (yc' & Eyc' & Okyc' & Vyc').
-  destruct (mul_correct n _ _ true Hn Hha Hhb Sha Shb) as (yd' & Eyd' & Okyd' & Vyd').
   unfold Dyadic.encl_mul. cbv beta iota zeta.
-  rewrite Exc, Exd, Eyc, Eyd, Exc', Exd', Eyc', Eyd'. cbv beta iota.
-  eexists. split; [reflexivity|].
-  destruct (dmin_ok n xc xd Hn Okxc Okxd) as [O1 V1].
-  destruct (dmin_ok n _ yc Hn O1 Okyc) as [O2 V2].
-  destruct (dmin_ok n _ yd Hn O2 Okyd) as [O3 V3].
-  destruct (dmax_ok n xc' xd' Hn Okxc' Okxd') as [P1 W1].
-  destruct (dmax_ok n _ yc' Hn P1 Okyc') as [P2 W2].
-  destruct (dmax_ok n _ yd' Hn P2 Okyd') as [P3 W3].
-  unfold encl_ok, encl_has, lo_R, hi_R in *; cbn [Dyadic.en_lo Dyadic.en_hi].
-  rewrite V3, V2, V1, W3, W2, W1, Vxc, Vxd, Vyc, Vyd, Vxc', Vxd', Vyc', Vyd'.
-  rewrite <- !dround_min, <- !dround_max by exact Hn.
-  set (la := Dyadic.dy_R (Dyadic.en_lo a)) in *. set (ha := Dyadic.dy_R (Dyadic.en_hi a)) in *.
-  set (lb := Dyadic.dy_R (Dyadic.en_lo b)) in *. set (hb := Dyadic.dy_R (Dyadic.en_hi b)) in *.
-  set (m := Rmin (Rmin (Rmin (la * lb) (la * hb)) (ha * lb)) (ha * hb)).
-  set (M := Rmax (Rmax (Rmax (la * lb) (la * hb)) (ha * lb)) (ha * hb)).
-  pose proof (dround_bounds n m Hn). pose proof (dround_bounds n M Hn).
-  pose proof (min4_le_max4 (la * lb) (la * hb) (ha * lb) (ha * hb)) as Hm. fold m M in Hm.
-  split; [split; [exact O3 | split; [exact P3 | lra]] |].
-  split; [reflexivity | split; [reflexivity |]].
-  intros x y Hx Hy.
-  pose proof (mul_corners la ha lb hb x y Hx (or_introl Hy)) as Hxy. fold m M in Hxy. lra.
+  destruct (negb (Dyadic.dy_neg (Dyadic.en_lo a)) && negb (Dyadic.dy_neg (Dyadic.en_lo b)))%bool
+    eqn:Hs.
+  - (* Both lower bounds are not negative: the least product is that of the
+       lower bounds, and the greatest that of the upper bounds. *)
+    apply andb_prop in Hs. destruct Hs as [Na Nb].
+    apply Bool.negb_true_iff in Na, Nb.
+    pose proof (dy_R_nonneg _ (proj1 Hla) Na) as Pa.
+    pose proof (dy_R_nonneg _ (proj1 Hlb) Nb) as Pb.
+    destruct (mul_correct n _ _ false Hn Hla Hlb Sla Slb) as (lo & Elo & Oklo & Vlo).
+    destruct (mul_correct n _ _ true Hn Hha Hhb Sha Shb) as (hi & Ehi & Okhi & Vhi).
+    rewrite Elo, Ehi. cbv beta iota.
+    eexists. split; [reflexivity|].
+    unfold encl_ok, encl_has, lo_R, hi_R in *; cbn [Dyadic.en_lo Dyadic.en_hi].
+    rewrite Vlo, Vhi.
+    set (la := Dyadic.dy_R (Dyadic.en_lo a)) in *. set (ha := Dyadic.dy_R (Dyadic.en_hi a)) in *.
+    set (lb := Dyadic.dy_R (Dyadic.en_lo b)) in *. set (hb := Dyadic.dy_R (Dyadic.en_hi b)) in *.
+    assert (Em : Rmin (Rmin (Rmin (la * lb) (la * hb)) (ha * lb)) (ha * hb) = (la * lb)%R).
+    { rewrite (Rmin_left (la * lb) (la * hb)) by nra.
+      rewrite (Rmin_left (la * lb) (ha * lb)) by nra.
+      apply Rmin_left. nra. }
+    assert (EM : Rmax (Rmax (Rmax (la * lb) (la * hb)) (ha * lb)) (ha * hb) = (ha * hb)%R).
+    { apply Rmax_right. repeat apply Rmax_lub; nra. }
+    pose proof (dround_bounds n (la * lb) Hn). pose proof (dround_bounds n (ha * hb) Hn).
+    rewrite Em, EM.
+    split; [split; [exact Oklo | split; [exact Okhi | nra]] |].
+    split; [reflexivity | split; [reflexivity |]].
+    intros x y Hx Hy.
+    pose proof (mul_corners la ha lb hb x y Hx (or_introl Hy)) as Hxy.
+    rewrite Em, EM in Hxy. lra.
+  - destruct (mul_correct n _ _ false Hn Hla Hlb Sla Slb) as (xc & Exc & Okxc & Vxc).
+    destruct (mul_correct n _ _ false Hn Hla Hhb Sla Shb) as (xd & Exd & Okxd & Vxd).
+    destruct (mul_correct n _ _ false Hn Hha Hlb Sha Slb) as (yc & Eyc & Okyc & Vyc).
+    destruct (mul_correct n _ _ false Hn Hha Hhb Sha Shb) as (yd & Eyd & Okyd & Vyd).
+    destruct (mul_correct n _ _ true Hn Hla Hlb Sla Slb) as (xc' & Exc' & Okxc' & Vxc').
+    destruct (mul_correct n _ _ true Hn Hla Hhb Sla Shb) as (xd' & Exd' & Okxd' & Vxd').
+    destruct (mul_correct n _ _ true Hn Hha Hlb Sha Slb) as (yc' & Eyc' & Okyc' & Vyc').
+    destruct (mul_correct n _ _ true Hn Hha Hhb Sha Shb) as (yd' & Eyd' & Okyd' & Vyd').
+    rewrite Exc, Exd, Eyc, Eyd, Exc', Exd', Eyc', Eyd'. cbv beta iota.
+    eexists. split; [reflexivity|].
+    destruct (dmin_ok n xc xd Hn Okxc Okxd) as [O1 V1].
+    destruct (dmin_ok n _ yc Hn O1 Okyc) as [O2 V2].
+    destruct (dmin_ok n _ yd Hn O2 Okyd) as [O3 V3].
+    destruct (dmax_ok n xc' xd' Hn Okxc' Okxd') as [P1 W1].
+    destruct (dmax_ok n _ yc' Hn P1 Okyc') as [P2 W2].
+    destruct (dmax_ok n _ yd' Hn P2 Okyd') as [P3 W3].
+    unfold encl_ok, encl_has, lo_R, hi_R in *; cbn [Dyadic.en_lo Dyadic.en_hi].
+    rewrite V3, V2, V1, W3, W2, W1, Vxc, Vxd, Vyc, Vyd, Vxc', Vxd', Vyc', Vyd'.
+    rewrite <- !dround_min, <- !dround_max by exact Hn.
+    set (la := Dyadic.dy_R (Dyadic.en_lo a)) in *. set (ha := Dyadic.dy_R (Dyadic.en_hi a)) in *.
+    set (lb := Dyadic.dy_R (Dyadic.en_lo b)) in *. set (hb := Dyadic.dy_R (Dyadic.en_hi b)) in *.
+    set (m := Rmin (Rmin (Rmin (la * lb) (la * hb)) (ha * lb)) (ha * hb)).
+    set (M := Rmax (Rmax (Rmax (la * lb) (la * hb)) (ha * lb)) (ha * hb)).
+    pose proof (dround_bounds n m Hn). pose proof (dround_bounds n M Hn).
+    pose proof (min4_le_max4 (la * lb) (la * hb) (ha * lb) (ha * hb)) as Hm. fold m M in Hm.
+    split; [split; [exact O3 | split; [exact P3 | lra]] |].
+    split; [reflexivity | split; [reflexivity |]].
+    intros x y Hx Hy.
+    pose proof (mul_corners la ha lb hb x y Hx (or_introl Hy)) as Hxy. fold m M in Hxy. lra.
 Qed.
 
 Lemma encl_div_correct :

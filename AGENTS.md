@@ -31,7 +31,8 @@ crate-wide `#[allow]`s. Local allows need a comment explaining why.
   list, with what it broke and where it was found: SIMD operations in
   `src/simd/differential_tests.rs`, literals (the parser) in `src/parse/diff_tests.rs`,
   formatted bounds in `src/format/diff_tests.rs`, operations of the dyadic kernel in
-  `src/dyadic/tests.rs`.
+  `src/dyadic/tests.rs`, and its exponentials and hyperbolic functions in
+  `src/dyadic/exp/tests.rs`.
 
 ## Documentation to update alongside code
 - README.md, "Supported Platforms": add new architectures in the same format,

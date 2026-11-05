@@ -170,3 +170,14 @@ theories/OfPointPow.v
 theories/MpfrPoint.v
 theories/PointTheorems.v
 theories/MpfrExamples.v
+theories/DyGrow.v
+theories/AtanhSeries.v
+theories/DyConst.v
+theories/DyExpCore.v
+theories/DyExpRules.v
+theories/DyHypRules.v
+theories/DySinhTiny.v
+theories/DyTanhTiny.v
+theories/DyExp.v
+theories/DyHyp.v
+theories/DyPoint.v
