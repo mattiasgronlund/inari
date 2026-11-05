@@ -131,6 +131,9 @@ theories/ParseRound.v
 theories/ParseHull.v
 theories/ParseExact.v
 theories/ParseDec.v
+theories/FormatCut.v
+theories/FormatDec.v
+theories/FormatHex.v
 theories/ConstTight.v
 theories/ExpSeries.v
 theories/ConstPi.v

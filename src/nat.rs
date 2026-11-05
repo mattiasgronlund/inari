@@ -1,10 +1,12 @@
-// A natural number of any size, for the bounds of interval literals in `src/parse.rs`.
+// A natural number of any size, for the bounds of interval literals in `src/parse.rs` and the
+// digits of the bounds that `src/format.rs` prints.
 //
 // A `Nat` is its 64-bit limbs, the least significant first, with no zero limb at the top, so
 // that 0 has no limbs and each number has exactly one representation. Products of limbs, with
 // their carries, are computed in `u128`. `rocq/theories/Model.v` takes each operation below as
 // the operation on `Z` that it computes, which is not proved, so each has to compute exactly
-// that. The tests at the end compare them with `rug::Integer`.
+// that; `to_dec`, which only the layout of the printed text uses, is not modelled. The tests
+// at the end compare them with `rug::Integer`.
 
 use std::{
     cmp::Ordering,
@@ -113,6 +115,47 @@ impl Nat {
         (Self::from_limbs(q), Self::from_limbs(r))
     }
 
+    /// The number of decimal digits of `self`, which is 0 for 0: `10^(d - 1) <= self < 10^d`
+    /// otherwise.
+    pub(crate) fn digits10(&self) -> u64 {
+        let b = self.bits();
+        if b == 0 {
+            return 0;
+        }
+        // 1233/4096 < log10(2), so 10^d <= 2^(b - 1) <= self for this d: `self` has more than
+        // d digits. As log10(2) - 1233/4096 < 5 * 10^-6, d falls short of the number of digits
+        // less one by less than 1.31 + 5 * 10^-6 * b, so the loop raises it at most once for a
+        // `self` of fewer than 10^5 bits.
+        let mut d = u64::try_from(u128::from(b - 1) * 1233 / 4096).unwrap();
+        while *self >= pow10(d + 1) {
+            d += 1;
+        }
+        d + 1
+    }
+
+    /// The decimal digits of `self`, with no zero in front, and `"0"` for 0.
+    pub(crate) fn to_dec(&self) -> String {
+        // The remainders of repeated divisions by 10^19 < 2^64 are the chunks of 19 digits,
+        // from the last one up. Only the top chunk is printed without its zeros in front.
+        const CHUNK: u64 = 10u64.pow(19);
+        let mut chunks = Vec::new();
+        let mut x = self.clone();
+        while !x.is_zero() {
+            let (q, r) = div_rem_u64(&x.0, CHUNK);
+            chunks.push(r);
+            x = Self::from_limbs(q);
+        }
+        let mut s = match chunks.pop() {
+            None => return String::from("0"),
+            Some(top) => top.to_string(),
+        };
+        s.reserve(19 * chunks.len());
+        for c in chunks.iter().rev() {
+            s.push_str(&format!("{:019}", c));
+        }
+        s
+    }
+
     // `self := self * m + a` for `m > 0`, which keeps the top limb nonzero.
     fn mul_add_u64(&mut self, m: u64, a: u64) {
         debug_assert!(m > 0);
@@ -127,6 +170,11 @@ impl Nat {
             self.0.push(carry);
         }
     }
+}
+
+// 10^k = 5^k * 2^k. Panics if k does not fit a `u32`.
+fn pow10(k: u64) -> Nat {
+    &Nat::pow5(u32::try_from(k).unwrap()) << k
 }
 
 // At least the number of limbs of 5^k: log2(5) < 149/64, so 5^k has at most
@@ -422,6 +470,15 @@ mod tests {
         assert_eq!(int(x), *y);
     }
 
+    // `to_dec` of `x` is the decimal digits that `rug` prints, and `digits10` is their number,
+    // or 0 for 0.
+    fn check_dec(x: &Nat) {
+        let s = int(x).to_string();
+        assert_eq!(x.to_dec(), s);
+        let d = if x.is_zero() { 0 } else { s.len() as u64 };
+        assert_eq!(x.digits10(), d, "{}", s);
+    }
+
     // Each operation of `x` and `y`, and of `x` and the shifts in `shifts`, against `rug`.
     fn check_ops(x: &Nat, y: &Nat, shifts: &[u64]) {
         let (a, b) = (int(x), int(y));
@@ -623,6 +680,101 @@ mod tests {
         check(&Nat::from_hex("fF"), &Integer::from(255));
     }
 
+    #[test]
+    fn dec_of_patterns() {
+        let t = 10u64.pow(19);
+        for x in [0, 1, 9, 10, t / 10, t - 1, t, t + 1, u64::MAX] {
+            check_dec(&Nat::from_u64(x));
+        }
+        // The patterns and their products, which have runs of all-ones limbs.
+        let p = patterns();
+        for x in &p {
+            check_dec(x);
+            for y in &p {
+                check_dec(&(x * y));
+            }
+        }
+    }
+
+    // 10^k - 1, 10^k and 10^k + 1 for each k up to 1100. Where the number of digits passes a
+    // multiple of 19 (k = 18, 19, 20, 38, 39, 57, ...), `to_dec` takes one more chunk of 19
+    // digits, and its last chunks are all 9 or all 0.
+    #[test]
+    fn dec_around_powers_of_ten() {
+        let one = Nat::from_u64(1);
+        for k in 0..=1100u32 {
+            let p = pow10(u64::from(k));
+            check(&p, &Integer::from(Integer::u_pow_u(10, k)));
+            check_dec(&(&p - &one));
+            check_dec(&p);
+            check_dec(&(&p + &one));
+        }
+    }
+
+    // 2^k - 1, 2^k and 2^k + 1. Of the numbers of k + 1 bits, 2^k is the smallest, where the
+    // estimate of `digits10` from the bits has the least room below the number of digits, and
+    // 2^(k + 1) - 1 the largest, where its loop raises the estimate the most. The last two `k`
+    // make numbers on both sides of the 10^5 bits up to which `digits10` says that its loop
+    // raises the estimate at most once.
+    #[test]
+    fn dec_around_powers_of_two() {
+        let one = Nat::from_u64(1);
+        for k in (0..=2100).chain([4095, 4096, 4097, 99_999, 100_000]) {
+            let p = &one << k;
+            check_dec(&(&p - &one));
+            check_dec(&p);
+            check_dec(&(&p + &one));
+        }
+    }
+
+    // c * 10^(19j) + r, whose chunks of 19 digits between the top and the last are all 0, and
+    // 10^(19j) + 10^(19i) for i < j, a 1 at the end of a chunk among chunks of zeros. `to_dec`
+    // prints each chunk of zeros as 19 zeros.
+    #[test]
+    fn dec_zero_chunks() {
+        let t = 10u64.pow(19);
+        let p: Vec<Nat> = (0..=60).map(|j| pow10(19 * j)).collect();
+        for (j, pj) in p.iter().enumerate() {
+            for c in [1, 7, t / 10, t - 1, t, u64::MAX] {
+                let top = pj * &Nat::from_u64(c);
+                for r in [0, 1, t / 10, t - 1] {
+                    check_dec(&(&top + &Nat::from_u64(r)));
+                }
+            }
+            for pi in &p[..j] {
+                check_dec(&(pj + pi));
+            }
+        }
+    }
+
+    // Up to about 1200 decimal digits in runs of zeros, nines and random digits, so that whole
+    // chunks of 19 digits are often all 0 or all 9, read by `from_dec` and printed back by
+    // `to_dec`.
+    #[test]
+    fn dec_random_digit_runs() {
+        let n = n_cases();
+        let mut rng = rng(5);
+        for _ in 0..n {
+            let len = 1 + rng.below(1200) as usize;
+            let mut s = String::with_capacity(len + 40);
+            while s.len() < len {
+                let kind = rng.below(3);
+                for _ in 0..1 + rng.below(40) {
+                    s.push(match kind {
+                        0 => '0',
+                        1 => '9',
+                        _ => char::from(b'0' + rng.below(10) as u8),
+                    });
+                }
+            }
+            let x = Nat::from_dec(&s);
+            check_dec(&x);
+            let digits = s.trim_start_matches('0');
+            assert_eq!(x.to_dec(), if digits.is_empty() { "0" } else { digits });
+        }
+        eprintln!("nat dec digit runs: {} cases", n);
+    }
+
     // Divisions in which the estimate of a quotient limb after D3 is 1 too large, so that D6
     // adds the divisor back: for `v = w * B^(n - 2) + low` with `w` of 2 limbs, its top limb
     // at least B/2, and `0 < low < B^(n - 2)`, and a `u = q0 * w * B^(n - 2)` with
@@ -723,6 +875,7 @@ mod tests {
             let [dec, hex] = digit_strings(&int(&x), rng.below(40) as usize);
             check(&Nat::from_dec(&dec), &int(&x));
             check(&Nat::from_hex(&hex), &int(&x));
+            check_dec(&x);
         }
         eprintln!("nat random: {} cases", n);
     }

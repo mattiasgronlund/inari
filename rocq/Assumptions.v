@@ -13,8 +13,8 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu A
   DecBinary DecTernary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
   MulRevSets MulRev CancelSpec Cancel MpfrRound ElemDec ClosedDom Elem Atanh Cosh
   PiBounds PiIrrational TrigQuad TrigCount TrigCert Cos Sin Tan Dom2 Pow Powi AtanReal
-  PiTight Atan2 ParseScale ParseRound ParseHull ParseExact ParseDec ConstTight
-  ConstPi ConstInv ConstLn ConstLog ValidMake ValidSetOp ValidOps ValidDecOps
+  PiTight Atan2 ParseScale ParseRound ParseHull ParseExact ParseDec FormatDec FormatHex
+  ConstTight ConstPi ConstInv ConstLn ConstLog ValidMake ValidSetOp ValidOps ValidDecOps
   ValidElem Valid MpfrIdeal IdealRound IdealGetD IdealElem IdealPow IdealAtan2
   MpfrConsistent Contract OfPointCore OfPoint OfPointElem OfPointPow MpfrPoint
   PointTheorems.
@@ -177,6 +177,11 @@ Print Assumptions dn_decorated_ok.
 Print Assumptions from_dec_ninterval_correct.
 Print Assumptions from_ninterval_correct.
 Print Assumptions from_ninterval_new.
+Print Assumptions format_fixed_correct.
+Print Assumptions format_sci_correct.
+Print Assumptions format_hex_exact_correct.
+Print Assumptions format_hex_bin_correct.
+Print Assumptions format_hex_digits_correct.
 Print Assumptions E_tightest.
 Print Assumptions FRAC_1_PI_tightest.
 Print Assumptions FRAC_1_SQRT_2_tightest.

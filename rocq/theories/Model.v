@@ -10,8 +10,10 @@
     [src/interval/dec_interval.rs], [src/constants.rs], [src/set_op.rs]
     and [src/bytes.rs] that makes a [DecInterval], for each place in those
     files and in [src/parse.rs] that makes an [Interval] other than by an
-    operation that is not proved here, and for the step of the grammar of
-    [src/parse.rs] that decorates an interval literal. This file has to be
+    operation that is not proved here, for the step of the grammar of
+    [src/parse.rs] that decorates an interval literal, and for the
+    functions of [src/format/digits.rs] that round the bounds that
+    [src/format.rs] prints to their digits. This file has to be
     checked against the Rust code, and so do the headers of [ComCommon.v]
     and [Valid.v], which argue from the Rust code that the library makes
     every [DecInterval] and every [Interval] at the places and by the
@@ -815,13 +817,13 @@ End Generic.
     and the theorems stated for MPFR functions [m] assume it of [m]. The
     other functions of [gmp_mpfr_sys::mpfr] that [src/mpfr_calls/mpfr.rs]
     calls are not fields: [assert_thread_safe()], which calls
-    [mpfr::buildopt_tls_p], is left out; [fmt_bounds], which prints the
-    bounds of an interval for [src/format.rs] with [mpfr::asprintf] and
-    [mpfr::free_str], is not modelled; and [with_parse_range] and
+    [mpfr::buildopt_tls_p], is left out; and [with_parse_range] and
     [round_rational], which call [mpfr::get_emin], [mpfr::get_emax],
     [mpfr::set_emin], [mpfr::set_emax], [mpfr::set_q] and
-    [mpfr::subnormalize], are compiled only for the tests, and are not
-    modelled either. Outside these, what it does through [rug] is
+    [mpfr::subnormalize], and [fmt_bound_mpfr], which prints a bound of an
+    interval with [mpfr::asprintf] and [mpfr::free_str], as inari did
+    before [src/format/digits.rs], are compiled only for the tests, and are
+    not modelled. Outside these, what it does through [rug] is
     [Float::with_val], which is [with_val] below, and the allocation and
     freeing of MPFR numbers, which are left out.
 
@@ -1512,6 +1514,132 @@ Definition number_to_f64 (n : Number) (infsup : InfSup) : option F64 :=
   | Infinity =>
       Some {| f64_f := B754_infinity false; f64_inexact := false; f64_overflow := false |}
   end.
+
+(** The functions of [src/format/digits.rs] that give the digits of a
+    finite nonzero bound of an interval that [src/format.rs] prints,
+    rounded in the direction of the bound: [fixed] for [{}] of [Display],
+    [sci] for [{:e}] of [LowerExp] and [hex] for [{:x}] of [LowerHex], as an
+    integer [d] and an exponent [k] of the radix, 10 or 2. The rest of
+    [src/format.rs], which writes the text of [d] and [k] with
+    [Nat::to_dec], the point, the zeros, the exponent and the sign, and
+    the text of zeros and infinities, is not modelled. As in the section
+    above, each [Nat] is the [Z] that it holds, and each of its operations
+    is the operation on [Z] that it computes. [usize] is [u64], as the
+    feature [gmp] is supported only on 64-bit targets. *)
+
+Definition radix10 : radix := Build_radix 10 eq_refl.
+Definition radix16 : radix := Build_radix 16 eq_refl.
+
+(** [n.digits10()] of a [Nat] [n]: the number of its decimal digits, 0
+    for 0. *)
+Definition nat_digits10 (n : Z) : Z := Zdigits radix10 n.
+
+(** [fn decompose(x: f64) -> (u64, i64)], where [!(1 << 63)] of a [u64]
+    is [2 ^ 63 - 1]. *)
+Definition format_decompose (x : f64) : option (Z * Z) :=
+  let c := Z.land (to_bits x) (2 ^ 63 - 1) in
+  let be := Z.shiftr c 52 in
+  let m := Z.land c (Z.shiftl 1 52 - 1) in
+  let* m := if be =? 0 then Some m else checked_u 64 (m + Z.shiftl 1 52) in
+  (* [be.max(1) as i64] *)
+  let b := (Z.max be 1 + 2 ^ 63) mod 2 ^ 64 - 2 ^ 63 in
+  let* e := checked_i 64 (b - 1075) in
+  Some (m, e).
+
+(** [fn exact_dec(x: f64) -> (Nat, i64)], where [Nat::from_u64(m)] is [m],
+    [&m << s] is [Z.shiftl m s], [&a * &b] is [a * b] and [Nat::pow5(k)]
+    is [5 ^ k]. *)
+Definition format_exact_dec (x : f64) : option (Z * Z) :=
+  let* (m, e) := format_decompose x in
+  if 0 <=? e then
+    (* [e as u64] *)
+    Some (Z.shiftl m (e mod 2 ^ 64), 0)
+  else
+    let* ne := checked_i 64 (- e) in
+    (* [-e as u32] *)
+    Some (m * 5 ^ (ne mod 2 ^ 32), e).
+
+(** [fn away(x: f64, up: bool) -> bool], where [x.is_sign_negative()] is
+    [Bsign x], as [x] is not NaN here, and [a != b] is [negb (Bool.eqb a b)]. *)
+Definition format_away (x : f64) (up : bool) : bool := negb (Bool.eqb (Bsign x) up).
+
+(** [fn cut_dec(n: Nat, s: i64, t: i64, away: bool) -> (Nat, i64)], where
+    [n.div_rem(&b)] is [(n / b, n mod b)], which panics for [b = 0] as
+    [div_u] and [rem_u] say, [r.is_zero()] is [r =? 0], [&q + &a] is
+    [q + a], and [u64::from] keeps the value. *)
+Definition format_cut_dec (n s t : Z) (away : bool) : option (Z * Z) :=
+  if t <=? s then Some (n, s) else
+  let* ts := checked_i 64 (t - s) in
+  (* [(t - s) as u32] *)
+  let j := ts mod 2 ^ 32 in
+  let b := Z.shiftl (5 ^ j) j in
+  let* q := div_u n b in
+  let* r := rem_u n b in
+  if away && negb (r =? 0) then Some (q + 1, t) else Some (q, t).
+
+(** [fn fixed(x: f64, p: usize, up: bool) -> (Nat, i64)], where
+    [ALL_DIGITS] is 1100. *)
+Definition format_fixed (x : f64) (p : Z) (up : bool) : option (Z * Z) :=
+  let* (n, s) := format_exact_dec x in
+  (* [p.min(ALL_DIGITS) as i64] *)
+  let c := (Z.min p 1100 + 2 ^ 63) mod 2 ^ 64 - 2 ^ 63 in
+  let* t := checked_i 64 (- c) in
+  format_cut_dec n s t (format_away x up).
+
+(** [fn sci(x: f64, p: usize, up: bool) -> (Nat, i64)] *)
+Definition format_sci (x : f64) (p : Z) (up : bool) : option (Z * Z) :=
+  let* (n, s) := format_exact_dec x in
+  (* [n.digits10() as i64] *)
+  let dg := (nat_digits10 n + 2 ^ 63) mod 2 ^ 64 - 2 ^ 63 in
+  let* t1 := checked_i 64 (dg + s) in
+  let* t2 := checked_i 64 (t1 - 1) in
+  (* [p.min(ALL_DIGITS) as i64] *)
+  let c := (Z.min p 1100 + 2 ^ 63) mod 2 ^ 64 - 2 ^ 63 in
+  let* t := checked_i 64 (t2 - c) in
+  format_cut_dec n s t (format_away x up).
+
+(** [fn cut_bin(m: u64, j: u32, away: bool) -> u64] *)
+Definition format_cut_bin (m j : Z) (away : bool) : option Z :=
+  let* q := shr 64 m j in
+  (* [m & ((1 << j) - 1) != 0] is only evaluated if [away]. *)
+  let* inexact :=
+    if away then
+      let* p := shl 64 1 j in
+      let* mask := checked_u 64 (p - 1) in
+      Some (negb (Z.land m mask =? 0))
+    else Some false in
+  if inexact then checked_u 64 (q + 1) else Some q.
+
+(** [fn hex(x: f64, p: Option<usize>, up: bool) -> (u64, i64)], where
+    [i64::from] keeps the value, and [ex.rem_euclid(4)] and
+    [ex.div_euclid(4)] are [ex mod 4] and [ex / 4]. *)
+Definition format_hex (x : f64) (p : option Z) (up : bool) : option (Z * Z) :=
+  let* (m, e) := format_decompose x in
+  let* lz := checked_u 32 (leading_zeros 64 m - 11) in
+  let* m53 := shl 64 m lz in
+  let* ex1 := checked_i 64 (e + 52) in
+  let* ex := checked_i 64 (ex1 - lz) in
+  let away := format_away x up in
+  if match p with Some p0 => p0 =? 0 | None => false end then
+    let* d := format_cut_bin m53 49 away in
+    let* k := checked_i 64 (ex - 3) in
+    Some (d, k)
+  else
+    let* d14 := shl 64 m53 (ex mod 4) in
+    let* k1 := checked_i 64 (4 * (ex / 4)) in
+    let* k := checked_i 64 (k1 - 52) in
+    match p with
+    | Some p0 =>
+        if p0 <? 13 then
+          (* [p as u32] *)
+          let* j1 := checked_u 32 (13 - p0 mod 2 ^ 32) in
+          let* j := checked_u 32 (4 * j1) in
+          let* d := format_cut_bin d14 j away in
+          let* k' := checked_i 64 (k + j) in
+          Some (d, k')
+        else Some (d14, k)
+    | None => Some (d14, k)
+    end.
 
 Module Interval.
 

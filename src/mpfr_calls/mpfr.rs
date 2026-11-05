@@ -7,10 +7,8 @@ use gmp_mpfr_sys::mpfr::{
 use rug::Float;
 #[cfg(test)]
 use rug::Rational;
-use std::{
-    ffi::{CStr, CString},
-    os::raw::c_char,
-};
+#[cfg(test)]
+use std::{ffi::CString, os::raw::c_char};
 
 // Panics unless the linked MPFR is built thread-safe, as the MPFR that `gmp-mpfr-sys` builds
 // is. A system MPFR, which the feature `use-system-libs` of `gmp-mpfr-sys` links, need not be,
@@ -20,9 +18,9 @@ use std::{
 // write the same flags and the same cache, and in the tests, another thread can change the
 // range that `with_parse_range` sets before it restores it. inari calls this before the MPFR
 // calls of each of its operations: in the `let` arms of `mpfr_fn!`, `mpfr_fn2!` and
-// `mpfr_fn_si!`, and in `fmt_bounds`, all below, so that a program linked with such an MPFR
-// panics on its first operation that calls MPFR, whether or not it runs more than one thread.
-// `with_parse_range`, which only the tests compile, calls it too.
+// `mpfr_fn_si!`, all below, so that a program linked with such an MPFR panics on its first
+// operation that calls MPFR, whether or not it runs more than one thread.
+// `with_parse_range` and `fmt_bound_mpfr`, which only the tests compile, call it too.
 // `mpfr::buildopt_tls_p` (§5.12 "Miscellaneous Functions") returns whether MPFR was built
 // thread-safe, which is fixed when MPFR is built, so calling it every time gives the same
 // answer as calling it once. `rocq/theories/Model.v` leaves this function out of `mpfr_fn`,
@@ -253,66 +251,35 @@ mpfr_fn!(sinh, sinh_rd, sinh_ru);
 mpfr_fn!(tan, tan_rd, tan_ru);
 mpfr_fn!(tanh, tanh_rd, tanh_ru);
 
-// `then` of the bounds `a` and `b` of an interval as `fmt_impl` in `src/format.rs` prints
-// them: `a` rounded toward -∞ and `b` toward +∞ by `mpfr::asprintf`, with the conversion
-// `conv` (`'f'`, `'e'` or `'a'`, as in C's `printf`) and `prec` digits after the point, or
-// MPFR's default for `conv` if `prec` is `None`, and an infinite bound as `-inf` or `inf`. It
-// calls `assert_thread_safe` before any MPFR call. `fmt_impl` writes the bounds in `then`, so
-// that the two MPFR numbers live until it has written them, as when it called MPFR itself,
-// and this function is `#[inline]`: a release build puts the instances of a free generic
-// function that is not `#[inline]` in the codegen unit of the module that defines it, not in
-// that of the caller, so that without `#[inline]`, this one and `fmt_impl` can be in
-// different codegen units, and `#[inline]` gives each codegen unit that calls it a copy of
-// its own. Measured with
-// rustc 1.96.0 and `-Ctarget-cpu=haswell` for x86-64, in release builds of the library (with
-// the default codegen units and with one) and of its tests, `fmt_impl` then makes the same
-// calls in the same order as when it called MPFR itself. In the release build of the library
-// with the default codegen units, this function stayed out of line without `#[inline]`, and
-// when it returned the bounds and was `#[inline(always)]`, `fmt_impl` held two copies of its
-// MPFR calls. When it returned the bounds, with or without `#[inline]`, it stayed out of line
-// in all three builds, and it and `fmt_impl` had two landing pads more than `fmt_impl` had
-// alone.
-#[inline]
-pub(crate) fn fmt_bounds<T>(
-    a: f64,
-    b: f64,
-    prec: Option<usize>,
-    conv: char,
-    then: impl FnOnce(&str, &str) -> T,
-) -> T {
+// The bound `x` of an interval as inari printed it with MPFR before it had digits of its own,
+// against which `src/format/diff_tests.rs` checks `bound` of `src/format.rs`: rounded toward
+// +∞ if `up` and toward -∞ otherwise by `mpfr::asprintf`, with the conversion `conv` (`'f'`,
+// `'e'` or `'a'`, as in C's `printf`) and `prec` digits after the point, or MPFR's default for
+// `conv` if `prec` is `None`, and an infinite `x` as `-inf` or `inf`. It calls
+// `assert_thread_safe` before the MPFR call. It reads all the `len` bytes that MPFR wrote,
+// where inari used to stop at the first NUL, so that a NUL that MPFR writes in a digit (see
+// `mpfr_bumps_exact` in `src/format/diff_tests.rs`) shows.
+#[cfg(test)]
+pub(crate) fn fmt_bound_mpfr(x: f64, prec: Option<usize>, conv: char, up: bool) -> String {
+    assert!(!x.is_nan());
+    if x.is_infinite() {
+        return String::from(if x < 0.0 { "-inf" } else { "inf" });
+    }
     let prec = match prec {
         Some(p) => format!(".{}", p),
         None => String::new(),
     };
+    let template = format!("%{}R{}{}", prec, if up { 'U' } else { 'D' }, conv);
     assert_thread_safe();
-    let fa = Float::with_val(f64::MANTISSA_DIGITS, a);
-    let fb = Float::with_val(f64::MANTISSA_DIGITS, b);
-    let sa = mpfr_printf(&format!("%{}RD{}", prec, conv), &fa);
-    let sb = mpfr_printf(&format!("%{}RU{}", prec, conv), &fb);
-    then(&sa, &sb)
-}
-
-fn mpfr_printf(template: &str, f: &Float) -> String {
-    assert!(!f.is_nan());
-
-    // https://github.com/rust-lang/rust/blob/229e5b2640fc5715e77607a989748be588d983f2/src/libcore/num/dec2flt/mod.rs#L118
-    if f.is_infinite() {
-        return if f.is_sign_negative() {
-            String::from("-inf")
-        } else {
-            String::from("inf")
-        };
-    }
-
+    let f = Float::with_val(f64::MANTISSA_DIGITS, x);
     let mut p: *mut c_char = std::ptr::null_mut();
     let c_template = CString::new(template).unwrap();
-
-    unsafe {
+    let bytes = unsafe {
         let len = mpfr::asprintf(&mut p, c_template.as_ptr(), f.as_raw());
         assert!(len >= 0);
-        let c_str = CStr::from_ptr(p);
-        let s = c_str.to_str().unwrap().to_owned();
+        let bytes = std::slice::from_raw_parts(p as *const u8, len as usize).to_vec();
         mpfr::free_str(p);
-        s
-    }
+        bytes
+    };
+    String::from_utf8(bytes).unwrap()
 }
