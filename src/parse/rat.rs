@@ -8,7 +8,7 @@
 // difference of the exponents, which it computes exactly where the two can be equal, and bounds
 // with more and more bits of otherwise.
 
-use super::nat::Nat;
+use crate::nat::Nat;
 use std::cmp::Ordering;
 
 /// `(-1)^neg * num * 2^e2 * 5^e5 / den`, with `den > 0`.

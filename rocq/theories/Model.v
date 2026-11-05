@@ -1249,7 +1249,7 @@ Definition transmute_class2 (c : Z) : option (IntervalClass * IntervalClass) :=
     interval literal into [f64]s, and the step of its grammar that
     decorates a literal. The rest of the [nom] grammar of [parse.rs], which
     reads the literal and computes its bounds as exact rationals, is not
-    modelled. Each [Nat] of [src/parse/nat.rs], the unsigned integer of
+    modelled. Each [Nat] of [src/nat.rs], the unsigned integer of
     any width that [parse.rs] computes with, is the [Z] that it holds, and
     each of its operations is the operation on [Z] that it computes: the
     loops on its limbs are not proved. *)

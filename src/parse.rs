@@ -1,5 +1,4 @@
-use crate::{interval::*, simd::round_up_exact};
-use nat::Nat;
+use crate::{interval::*, nat::Nat, simd::round_up_exact};
 use nom::{
     branch::alt,
     bytes::complete::{tag_no_case, take_while},
@@ -13,7 +12,6 @@ use std::{result, str::FromStr};
 
 #[cfg(test)]
 mod diff_tests;
-mod nat;
 mod rat;
 
 #[derive(Clone, Debug)]

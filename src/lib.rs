@@ -43,6 +43,8 @@ mod format;
 mod integer;
 #[cfg(feature = "gmp")]
 mod mpfr_calls;
+#[cfg(feature = "gmp")]
+mod nat;
 mod numeric;
 mod overlap;
 #[cfg(feature = "gmp")]

@@ -13,7 +13,7 @@ use std::{
 
 // With no zero limb at the top, the derived `PartialEq` compares values.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct Nat(Vec<u64>);
+pub(crate) struct Nat(Vec<u64>);
 
 impl Nat {
     // The `Nat` of the limbs `v`, without the zero limbs at the top.
@@ -25,12 +25,12 @@ impl Nat {
     }
 
     /// `x` as a `Nat`.
-    pub(super) fn from_u64(x: u64) -> Self {
+    pub(crate) fn from_u64(x: u64) -> Self {
         Self::from_limbs(vec![x])
     }
 
     /// The number that the decimal digits `s` spell, which the grammar makes nonempty.
-    pub(super) fn from_dec(s: &str) -> Self {
+    pub(crate) fn from_dec(s: &str) -> Self {
         // 19 digits, below 10^19 < 2^64, at a time: n * 10^19 + the next 19. The first chunk
         // takes the digits left over, so that each of the others has 19.
         const CHUNK: usize = 19;
@@ -43,18 +43,18 @@ impl Nat {
     }
 
     /// The number that the hexadecimal digits `s` spell, which the grammar makes nonempty.
-    pub(super) fn from_hex(s: &str) -> Self {
+    pub(crate) fn from_hex(s: &str) -> Self {
         // 16 digits make a limb, from the last digit up.
         Self::from_limbs(s.as_bytes().rchunks(16).map(|c| digits(c, 16)).collect())
     }
 
     /// `self == 0`.
-    pub(super) fn is_zero(&self) -> bool {
+    pub(crate) fn is_zero(&self) -> bool {
         self.0.is_empty()
     }
 
     /// The number of bits of `self`, which is 0 for 0: `2^(b - 1) <= self < 2^b` otherwise.
-    pub(super) fn bits(&self) -> u64 {
+    pub(crate) fn bits(&self) -> u64 {
         match self.0.last() {
             None => 0,
             Some(top) => 64 * self.0.len() as u64 - u64::from(top.leading_zeros()),
@@ -62,13 +62,13 @@ impl Nat {
     }
 
     /// `self mod 2^128`.
-    pub(super) fn low_u128(&self) -> u128 {
+    pub(crate) fn low_u128(&self) -> u128 {
         let limb = |i| u128::from(self.0.get(i).copied().unwrap_or(0));
         limb(0) | limb(1) << 64
     }
 
     /// `5^k`.
-    pub(super) fn pow5(k: u32) -> Self {
+    pub(crate) fn pow5(k: u32) -> Self {
         // 5^k = 5^(k mod 27) * (5^27)^(k / 27), where 5^27 is the largest power of 5 below
         // 2^64: one multiplication by a limb at a time, in place, in a `Vec` that has room for
         // every limb of 5^k from the start. These are about k^2/1500 products of limbs, more
@@ -86,7 +86,7 @@ impl Nat {
     }
 
     /// `(self / d, self % d)`, the quotient rounded down. Panics if `d` is 0.
-    pub(super) fn div_rem(&self, d: &Nat) -> (Nat, Nat) {
+    pub(crate) fn div_rem(&self, d: &Nat) -> (Nat, Nat) {
         assert!(!d.is_zero(), "division by zero");
         if self < d {
             return (Self(Vec::new()), self.clone());
@@ -724,6 +724,6 @@ mod tests {
             check(&Nat::from_dec(&dec), &int(&x));
             check(&Nat::from_hex(&hex), &int(&x));
         }
-        eprintln!("parse::nat random: {} cases", n);
+        eprintln!("nat random: {} cases", n);
     }
 }
