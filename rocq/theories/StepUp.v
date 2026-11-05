@@ -26,6 +26,47 @@ intros [s|s| |s m e H] Fx Hx; try discriminate Fx.
   + symmetry. apply Rlt_bool_false. apply F2R_ge_0. cbn [Fnum SpecFloat.cond_Zopp]. lia.
 Qed.
 
+(** Without [up], [step_up_if] returns [x], whatever [x] is. *)
+Lemma step_up_if_false : forall x, Generic.step_up_if x false = x.
+Proof.
+intros x.
+unfold Generic.step_up_if.
+cbv zeta.
+rewrite Z.land_0_l, Z.mul_0_r, Z.sub_0_r, Z.add_0_r.
+apply from_to_bits.
+Qed.
+
+(** For a finite, nonzero [x], [step_up_if(x, up)] is
+    [if up { step_up(x) } else { x }]. *)
+Lemma step_up_if_eq :
+  forall x (up : bool), is_finite x = true -> B2R x <> 0 ->
+  Generic.step_up_if x up = if up then Generic.step_up x else x.
+Proof.
+intros x up Fx Hx0.
+destruct up; [|apply step_up_if_false].
+unfold Generic.step_up_if, Generic.step_up.
+cbv zeta.
+destruct (to_bits_finite x Fx) as (c & Hc & Hb).
+rewrite Hb, (Bsign_B2R x Fx Hx0).
+unfold gt, lt.
+rewrite 2!Bltb_correct by first [exact Fx | reflexivity].
+change (B2R zero) with 0.
+rewrite Z.shiftr_div_pow2 by lia.
+destruct (Rlt_bool_spec 0 (B2R x)) as [Hpos|Hnpos].
+- (* x > 0: the sign bit is clear, [b >> 63 = 0] and both add 1. *)
+  destruct (Rlt_bool_spec (B2R x) 0) as [Hneg|_]; [lra|].
+  unfold sign_bit. cbv iota.
+  rewrite Z.div_small by (clear - Hc; zlia).
+  change (Z.land 1 0) with 0%Z.
+  f_equal. ring.
+- (* x < 0: the sign bit is set, [b >> 63 = 1] and both subtract 1. *)
+  destruct (Rlt_bool_spec (B2R x) 0) as [Hneg|Hnneg]; [|exfalso; apply Hx0; lra].
+  unfold sign_bit. cbv iota.
+  rewrite <- (Z.div_unique_pos (2^63 + c) (2^63) 1 c) by (clear - Hc; zlia).
+  change (Z.land 1 1) with 1%Z.
+  f_equal. ring.
+Qed.
+
 (** If [p = RN(z)] is nonzero and [up] is whether [p < z], then
     [if up { step_up(p) } else { p }] is [z] rounded toward +inf. *)
 Theorem step_up_rounds_up_iff :

@@ -170,7 +170,8 @@ Definition rem_euclid (x y : f64) : f64 :=
 (** [x.to_bits()] and [f64::from_bits(b)]. The bit patterns are integers
     instead of [u64], so an addition to one cannot wrap around;
     [Encoding.step_up_no_wrap] shows that those in [step_up] stay in range
-    anyway. *)
+    anyway for finite floats, and [Encoding.step_up_if_no_wrap] that those in
+    [step_up_if] do for every float. *)
 Definition to_bits (x : f64) : Z :=
   Bits.bits_of_b64 (Binary.BSN2B 53 1024 Bits.default_nan_pl64 x).
 Definition from_bits (b : Z) : f64 := Binary.B2BSN 53 1024 (Bits.b64_of_bits b).
@@ -221,6 +222,13 @@ Definition exponent (x : f64) : Z :=
 Definition step_up (x : f64) : f64 :=
   let b := to_bits x in
   from_bits (if gt x zero then b + 1 else if lt x zero then b - 1 else 1).
+
+(** [fn step_up_if(x: f64, up: bool) -> f64]. [up as u64] is 1 or 0, and
+    [b >> 63] of a [u64] is [Z.shiftr] of a nonnegative integer. *)
+Definition step_up_if (x : f64) (up : bool) : f64 :=
+  let b := to_bits x in
+  let u := if up then 1 else 0 in
+  from_bits (b - 2 * Z.land u (Z.shiftr b 63) + u).
 
 (** [fn step_down(x: f64) -> f64] *)
 Definition step_down (x : f64) : f64 := opp (step_up (opp x)).
@@ -294,7 +302,9 @@ Definition mul1_ru_fast (fma : bool) (x y : f64) : f64 * bool :=
   let e := two_prod_err fma x y p in
   let special := negb (is_finite x && is_finite y) || eq x zero || eq y zero in
   let ok := special || two_prod_is_exact fma x y p in
-  let r := if negb special && gt e zero then step_up p else p in
+  let r :=
+    if negb fma then step_up_if p (negb special && gt e zero)
+    else if negb special && gt e zero then step_up p else p in
   (r, ok).
 
 (** [fn div1_ru_fast<const FMA: bool>(x: f64, y: f64) -> (f64, bool)] *)

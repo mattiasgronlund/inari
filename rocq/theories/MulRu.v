@@ -88,7 +88,8 @@ unfold Generic.mul1_ru_fast. cbv zeta. cbn [fst snd].
 rewrite !is_finite_eq.
 destruct (negb (is_finite x && is_finite y) || eq x zero || eq y zero) eqn:Hsp;
   cbn [negb orb andb].
-{ intros _. now apply mul_special. }
+{ intros _. destruct fma; cbn [negb]; [|rewrite step_up_if_false];
+    now apply mul_special. }
 intros H.
 apply Bool.orb_false_elim in Hsp as [Hsp _].
 apply Bool.orb_false_elim in Hsp as [Hf _].
@@ -99,7 +100,10 @@ assert (Hxy : B2R x * B2R y <> 0).
 { intros H0. apply Hp0. rewrite Hp, H0. apply round_0. typeclasses eauto. }
 apply Bmult_rounds_up;
   [exact Fx | exact Fy | intros H0; apply Hxy; rewrite H0; ring ..|].
-apply step_up_rounds_up; assumption.
+(* Without an FMA, [step_up_if] rounds as the branch does, as [p] is finite
+   and nonzero. *)
+rewrite step_up_if_eq by assumption.
+destruct fma; cbn [negb]; apply step_up_rounds_up; assumption.
 Qed.
 
 (** ** The slow path *)

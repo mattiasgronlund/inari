@@ -685,6 +685,19 @@ fn step_up(x: f64) -> f64 {
     })
 }
 
+/// If x is finite and nonzero, returns `step_up(x)` if `up`, and x otherwise, from the
+/// bit pattern of x without a branch. For any x, it returns x if `!up`, and the
+/// arithmetic does not wrap around: `mul1_ru_fast` may pass other x with `up`, such as
+/// products that underflowed to zero, but then rejects the lane, so the result is not used.
+fn step_up_if(x: f64, up: bool) -> f64 {
+    let b = x.to_bits();
+    let u = up as u64;
+    // b + u if the sign bit of b is clear, and b - u if it is set (see `step_up`).
+    // b - 2 is only computed if the sign bit is set, so b >= 2^63, and b + 1 only if it
+    // is clear, so b < 2^63: neither wraps around.
+    f64::from_bits(b - 2 * (u & (b >> 63)) + u)
+}
+
 /// Returns the predecessor of x, which must be finite.
 fn step_down(x: f64) -> f64 {
     -step_up(-x)
@@ -820,7 +833,16 @@ fn mul1_ru_fast<const FMA: bool>(x: f64, y: f64) -> (f64, bool) {
     // Otherwise, p underflows or overflows unless the checks pass: the slow path
     // handles both.
     let ok = special || two_prod_is_exact::<FMA>(x, y, p);
-    let r = if !special && e > 0.0 { step_up(p) } else { p };
+    // Without an FMA, round without a branch: the sign of e depends on the lowest
+    // bits of the exact product, so a branch on it can be hard to predict. With an
+    // FMA, the branch is kept, as `step_up_if` has not been measured there.
+    let r = if !FMA {
+        step_up_if(p, !special && e > 0.0)
+    } else if !special && e > 0.0 {
+        step_up(p)
+    } else {
+        p
+    };
     (r, ok)
 }
 

@@ -52,6 +52,7 @@ Print Assumptions mul_add1_ru_slow_correct.
 Print Assumptions mul_add_ru_impl_correct.
 Print Assumptions mul_add_ru_correct.
 Print Assumptions step_up_no_wrap.
+Print Assumptions step_up_if_no_wrap.
 Print Assumptions floor_correct.
 Print Assumptions dec_floor_correct.
 Print Assumptions ceil_correct.

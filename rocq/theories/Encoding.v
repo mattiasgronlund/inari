@@ -455,3 +455,31 @@ destruct (Rlt_bool_spec 0 (B2R x)) as [Hpos|Hnpos].
   assert (Hc0 : c <> 0) by (intros ->; rewrite magnitude_0 in Hx; lra).
   unfold sign_bit. zlia.
 Qed.
+
+(** [step_up_if] computes [b - 2 * (u & (b >> 63)) + u] for the pattern
+    [b] of any float and [u] in {0, 1}: [2 * (u & (b >> 63))] is between 0
+    and 2, the subtraction does not go below 0, and the addition does not
+    reach [2^64], so none of them wraps around (or panics) in Rust. *)
+Theorem step_up_if_no_wrap :
+  forall x (up : bool),
+  0 <= 2 * Z.land (if up then 1 else 0) (Z.shiftr (to_bits x) 63) <= 2 /\
+  0 <= to_bits x - 2 * Z.land (if up then 1 else 0) (Z.shiftr (to_bits x) 63) /\
+  to_bits x - 2 * Z.land (if up then 1 else 0) (Z.shiftr (to_bits x) 63)
+    + (if up then 1 else 0) < 2^64.
+Proof.
+intros x up.
+assert (Hr : 0 <= to_bits x < 2^64)
+  by apply (Bits.bits_of_binary_float_range 52 11 eq_refl eq_refl).
+rewrite Z.shiftr_div_pow2 by lia.
+set (b := to_bits x) in *. clearbody b.
+destruct up.
+- (* [b >> 63] is the sign bit: 0 below 2^63, 1 from 2^63 on. *)
+  destruct (Z.lt_ge_cases b (2^63)) as [Hlo|Hhi].
+  + rewrite Z.div_small by lia.
+    change (Z.land 1 0) with 0.
+    lia.
+  + rewrite <- (Z.div_unique_pos b (2^63) 1 (b - 2^63)) by lia.
+    change (Z.land 1 1) with 1.
+    lia.
+- rewrite Z.land_0_l. lia.
+Qed.
