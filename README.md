@@ -15,9 +15,9 @@ The following CPUs are supported and continuously tested:
 
 - **x86-64**
 
-  Haswell-based and newer processors are supported. Nehalem-based and newer ones are supported by a separate backend that uses only SSE instructions, which is selected automatically when AVX and FMA are not available. No backend for x86-64 changes the rounding mode; the SSE-only one is slower because it has to emulate the fused multiply-add, most of all for `sqrt`, `mul_add` and division (see [BENCHMARKS.md](BENCHMARKS.md)).
+  Haswell-based and newer processors are supported by a backend that needs AVX and FMA (`fma`). Nehalem-based and newer ones are supported by a separate backend that uses only SSE instructions (`sse42`), which is selected at compile time when the target CPU lacks AVX or FMA. A third backend (`avx512f`) uses the embedded rounding of AVX-512F, and is selected when the target CPU has AVX-512F and Rust is 1.89 or later; earlier stable versions do not report `avx512f` to `cfg(target_feature)`, so they select `fma` instead. CI tests `avx512f` only when its runner has AVX-512F. No backend for x86-64 changes the rounding mode; the SSE-only one is slower because it has to emulate the fused multiply-add, most of all for `sqrt`, `mul_add` and division (see [BENCHMARKS.md](BENCHMARKS.md)).
 
-  You need to specify the target CPU when building a crate that depends on inari. One way to do that is by using a [configuration file](https://doc.rust-lang.org/cargo/reference/config.html) in your project (see [example](https://github.com/unageek/graphest/blob/main/.cargo/config.toml); you may want to change `native` to `haswell`, or to `nehalem` for even wider compatibility, if you are going to distribute binaries).
+  Unless you enable `force-generic` (see below), you need to specify the target CPU when building a crate that depends on inari. One way to do that is by using a [configuration file](https://doc.rust-lang.org/cargo/reference/config.html) in your project (see [example](https://github.com/unageek/graphest/blob/main/.cargo/config.toml); you may want to change `native` to `haswell`, or to `nehalem` for even wider compatibility, if you are going to distribute binaries).
 
 - **AArch64 (ARM64)**
 
@@ -28,7 +28,7 @@ When using the Cargo feature `gmp` (see below), target platforms are limited to 
 ## Cargo Features
 
 - `gmp` (enabled by default) - Enables [operations](https://docs.rs/inari/latest/inari/_docs/conformance/) that depend on GMP and MPFR. You can opt out of the feature to reduce dependencies. Even in that case, you still have access to all operations required by certain kinds of tasks, such as making fast robust predicates for computational geometry.
-- `force-generic` - Uses the portable backend (see above) on x86-64, AArch64 and WebAssembly with `simd128` too. It is slower, but does not change the rounding mode, and does not require a Haswell-based or newer processor.
+- `force-generic` - Uses the portable backend (see above) on x86-64, AArch64 and WebAssembly with `simd128` too. It is slower. Unlike the AArch64 backend, it does not change the rounding mode, and on x86-64 it also builds for target CPUs without SSE4.2, such as the default `x86-64`.
 
 ## [Changelog](CHANGELOG.md)
 
