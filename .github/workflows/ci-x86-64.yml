@@ -151,20 +151,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Is AVX-512F available?
-        id: avx512f
-        run: lscpu | grep --quiet avx512f
-        continue-on-error: true
-
+      # No step in this job sets `-Ctarget-feature=+avx512f`. On Rust 1.65.0 that
+      # flag sets no `cfg(target_feature = "avx512f")`, so `src/simd/x86_64.rs`
+      # would select the `fma` backend, which this step already checks. Stable Rust
+      # selects the `avx512f` backend only from 1.89 on, and the `build` job tests
+      # it on nightly when the runner has AVX-512F.
       - name: Check
         run: cargo check --all-targets
-
-      - name: Check (target AVX-512F)
-        run: cargo check --all-targets
-        if: ${{ steps.avx512f.outcome == 'success' }}
-        env:
-          RUSTFLAGS: ${{ env.RUSTFLAGS }} -Ctarget-feature=+avx512f
-          RUSTDOCFLAGS: ${{ env.RUSTDOCFLAGS }} -Ctarget-feature=+avx512f
 
       - name: Check (target Nehalem)
         run: cargo check --all-targets
