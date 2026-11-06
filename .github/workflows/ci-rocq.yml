@@ -26,7 +26,11 @@ jobs:
       - name: Make the proofs writable by the container
         run: chmod -R a+w rocq
 
+      # Docker pulls the image by its digest and ignores the tag. To update
+      # it, write the new tag and the Digest that
+      # `docker buildx imagetools inspect rocq/rocq-prover:<tag>` prints.
       - name: Check the proofs
         run: >
-          docker run --rm -v "$PWD/rocq:/w" -w /w rocq/rocq-prover:9.1
+          docker run --rm -v "$PWD/rocq:/w" -w /w
+          rocq/rocq-prover:9.1@sha256:9a1e969649a3cc3c6f310d5be5a842e2187384560337c6c0807aba9f8565efba
           bash -c 'opam install -y coq-flocq.4.2.2 && make'
