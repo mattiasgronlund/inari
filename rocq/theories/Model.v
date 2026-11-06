@@ -132,7 +132,8 @@ Definition fabs (x : f64) : f64 := Babs x.
 
 (** [x.copysign(y)]: [x] with the sign bit of [y]. The model has no sign
     for a NaN [y] and takes it as positive, which is right only for some
-    NaNs; [round_ties_even1], the only caller, never passes a NaN [y]. *)
+    NaNs; [round_ties_even1] and [DyadicAtan], the only callers, never
+    pass a NaN [y]. *)
 Definition copysign (x y : f64) : f64 :=
   if Bool.eqb (Bsign x) (Bsign y) then x else opp x.
 
@@ -1506,10 +1507,11 @@ Definition ziv (ev : nat -> option encl) (up : bool) (start : nat) : option f64 
 
 End Dyadic.
 
-(** ** ln 2 and ln 10 for the dyadic kernel
+(** ** ln 2, ln 10 and π for the dyadic kernel
 
     The tables and [split] of [src/dyadic/consts.rs]. [DyConst.v] proves
-    the bounds that their comments state. *)
+    the bounds that the comments of [ln2] and [ln10] state, and
+    [DyConstPi.v] that of [pi]. *)
 Module DyadicConsts.
 
 Import ListNotations.
@@ -1575,6 +1577,32 @@ Definition split (n : nat) (t : list Z) (e : Z) (z : Z) : option (Dyadic.dyadic 
 (** [fn ln2<N>()] and [fn ln10<N>()] *)
 Definition ln2 (n : nat) : option (Dyadic.dyadic * Dyadic.encl) := split n LN2 (-4224) 12.
 Definition ln10 (n : nat) : option (Dyadic.dyadic * Dyadic.encl) := split n LN10 (-4222) 53.
+
+(** [const PI: [u64; 66]], floor(π * 2^4222), the least significant limb
+    first. *)
+Definition PI : list Z := [
+  0xf8ff9406ad9e530e; 0xc9751e763dba37bd; 0xc1d4dcb2602646de; 0x36c3fab4d27c7026;
+  0x4df435c934028492; 0x86ffb7dc90a6c08f; 0x93b4ea988d8fddc1; 0xd0069127d5b05aa9;
+  0xb81bdd762170481c; 0x1f612970cee2d7af; 0x233ba186515be7ed; 0x99b2964fa090c3a2;
+  0x287c59474e6bc05d; 0x2e8efc141fbecaa6; 0xdbbbc2db04de8ef9; 0x2583e9ca2ad44ce8;
+  0x1a946834b6150bda; 0x99c327186af4e23c; 0x88719a10bdba5b26; 0x1a723c12a787e6d7;
+  0x4b82d120a9210801; 0x43db5bfce0fd108e; 0x08e24fa074e5ab31; 0x770988c0bad946e2;
+  0xbbe117577a615d6c; 0x521f2b18177b200c; 0xd87602733ec86a64; 0xf12ffa06d98a0864;
+  0xcee3d2261ad2ee6b; 0x1e8c94e04a25619d; 0xabf5ae8cdb0933d7; 0xb3970f85a6e1e4c7;
+  0x8aea71575d060c7d; 0xecfb850458dbef0a; 0xa85521abdf1cba64; 0xad33170d04507a33;
+  0x15728e5a8aaac42d; 0x15d2261898fa0510; 0x3995497cea956ae5; 0xde2bcbf695581718;
+  0xb5c55df06f4c52c9; 0x9b2783a2ec07a28f; 0xe39e772c180e8603; 0x32905e462e36ce3b;
+  0xf1746c08ca18217c; 0x670c354e4abc9804; 0x9ed529077096966d; 0x1c62f356208552bb;
+  0x83655d23dca3ad96; 0x69163fa8fd24cf5f; 0x98da48361c55d39a; 0xc2007cb8a163bf05;
+  0x49286651ece45b3d; 0xae9f24117c4b1fe6; 0xee386bfb5a899fa5; 0x0bff5cb6f406b7ed;
+  0xf44c42e9a637ed6b; 0xe485b576625e7ec6; 0x4fe1356d6d51c245; 0x302b0a6df25f1437;
+  0xef9519b3cd3a431b; 0x514a08798e3404dd; 0x020bbea63b139b22; 0x29024e088a67cc74;
+  0xc4c6628b80dc1cd1; 0xc90fdaa22168c234].
+
+(** [fn pi<N>() -> Encl<N>] *)
+Definition pi (n : nat) : option Dyadic.encl :=
+  let* (h, l) := split n PI (-4222) 0 in
+  Dyadic.encl_add n {| Dyadic.en_lo := h; Dyadic.en_hi := h |} l.
 
 End DyadicConsts.
 
@@ -2092,6 +2120,249 @@ Definition atanh_dir (x : f64) (up : bool) : option f64 :=
   else Dyadic.ziv (ev_atanh x) up 1.
 
 End DyadicLog.
+
+(** ** The inverse trigonometric functions of the dyadic kernel
+
+    The functions of [src/dyadic/atan.rs]: [atan_dir x up] is [atan(x,
+    up)], and the same for [asin] and [acos], and [atan2_dir y x up] is
+    [atan2(y, x, up)], with [None] where the Rust function panics: an
+    [assert!] of this file, [ziv] at its cap, or any operation of the
+    kernel that panics. The [Eval]s are the functions [ev_atan x] and the
+    others of a level [n]. The constants and functions of
+    [src/dyadic/exp.rs] that they use are those of [DyadicExp], as are
+    the literals [1.0] and [f64::NEG_INFINITY], and the literal [0.5] is
+    [DyadicLog.half]. [DyAtanCore.v], [DyAtan.v] and [DyAsin.v] prove
+    them, with the rules before the loop proved in [DyAtanTiny.v], and
+    [DyPoint.v] makes a [point] of them. *)
+Module DyadicAtan.
+
+(** The [f64] literals of the file, written with [from_bits]: [T1] =
+    0.4140625, [T2] = 2.4140625, [ASIN_SPLIT] = 0.75, [TINY_ASIN] = 2^-27,
+    [HUGE_ATAN] = 2^54, and [0.25] and [0.75]. *)
+Definition t1 : f64 := from_bits 0x3fda800000000000.
+Definition t2 : f64 := from_bits 0x4003500000000000.
+Definition asin_split : f64 := from_bits 0x3fe8000000000000.
+Definition tiny_asin : f64 := from_bits 0x3e40000000000000.
+Definition huge_atan : f64 := from_bits 0x4350000000000000.
+Definition quarter : f64 := from_bits 0x3fd0000000000000.
+Definition three_quarters : f64 := from_bits 0x3fe8000000000000.
+
+(** [NO_HALVE] = 2^-8. *)
+Definition no_halve : f64 := from_bits 0x3f70000000000000.
+
+(** [fn terms<N>(z: &Encl<N>) -> u64], where [-bits - z.hi.exp], which
+    is positive there, and [64 * N as u64 + 3 + e], which is below
+    [2^64], are computed without a check. *)
+Definition terms (n : nat) (z : Dyadic.encl) : Z :=
+  if Dyadic.is_zero n (Dyadic.en_hi z) then 1
+  else if - (64 * Z.of_nat n) <=? Dyadic.dy_exp (Dyadic.en_hi z) then 14 * Z.of_nat n + 2
+  else
+    let e := - (64 * Z.of_nat n) - Dyadic.dy_exp (Dyadic.en_hi z) in
+    Z.min (14 * Z.of_nat n + 2) ((64 * Z.of_nat n + 3 + e) / e).
+
+(** The loop [for k in (0..n).rev() { t =
+    one.div_u64(2 * k + 1).sub(&z.mul(&t)) }] of [series], for [k]
+    from [i - 1] down to 0. *)
+Fixpoint series_loop (n : nat) (one_e z : Dyadic.encl) (i : nat) (t : Dyadic.encl)
+  : option Dyadic.encl :=
+  match i with
+  | O => Some t
+  | S k =>
+      let* q := Dyadic.encl_div_u64 n one_e (2 * Z.of_nat k + 1) in
+      let* p := Dyadic.encl_mul n z t in
+      let* t' := Dyadic.encl_sub n q p in
+      series_loop n one_e z k t'
+  end.
+
+(** [fn series<N>(v: &Encl<N>) -> Encl<N>] *)
+Definition series (n : nat) (v : Dyadic.encl) : option Dyadic.encl :=
+  let* one_e := Dyadic.encl_point n DyadicExp.one in
+  let* z := Dyadic.encl_mul n v v in
+  let* one_d := Dyadic.from_f64 n DyadicExp.one in
+  let* hi := Dyadic.div_u64 n one_d (2 * terms n z + 1) true in
+  let* t :=
+    series_loop n one_e z (Z.to_nat (terms n z))
+      {| Dyadic.en_lo := Dyadic.dy_zero n; Dyadic.en_hi := hi |} in
+  Dyadic.encl_mul n v t.
+
+(** [fn atan_series<N>(u: &Encl<N>) -> Encl<N>] *)
+Definition atan_series (n : nat) (u : Dyadic.encl) : option Dyadic.encl :=
+  let* h := Dyadic.from_f64 n no_halve in
+  if negb (DyadicExp.dy_gt n (Dyadic.en_hi u) h) then series n u
+  else
+    let* one_e := Dyadic.encl_point n DyadicExp.one in
+    let* u2 := Dyadic.encl_mul n u u in
+    let* c2 := Dyadic.encl_add n one_e u2 in
+    let* c := Dyadic.encl_sqrt n c2 in
+    let* d := Dyadic.encl_add n one_e c in
+    let* v := Dyadic.encl_div n u d in
+    let* s := series n v in
+    Dyadic.encl_shl n s 1.
+
+(** [fn atan_encl<N>(w: &Encl<N>) -> Encl<N>], where the [assert!] is
+    [None]. *)
+Definition atan_encl (n : nat) (w : Dyadic.encl) : option Dyadic.encl :=
+  if Dyadic.dy_neg (Dyadic.en_lo w) then None else
+  let* one_e := Dyadic.encl_point n DyadicExp.one in
+  let* t1_d := Dyadic.from_f64 n t1 in
+  if negb (DyadicExp.dy_gt n (Dyadic.en_hi w) t1_d) then atan_series n w
+  else if DyadicExp.dy_lt n (Dyadic.en_hi w) (Dyadic.en_hi one_e) then
+    let* a := Dyadic.encl_sub n one_e w in
+    let* b := Dyadic.encl_add n one_e w in
+    let* u := Dyadic.encl_div n a b in
+    let* p := DyadicConsts.pi n in
+    let* p4 := Dyadic.encl_shl n p (-2) in
+    let* s := atan_series n u in
+    Dyadic.encl_sub n p4 s
+  else
+    let* t2_d := Dyadic.from_f64 n t2 in
+    if negb (DyadicExp.dy_gt n (Dyadic.en_lo w) t2_d) then
+      let* a := Dyadic.encl_sub n w one_e in
+      let* b := Dyadic.encl_add n w one_e in
+      let* u := Dyadic.encl_div n a b in
+      let* p := DyadicConsts.pi n in
+      let* p4 := Dyadic.encl_shl n p (-2) in
+      let* s := atan_series n u in
+      Dyadic.encl_add n p4 s
+    else
+      let* p := DyadicConsts.pi n in
+      let* p2 := Dyadic.encl_shl n p (-1) in
+      let* u := Dyadic.encl_div n one_e w in
+      let* s := atan_series n u in
+      Dyadic.encl_sub n p2 s.
+
+(** [fn asin_parts<N>(t: f64) -> (Encl<N>, bool)] *)
+Definition asin_parts (n : nat) (t : f64) : option (Dyadic.encl * bool) :=
+  let* x := Dyadic.encl_point n t in
+  let* one_e := Dyadic.encl_point n DyadicExp.one in
+  let* a := Dyadic.encl_sub n one_e x in
+  let* b := Dyadic.encl_add n one_e x in
+  let* p := Dyadic.encl_mul n a b in
+  let* r := Dyadic.encl_sqrt n p in
+  if le t asin_split then
+    let* q := Dyadic.encl_div n x r in
+    let* s := atan_encl n q in
+    Some (s, true)
+  else
+    let* q := Dyadic.encl_div n r x in
+    let* s := atan_encl n q in
+    Some (s, false).
+
+(** The [eval::<N>()] of [PiMul(c)], [Atan(x)], [Atan2(y, x)], [Asin(x)]
+    and [Acos(x)], where [x.abs()] is [fabs x]. *)
+Definition ev_pi (c : f64) (n : nat) : option Dyadic.encl :=
+  let* pc := Dyadic.encl_point n c in
+  let* p := DyadicConsts.pi n in
+  Dyadic.encl_mul n pc p.
+
+Definition ev_atan (x : f64) (n : nat) : option Dyadic.encl :=
+  let* t := Dyadic.encl_point n (fabs x) in
+  let* r := atan_encl n t in
+  Some (if lt x zero then Dyadic.encl_neg n r else r).
+
+Definition ev_atan2 (y x : f64) (n : nat) : option Dyadic.encl :=
+  let* a := Dyadic.encl_point n (fabs y) in
+  let* b := Dyadic.encl_point n (fabs x) in
+  let* r :=
+    if le (fabs y) (fabs x) then
+      let* q := Dyadic.encl_div n a b in
+      let* t := atan_encl n q in
+      if gt x zero then Some t
+      else
+        let* p := DyadicConsts.pi n in
+        Dyadic.encl_sub n p t
+    else
+      let* q := Dyadic.encl_div n b a in
+      let* t := atan_encl n q in
+      let* p := DyadicConsts.pi n in
+      let* h := Dyadic.encl_shl n p (-1) in
+      if gt x zero then Dyadic.encl_sub n h t else Dyadic.encl_add n h t in
+  Some (if lt y zero then Dyadic.encl_neg n r else r).
+
+Definition ev_asin (x : f64) (n : nat) : option Dyadic.encl :=
+  let* (a, below) := asin_parts n (fabs x) in
+  let* r :=
+    if below then Some a
+    else
+      let* p := DyadicConsts.pi n in
+      let* h := Dyadic.encl_shl n p (-1) in
+      Dyadic.encl_sub n h a in
+  Some (if lt x zero then Dyadic.encl_neg n r else r).
+
+Definition ev_acos (x : f64) (n : nat) : option Dyadic.encl :=
+  let* (a, below) := asin_parts n (fabs x) in
+  let* r :=
+    if below then
+      let* p := DyadicConsts.pi n in
+      let* h := Dyadic.encl_shl n p (-1) in
+      Dyadic.encl_sub n h a
+    else Some a in
+  if lt x zero then
+    let* p := DyadicConsts.pi n in
+    Dyadic.encl_sub n p r
+  else Some r.
+
+(** [fn pi_times(c: f64, up: bool) -> f64] *)
+Definition pi_times (c : f64) (up : bool) : option f64 := Dyadic.ziv (ev_pi c) up 1.
+
+(** [fn tiny_quotient(y: f64, x: f64) -> Option<f64>], with [Some None]
+    for [None], where [a.exp - b.exp], which cannot overflow, is computed
+    without a check. *)
+Definition tiny_quotient (y x : f64) : option (option f64) :=
+  let* a := Dyadic.from_f64 1 y in
+  let* b := Dyadic.from_f64 1 x in
+  if -25 <=? Dyadic.dy_exp a - Dyadic.dy_exp b then Some None else
+  let* lo := Dyadic.div 1 a b false in
+  let* hi := Dyadic.div 1 a b true in
+  let* q := Dyadic.to_f64 1 lo false in
+  let* q' := Dyadic.to_f64 1 hi true in
+  Some (if eq q q' && lt (fabs q) DyadicExp.tiny_hyp then Some q else None).
+
+(** [pub(crate) fn atan(x: f64, up: bool) -> f64] *)
+Definition atan_dir (x : f64) (up : bool) : option f64 :=
+  if is_nan x then Some x
+  else if ge (fabs x) huge_atan then pi_times (copysign DyadicLog.half x) up
+  else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.toward_zero x up)
+  else Dyadic.ziv (ev_atan x) up 1.
+
+(** [pub(crate) fn asin(x: f64, up: bool) -> f64] *)
+Definition asin_dir (x : f64) (up : bool) : option f64 :=
+  if is_nan x then Some x
+  else if gt (fabs x) DyadicExp.one then Some B754_nan
+  else if lt (fabs x) tiny_asin then Some (DyadicExp.away x up)
+  else Dyadic.ziv (ev_asin x) up 1.
+
+(** [pub(crate) fn acos(x: f64, up: bool) -> f64] *)
+Definition acos_dir (x : f64) (up : bool) : option f64 :=
+  if is_nan x then Some x
+  else if gt (fabs x) DyadicExp.one then Some B754_nan
+  else Dyadic.ziv (ev_acos x) up 1.
+
+(** [pub(crate) fn atan2(y: f64, x: f64, up: bool) -> f64], where
+    [x.is_sign_positive()] is [negb (Bsign x)], as [x] is not NaN there,
+    [y.is_infinite()] is [y == f64::INFINITY || y == f64::NEG_INFINITY],
+    and [0.0_f64.copysign(y)] is [copysign zero y]. *)
+Definition atan2_dir (y x : f64) (up : bool) : option f64 :=
+  if is_nan y || is_nan x then Some B754_nan
+  else if eq y zero then
+    if negb (Bsign x) then Some y else pi_times (copysign DyadicExp.one y) up
+  else if eq y infinity || eq y DyadicExp.neg_infinity then
+    let c :=
+      if eq x infinity then quarter
+      else if eq x DyadicExp.neg_infinity then three_quarters
+      else DyadicLog.half in
+    pi_times (copysign c y) up
+  else if eq x infinity then Some (copysign zero y)
+  else if eq x DyadicExp.neg_infinity then pi_times (copysign DyadicExp.one y) up
+  else if eq x zero then pi_times (copysign DyadicLog.half y) up
+  else
+    let* q := if gt x zero then tiny_quotient y x else Some None in
+    match q with
+    | Some q => Some (DyadicExp.toward_zero q up)
+    | None => Dyadic.ziv (ev_atan2 y x) up 1
+    end.
+
+End DyadicAtan.
 
 (** ** MPFR
 

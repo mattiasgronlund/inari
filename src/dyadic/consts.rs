@@ -1,11 +1,15 @@
-// ln 2 and ln 10 for the reductions of the elementary functions of the dyadic kernel, at the
+// ln 2, ln 10 and π for the reductions of the elementary functions of the dyadic kernel, at the
 // precision of each level of Ziv's strategy, from tables of 4,224 bits.
 //
-// The tables were computed with integers from the series ln 2 = 2 atanh(1/3) and
-// ln 10 = 3 ln 2 + 2 atanh(1/9), atanh(x) = x + x^3 / 3 + x^5 / 5 + ..., at 4,288 bits, where
-// the error of the sums leaves each bit that the tables keep unambiguous, and checked against
-// `Decimal.ln()` of Python at 1,400 digits. `rocq/theories/Model.v` transcribes them and
-// `split`, and `rocq/theories/DyConst.v` proves the bounds that their comments state.
+// The tables of ln 2 and ln 10 were computed with integers from the series ln 2 = 2 atanh(1/3)
+// and ln 10 = 3 ln 2 + 2 atanh(1/9), atanh(x) = x + x^3 / 3 + x^5 / 5 + ..., at 4,288 bits,
+// where the error of the sums leaves each bit that the tables keep unambiguous, and checked
+// against `Decimal.ln()` of Python at 1,400 digits. The table of π is the floor of MPFR's π
+// rounded down and up at 4,300 bits, which `pi_table` of `src/dyadic/atan/tests.rs` computes
+// with `rug` and compares with it. `rocq/theories/Model.v` transcribes the tables and `split`,
+// `rocq/theories/DyConst.v` proves the bounds that the comments of ln 2 and ln 10 state, and
+// `rocq/theories/DyConstPi.v` that of π, from Machin's formula
+// π / 4 = 4 atan(1/5) - atan(1/239).
 
 use super::{round, Dyadic, Encl};
 use crate::limbs;
@@ -150,6 +154,77 @@ const LN10: [u64; 66] = [
     0x935d_8ddd_aaa8_ac16,
 ];
 
+// floor(π * 2^4222), in limbs, the least significant first. `pub(super)` for `pi_table` of
+// `src/dyadic/atan/tests.rs`, which checks it.
+pub(super) const PI: [u64; 66] = [
+    0xf8ff_9406_ad9e_530e,
+    0xc975_1e76_3dba_37bd,
+    0xc1d4_dcb2_6026_46de,
+    0x36c3_fab4_d27c_7026,
+    0x4df4_35c9_3402_8492,
+    0x86ff_b7dc_90a6_c08f,
+    0x93b4_ea98_8d8f_ddc1,
+    0xd006_9127_d5b0_5aa9,
+    0xb81b_dd76_2170_481c,
+    0x1f61_2970_cee2_d7af,
+    0x233b_a186_515b_e7ed,
+    0x99b2_964f_a090_c3a2,
+    0x287c_5947_4e6b_c05d,
+    0x2e8e_fc14_1fbe_caa6,
+    0xdbbb_c2db_04de_8ef9,
+    0x2583_e9ca_2ad4_4ce8,
+    0x1a94_6834_b615_0bda,
+    0x99c3_2718_6af4_e23c,
+    0x8871_9a10_bdba_5b26,
+    0x1a72_3c12_a787_e6d7,
+    0x4b82_d120_a921_0801,
+    0x43db_5bfc_e0fd_108e,
+    0x08e2_4fa0_74e5_ab31,
+    0x7709_88c0_bad9_46e2,
+    0xbbe1_1757_7a61_5d6c,
+    0x521f_2b18_177b_200c,
+    0xd876_0273_3ec8_6a64,
+    0xf12f_fa06_d98a_0864,
+    0xcee3_d226_1ad2_ee6b,
+    0x1e8c_94e0_4a25_619d,
+    0xabf5_ae8c_db09_33d7,
+    0xb397_0f85_a6e1_e4c7,
+    0x8aea_7157_5d06_0c7d,
+    0xecfb_8504_58db_ef0a,
+    0xa855_21ab_df1c_ba64,
+    0xad33_170d_0450_7a33,
+    0x1572_8e5a_8aaa_c42d,
+    0x15d2_2618_98fa_0510,
+    0x3995_497c_ea95_6ae5,
+    0xde2b_cbf6_9558_1718,
+    0xb5c5_5df0_6f4c_52c9,
+    0x9b27_83a2_ec07_a28f,
+    0xe39e_772c_180e_8603,
+    0x3290_5e46_2e36_ce3b,
+    0xf174_6c08_ca18_217c,
+    0x670c_354e_4abc_9804,
+    0x9ed5_2907_7096_966d,
+    0x1c62_f356_2085_52bb,
+    0x8365_5d23_dca3_ad96,
+    0x6916_3fa8_fd24_cf5f,
+    0x98da_4836_1c55_d39a,
+    0xc200_7cb8_a163_bf05,
+    0x4928_6651_ece4_5b3d,
+    0xae9f_2411_7c4b_1fe6,
+    0xee38_6bfb_5a89_9fa5,
+    0x0bff_5cb6_f406_b7ed,
+    0xf44c_42e9_a637_ed6b,
+    0xe485_b576_625e_7ec6,
+    0x4fe1_356d_6d51_c245,
+    0x302b_0a6d_f25f_1437,
+    0xef95_19b3_cd3a_431b,
+    0x514a_0879_8e34_04dd,
+    0x020b_bea6_3b13_9b22,
+    0x2902_4e08_8a67_cc74,
+    0xc4c6_628b_80dc_1cd1,
+    0xc90f_daa2_2168_c234,
+];
+
 // A constant c that `t` gives as T * 2^e <= c < (T + 1) * 2^e, for the integer T of 4,224 bits
 // whose limbs `t` holds, the least significant first, split into c = h + l: the `Dyadic<N>`
 // h of the top 64 N - z bits of T, and an enclosure of l. The low z bits of the mantissa of h
@@ -186,4 +261,13 @@ pub(crate) fn ln2<const N: usize>() -> (Dyadic<N>, Encl<N>) {
 /// an `f64` is exact.
 pub(crate) fn ln10<const N: usize>() -> (Dyadic<N>, Encl<N>) {
     split(&LN10, -4222, 53)
+}
+
+/// An enclosure of π: [h, h + 2^-(64 N - 2)] for the h of the top 64 N bits of its table, as
+/// π / 2^-4222 has 4,224 bits, the top one set. Its callers shift it, add it and multiply it
+/// by an `f64` with `Encl::mul`, which rounds, so that none needs h times an integer to be
+/// exact, as those of ln 2 and ln 10 do, and h keeps all of its bits.
+pub(crate) fn pi<const N: usize>() -> Encl<N> {
+    let (h, l) = split(&PI, -4222, 0);
+    Encl { lo: h, hi: h }.add(&l)
 }

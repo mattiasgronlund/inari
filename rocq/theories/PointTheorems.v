@@ -2,7 +2,8 @@
 
     [exp_correct], [exp2_correct], [exp10_correct], [sinh_correct],
     [tanh_correct], [cosh_correct], [ln_correct], [log2_correct],
-    [log10_correct], [asinh_correct], [acosh_correct] and [atanh_correct]
+    [log10_correct], [asinh_correct], [acosh_correct], [atanh_correct],
+    [atan_correct], [asin_correct], [acos_correct] and [atan2_correct]
     stated for every record [p] whose fields satisfy the parts of
     [Contract.v] that they need, through [of_point p] ([OfPoint.v]). No
     other theorem is restated this way.
@@ -16,8 +17,8 @@
 
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Ieee1788 Elementary Mpfr Elem Cosh Atanh Contract
-  OfPointCore OfPoint OfPointElem.
+From Inari Require Import Model Ieee1788 Elementary Mpfr Elem Cosh Atanh ClosedDom Atan2
+  Contract OfPointCore OfPoint OfPointElem OfPointPow.
 
 Open Scope R_scope.
 
@@ -127,4 +128,41 @@ Proof.
 intros p Hp x Hx. rewrite <- (mpfr_point_of_point p).
 exact (atanh_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
   (of_point_atanh_ok p Hp) x Hx).
+Qed.
+
+Theorem atan_correct_point :
+  forall p, atan_c (p_atan p) ->
+  forall x, valid x -> is_tightest (image_dom real_dom atan x) (Interval.atan p x).
+Proof.
+intros p Hp x Hx. rewrite <- (mpfr_point_of_point p).
+exact (atan_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
+  (of_point_atan_ok p Hp) x Hx).
+Qed.
+
+Theorem asin_correct_point :
+  forall p, asin_c (p_asin p) ->
+  forall x, valid x -> is_tightest (image_dom asin_dom asin x) (Interval.asin p x).
+Proof.
+intros p Hp x Hx. rewrite <- (mpfr_point_of_point p).
+exact (asin_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
+  (of_point_asin_ok p Hp) x Hx).
+Qed.
+
+Theorem acos_correct_point :
+  forall p, acos_c (p_acos p) ->
+  forall x, valid x -> is_tightest (image_dom acos_dom acos x) (Interval.acos p x).
+Proof.
+intros p Hp x Hx. rewrite <- (mpfr_point_of_point p).
+exact (acos_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
+  (of_point_acos_ok p Hp) x Hx).
+Qed.
+
+Theorem atan2_correct_point :
+  forall p, atan2_c (p_atan2 p) ->
+  forall y x, valid y -> valid x ->
+  exists z, Interval.atan2 p y x = Some z /\ is_tightest (image2_set atan2_dom Ratan2 y x) z.
+Proof.
+intros p Hp y x Hy Hx. rewrite <- (mpfr_point_of_point p).
+exact (atan2_correct (-1073) 1024 (of_point p) y x range_ok_f64 (of_point_get_d_ok p)
+  (of_point_atan2_ok p Hp) Hy Hx).
 Qed.

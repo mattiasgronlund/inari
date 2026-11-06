@@ -185,4 +185,11 @@ theories/DyLogTiny.v
 theories/DyLogCore.v
 theories/DyLog.v
 theories/DyLogHyp.v
+theories/AtanSeries.v
+theories/AtanIdent.v
+theories/DyConstPi.v
+theories/DyAtanTiny.v
+theories/DyAtanCore.v
+theories/DyAtan.v
+theories/DyAsin.v
 theories/DyPoint.v

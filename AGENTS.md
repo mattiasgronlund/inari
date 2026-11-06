@@ -33,8 +33,9 @@ crate-wide `#[allow]`s. Local allows need a comment explaining why.
   `src/simd/differential_tests.rs`, literals (the parser) in `src/parse/diff_tests.rs`,
   formatted bounds in `src/format/diff_tests.rs`, operations of the dyadic kernel in
   `src/dyadic/tests.rs`, its exponentials and hyperbolic functions in
-  `src/dyadic/exp/tests.rs`, and its logarithms and inverse hyperbolic functions in
-  `src/dyadic/log/tests.rs`.
+  `src/dyadic/exp/tests.rs`, its logarithms and inverse hyperbolic functions in
+  `src/dyadic/log/tests.rs`, and its inverse trigonometric functions in
+  `src/dyadic/atan/tests.rs`.
 
 ## Documentation to update alongside code
 - README.md, "Supported Platforms": add new architectures in the same format,

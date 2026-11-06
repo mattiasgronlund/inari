@@ -1,26 +1,27 @@
-(** * A record [point] whose exponentials and logarithms are the dyadic kernel's
+(** * The dyadic kernel's functions as fields of a record [point]
 
     The fields of [point] are total functions, and the functions of
-    [DyadicExp] and [DyadicLog] in [Model.v] return [None] where the Rust
-    panics: at the cap of Ziv's strategy, at an [assert!], or at a panic
-    of an operation of the kernel. [k_exp], [k_ln] and the others are the
+    [DyadicExp], [DyadicLog] and [DyadicAtan] in [Model.v] return [None]
+    where the Rust panics: at the cap of Ziv's strategy, at an [assert!],
+    or at a panic of an operation of the kernel. [k_exp], [k_ln] and the others are the
     kernel's result where it returns, and the result rounded by definition
     ([round_f64] of [MpfrIdeal.v]) where the Rust panics, so the theorems
     below say nothing about the calls that panic: they cover the calls
     that return. That the loop ends before its cap is not proved.
-    [kernel_point p] is [p] with these twelve fields. *)
+    [kernel_point p] is [p] with these sixteen fields. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr MpfrRound MpfrIdeal IdealGetD Elem Cosh
-  Atanh Contract OfPointCore OfPoint OfPointElem PointTheorems DyExp DyHyp DyLog DyLogHyp.
+  Atanh Contract OfPointCore OfPoint OfPointElem PointTheorems DyExp DyHyp DyLog DyLogHyp DyAtan
+  DyAsin.
 
 Open Scope R_scope.
 
 Definition up_of (rnd : mpfr_rnd) : bool := match rnd with RNDD => false | RNDU => true end.
 
-(** The field of the function [dir] of [DyadicExp] or [DyadicLog] for the
-    real function [f]. *)
+(** The field of the function [dir] of [DyadicExp], [DyadicLog] or
+    [DyadicAtan] for the real function [f]. *)
 Definition kernel_field (dir : f64 -> bool -> option f64) (f : R -> R) (rnd : mpfr_rnd) (x : f64)
   : f64 :=
   match dir x (up_of rnd) with Some v => v | None => round_f64 rnd (f (B2R x)) end.
@@ -37,14 +38,25 @@ Definition k_log10 := kernel_field DyadicLog.log10_dir Rlog10.
 Definition k_asinh := kernel_field DyadicLog.asinh_dir arcsinh.
 Definition k_acosh := kernel_field DyadicLog.acosh_dir Racosh.
 Definition k_atanh := kernel_field DyadicLog.atanh_dir Ratanh.
+Definition k_atan := kernel_field DyadicAtan.atan_dir atan.
+Definition k_asin := kernel_field DyadicAtan.asin_dir asin.
+Definition k_acos := kernel_field DyadicAtan.acos_dir acos.
+
+(** The same for a function [dir] of two [f64]s, [y] first, and the real
+    function [f] of two reals. *)
+Definition kernel_field2 (dir : f64 -> f64 -> bool -> option f64) (f : R -> R -> R)
+    (rnd : mpfr_rnd) (y x : f64) : f64 :=
+  match dir y x (up_of rnd) with Some v => v | None => round_f64 rnd (f (B2R y) (B2R x)) end.
+
+Definition k_atan2 := kernel_field2 DyadicAtan.atan2_dir Ratan2.
 
 Definition kernel_point (p : point) : point := {|
-  p_acos := p_acos p;
+  p_acos := k_acos;
   p_acosh := k_acosh;
-  p_asin := p_asin p;
+  p_asin := k_asin;
   p_asinh := k_asinh;
-  p_atan := p_atan p;
-  p_atan2 := p_atan2 p;
+  p_atan := k_atan;
+  p_atan2 := k_atan2;
   p_atanh := k_atanh;
   p_cos := p_cos p;
   p_cosh := k_cosh;
@@ -89,6 +101,21 @@ Proof.
 intros D dir f Hd rnd x Fx Dx. unfold kernel_field.
 destruct (dir x (up_of rnd)) as [v|] eqn:E.
 - pose proof (Hd x (up_of rnd) v Fx Dx E) as H. destruct rnd; exact H.
+- apply round_f64_correct.
+Qed.
+
+(** The same for a function [dir] of two [f64]s, proved for the finite
+    arguments in the domain [D]. *)
+Lemma kernel_field2_correct :
+  forall (D : R -> R -> Prop) (dir : f64 -> f64 -> bool -> option f64) (f : R -> R -> R),
+  (forall y x up v, is_finite y = true -> is_finite x = true -> D (B2R y) (B2R x) ->
+   dir y x up = Some v ->
+   mpfr_round f64_format (if up then RNDU else RNDD) (f (B2R y) (B2R x)) (with_val v)) ->
+  point_correct2 D f (kernel_field2 dir f).
+Proof.
+intros D dir f Hd rnd y x Fy Fx Dyx. unfold kernel_field2.
+destruct (dir y x (up_of rnd)) as [v|] eqn:E.
+- pose proof (Hd y x (up_of rnd) v Fy Fx Dyx E) as H. destruct rnd; exact H.
 - apply round_f64_correct.
 Qed.
 
@@ -371,4 +398,69 @@ Theorem kernel_atanh_correct :
   is_tightest (image_dom atanh_dom Ratanh x) (Interval.atanh (kernel_point p) x).
 Proof.
 intros p x Hx. exact (atanh_correct_point (kernel_point p) k_atanh_c x Hx).
+Qed.
+
+Theorem k_atan_c : atan_c k_atan.
+Proof.
+split; [exact (kernel_field_correct _ _ atan_dir_correct) | split].
+- destruct (atan_dir_infinity true false) as (v & E & R).
+  unfold k_atan, kernel_field. cbn [up_of]. rewrite E. exact R.
+- destruct (atan_dir_infinity false true) as (v & E & R).
+  unfold k_atan, kernel_field. cbn [up_of]. rewrite E. exact R.
+Qed.
+
+Theorem k_asin_c : asin_c k_asin.
+Proof. exact (kernel_field_correct_dom _ _ _ asin_dir_correct). Qed.
+
+Theorem k_acos_c : acos_c k_acos.
+Proof. exact (kernel_field_correct_dom _ _ _ acos_dir_correct). Qed.
+
+Theorem k_atan2_c : atan2_c k_atan2.
+Proof.
+split; [exact (kernel_field2_correct _ _ _ atan2_dir_correct) |].
+unfold k_atan2, kernel_field2.
+split; [| split; [| split; [| split; [| split; [| split]]]]].
+- intros rnd y Fy _. destruct (atan2_dir_inf_pos y (up_of rnd) Fy) as [s' E].
+  rewrite E. exists s'. reflexivity.
+- intros rnd y Fy _. destruct (atan2_dir_inf_pos y (up_of rnd) Fy) as [s' E].
+  rewrite E. exists s'. reflexivity.
+- intros rnd s. destruct (atan2_dir_inf_pos (B754_zero s) (up_of rnd) eq_refl) as [s' E].
+  rewrite E. exists s'. reflexivity.
+- intros rnd y Fy Hy. destruct (atan2_dir_inf_neg_pos y (up_of rnd) Fy Hy) as (v & E & R).
+  rewrite E. destruct rnd; exact R.
+- intros rnd y Fy Hy. destruct (atan2_dir_inf_neg_neg y (up_of rnd) Fy Hy) as (v & E & R).
+  rewrite E. destruct rnd; exact R.
+- intros rnd x Fx. destruct (atan2_dir_y_inf false x (up_of rnd) Fx) as (v & E & R).
+  rewrite E. destruct rnd; exact R.
+- intros rnd x Fx. destruct (atan2_dir_y_inf true x (up_of rnd) Fx) as (v & E & R).
+  rewrite E. destruct rnd; exact R.
+Qed.
+
+Theorem kernel_atan_correct :
+  forall p x, valid x ->
+  is_tightest (image_dom real_dom atan x) (Interval.atan (kernel_point p) x).
+Proof.
+intros p x Hx. exact (atan_correct_point (kernel_point p) k_atan_c x Hx).
+Qed.
+
+Theorem kernel_asin_correct :
+  forall p x, valid x ->
+  is_tightest (image_dom asin_dom asin x) (Interval.asin (kernel_point p) x).
+Proof.
+intros p x Hx. exact (asin_correct_point (kernel_point p) k_asin_c x Hx).
+Qed.
+
+Theorem kernel_acos_correct :
+  forall p x, valid x ->
+  is_tightest (image_dom acos_dom acos x) (Interval.acos (kernel_point p) x).
+Proof.
+intros p x Hx. exact (acos_correct_point (kernel_point p) k_acos_c x Hx).
+Qed.
+
+Theorem kernel_atan2_correct :
+  forall p y x, valid y -> valid x ->
+  exists z, Interval.atan2 (kernel_point p) y x = Some z /\
+    is_tightest (image2_set atan2_dom Ratan2 y x) z.
+Proof.
+intros p y x Hy Hx. exact (atan2_correct_point (kernel_point p) k_atan2_c y x Hy Hx).
 Qed.
