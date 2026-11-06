@@ -22,14 +22,16 @@
 // `rocq/theories/DyConv.v`, `rocq/theories/DyIsqrt.v`, `rocq/theories/DyOps.v` and
 // `rocq/theories/DyDriver.v` prove them correct, and `rocq/theories/DyGrow.v` bounds the
 // exponents of the enclosures that they return. The constants ln 2 and ln 10 are in
-// `src/dyadic/consts.rs`, and the exponentials and the hyperbolic functions computed with the
-// kernel in `src/dyadic/exp.rs`, which have their own headers.
+// `src/dyadic/consts.rs`, the exponentials and the hyperbolic functions computed with the kernel
+// in `src/dyadic/exp.rs`, and the logarithms and the inverse hyperbolic functions in
+// `src/dyadic/log.rs`, which have their own headers.
 
 use crate::{limbs, simd::round_up_exact};
 use std::cmp::Ordering;
 
 mod consts;
 mod exp;
+mod log;
 #[cfg(test)]
 mod tests;
 

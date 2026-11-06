@@ -1,9 +1,11 @@
 (** * Theorems stated for a record [point]
 
     [exp_correct], [exp2_correct], [exp10_correct], [sinh_correct],
-    [tanh_correct] and [cosh_correct] stated for every record [p] whose
-    fields satisfy the parts of [Contract.v] that they need, through
-    [of_point p] ([OfPoint.v]). No other theorem is restated this way.
+    [tanh_correct], [cosh_correct], [ln_correct], [log2_correct],
+    [log10_correct], [asinh_correct], [acosh_correct] and [atanh_correct]
+    stated for every record [p] whose fields satisfy the parts of
+    [Contract.v] that they need, through [of_point p] ([OfPoint.v]). No
+    other theorem is restated this way.
     [DyPoint.v] applies them to the dyadic kernel's functions. Another
     theorem about the elementary functions would carry over the same way
     if its only hypotheses on [m] are [get_d_ok] and hypotheses [<f>_ok]
@@ -14,7 +16,7 @@
 
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Ieee1788 Elementary Mpfr Elem Cosh Contract
+From Inari Require Import Model Ieee1788 Elementary Mpfr Elem Cosh Atanh Contract
   OfPointCore OfPoint OfPointElem.
 
 Open Scope R_scope.
@@ -71,4 +73,58 @@ Proof.
 intros p Hp first x Hx. rewrite <- (mpfr_point_of_point p).
 exact (cosh_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
   (of_point_cosh_ok p Hp) first x Hx).
+Qed.
+
+Theorem ln_correct_point :
+  forall p, ln_c (p_ln p) ->
+  forall x, valid x -> is_tightest (image_dom log_dom ln x) (Interval.ln p x).
+Proof.
+intros p Hp x Hx. rewrite <- (mpfr_point_of_point p).
+exact (ln_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
+  (of_point_ln_ok p Hp) x Hx).
+Qed.
+
+Theorem log2_correct_point :
+  forall p, log2_c (p_log2 p) ->
+  forall x, valid x -> is_tightest (image_dom log_dom Rlog2 x) (Interval.log2 p x).
+Proof.
+intros p Hp x Hx. rewrite <- (mpfr_point_of_point p).
+exact (log2_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
+  (of_point_log2_ok p Hp) x Hx).
+Qed.
+
+Theorem log10_correct_point :
+  forall p, log10_c (p_log10 p) ->
+  forall x, valid x -> is_tightest (image_dom log_dom Rlog10 x) (Interval.log10 p x).
+Proof.
+intros p Hp x Hx. rewrite <- (mpfr_point_of_point p).
+exact (log10_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
+  (of_point_log10_ok p Hp) x Hx).
+Qed.
+
+Theorem asinh_correct_point :
+  forall p, asinh_c (p_asinh p) ->
+  forall x, valid x -> is_tightest (image_dom real_dom arcsinh x) (Interval.asinh p x).
+Proof.
+intros p Hp x Hx. rewrite <- (mpfr_point_of_point p).
+exact (asinh_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
+  (of_point_asinh_ok p Hp) x Hx).
+Qed.
+
+Theorem acosh_correct_point :
+  forall p, acosh_c (p_acosh p) ->
+  forall x, valid x -> is_tightest (image_dom acosh_dom Racosh x) (Interval.acosh p x).
+Proof.
+intros p Hp x Hx. rewrite <- (mpfr_point_of_point p).
+exact (acosh_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
+  (of_point_acosh_ok p Hp) x Hx).
+Qed.
+
+Theorem atanh_correct_point :
+  forall p, atanh_c (p_atanh p) ->
+  forall x, valid x -> is_tightest (image_dom atanh_dom Ratanh x) (Interval.atanh p x).
+Proof.
+intros p Hp x Hx. rewrite <- (mpfr_point_of_point p).
+exact (atanh_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
+  (of_point_atanh_ok p Hp) x Hx).
 Qed.

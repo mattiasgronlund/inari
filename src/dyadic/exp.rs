@@ -35,15 +35,15 @@ use std::f64::consts::{LOG2_10, LOG2_E};
 mod tests;
 
 // 2^-26, 2^-54 and 2^-56: the arguments of smaller magnitude have results within an ulp of x
-// for sinh and tanh and of 1 for cosh (`TINY_HYP`), e^x and 2^x (`TINY_EXP`), and 10^x
-// (`TINY_EXP10`).
-const TINY_HYP: f64 = 1.0 / 67_108_864.0;
+// for sinh and tanh, and for asinh and atanh in `src/dyadic/log.rs`, and of 1 for cosh
+// (`TINY_HYP`), e^x and 2^x (`TINY_EXP`), and 10^x (`TINY_EXP10`).
+pub(super) const TINY_HYP: f64 = 1.0 / 67_108_864.0;
 const TINY_EXP: f64 = f64::EPSILON / 4.0;
 const TINY_EXP10: f64 = f64::EPSILON / 16.0;
 
 // 10^n for n from 0 to 22, which are the `f64`s that these literals give, as 10^n = 2^n 5^n
 // and 5^22 < 2^53.
-const POW10: [f64; 23] = [
+pub(super) const POW10: [f64; 23] = [
     1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16,
     1e17, 1e18, 1e19, 1e20, 1e21, 1e22,
 ];
@@ -115,7 +115,7 @@ fn to_k(c: f64) -> i64 {
 }
 
 // `a` times the integer `k`.
-fn mul_int<const N: usize>(a: &Encl<N>, k: i64) -> Encl<N> {
+pub(super) fn mul_int<const N: usize>(a: &Encl<N>, k: i64) -> Encl<N> {
     let p = a.mul_u64(k.unsigned_abs());
     if k < 0 {
         p.neg()
@@ -299,7 +299,7 @@ fn near_one(x: f64, up: bool) -> f64 {
 
 // The rounding of a number that is x if x = 0, and otherwise strictly between x and the next
 // `f64` away from 0.
-fn away(x: f64, up: bool) -> f64 {
+pub(super) fn away(x: f64, up: bool) -> f64 {
     if x == 0.0 || (x > 0.0) != up {
         x
     } else {
@@ -309,7 +309,7 @@ fn away(x: f64, up: bool) -> f64 {
 
 // The rounding of a number that is x if x = 0, and otherwise strictly between x and the next
 // `f64` toward 0.
-fn toward_zero(x: f64, up: bool) -> f64 {
+pub(super) fn toward_zero(x: f64, up: bool) -> f64 {
     if x == 0.0 || (x > 0.0) == up {
         x
     } else {

@@ -11,7 +11,8 @@
     The files about the limbs of [Nat] and the dyadic kernel, from
     [Limbs.v] to [DyDriver.v], and those about the kernel's constants and
     its exponential and hyperbolic functions, [DyConst.v], [DyExp.v],
-    [DyHyp.v] and [DyPoint.v], are required without being imported, as
+    [DyHyp.v], those about its logarithms, [DyLog.v] and [DyLogHyp.v],
+    and [DyPoint.v], are required without being imported, as
     some of their names, such as [add_correct], are those of other
     theorems printed here, and their theorems are printed by qualified
     name. None of them quantifies over an MPFR. *)
@@ -27,7 +28,7 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu A
   MpfrConsistent Contract OfPointCore OfPoint OfPointElem OfPointPow MpfrPoint
   PointTheorems.
 From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyDriver
-  DyConst DyExp DyHyp DyPoint.
+  DyConst DyExp DyHyp DyLog DyLogHyp DyPoint.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -267,18 +268,36 @@ Print Assumptions DyExp.exp10_dir_correct.
 Print Assumptions DyHyp.sinh_dir_correct.
 Print Assumptions DyHyp.cosh_dir_correct.
 Print Assumptions DyHyp.tanh_dir_correct.
+Print Assumptions DyLog.ln_dir_correct.
+Print Assumptions DyLog.log2_dir_correct.
+Print Assumptions DyLog.log10_dir_correct.
+Print Assumptions DyLogHyp.asinh_dir_correct.
+Print Assumptions DyLogHyp.acosh_dir_correct.
+Print Assumptions DyLogHyp.atanh_dir_correct.
 Print Assumptions DyPoint.k_exp_c.
 Print Assumptions DyPoint.k_exp2_c.
 Print Assumptions DyPoint.k_exp10_c.
 Print Assumptions DyPoint.k_sinh_c.
 Print Assumptions DyPoint.k_cosh_c.
 Print Assumptions DyPoint.k_tanh_c.
+Print Assumptions DyPoint.k_ln_c.
+Print Assumptions DyPoint.k_log2_c.
+Print Assumptions DyPoint.k_log10_c.
+Print Assumptions DyPoint.k_asinh_c.
+Print Assumptions DyPoint.k_acosh_c.
+Print Assumptions DyPoint.k_atanh_c.
 Print Assumptions DyPoint.kernel_exp_correct.
 Print Assumptions DyPoint.kernel_exp2_correct.
 Print Assumptions DyPoint.kernel_exp10_correct.
 Print Assumptions DyPoint.kernel_sinh_correct.
 Print Assumptions DyPoint.kernel_cosh_correct.
 Print Assumptions DyPoint.kernel_tanh_correct.
+Print Assumptions DyPoint.kernel_ln_correct.
+Print Assumptions DyPoint.kernel_log2_correct.
+Print Assumptions DyPoint.kernel_log10_correct.
+Print Assumptions DyPoint.kernel_asinh_correct.
+Print Assumptions DyPoint.kernel_acosh_correct.
+Print Assumptions DyPoint.kernel_atanh_correct.
 Print Assumptions E_tightest.
 Print Assumptions FRAC_1_PI_tightest.
 Print Assumptions FRAC_1_SQRT_2_tightest.
@@ -499,6 +518,12 @@ Print Assumptions exp10_correct_point.
 Print Assumptions sinh_correct_point.
 Print Assumptions tanh_correct_point.
 Print Assumptions cosh_correct_point.
+Print Assumptions ln_correct_point.
+Print Assumptions log2_correct_point.
+Print Assumptions log10_correct_point.
+Print Assumptions asinh_correct_point.
+Print Assumptions acosh_correct_point.
+Print Assumptions atanh_correct_point.
 
 (** The names whose types quantify over an MPFR anywhere, and those of
     them that [Valid.v] declares, for the check of [MpfrExamples.v] in the

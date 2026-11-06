@@ -180,4 +180,9 @@ theories/DySinhTiny.v
 theories/DyTanhTiny.v
 theories/DyExp.v
 theories/DyHyp.v
+theories/DyLogRules.v
+theories/DyLogTiny.v
+theories/DyLogCore.v
+theories/DyLog.v
+theories/DyLogHyp.v
 theories/DyPoint.v
