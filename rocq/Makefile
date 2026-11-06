@@ -4,6 +4,18 @@
 COQEXTRAFLAGS := -w +default
 export COQEXTRAFLAGS
 
+# The recipes of this Makefile run under bash with `-euo pipefail`
+# (.SHELLFLAGS takes GNU Make 3.82 or later), not under /bin/sh, which is
+# dash on Debian and Ubuntu, and the dash of Debian 12 and Ubuntu 24.04 has
+# no pipefail. A pipe then fails when any of its stages fails, not only when
+# its last one does, and a recipe line stops at the first command that fails,
+# unless the line tests that command's status, as `if` and `||` do. A pipe
+# negated with `!`, as in `examples`, passes when one of its stages fails.
+# The recipes of RocqMakefile, which `proofs` runs, still run under /bin/sh,
+# since make ignores SHELL in the environment and RocqMakefile sets none.
+SHELL := bash
+.SHELLFLAGS := -euo pipefail -c
+
 # The axioms that the theorems may depend on: those of the real numbers in
 # Stdlib, and excluded middle, which Flocq uses. Any other axiom, such as a
 # proof left `Admitted`, fails the build.
@@ -55,8 +67,11 @@ STRIP := awk '{ \
 # after it or on indented lines. By default it hides the names whose qualified
 # name contains `Private_`, `_subproof` or `_subterm`, and Assumptions.v has
 # it show them. `assumptions` removes MpfrSearch.out and MpfrSearchValid.out
-# before Assumptions.v writes them at its end, so if one of them is missing or
-# empty, usually after an error in Assumptions.v, the check stops there.
+# before Assumptions.v writes them at its end, and fails on an error in
+# Assumptions.v. If one of them is still missing or empty when `examples`
+# runs, usually because its `Redirect` is gone, its `Search` found nothing,
+# or `examples` ran without `assumptions` (`make -o assumptions`), the check
+# stops there.
 # MpfrExamples.out lists the names in MpfrSearch.out that Assumptions.v prints
 # (`uniq -d` keeps the names that both lists have), and those in
 # MpfrSearchValid.out, from Valid.v, other than the induction principles of
@@ -73,8 +88,9 @@ STRIP := awk '{ \
 examples: assumptions
 	for f in MpfrSearch.out MpfrSearchValid.out; do test -s $$f || { \
 		echo "$$f" 'is missing or empty. A `Redirect` at the end of Assumptions.v' \
-			'writes it, so the usual cause is an error in Assumptions.v, which' \
-			'`rocq compile` printed above.' >&2; \
+			'writes it, so the usual causes are a removed `Redirect`, a `Search`' \
+			'that finds nothing, or `examples` run without `assumptions`, which' \
+			'compiles Assumptions.v.' >&2; \
 		exit 1; }; done
 	! $(STRIP) Assumptions.v | grep -n Assumptions \
 		| grep -v '^[0-9]*:Print Assumptions [^ ]*\.$$' >&2 || { \

@@ -1239,4 +1239,4 @@ docker run --rm -v "$PWD/rocq:/w" -w /w rocq/rocq-prover:9.1 \
   bash -c 'opam install -y coq-flocq.4.2.2 && make'
 ```
 
-Warnings are errors. `make clean` removes the build outputs.
+Warnings are errors. The `Makefile` runs its own recipes, though not those of the `RocqMakefile` that it generates, under bash with `-euo pipefail`; these flags take GNU Make 3.82 or later, and an older GNU Make runs the recipes under bash without them. `make clean` removes the build outputs.
