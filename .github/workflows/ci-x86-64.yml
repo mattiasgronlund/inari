@@ -154,8 +154,9 @@ jobs:
       # No step in this job sets `-Ctarget-feature=+avx512f`. On Rust 1.65.0 that
       # flag sets no `cfg(target_feature = "avx512f")`, so `src/simd/x86_64.rs`
       # would select the `fma` backend, which this step already checks. Stable Rust
-      # selects the `avx512f` backend only from 1.89 on, and the `build` job tests
-      # it on nightly when the runner has AVX-512F.
+      # selects the `avx512f` backend only from 1.89 on. The `avx512f` job checks
+      # and lints it on 1.89 in every run; its tests run only in the `build` job,
+      # on nightly, when the runner has AVX-512F.
       - name: Check
         run: cargo check --all-targets
 
@@ -167,3 +168,57 @@ jobs:
 
       - name: Check (--no-default-features)
         run: cargo check --no-default-features --all-targets
+
+  # Stable Rust selects the `avx512f` backend from 1.89 on, so this job checks and
+  # lints it on 1.89. It runs nothing built with `+avx512f`, so the runner needs
+  # no AVX-512F.
+  avx512f:
+    runs-on: ubuntu-latest
+
+    # The workflow's `RUSTFLAGS` with `+avx512f`, written out because a job's `env`
+    # cannot read the `env` context. `cargo check` and `cargo clippy` below get
+    # `--target x86_64-unknown-linux-gnu`, which keeps these flags away from build
+    # scripts: built with them, a build script can die with SIGILL on a runner
+    # without AVX-512F.
+    env:
+      RUSTFLAGS: -Ctarget-cpu=haswell -Dwarnings -Ctarget-feature=+avx512f
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/gmp-mpfr-sys
+          key: ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-${{ hashFiles('Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.89.0
+          override: true
+          profile: minimal
+          components: clippy
+
+      # Resolve dependencies as the `msrv` job does, preferring releases that
+      # support the `rust-version` in Cargo.toml to the newest ones, which may
+      # need a Rust newer than 1.89.
+      - name: Generate lockfile
+        run: cargo +stable --config 'resolver.incompatible-rust-versions="fallback"' generate-lockfile
+
+      - uses: Swatinem/rust-cache@v2
+
+      # `src/simd/x86_64.rs`, which the steps below compile, selects the `avx512f`
+      # backend exactly when rustc reports this target feature.
+      - name: Check that `avx512f` is selected
+        shell: bash
+        run: |
+          rustc --version
+          rustc --print cfg $RUSTFLAGS --target x86_64-unknown-linux-gnu | grep -x 'target_feature="avx512f"'
+
+      - name: Check
+        run: cargo check --all-targets --target x86_64-unknown-linux-gnu
+
+      - name: Clippy
+        run: cargo clippy --all-targets --target x86_64-unknown-linux-gnu
