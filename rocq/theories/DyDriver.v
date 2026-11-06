@@ -334,6 +334,53 @@ Proof.
     pose proof (mul_corners la ha lb hb x y Hx (or_introl Hy)) as Hxy. fold m M in Hxy. lra.
 Qed.
 
+(** For a divisor in [[c, d]] with [0 < c], the least of the four
+    quotients of the ends is that of [a1] by [c] if [a1] is not positive,
+    and by [d] if it is not negative; the greatest is that of [a2] by [d]
+    if [a2] is not positive, and by [c] if it is not negative. *)
+Lemma div_pos_min :
+  forall a1 a2 c d,
+  (0 < c <= d)%R -> (a1 <= a2)%R ->
+  ((a1 <= 0)%R -> Rmin (Rmin (Rmin (a1 / c) (a1 / d)) (a2 / c)) (a2 / d) = (a1 / c)%R) /\
+  ((0 <= a1)%R -> Rmin (Rmin (Rmin (a1 / c) (a1 / d)) (a2 / c)) (a2 / d) = (a1 / d)%R).
+Proof.
+  intros a1 a2 c d Hc Ha. unfold Rdiv.
+  assert (Hi : (0 < / d <= / c)%R)
+    by (split; [apply Rinv_0_lt_compat; lra | apply Rinv_le_contravar; lra]).
+  assert (P1 : (0 <= (a2 - a1) * / c)%R) by (apply Rmult_le_pos; lra).
+  assert (P2 : (0 <= (a2 - a1) * / d)%R) by (apply Rmult_le_pos; lra).
+  split; intros H0.
+  - assert (P3 : (0 <= - a1 * (/ c - / d))%R) by (apply Rmult_le_pos; lra).
+    rewrite (Rmin_left (a1 * / c) (a1 * / d)) by lra.
+    rewrite (Rmin_left (a1 * / c) (a2 * / c)) by lra.
+    apply Rmin_left. lra.
+  - assert (P3 : (0 <= a1 * (/ c - / d))%R) by (apply Rmult_le_pos; lra).
+    assert (P4 : (0 <= a2 * (/ c - / d))%R) by (apply Rmult_le_pos; lra).
+    rewrite (Rmin_right (a1 * / c) (a1 * / d)) by lra.
+    rewrite (Rmin_left (a1 * / d) (a2 * / c)) by lra.
+    apply Rmin_left. lra.
+Qed.
+
+Lemma div_pos_max :
+  forall a1 a2 c d,
+  (0 < c <= d)%R -> (a1 <= a2)%R ->
+  ((a2 <= 0)%R -> Rmax (Rmax (Rmax (a1 / c) (a1 / d)) (a2 / c)) (a2 / d) = (a2 / d)%R) /\
+  ((0 <= a2)%R -> Rmax (Rmax (Rmax (a1 / c) (a1 / d)) (a2 / c)) (a2 / d) = (a2 / c)%R).
+Proof.
+  intros a1 a2 c d Hc Ha. unfold Rdiv.
+  assert (Hi : (0 < / d <= / c)%R)
+    by (split; [apply Rinv_0_lt_compat; lra | apply Rinv_le_contravar; lra]).
+  assert (P1 : (0 <= (a2 - a1) * / c)%R) by (apply Rmult_le_pos; lra).
+  assert (P2 : (0 <= (a2 - a1) * / d)%R) by (apply Rmult_le_pos; lra).
+  split; intros H0.
+  - assert (P3 : (0 <= - a2 * (/ c - / d))%R) by (apply Rmult_le_pos; lra).
+    apply Rmax_right. repeat apply Rmax_lub; lra.
+  - assert (P3 : (0 <= a2 * (/ c - / d))%R) by (apply Rmult_le_pos; lra).
+    rewrite (Rmax_left (Rmax (Rmax (a1 * / c) (a1 * / d)) (a2 * / c)) (a2 * / d)).
+    + apply Rmax_right. apply Rmax_lub; lra.
+    + apply Rle_trans with (a2 * / c)%R; [lra | apply Rmax_r].
+Qed.
+
 Lemma encl_div_correct :
   forall n a b,
   level_ok n -> encl_ok n a -> encl_ok n b -> encl_small a -> encl_small b ->
@@ -363,6 +410,60 @@ Proof.
     destruct H0 as [H|H].
     - rewrite (Rcompare_Gt _ _ H). reflexivity.
     - rewrite (Rcompare_Lt _ _ H). destruct (Rcompare _ 0); reflexivity. }
+  unfold Dyadic.encl_div. cbv beta iota zeta. rewrite Hg. cbn [negb].
+  destruct (Dyadic.dy_neg (Dyadic.en_lo b)) eqn:Nc; cbn [negb].
+  2: {
+    (* The lower bound of the divisor is not negative, so it is positive:
+       each bound of the quotient is a quotient of the same bound of the
+       dividend, by the end of the divisor that its sign selects. *)
+    pose proof (dy_R_nonneg _ (proj1 Hlb) Nc) as Pc.
+    assert (Pl : (0 < Dyadic.dy_R (Dyadic.en_lo b))%R) by lra.
+    assert (Sx : forall (s : bool) v,
+               (if s then Dyadic.dy_neg v = true else Dyadic.dy_neg v = false) ->
+               dy_ok n v ->
+               (if s then Dyadic.dy_R v <= 0 else 0 <= Dyadic.dy_R v)%R).
+    { intros [|] v Hs Hv.
+      - rewrite (dy_R_sign v (proj1 Hv)), Hs. pose proof (Rabs_pos (Dyadic.dy_R v)). lra.
+      - exact (dy_R_nonneg v (proj1 Hv) Hs). }
+    pose proof (div_pos_min (Dyadic.dy_R (Dyadic.en_lo a)) (Dyadic.dy_R (Dyadic.en_hi a))
+                  _ _ (conj Pl Hb) Ha) as [Ma Mb].
+    pose proof (div_pos_max (Dyadic.dy_R (Dyadic.en_lo a)) (Dyadic.dy_R (Dyadic.en_hi a))
+                  _ _ (conj Pl Hb) Ha) as [Mc Md].
+    set (cx := if Dyadic.dy_neg (Dyadic.en_lo a) then Dyadic.en_lo b else Dyadic.en_hi b).
+    set (cy := if Dyadic.dy_neg (Dyadic.en_hi a) then Dyadic.en_hi b else Dyadic.en_lo b).
+    assert (Ox : dy_ok n cx /\ exp_small cx /\ Dyadic.dy_R cx <> 0%R)
+      by (unfold cx; destruct (Dyadic.dy_neg (Dyadic.en_lo a)); auto).
+    assert (Oy : dy_ok n cy /\ exp_small cy /\ Dyadic.dy_R cy <> 0%R)
+      by (unfold cy; destruct (Dyadic.dy_neg (Dyadic.en_hi a)); auto).
+    destruct Ox as (Ox & Ex & Zx). destruct Oy as (Oy & Ey & Zy).
+    destruct (div_correct n _ _ false Hn Hla Ox Sla Ex Zx) as (lo & Elo & Oklo & Vlo).
+    destruct (div_correct n _ _ true Hn Hha Oy Sha Ey Zy) as (hi & Ehi & Okhi & Vhi).
+    rewrite Elo, Ehi. cbv beta iota.
+    eexists. split; [reflexivity|].
+    unfold encl_ok, encl_has, lo_R, hi_R in *; cbn [Dyadic.en_lo Dyadic.en_hi].
+    set (la := Dyadic.dy_R (Dyadic.en_lo a)) in *. set (ha := Dyadic.dy_R (Dyadic.en_hi a)) in *.
+    set (lb := Dyadic.dy_R (Dyadic.en_lo b)) in *. set (hb := Dyadic.dy_R (Dyadic.en_hi b)) in *.
+    set (m := Rmin (Rmin (Rmin (la / lb) (la / hb)) (ha / lb)) (ha / hb)) in *.
+    set (M := Rmax (Rmax (Rmax (la / lb) (la / hb)) (ha / lb)) (ha / hb)) in *.
+    assert (Em : Dyadic.dy_R lo = dround n false m).
+    { rewrite Vlo. f_equal. unfold cx.
+      pose proof (Sx (Dyadic.dy_neg (Dyadic.en_lo a)) (Dyadic.en_lo a)) as S.
+      destruct (Dyadic.dy_neg (Dyadic.en_lo a)); symmetry; [apply Ma | apply Mb];
+        apply S; auto. }
+    assert (EM : Dyadic.dy_R hi = dround n true M).
+    { rewrite Vhi. f_equal. unfold cy.
+      pose proof (Sx (Dyadic.dy_neg (Dyadic.en_hi a)) (Dyadic.en_hi a)) as S.
+      destruct (Dyadic.dy_neg (Dyadic.en_hi a)); symmetry; [apply Mc | apply Md];
+        apply S; auto. }
+    rewrite Em, EM.
+    pose proof (dround_bounds n m Hn). pose proof (dround_bounds n M Hn).
+    pose proof (min4_le_max4 (la / lb) (la / hb) (ha / lb) (ha / hb)) as Hm. fold m M in Hm.
+    split; [split; [exact Oklo | split; [exact Okhi | lra]] |].
+    split; [reflexivity | split; [reflexivity |]].
+    intros x y Hx Hy.
+    pose proof (div_corners lb hb y H0 Hy) as Hi.
+    pose proof (mul_corners la ha (/ lb) (/ hb) x (/ y) Hx (or_intror Hi)) as Hxy.
+    unfold Rdiv in m, M. fold m M in Hxy. unfold Rdiv. lra. }
   destruct (div_correct n _ _ false Hn Hla Hlb Sla Slb Nl) as (xc & Exc & Okxc & Vxc).
   destruct (div_correct n _ _ false Hn Hla Hhb Sla Shb Nh) as (xd & Exd & Okxd & Vxd).
   destruct (div_correct n _ _ false Hn Hha Hlb Sha Slb Nl) as (yc & Eyc & Okyc & Vyc).
@@ -371,7 +472,6 @@ Proof.
   destruct (div_correct n _ _ true Hn Hla Hhb Sla Shb Nh) as (xd' & Exd' & Okxd' & Vxd').
   destruct (div_correct n _ _ true Hn Hha Hlb Sha Slb Nl) as (yc' & Eyc' & Okyc' & Vyc').
   destruct (div_correct n _ _ true Hn Hha Hhb Sha Shb Nh) as (yd' & Eyd' & Okyd' & Vyd').
-  unfold Dyadic.encl_div. cbv beta iota zeta. rewrite Hg. cbn [negb].
   rewrite Exc, Exd, Eyc, Eyd, Exc', Exd', Eyc', Eyd'. cbv beta iota.
   eexists. split; [reflexivity|].
   destruct (dmin_ok n xc xd Hn Okxc Okxd) as [O1 V1].

@@ -1441,11 +1441,18 @@ Definition encl_mul (n : nat) (a b : encl) : option encl :=
   Some {| en_lo := dmin n (dmin n (dmin n xc xd) yc) yd;
           en_hi := dmax n (dmax n (dmax n xc' xd') yc') yd' |}.
 
-(** [a.div(&b)], where the [assert!] is [None]. *)
+(** [a.div(&b)], where the [assert!] is [None]: two quotients if the lower
+    bound of the divisor is not negative, and otherwise [x.min(y)] chains
+    in the order of the Rust code. *)
 Definition encl_div (n : nat) (a b : encl) : option encl :=
   let '(x, y, c, d) := (en_lo a, en_hi a, en_lo b, en_hi b) in
   if negb ((match cmp n c (dy_zero n) with Gt => true | _ => false end)
            || (match cmp n d (dy_zero n) with Lt => true | _ => false end)) then None else
+  if negb (dy_neg c) then
+    let* lo := div n x (if dy_neg x then c else d) false in
+    let* hi := div n y (if dy_neg y then d else c) true in
+    Some {| en_lo := lo; en_hi := hi |}
+  else
   let* xc := div n x c false in let* xd := div n x d false in
   let* yc := div n y c false in let* yd := div n y d false in
   let* xc' := div n x c true in let* xd' := div n x d true in

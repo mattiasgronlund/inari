@@ -474,9 +474,19 @@ impl<const N: usize> Encl<N> {
             other.lo > Dyadic::ZERO || other.hi < Dyadic::ZERO,
             "division by an enclosure of zero"
         );
+        let (a, b, c, d) = (&self.lo, &self.hi, &other.lo, &other.hi);
+        if !c.neg {
+            // Then c > 0, by the assertion and c <= d. For y > 0, x / y is least at x = a and
+            // greatest at x = b. a / y is least at y = d if a >= 0 and at y = c if a < 0, and
+            // b / y is greatest at y = c if b >= 0 and at y = d if b < 0. A zero has
+            // `neg == false`.
+            return Self {
+                lo: a.div(if a.neg { c } else { d }, false),
+                hi: b.div(if b.neg { d } else { c }, true),
+            };
+        }
         // Without 0 in the divisor, x / y is monotonic in each argument over the enclosures,
         // so its extremes are among the quotients of their bounds.
-        let (a, b, c, d) = (&self.lo, &self.hi, &other.lo, &other.hi);
         Self {
             lo: a
                 .div(c, false)
