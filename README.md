@@ -25,6 +25,26 @@ Other architectures, such as WebAssembly (`wasm32`) and RISC-V (`riscv64`), are 
 
 When using the Cargo feature `gmp` (see below), target platforms are limited to those that are supported by the [`gmp-mpfr-sys`](https://crates.io/crates/gmp-mpfr-sys) crate. For example, MSVC is not supported. With `gmp`, inari supports 64-bit Linux and macOS (CI tests x86-64 Linux and AArch64 macOS). Other targets, such as 32-bit targets and 64-bit Windows, are not supported with `gmp` and are not tested. If `gmp-mpfr-sys` links a system MPFR, through its feature `use-system-libs`, that MPFR has to be built thread-safe, as it is by default where the system supports thread-local storage, and inari panics on its first operation that calls MPFR, such as an elementary function, if it is not: such an MPFR keeps its flags, its exponent range and its caches of constants such as π global, so threads that call it at the same time can interfere.
 
+## Building for Several x86-64 Levels
+
+inari picks its x86-64 backend at compile time, from the target features that `cfg(target_feature)` reports for the target CPU, not by detecting the CPU at run time. As target CPUs, the microarchitecture levels of the [x86-64 psABI](https://gitlab.com/x86-psABIs/x86-64-ABI) select these backends: `x86-64`, the default for `x86_64-unknown-linux-gnu`, selects none, and the build fails unless `force-generic` is enabled; `x86-64-v2` selects `sse42`; `x86-64-v3` selects `fma`, as `haswell` does; and `x86-64-v4` selects `avx512f` with Rust 1.89 or later, and `fma` with earlier stable versions (see above). CI does not build for these levels by name.
+
+To give each CPU the code for its level without your users having to compile anything, build the whole program once per level, and pick one of the builds when it starts:
+
+```bash
+for level in x86-64-v2 x86-64-v3 x86-64-v4; do
+    RUSTFLAGS="-Ctarget-cpu=$level" cargo build --release --target x86_64-unknown-linux-gnu --target-dir target/$level
+done
+# Below x86-64-v2, only the portable backend builds.
+RUSTFLAGS="-Ctarget-cpu=x86-64" cargo build --release --target x86_64-unknown-linux-gnu --target-dir target/x86-64 --features inari/force-generic
+```
+
+Each build lands in `target/<level>/x86_64-unknown-linux-gnu/release/`. `--features inari/force-generic` needs inari as a direct dependency of the package you build. The separate `--target-dir`s keep the builds from overwriting one another, and `--target` keeps `RUSTFLAGS` away from build scripts and procedural macros, which run on the build machine (see [`build.rustflags`](https://doc.rust-lang.org/cargo/reference/config.html#buildrustflags)): without it, a build for `x86-64-v4` on a machine without AVX-512 can die with SIGILL in a build script, such as that of `gmp-mpfr-sys`.
+
+For a program, a small launcher, itself built for `x86-64`, can run the build for the highest level the CPU has. It must test the whole level as the psABI defines it, not only the features that select inari's backend, because a build for a level lets the compiler use any feature of the level in any code it compiles. In Rust 1.96, `std::is_x86_feature_detected!` has a name for each feature that `x86-64-v2`, `x86-64-v3` and `x86-64-v4` add to `x86-64` but LAHF-SAHF and OSXSAVE; it tests OSXSAVE as part of AVX, and for AVX and AVX-512 it also tests that the operating system has enabled them.
+
+For a shared library (a `cdylib`) on Linux with glibc 2.33 or later, the dynamic loader can do the picking. Install the builds for `x86-64-v2`, `x86-64-v3` and `x86-64-v4` in the subdirectories `glibc-hwcaps/x86-64-v2/`, `glibc-hwcaps/x86-64-v3/` and `glibc-hwcaps/x86-64-v4/` of the directory the library is found in, and the loader loads the copy for the highest level the CPU supports (see [ld.so(8)](https://man7.org/linux/man-pages/man8/ld.so.8.html), "glibc Hardware capabilities"). It does so in the directories of `LD_LIBRARY_PATH`, `RUNPATH` and `RPATH`, and for `dlopen` of a name without a slash; a name with a slash is a path, and the loader loads that file. Glibc before 2.33, a CPU that has none of the levels in `glibc-hwcaps/`, and a program that loads the library by its path in that directory get the copy in the directory itself, which must therefore be the lowest level you ship. This is glibc's mechanism: musl, macOS and Windows do not have it.
+
 ## Cargo Features
 
 - `gmp` (enabled by default) - Enables [operations](https://docs.rs/inari/latest/inari/_docs/conformance/) that depend on GMP and MPFR. You can opt out of the feature to reduce dependencies. Even in that case, you still have access to all operations required by certain kinds of tasks, such as making fast robust predicates for computational geometry.
