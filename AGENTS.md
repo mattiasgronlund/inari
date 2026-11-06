@@ -11,7 +11,8 @@ CI runs with RUSTFLAGS="-Ctarget-cpu=haswell -Dwarnings", so warnings are errors
 - cargo rustc --lib --all-features --profile check -- --cfg docsrs   (the docs.rs configuration must compile)
 - rocq/check-sites.sh   (as in ci-rocq.yml; if it fails, update what its message names)
 If the machine has AVX-512F, also run clippy and tests with -Ctarget-cpu=native
-(CI tests both backends). Repeat everything with any new feature flags enabled.
+(CI compiles both backends in every run, but tests `avx512f` only when its runner
+has AVX-512F). Repeat everything with any new feature flags enabled.
 Default rustfmt settings. Do not add rustfmt.toml or clippy.toml, and do not add
 crate-wide `#[allow]`s. Local allows need a comment explaining why.
 
