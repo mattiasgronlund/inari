@@ -490,9 +490,9 @@ Print Assumptions mpfr_ok_default.
     [Mpfr.v] where the field of [p] satisfies [<f>_c]. [mpfr_point m]
     satisfies each [<f>_c] where [m] satisfies [get_d_ok] and [<f>_ok],
     at an exponent range with [range_ok]. Last, the nineteen theorems
-    from [exp_correct] to [tan_correct] stated for every record [point]
-    whose fields satisfy the parts of [Contract.v] that they need, in
-    the order of [PointTheorems.v]. *)
+    from [exp_correct_point] to [tan_correct_point], stated for every
+    record [point] whose fields satisfy the parts of [Contract.v] that
+    they need, in the order of [PointTheorems.v]. *)
 Print Assumptions mpfr_point_of_point.
 Print Assumptions of_point_get_d_ok.
 Print Assumptions of_point_acos_ok.

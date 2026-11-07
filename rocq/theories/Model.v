@@ -17,7 +17,14 @@
     and [Dyadic] do the same for the loops on limbs of [src/limbs.rs], for
     the operations of [Nat] in [src/nat.rs] that those functions of
     [src/parse.rs] and [src/format/digits.rs] call, and for the dyadic
-    kernel of [src/dyadic.rs]. This file has to be checked against the Rust
+    kernel of [src/dyadic.rs]. The sections [DyadicConsts], [DyadicExp],
+    [DyadicLog], [DyadicAtan] and [DyadicTrig] do the same for the tables
+    and functions of [src/dyadic/consts.rs] that give the kernel ln 2,
+    ln 10 and π, and for the kernel's exponential and hyperbolic functions
+    in [src/dyadic/exp.rs], logarithms and inverse hyperbolic functions in
+    [src/dyadic/log.rs], inverse trigonometric functions in
+    [src/dyadic/atan.rs] and trigonometric functions in
+    [src/dyadic/trig.rs]. This file has to be checked against the Rust
     code, and so do the headers of [ComCommon.v] and [Valid.v], which argue
     from the Rust code that the library makes every [DecInterval] and every
     [Interval] at the places and by the operations transcribed here.
