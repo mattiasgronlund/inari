@@ -368,6 +368,40 @@ mod mpfr {
         ops::<64>(&mut Rng(64));
     }
 
+    // The square root of each `a` whose top limb t is in [2^64 - 2^10, 2^64 - 1], the tops that
+    // `t as f64` rounds up to 2^64, with random lower limbs. With an even exponent, t is the top
+    // bits of the `x` from which `isqrt` seeds Newton's iteration; with an odd one, `x` is
+    // doubled and its top bits are t >> 1.
+    fn sqrt_tops<const N: usize>(rng: &mut Rng) {
+        let p = 64 * N as u32;
+        for t in u64::MAX - ((1 << 10) - 1)..=u64::MAX {
+            let mut m = [0; N];
+            for l in &mut m[..N - 1] {
+                *l = rng.limb();
+            }
+            m[N - 1] = t;
+            for exp in [0, 1, -64, 63] {
+                let a = Dyadic { neg: false, exp, m };
+                for up in [false, true] {
+                    let what = format!("{:?} {}", a, up);
+                    check(
+                        &a.sqrt(up),
+                        &Float::with_val_round(p, float(&a).sqrt_ref(), rnd(up)).0,
+                        &what,
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sqrt_tops_against_mpfr() {
+        let mut rng = Rng(7);
+        sqrt_tops::<1>(&mut rng);
+        sqrt_tops::<2>(&mut rng);
+        sqrt_tops::<4>(&mut rng);
+    }
+
     // A number as `(neg, exp, m)`.
     type Number = (bool, i64, &'static [u64]);
 
@@ -675,6 +709,72 @@ fn exact_identities() {
     identities::<5>(&mut Rng(15));
     identities::<16>(&mut Rng(16));
     identities::<64>(&mut Rng(64));
+}
+
+// `isqrt` on the `x` of 2 n + 1 limbs whose top bits t = x >> 2k, from which it seeds Newton's
+// iteration, are at the top of their range: t in [2^64 - 2^11 - 1, 2^64 - 1] when `x` has
+// 128 n bits (x[2 n - 1] = t), and t in [2^63 - 2^10 - 1, 2^63 - 1] when it has 128 n + 1 bits
+// (t is its top 63 bits). The t >= 2^64 - 2^10 are the tops that `t as f64` rounds up to
+// 2^64. The bits of `x` below t are all 0, all 1, or random. Each result has to be
+// floor(sqrt(x)): s^2 <= x < (s + 1)^2.
+fn isqrt_tops(n: usize, rng: &mut Rng) {
+    // `x` has 128 n + extra bits, and its top bits run over the `count` numbers up to `last`.
+    let tops = [
+        (0, (1 << 11) + 1, u64::MAX),
+        (1, (1 << 10) + 1, (1 << 63) - 1),
+    ];
+    for (extra, count, last) in tops {
+        for t in last - (count - 1)..=last {
+            for low in ["0", "1", "random"] {
+                let mut limb = || match low {
+                    "0" => 0,
+                    "1" => u64::MAX,
+                    _ => rng.limb(),
+                };
+                let mut x = vec![0; 2 * n + 1];
+                for l in &mut x[..2 * n - 1] {
+                    *l = limb();
+                }
+                if extra == 0 {
+                    x[2 * n - 1] = t;
+                } else {
+                    // The top 63 bits t, then the top 2 of the bits below it.
+                    x[2 * n] = t >> 62;
+                    x[2 * n - 1] = t << 2 | limb() >> 62;
+                }
+                let what = format!("n = {}, t = {:#x}, low bits {}", n, t, low);
+                let mut s = vec![0; n + 1];
+                isqrt(&mut s, &x, &mut vec![0; 7 * n + 7]);
+                let mut sq = vec![0; 2 * n + 2];
+                limbs::mul_into(&mut sq, &s, &s);
+                assert!(
+                    limbs::cmp(&sq, &x) != Ordering::Greater,
+                    "s^2 > x: {}",
+                    what
+                );
+                let mut s1 = s.clone();
+                assert!(
+                    !limbs::add_assign(&mut s1, &[1]),
+                    "s + 1 overflows: {}",
+                    what
+                );
+                limbs::mul_into(&mut sq, &s1, &s1);
+                assert!(
+                    limbs::cmp(&sq, &x) == Ordering::Greater,
+                    "(s + 1)^2 <= x: {}",
+                    what
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn isqrt_at_the_top_of_the_seed() {
+    let mut rng = Rng(7);
+    for n in [1, 2, 4, 64] {
+        isqrt_tops(n, &mut rng);
+    }
 }
 
 #[test]

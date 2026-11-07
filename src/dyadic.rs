@@ -388,17 +388,22 @@ fn isqrt(s: &mut [u64], x: &[u64], scratch: &mut [u64]) {
     let (y, rest) = scratch.split_at_mut(s.len());
     let (q, rest) = rest.split_at_mut(x.len());
     let (r, rest) = rest.split_at_mut(s.len());
-    // The seed: c, the top 32 bits of the significand of sqrt(t) for the top bits t = x >> 2k
-    // of `x`, so that 2^31 <= c < 2^32 and c * 2^k is near sqrt(x), or near sqrt(x) / 2 where
-    // `t as f64` rounds up to 2^64. `x` has l = 128 n or 128 n + 1 bits, and 2k is l - 63 or
-    // l - 64, so 2^62 <= t < 2^64 and 2^(64 n - 1) <= c * 2^k < 2^(64 n + 1). Only c * 2^k > 0
-    // matters for the result, which the bits of `c` ensure whatever `sqrt` returns: its 52 bits
-    // of fraction under the implicit bit, shifted to 32 bits.
+    // The seed: c, the top 32 bits of the significand of sqrt(u), for u the top bits t = x >> 2k
+    // of `x` with their low 11 bits cleared, so that 2^31 <= c < 2^32 and c * 2^k is near
+    // sqrt(x). `x` has l = 128 n or 128 n + 1 bits, and 2k is l - 63 or l - 64, so
+    // 2^62 <= t < 2^64 and 2^(64 n - 1) <= c * 2^k < 2^(64 n + 1). u has at most 53
+    // significant bits, so `u as f64` is exact, and u <= 2^64 - 2^11, whose square root rounds
+    // below 2^32. `t as f64` would round each t >= 2^64 - 2^10 up to 2^64, whose square root
+    // 2^32 has no fraction bits, which would make c = 2^31 and c * 2^k near sqrt(x) / 2, from
+    // which the iteration takes about 5 more steps. Only 2^31 <= c < 2^32 matters for the
+    // result, which the bits of `c` ensure whatever `sqrt` returns: its 52 bits of fraction
+    // under the implicit bit, shifted to 32 bits.
     let l = limbs::bit_len(x);
     let k = (l - 63) / 2;
     let mut t = [0];
     limbs::shr_into(&mut t, x, 2 * k);
-    let c = (((t[0] as f64).sqrt().to_bits() & ((1 << 52) - 1)) | 1 << 52) >> 21;
+    let u = t[0] & !((1 << 11) - 1);
+    let c = (((u as f64).sqrt().to_bits() & ((1 << 52) - 1)) | 1 << 52) >> 21;
     limbs::shl_into(s, &[c], k);
     // Newton's iteration for floor(sqrt(x)) (Zimmermann, Karatsuba Square Root, INRIA RR-3805,
     // 1999, and Brent and Zimmermann, Modern Computer Arithmetic, 1.5.1):
