@@ -17,14 +17,17 @@
     and [Dyadic] do the same for the loops on limbs of [src/limbs.rs], for
     the operations of [Nat] in [src/nat.rs] that those functions of
     [src/parse.rs] and [src/format/digits.rs] call, and for the dyadic
-    kernel of [src/dyadic.rs]. This file has to be
-    checked against the Rust code, and so do the headers of [ComCommon.v]
-    and [Valid.v], which argue from the Rust code that the library makes
-    every [DecInterval] and every [Interval] at the places and by the
-    operations transcribed here. [Ieee1788.v] and [Elementary.v] are the
-    only files that have to be checked against IEEE 1788, and [Mpfr.v] has
-    to be checked against the MPFR manual. The other files prove
-    properties of the definitions in these four.
+    kernel of [src/dyadic.rs]. This file has to be checked against the Rust
+    code, and so do the headers of [ComCommon.v] and [Valid.v], which argue
+    from the Rust code that the library makes every [DecInterval] and every
+    [Interval] at the places and by the operations transcribed here.
+    [Ieee1788.v] and [Elementary.v] are the only files that have to be
+    checked against IEEE 1788, [Mpfr.v] has to be checked against the MPFR
+    manual, and [Contract.v] has to be checked by reading too: it states
+    what the theorems stated for a record [p : point], such as
+    [exp_correct_point], assume of its fields. The other files prove
+    properties of the definitions in this file, [Ieee1788.v],
+    [Elementary.v], [Mpfr.v] and [Contract.v].
 
     Rust's [f64] is Flocq's IEEE 754 binary64 type, and its [+], [-], [*]
     and [/] are Flocq's [Bplus], [Bminus], [Bmult] and [Bdiv] rounded to
@@ -2394,8 +2397,8 @@ End DyadicAtan.
     [Contract.v] states what each field of [point] must do at the level
     of [f64]s; [MpfrPoint.v] shows that [mpfr_point m] does it under
     [Mpfr.v]'s hypotheses, and [PointTheorems.v] proves [exp_correct] and
-    five other theorems for every record that does (as
-    [exp_correct_point] and the others). *)
+    the other theorems that its header lists for every record that does
+    (as [exp_correct_point] and the others). *)
 
 (** [mpfr::rnd_t::RNDD] and [mpfr::rnd_t::RNDU], rounding toward -inf and
     toward +inf. *)

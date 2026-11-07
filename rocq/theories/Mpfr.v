@@ -4,19 +4,20 @@
     MPFR functions with which [src/mpfr_calls/mpfr.rs] rounds the bounds
     of the elementary functions. In [Model.v], the elementary functions
     take a record [point] of the functions that round their bounds to
-    [f64]s, and the theorems about them, all but the one of
-    [PointTheorems.v] below, are stated for [mpfr_point m], the record
-    [point] that [src/mpfr_calls/mpfr.rs] makes of [m]. This file states
-    what the theorems assume of [m]: what the MPFR manual documents. Like
-    [Model.v] and [Ieee1788.v], it has to be checked by reading, against
-    the MPFR manual: its sections on rounding, on the exponent range, on
-    special values and exceptions, the entry of [mpfr_get_d], and those of
-    the functions. It assumes as little as the proofs use: the rounding of
-    each function for finite arguments in its domain, and only the special
-    values that the Rust code passes. The rounding and the special values
-    of the fields of [m], all but [mpfr_get_d], which converts their
-    results, are stated only at the MPFR numbers that [with_val] makes of
-    [f64]s, as the code passes them.
+    [f64]s, and the theorems about them, other than those of
+    [PointTheorems.v] and [DyPoint.v] below, are stated for
+    [mpfr_point m], the record [point] that [src/mpfr_calls/mpfr.rs]
+    makes of [m]. This file states what the theorems assume of [m]: what
+    the MPFR manual documents. Like [Model.v] and [Ieee1788.v], it has
+    to be checked by reading, against the MPFR manual: its sections on
+    rounding, on the exponent range, on special values and exceptions,
+    the entry of [mpfr_get_d], and those of the functions. It assumes as
+    little as the proofs use: the rounding of each function for finite
+    arguments in its domain, and only the special values that the Rust
+    code passes. The rounding and the special values of the fields of
+    [m], all but [mpfr_get_d], which converts their results, are stated
+    only at the MPFR numbers that [with_val] makes of [f64]s, as the
+    code passes them.
     A special value at a finite argument other than 0, such as
     [atan2(y, -inf)] for [y > 0], is thus assumed only where that argument
     is the real of a finite [f64], not at every real. A special value that
@@ -42,11 +43,11 @@
     [range_ok], [get_d_ok] and the hypothesis of the MPFR function that
     the field calls, such as [exp_ok] for [p_exp]. [PointTheorems.v]
     restates [exp_correct] as [exp_correct_point], for every record
-    [point] whose [p_exp] does what [Contract.v] asks of it, and five
-    other theorems the same way, and [DyPoint.v] applies them to the
-    dyadic kernel's functions. The theorems about the elementary
-    functions that are stated for [m], [exp_correct] among them,
-    assume of [m] only what this file states. *)
+    [point] whose [p_exp] does what [Contract.v] asks of it, and the
+    other theorems that its header lists the same way, and [DyPoint.v]
+    applies them to the dyadic kernel's functions. The theorems about the
+    elementary functions that are stated for [m], [exp_correct] among
+    them, assume of [m] only what this file states. *)
 
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -166,14 +167,15 @@ Definition atan_ok (emin emax : Z) (m : mpfr) : Prop :=
     first reading: the bullets with one infinite argument say "for finite
     x", "for finite y > 0" or "for finite y < 0", and those of
     [atan2(±0, x) = ±0] say only "for x > 0". The entry cites the ISO C99
-    and IEEE 754 standards for its special values. MPFR's [src/atan2.c]
-    lists them in a comment (l.66-79 in MPFR 4.2.2) that names no source,
-    with a marker [313)], as of a footnote, at the end of its first
-    bullet. Its bullets for these points,
-    [atan2(±0, x) returns ±0, for x > 0] and
-    [atan2(±y, +oo) returns ±0, for finite y > 0], give the same two
-    readings and the same contrast. The zeros are exact, so they are
-    stated for both directions, and [PI] and [PI / 2] are rounded. *)
+    and IEEE 754 standards for its special values. C99 gives those of
+    [atan2] in its Annex F, whose F.9.1.4, in the draft N1256 of C99
+    (ISO/IEC 9899:TC3), says [atan2(±0, x) returns ±0 for x > 0] and
+    [atan2(±y, +inf) returns ±0 for finite y > 0], with the same two
+    readings and the same contrast. MPFR's [src/atan2.c] lists the bullets
+    of F.9.1.4, with the same values and conditions, in a comment (l.66-79
+    in MPFR 4.2.2) that names no source, in another order, after the
+    footnote of their first bullet. The zeros are exact, so they are stated
+    for both directions, and [PI] and [PI / 2] are rounded. *)
 Definition atan2_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct2 emin emax (fun y x => y <> 0 \/ 0 < x) Ratan2 (mpfr_atan2 m) /\
   (* [atan2(y, +inf)] is a zero for a finite [y > 0], for a finite [y < 0]

@@ -16,9 +16,9 @@
     [mpfr_point m], a coercion in [Model.v], holds for every record [p]
     that satisfies the counterparts in [Contract.v] of its [<f>_ok]: apply
     it at [of_point p] and the range of [f64], and rewrite with
-    [mpfr_point_of_point]. [PointTheorems.v] does that for one such
-    theorem, [exp_correct]; the others are stated only for MPFR functions
-    [m]. *)
+    [mpfr_point_of_point]. [PointTheorems.v] does that for the theorems
+    that its header lists, such as [exp_correct]; the others are stated
+    only for MPFR functions [m]. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia FunctionalExtensionality.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
