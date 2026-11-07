@@ -2,13 +2,19 @@
 // toward +∞ if `up` and toward -∞ otherwise, as `sin_rd`, `sin_ru` and the others of
 // `src/mpfr_calls/mpfr.rs` round them with MPFR.
 //
-// Each function first settles some arguments by rules: NaN and ±∞, at which it is NaN, and the
+// Each function first settles some arguments by rules: NaN and ±∞, at which it is NaN, the
 // arguments of magnitude below 2^-26, whose results are within an ulp of x for sin and tan and
-// of 1 for cos, all as MPFR gives them. Ziv's strategy cannot settle an argument whose result
-// is an `f64` unless an enclosure has that `f64` as its bound in the direction of the rounding
-// (the header of `src/dyadic/exp.rs` says why), and no nonzero `f64` has a sin, cos or tan
-// that is one, by the theorem of Lindemann and Weierstrass, as an `f64` is algebraic, which is
-// not proved here. `ziv` computes the rest from an `Eval`.
+// of 1 for cos, and some of those of magnitude in [2^-26, 2^-13) for sin and [2^-26, 2^-14)
+// for cos and tan, at which the first two terms of the series and a bound on the rest put the
+// result strictly between two adjacent `f64`s (`sin_small`, `cos_small` and `tan_small`), all
+// as MPFR gives them. The last rules are for arguments with few bits, such as m 2^-26 for an
+// integer m, at which the result can lie closer to an `f64` than the first level of `ziv`
+// resolves: cos t is above the `f64` 1 - t^2 / 2 by less than t^4 / 24 there. Ziv's strategy
+// cannot settle an argument whose result is an `f64` unless an enclosure has that `f64` as its
+// bound in the direction of the rounding (the header of `src/dyadic/exp.rs` says why), and no
+// nonzero `f64` has a sin, cos or tan that is one, by the theorem of Lindemann and
+// Weierstrass, as an `f64` is algebraic, which is not proved here. `ziv` computes the rest
+// from an `Eval`.
 //
 // The evaluations take t = |x|, as sin and tan are odd and cos is even, and reduce it to
 // t = k π/2 + σ ρ for an integer k >= 0, a sign σ and an enclosure of ρ (`reduce`). The
@@ -43,8 +49,10 @@
 // where it returns rather than panics, returns its result rounded as `mpfr_round` in
 // `rocq/theories/Mpfr.v` says. It builds on `rocq/theories/DyTrigReduce.v` for `reduce`,
 // `rocq/theories/DyTrigCore.v` for `series` and `sin_k`, `rocq/theories/TrigSeries.v` for the
-// bounds of the series and the identities that the evaluations use, and
-// `rocq/theories/DyTrigTiny.v` for the rules at tiny arguments. That `ziv` returns is not
+// bounds of the series and the identities that the evaluations use,
+// `rocq/theories/DyTrigTiny.v` for the rules at tiny arguments, and
+// `rocq/theories/DyTrigSmall.v`, `rocq/theories/DyCosSmall.v`, `rocq/theories/DySinSmall.v`
+// and `rocq/theories/DyTanSmall.v` for those at small arguments. That `ziv` returns is not
 // proved.
 
 use super::{
@@ -245,6 +253,106 @@ impl Eval for Tan {
     }
 }
 
+// m^3 = h 2^64 + l as (h, l), for m < 2^53, as m^3 has up to 159 bits: m^2 < 2^106 splits at
+// bit 64, and each part times m fits in a `u128`.
+fn cube(m: u128) -> (u128, u64) {
+    let sq = m * m;
+    let lo = u128::from(sq as u64) * m;
+    ((sq >> 64) * m + (lo >> 64), lo as u64)
+}
+
+// cos t rounded toward +∞ if `up` and toward -∞ otherwise, for a t in [2^-26, 2^-14) at which
+// 1 - t^2 / 2 and a bound on the rest of the series put cos t strictly between two adjacent
+// `f64`s, as below, and `None` otherwise. t = m 2^(be - 1075) for the biased
+// exponent `be` of t, in 997..=1008 there, and m in [2^52, 2^53). Then
+// t^2 / 2 = m^2 2^-(s + 53) = (k + r 2^-s) 2^-53 exactly, for s = 2098 - 2 be in [82, 104],
+// k = m^2 >> s, at least 1, and r = m^2 mod 2^s. The series puts cos t in
+// (1 - t^2 / 2, 1 - t^2 / 2 + t^4 / 24], and t^4 / 24 < 2^(4 E + 4) / 24 < 2^(104 - 2 s),
+// with E = be - 1023 = 26 - s / 2, as t < 2^(E + 1). If r = 0, 1 - t^2 / 2 is the `f64`
+// 1 - k 2^-53, and cos t lies above it by less than 2^-53, as s >= 82. If r >= 2^(157 - s),
+// 1 - t^2 / 2 lies strictly between the `f64`s 1 - (k + 1) 2^-53 and 1 - k 2^-53, at least
+// 2^(104 - 2 s) below the second, more than t^4 / 24, so that cos t lies between them too.
+// In both cases cos t lies strictly between 1 - j 2^-53 and the next `f64`, for
+// j = k + (r != 0), as their bits are those of 1 minus j and that plus 1.
+fn cos_small(t: f64, up: bool) -> Option<f64> {
+    let b = t.to_bits();
+    let be = b >> 52;
+    if !(997..=1008).contains(&be) {
+        return None;
+    }
+    let m = u128::from((b & ((1 << 52) - 1)) | 1 << 52);
+    let s = 2098 - 2 * be;
+    let sq = m * m;
+    let k = sq >> s;
+    let r = sq & ((1u128 << s) - 1);
+    if r != 0 && r >> (157 - s) == 0 {
+        return None;
+    }
+    let j = k as u64 + u64::from(r != 0);
+    Some(f64::from_bits(1.0f64.to_bits() - j + u64::from(up)))
+}
+
+// sin x rounded toward +∞ if `up` and toward -∞ otherwise, for an |x| in [2^-26, 2^-13) at
+// which t - t^3 / 6, for t = |x|, and a bound on the rest of the series put sin t strictly
+// between two adjacent `f64`s of the binade of t, as below, and `None` otherwise. For t = m g,
+// with g = 2^(be - 1075) the ulp of t as in `cos_small`, `be` in 997..=1009 there, and
+// N = m^3 = h 2^64 + l (`cube`), t^3 / 6 = c g with c = N / D, D = 6 2^(s + 64) and
+// s = 2086 - 2 be in [68, 92]. The series puts sin t in (t - c g, t - (c - w) g], with
+// w = t^5 / (120 g) < 2^(4 E + 57) / 120 < 2^(64 + d) / D, for E = be - 1023 and
+// d = 2 be - 1953 in [41, 65]. j = floor((N - 1) / D), computed from the floor of
+// (N - 1) / 2^64, which is h if l > 0 and h - 1 if l = 0, is the integer below c and at least
+// c - 1. It equals floor((N - 2^(64 + d)) / D) exactly when j <= c - 2^(64 + d) / D, and
+// then j < c - w < c <= j + 1, so sin t lies strictly between t - (j + 1) g and t - j g.
+// They are the `f64`s whose bits are those of t minus j + 1, and those plus 1, if the stored
+// significand f of t is above j, so that the first is in the binade of t. sin is odd, so the
+// rounding of sin x for x < 0 is minus that of sin t in the other direction.
+fn sin_small(x: f64, up: bool) -> Option<f64> {
+    let b = x.abs().to_bits();
+    let be = b >> 52;
+    if !(997..=1009).contains(&be) {
+        return None;
+    }
+    let f = b & ((1 << 52) - 1);
+    let (h, l) = cube(u128::from(f | 1 << 52));
+    let s = 2086 - 2 * be;
+    let j = ((h - u128::from(l == 0)) >> s) / 6;
+    if ((h - (1u128 << (2 * be - 1953))) >> s) / 6 != j || u128::from(f) <= j {
+        return None;
+    }
+    let neg = x < 0.0;
+    let v = f64::from_bits(b - (j as u64 + 1) + u64::from(up != neg));
+    Some(if neg { -v } else { v })
+}
+
+// tan x rounded toward +∞ if `up` and toward -∞ otherwise, for an |x| in [2^-26, 2^-14) at
+// which t + t^3 / 3, for t = |x|, and a bound on the rest put tan t strictly between two
+// adjacent `f64`s, as below, and `None` otherwise. With g, `be`, in
+// 997..=1008 there, N, s and E as in `sin_small`, t^3 / 3 = c g with c = N / D and
+// D = 3 2^(s + 64). The series of sin and cos put tan t in (t + c g, t + (c + w) g) with
+// w = t^5 / (4 g) < 2^(4 E + 55) < 2^(64 + d) / D, for d = 2 be - 1949 in [45, 67].
+// j = floor(N / D) equals floor((N + 2^(64 + d)) / D) exactly when
+// c + 2^(64 + d) / D < j + 1, and then j <= c < c + w < j + 1, so tan t lies strictly between
+// t + j g and t + (j + 1) g. They are the `f64`s whose bits are those of t plus j, and those
+// plus 1, if f + j < 2^52 for the stored significand f of t, so that the first is in the
+// binade of t. tan is odd, as sin is.
+fn tan_small(x: f64, up: bool) -> Option<f64> {
+    let b = x.abs().to_bits();
+    let be = b >> 52;
+    if !(997..=1008).contains(&be) {
+        return None;
+    }
+    let f = b & ((1 << 52) - 1);
+    let (h, _) = cube(u128::from(f | 1 << 52));
+    let s = 2086 - 2 * be;
+    let j = (h >> s) / 3;
+    if ((h + (1u128 << (2 * be - 1949))) >> s) / 3 != j || u128::from(f) + j >= 1 << 52 {
+        return None;
+    }
+    let neg = x < 0.0;
+    let v = f64::from_bits(b + j as u64 + u64::from(up != neg));
+    Some(if neg { -v } else { v })
+}
+
 /// sin x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn sin(x: f64, up: bool) -> f64 {
     if !x.is_finite() {
@@ -253,7 +361,7 @@ pub(crate) fn sin(x: f64, up: bool) -> f64 {
         // x - x^3 / 6 <= sin x < x for x in (0, 1], and sin is odd.
         toward_zero(x, up)
     } else {
-        ziv(&Sin(x), up, 1)
+        sin_small(x, up).unwrap_or_else(|| ziv(&Sin(x), up, 1))
     }
 }
 
@@ -267,7 +375,7 @@ pub(crate) fn cos(x: f64, up: bool) -> f64 {
         // t < 2^-26. cos 0 = 1.
         near_one(-t, up)
     } else {
-        ziv(&Cos(t), up, 1)
+        cos_small(t, up).unwrap_or_else(|| ziv(&Cos(t), up, 1))
     }
 }
 
@@ -279,6 +387,6 @@ pub(crate) fn tan(x: f64, up: bool) -> f64 {
         // x < tan x < x + x^3 / 2 for x in (0, 2^-26), and tan is odd.
         away(x, up)
     } else {
-        ziv(&Tan(x), up, 1)
+        tan_small(x, up).unwrap_or_else(|| ziv(&Tan(x), up, 1))
     }
 }

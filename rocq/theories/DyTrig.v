@@ -4,7 +4,8 @@
     where they return, round [sin], [cos] and [tan] of a finite [x] in
     the direction [up] ([sin_dir_correct], [cos_dir_correct] and
     [tan_dir_correct]): the rules of [DyTrigTiny.v] for [|x| < 2^-26],
-    and otherwise [ziv_correct] of [DyDriver.v] with the enclosures of
+    those of [DyCosSmall.v], [DySinSmall.v] and [DyTanSmall.v] where they
+    return, and otherwise [ziv_correct] of [DyDriver.v] with the enclosures of
     [ev_sin_correct], [ev_cos_correct] and [ev_tan_correct]. Each [ev_]
     reduces [|x|] to [k π/2 ± ρ] ([reduce_correct] of [DyTrigReduce.v]),
     encloses [sin] or [cos] of [ρ] by the series ([DyTrigCore.v]), and
@@ -18,7 +19,7 @@ From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary LogReal DyRound DyConv DyOps DyDriver DyGrow
   DyConst DyExpCore DyExpRules DyExp ExpReal DyHypRules DyLogRules DyLogCore DyLog DyLogHyp
-  TrigSeries DyTrigTiny DyTrigReduce DyTrigCore MpfrRound.
+  TrigSeries DyTrigTiny DyCosSmall DySinSmall DyTanSmall DyTrigReduce DyTrigCore MpfrRound.
 
 Open Scope Z_scope.
 
@@ -172,6 +173,8 @@ intros x up v Fx H. unfold DyadicTrig.sin_dir in H.
 rewrite Fx in H. cbv [negb] in H.
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
 { injection H as <-. exact (sin_tiny_rule x up Fx G). }
+destruct (DyadicTrig.sin_small x up) as [w|] eqn:S; cbv iota in H.
+{ injection H as <-. exact (sin_small_rule x up w Fx S). }
 apply (ziv_correct (DyadicTrig.ev_sin x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_sin_correct x n a Hn Fx Ha).
 Qed.
@@ -186,6 +189,8 @@ intros x up v Fx H. unfold DyadicTrig.cos_dir in H. cbv zeta in H.
 rewrite (trg_fabs_finite x Fx) in H. cbv [negb] in H.
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
 { injection H as <-. exact (cos_tiny_rule x up Fx G). }
+destruct (DyadicTrig.cos_small (fabs x) up) as [w|] eqn:S; cbv iota in H.
+{ injection H as <-. exact (cos_small_rule x up w Fx S). }
 apply (ziv_correct (DyadicTrig.ev_cos (fabs x)) up 1%nat); [|exact H].
 intros n a Hn Ha.
 destruct (ev_cos_correct (fabs x) n a Hn (trg_fabs_finite x Fx) (trg_fabs_pos x) Ha)
@@ -204,6 +209,8 @@ intros x up v Fx H. unfold DyadicTrig.tan_dir in H.
 rewrite Fx in H. cbv [negb] in H.
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
 { injection H as <-. exact (tan_tiny_rule x up Fx G). }
+destruct (DyadicTrig.tan_small x up) as [w|] eqn:S; cbv iota in H.
+{ injection H as <-. exact (tan_small_rule x up w Fx S). }
 apply (ziv_correct (DyadicTrig.ev_tan x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_tan_correct x n a Hn Fx Ha).
 Qed.

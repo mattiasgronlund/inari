@@ -2385,8 +2385,10 @@ End DyadicAtan.
     the literals [1.0] and [-1.0], and [PI] is that of [DyadicConsts].
     The scratch buffer of [reduce] is not modelled, as the one of
     [with_buf] is not. [DyTrigReduce.v], [DyTrigCore.v] and [DyTrig.v]
-    prove them, with the rules before the loop proved in [DyTrigTiny.v],
-    and [DyPoint.v] makes a [point] of them. *)
+    prove them, with the rules before the loop proved in [DyTrigTiny.v]
+    and, for [cos_small], [sin_small] and [tan_small], in [DyCosSmall.v],
+    [DySinSmall.v] and [DyTanSmall.v], and [DyPoint.v] makes a [point] of
+    them. *)
 Module DyadicTrig.
 
 (** [NO_REDUCE] = 0.78515625 = 201/256, written with [from_bits]. *)
@@ -2499,25 +2501,95 @@ Definition ev_tan (x : f64) (n : nat) : option Dyadic.encl :=
   let* v := if odd then Dyadic.encl_div n c s else Dyadic.encl_div n s c in
   Some (if xorb (xorb neg odd) (lt x zero) then Dyadic.encl_neg n v else v).
 
+(** [fn cube(m: u128) -> (u128, u64)], where [sq as u64] and [lo as u64]
+    are [mod 2 ^ 64], [u128::from] keeps the value, and the products and
+    the sum, which cannot overflow for the [m < 2^53] that its callers
+    pass, are computed without a check. *)
+Definition cube (m : Z) : Z * Z :=
+  let sq := m * m in
+  let lo := sq mod 2 ^ 64 * m in
+  (Z.shiftr sq 64 * m + Z.shiftr lo 64, lo mod 2 ^ 64).
+
+(** [fn cos_small(t: f64, up: bool) -> Option<f64>], where
+    [(997..=1008).contains(&be)] is [(997 <=? be) && (be <=? 1008)],
+    [u128::from] of an integer and [k as u64], for the [k < 2^24] there,
+    keep the value, [u64::from] of a [bool] is [Z.b2z],
+    [1.0f64.to_bits()] is [0x3ff0000000000000], and [2098 - 2 * be],
+    [157 - s], the shifts, which are by less than 128, and the bits of
+    the result, which stay below [2^64], are computed without a check. *)
+Definition cos_small (t : f64) (up : bool) : option f64 :=
+  let b := to_bits t in
+  let be := Z.shiftr b 52 in
+  if negb ((997 <=? be) && (be <=? 1008)) then None else
+  let m := Z.lor (Z.land b (Z.shiftl 1 52 - 1)) (Z.shiftl 1 52) in
+  let s := 2098 - 2 * be in
+  let sq := m * m in
+  let k := Z.shiftr sq s in
+  let r := Z.land sq (Z.shiftl 1 s - 1) in
+  if negb (r =? 0) && (Z.shiftr r (157 - s) =? 0) then None else
+  Some (from_bits (0x3ff0000000000000 - (k + Z.b2z (negb (r =? 0))) + Z.b2z up)).
+
+(** [fn sin_small(x: f64, up: bool) -> Option<f64>], where [x.abs()] is
+    [fabs x], [x < 0.0] is [lt x zero], [a != b] of two [bool]s is
+    [xorb], [-v] is [opp v], [/ 6] of a [u128] is [Z.div], [j as u64],
+    for the [j < 2^25] there, keeps the value, the differences
+    [h - u128::from(l == 0)] and [h - (1u128 << (2 * be - 1953))], which
+    are not negative, as [h >= 2^92], [b - (j as u64 + 1)], which is not
+    negative after the test [f <= j], and [2 * be - 1953] are computed
+    without a check, and the rest is as in [cos_small]. *)
+Definition sin_small (x : f64) (up : bool) : option f64 :=
+  let b := to_bits (fabs x) in
+  let be := Z.shiftr b 52 in
+  if negb ((997 <=? be) && (be <=? 1009)) then None else
+  let f := Z.land b (Z.shiftl 1 52 - 1) in
+  let '(h, l) := cube (Z.lor f (Z.shiftl 1 52)) in
+  let s := 2086 - 2 * be in
+  let j := Z.shiftr (h - Z.b2z (l =? 0)) s / 6 in
+  if negb (Z.shiftr (h - Z.shiftl 1 (2 * be - 1953)) s / 6 =? j) || (f <=? j) then None else
+  let neg := lt x zero in
+  let v := from_bits (b - (j + 1) + Z.b2z (xorb up neg)) in
+  Some (if neg then opp v else v).
+
+(** [fn tan_small(x: f64, up: bool) -> Option<f64>], where [/ 3] of a
+    [u128] is [Z.div], [j as u64], for the [j < 2^24] there, keeps the
+    value, [2 * be - 1949] and the sums are computed without a check,
+    and the rest is as in [sin_small]. *)
+Definition tan_small (x : f64) (up : bool) : option f64 :=
+  let b := to_bits (fabs x) in
+  let be := Z.shiftr b 52 in
+  if negb ((997 <=? be) && (be <=? 1008)) then None else
+  let f := Z.land b (Z.shiftl 1 52 - 1) in
+  let '(h, _) := cube (Z.lor f (Z.shiftl 1 52)) in
+  let s := 2086 - 2 * be in
+  let j := Z.shiftr h s / 3 in
+  if negb (Z.shiftr (h + Z.shiftl 1 (2 * be - 1949)) s / 3 =? j) || (Z.shiftl 1 52 <=? f + j)
+  then None else
+  let neg := lt x zero in
+  let v := from_bits (b + j + Z.b2z (xorb up neg)) in
+  Some (if neg then opp v else v).
+
 (** [pub(crate) fn sin(x: f64, up: bool) -> f64], where [f64::NAN] is
-    [B754_nan] and [x.abs()] is [fabs x]. *)
+    [B754_nan], [x.abs()] is [fabs x], and [o.unwrap_or_else(|| e)] of
+    an [Option<f64>] [o] is [match o with Some v => Some v | None => e
+    end]. *)
 Definition sin_dir (x : f64) (up : bool) : option f64 :=
   if negb (is_finite x) then Some B754_nan
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.toward_zero x up)
-  else Dyadic.ziv (ev_sin x) up 1.
+  else match sin_small x up with Some v => Some v | None => Dyadic.ziv (ev_sin x) up 1 end.
 
-(** [pub(crate) fn cos(x: f64, up: bool) -> f64], where [-t] is [opp t]. *)
+(** [pub(crate) fn cos(x: f64, up: bool) -> f64], where [-t] is [opp t],
+    and the rest is as in [sin_dir]. *)
 Definition cos_dir (x : f64) (up : bool) : option f64 :=
   let t := fabs x in
   if negb (is_finite t) then Some B754_nan
   else if lt t DyadicExp.tiny_hyp then Some (DyadicExp.near_one (opp t) up)
-  else Dyadic.ziv (ev_cos t) up 1.
+  else match cos_small t up with Some v => Some v | None => Dyadic.ziv (ev_cos t) up 1 end.
 
-(** [pub(crate) fn tan(x: f64, up: bool) -> f64] *)
+(** [pub(crate) fn tan(x: f64, up: bool) -> f64], as [sin_dir]. *)
 Definition tan_dir (x : f64) (up : bool) : option f64 :=
   if negb (is_finite x) then Some B754_nan
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.away x up)
-  else Dyadic.ziv (ev_tan x) up 1.
+  else match tan_small x up with Some v => Some v | None => Dyadic.ziv (ev_tan x) up 1 end.
 
 End DyadicTrig.
 

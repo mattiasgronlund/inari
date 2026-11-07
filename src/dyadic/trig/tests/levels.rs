@@ -50,7 +50,9 @@ const KM: f64 = 5.319372648326541e255;
 //   worst case of MPFR's `tests/tsin.c` near a multiple of π, and `KM`, whose ρ are about
 //   2^-53, 2^-54, 2^-53 and 2^-61. `Tan` divides by sin ρ for the odd k of `FRAC_PI_2` and
 //   `KM`, at each level, at which `Encl::div` would panic if the enclosure of sin ρ held 0.
-// - `TINY_HYP`, the least argument that the rules leave to `ziv`.
+// - `TINY_HYP` = 2^-26, the least argument that the rules of sin leave to `ziv`. Those of cos
+//   and tan settle it (`cos_small` and `tan_small`), but `forced` takes the evaluations
+//   themselves.
 // None of the results is an `f64`, by the theorem that the header of `trig.rs` names.
 const ARGS: [f64; 23] = [
     1e-5,
