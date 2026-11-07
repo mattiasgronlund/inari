@@ -189,14 +189,15 @@ Qed.
 (** The end of [scaled], from the check of [y] on. *)
 Lemma scaled_tail :
   forall n y k c E yv,
-  level_ok n -> encl_ok n y -> encl_le E y -> 0 <= E <= 2 ^ 21 -> encl_has y yv ->
+  level_ok n -> encl_ok n y -> encl_le E y -> 0 <= E <= 2 ^ 29 + 2 ^ 20 -> encl_has y yv ->
   - 2 ^ 20 <= k <= 2 ^ 20 ->
   (let* two_d := Dyadic.from_f64 n DyadicExp.two in
    if DyadicExp.dy_lt n (Dyadic.en_lo y) (Dyadic.dy_zero n)
       || DyadicExp.dy_gt n (Dyadic.en_hi y) two_d then None else
    let* e := DyadicExp.exp_neg n y in
    Dyadic.encl_shl n e k) = Some c ->
-  encl_ok n c /\ encl_le (2 ^ 47 + 2 ^ 20) c /\ encl_has c (bpow radix2 k * exp (- yv)).
+  encl_ok n c /\ encl_le (2 ^ 25 * (E + 2 ^ 16) + 2 ^ 20) c /\
+  encl_has c (bpow radix2 k * exp (- yv)).
 Proof.
 intros n y k c E yv Hn Hy HE HE0 Hyv Hk H.
 destruct (Dyadic.from_f64 n DyadicExp.two) as [two_d|] eqn:Et; [|discriminate H].
@@ -219,20 +220,26 @@ assert (Hhi : (Dyadic.dy_R (Dyadic.en_hi y) <= 2)%R).
 unfold encl_has in Hyv.
 destruct (exp_neg_correct n y e E yv Hn (conj Olo (conj Ohi Hle)) HE HE0 Hyv ltac:(lra) Ee)
   as (Oe & Le & He).
-destruct (shl_step n e k c (2 ^ 47) Hn Oe Le ltac:(lia) Hk H) as (Oc & Lc & Hc).
+destruct (shl_step n e k c _ Hn Oe Le ltac:(lia) Hk H) as (Oc & Lc & Hc).
 split; [exact Oc|].
-split; [apply (encl_le_mono (2 ^ 47 + Z.abs k)); [lia | exact Lc]|].
+split; [apply (encl_le_mono (2 ^ 25 * (E + 2 ^ 16) + Z.abs k)); [lia | exact Lc]|].
 rewrite Rmult_comm. exact (Hc _ He).
 Qed.
 
-Lemma scaled_correct :
+(** The bound of the exponents of the result is linear in the bound [E]
+    of those of [y] ([scaled_gen]): [y + ln 2] adds at most [2^15] to it,
+    then [exp_neg_correct] and the shift by [k] give
+    [2^25 (E + 2^15 + 2^16) + 2^20]. [scaled_correct] is its bound for
+    [E <= 2^20]. *)
+Lemma scaled_gen :
   forall n y k h l c E yv,
-  level_ok n -> encl_ok n y -> encl_le E y -> 0 <= E <= 2 ^ 20 ->
+  level_ok n -> encl_ok n y -> encl_le E y -> 0 <= E <= 2 ^ 29 + 2 ^ 19 ->
   dy_ok n h -> - 2 ^ 14 <= Dyadic.dy_exp h <= 2 ^ 14 ->
   encl_ok n l -> encl_le (2 ^ 14) l -> encl_has l (ln 2 - Dyadic.dy_R h) ->
-  - 2048 <= k <= 2048 -> encl_has y yv ->
+  - 2 ^ 14 <= k <= 2 ^ 14 -> encl_has y yv ->
   DyadicExp.scaled n y k h l = Some c ->
-  encl_ok n c /\ encl_le (2 ^ 48) c /\ encl_has c (bpow radix2 k * exp (- yv)).
+  encl_ok n c /\ encl_le (2 ^ 25 * (E + 2 ^ 17) + 2 ^ 20) c /\
+  encl_has c (bpow radix2 k * exp (- yv)).
 Proof.
 intros n y k h l c E yv Hn Hy HEy HE Hh Heh Hl HEl Hhl Hk Hyv H.
 unfold DyadicExp.scaled in H.
@@ -252,15 +259,31 @@ destruct (DyadicExp.dy_lt n (Dyadic.en_lo y) (Dyadic.dy_zero n)) eqn:Lt0.
   destruct (scaled_tail n y2 (k + 1) c _ _ Hn O2 L2 ltac:(lia) H2 ltac:(lia) H)
     as (Oc & Lc & Hc).
   split; [exact Oc|].
-  split; [apply (encl_le_mono (2 ^ 47 + 2 ^ 20)); [lia | exact Lc]|].
+  split; [eapply encl_le_mono; [| exact Lc]; lia|].
   replace (bpow radix2 k * exp (- yv))%R
     with (bpow radix2 (k + 1) * exp (- (yv + ln 2)))%R; [exact Hc|].
   rewrite bpow_plus, Ropp_plus_distr, exp_plus, (exp_Ropp (ln 2)), exp_ln by lra.
   change (bpow radix2 1) with 2%R. field.
 - destruct (scaled_tail n y k c E yv Hn Hy HEy ltac:(lia) Hyv ltac:(lia) H) as (Oc & Lc & Hc).
   split; [exact Oc|].
-  split; [apply (encl_le_mono (2 ^ 47 + 2 ^ 20)); [lia | exact Lc]|].
+  split; [apply (encl_le_mono (2 ^ 25 * (E + 2 ^ 16) + 2 ^ 20)); [lia | exact Lc]|].
   exact Hc.
+Qed.
+
+Lemma scaled_correct :
+  forall n y k h l c E yv,
+  level_ok n -> encl_ok n y -> encl_le E y -> 0 <= E <= 2 ^ 20 ->
+  dy_ok n h -> - 2 ^ 14 <= Dyadic.dy_exp h <= 2 ^ 14 ->
+  encl_ok n l -> encl_le (2 ^ 14) l -> encl_has l (ln 2 - Dyadic.dy_R h) ->
+  - 2 ^ 14 <= k <= 2 ^ 14 -> encl_has y yv ->
+  DyadicExp.scaled n y k h l = Some c ->
+  encl_ok n c /\ encl_le (2 ^ 48) c /\ encl_has c (bpow radix2 k * exp (- yv)).
+Proof.
+intros n y k h l c E yv Hn Hy HEy HE Hh Heh Hl HEl Hhl Hk Hyv H.
+destruct (scaled_gen n y k h l c E yv Hn Hy HEy ltac:(lia) Hh Heh Hl HEl Hhl Hk Hyv H)
+  as (Oc & Lc & Hc).
+split; [exact Oc|]. split; [| exact Hc].
+apply (encl_le_mono (2 ^ 25 * (E + 2 ^ 17) + 2 ^ 20)); [lia | exact Lc].
 Qed.
 
 (** ** [exp_encl] and the [Eval]s *)
@@ -292,8 +315,8 @@ destruct (add_step n b c' y _ _ Hn Ob Oc Lb Lc ltac:(lia) ltac:(lia) Ey) as (Oy 
 specialize (Hy _ _ (Hb _ _ (Ha _ Hhh) Hp) (Hc _ Hhl)).
 replace (Dyadic.dy_R h * IZR k - B2R x + (ln 2 - Dyadic.dy_R h) * IZR k)%R
   with (IZR k * ln 2 - B2R x)%R in Hy by ring.
-destruct (scaled_correct n y k h l c _ _ Hn Oy Ly ltac:(lia) Hh ltac:(lia) Hl HEl Hhl Hk Hy H)
-  as (Oc' & Lc' & Hc').
+destruct (scaled_correct n y k h l c _ _ Hn Oy Ly ltac:(lia) Hh ltac:(lia) Hl HEl Hhl ltac:(lia)
+  Hy H) as (Oc' & Lc' & Hc').
 split; [exact Oc'|]. split; [exact Lc'|].
 rewrite bpow_exp2, <- exp_plus in Hc'.
 replace (IZR k * ln 2 + - (IZR k * ln 2 - B2R x))%R with (B2R x) in Hc' by ring.
@@ -338,8 +361,8 @@ specialize (H2 _ _ Hhh Hhl).
 replace (Dyadic.dy_R h + (ln 2 - Dyadic.dy_R h))%R with (ln 2) in H2 by ring.
 specialize (Hy _ _ (Hg _ _ Hpc Hpx) H2).
 replace ((IZR m - B2R x) * ln 2)%R with (IZR m * ln 2 - B2R x * ln 2)%R in Hy by ring.
-destruct (scaled_correct n y m h l a _ _ Hn Oy Ly ltac:(lia) Hh ltac:(lia) Hl HEl Hhl Hk Hy H)
-  as (Oa & _ & Ha).
+destruct (scaled_correct n y m h l a _ _ Hn Oy Ly ltac:(lia) Hh ltac:(lia) Hl HEl Hhl ltac:(lia)
+  Hy H) as (Oa & _ & Ha).
 split; [exact Oa|].
 unfold Rexp2, Rpower.
 rewrite bpow_exp2, <- exp_plus in Ha.
@@ -383,8 +406,8 @@ specialize (Hy _ _ (Hab _ _ (Ha _ Hhh2) (Hb _ Hhh10)) (Hcd _ _ (Hc _ Hhl2) (Hd _
 replace (Dyadic.dy_R h2 * IZR k - B2R x * Dyadic.dy_R h10 +
          ((ln 2 - Dyadic.dy_R h2) * IZR k - B2R x * (ln 10 - Dyadic.dy_R h10)))%R
   with (IZR k * ln 2 - B2R x * ln 10)%R in Hy by ring.
-destruct (scaled_correct n y k h2 l2 a _ _ Hn Oy Ly ltac:(lia) Hh2 ltac:(lia) Hl2 HEl2 Hhl2 Hk
-  Hy H) as (Oa' & _ & Ha').
+destruct (scaled_correct n y k h2 l2 a _ _ Hn Oy Ly ltac:(lia) Hh2 ltac:(lia) Hl2 HEl2 Hhl2
+  ltac:(lia) Hy H) as (Oa' & _ & Ha').
 split; [exact Oa'|].
 unfold Rexp10, Rpower.
 rewrite bpow_exp2, <- exp_plus in Ha'.

@@ -35,8 +35,8 @@ crate-wide `#[allow]`s. Local allows need a comment explaining why.
   `src/dyadic/tests.rs`, its exponentials and hyperbolic functions in
   `src/dyadic/exp/tests.rs`, its logarithms and inverse hyperbolic functions in
   `src/dyadic/log/tests.rs`, its inverse trigonometric functions in
-  `src/dyadic/atan/tests.rs`, and its trigonometric functions in
-  `src/dyadic/trig/tests.rs`.
+  `src/dyadic/atan/tests.rs`, its trigonometric functions in
+  `src/dyadic/trig/tests.rs`, and its powers in `src/dyadic/pow/tests.rs`.
 
 ## Documentation to update alongside code
 - README.md, "Supported Platforms": add new architectures in the same format,

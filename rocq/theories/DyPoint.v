@@ -1,21 +1,21 @@
 (** * The dyadic kernel's functions as fields of a record [point]
 
     The fields of [point] are total functions, and the functions of
-    [DyadicExp], [DyadicLog], [DyadicAtan] and [DyadicTrig] in [Model.v]
-    return [None] where the Rust panics: at the cap of Ziv's strategy, at
+    [DyadicExp], [DyadicLog], [DyadicAtan], [DyadicTrig] and [DyadicPow]
+    in [Model.v] return [None] where the Rust panics: at the cap of Ziv's strategy, at
     an [assert!], or at a panic of an operation of the kernel. [k_exp],
     [k_ln] and the others are the kernel's result where it returns, and
     the result rounded by definition
     ([round_f64] of [MpfrIdeal.v]) where the Rust panics, so the theorems
     below say nothing about the calls that panic: they cover the calls
     that return. That the loop ends before its cap is not proved.
-    [kernel_point p] is [p] with these nineteen fields. *)
+    [kernel_point p] is [p] with these twenty-one fields. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr MpfrRound MpfrIdeal IdealGetD Elem Cosh
   Atanh Contract OfPointCore OfPoint OfPointElem PointTheorems DyExp DyHyp DyLog DyLogHyp DyAtan
-  DyAsin DyTrig.
+  DyAsin DyTrig DyPowRules DyPown DyPow.
 
 Open Scope R_scope.
 
@@ -46,13 +46,21 @@ Definition k_sin := kernel_field DyadicTrig.sin_dir sin.
 Definition k_cos := kernel_field DyadicTrig.cos_dir cos.
 Definition k_tan := kernel_field DyadicTrig.tan_dir tan.
 
-(** The same for a function [dir] of two [f64]s, [y] first, and the real
-    function [f] of two reals. *)
+(** The same for a function [dir] of two [f64]s and the real function [f]
+    of two reals, in the same order. *)
 Definition kernel_field2 (dir : f64 -> f64 -> bool -> option f64) (f : R -> R -> R)
     (rnd : mpfr_rnd) (y x : f64) : f64 :=
   match dir y x (up_of rnd) with Some v => v | None => round_f64 rnd (f (B2R y) (B2R x)) end.
 
 Definition k_atan2 := kernel_field2 DyadicAtan.atan2_dir Ratan2.
+Definition k_pow := kernel_field2 DyadicPow.pow_dir Rpow.
+
+(** The same for a function [dir] of an [f64] and an integer. *)
+Definition kernel_field_z (dir : f64 -> Z -> bool -> option f64) (f : R -> Z -> R)
+    (rnd : mpfr_rnd) (x : f64) (n : Z) : f64 :=
+  match dir x n (up_of rnd) with Some v => v | None => round_f64 rnd (f (B2R x) n) end.
+
+Definition k_pown := kernel_field_z DyadicPow.pown_dir powerRZ.
 
 Definition kernel_point (p : point) : point := {|
   p_acos := k_acos;
@@ -70,8 +78,8 @@ Definition kernel_point (p : point) : point := {|
   p_ln := k_ln;
   p_log10 := k_log10;
   p_log2 := k_log2;
-  p_pow := p_pow p;
-  p_pown := p_pown p;
+  p_pow := k_pow;
+  p_pown := k_pown;
   p_sin := k_sin;
   p_sinh := k_sinh;
   p_tan := k_tan;
@@ -120,6 +128,21 @@ Proof.
 intros D dir f Hd rnd y x Fy Fx Dyx. unfold kernel_field2.
 destruct (dir y x (up_of rnd)) as [v|] eqn:E.
 - pose proof (Hd y x (up_of rnd) v Fy Fx Dyx E) as H. destruct rnd; exact H.
+- apply round_f64_correct.
+Qed.
+
+(** The same for a function [dir] of an [f64] and an integer, proved for
+    the finite arguments and the [i32]s in the domain [D]. *)
+Lemma kernel_field_z_correct :
+  forall (D : Z -> R -> Prop) (dir : f64 -> Z -> bool -> option f64) (f : R -> Z -> R),
+  (forall x n up v, is_i32 n -> is_finite x = true -> D n (B2R x) -> dir x n up = Some v ->
+   mpfr_round f64_format (if up then RNDU else RNDD) (f (B2R x) n) (with_val v)) ->
+  forall rnd x n, is_i32 n -> is_finite x = true -> D n (B2R x) ->
+  mpfr_round f64_format rnd (f (B2R x) n) (with_val (kernel_field_z dir f rnd x n)).
+Proof.
+intros D dir f Hd rnd x n Hn Fx Dx. unfold kernel_field_z.
+destruct (dir x n (up_of rnd)) as [v|] eqn:E.
+- pose proof (Hd x n (up_of rnd) v Hn Fx Dx E) as H. destruct rnd; exact H.
 - apply round_f64_correct.
 Qed.
 
@@ -440,6 +463,88 @@ split; [| split; [| split; [| split; [| split; [| split]]]]].
   rewrite E. destruct rnd; exact R.
 Qed.
 
+(** [pow_dir] and [pown_dir] return the same [f64] in both directions at
+    the constant clauses of [pow_c] and [pown_c]. *)
+Lemma k_pow_const :
+  forall x y v rnd,
+  DyadicPow.pow_dir x y false = Some v -> DyadicPow.pow_dir x y true = Some v ->
+  k_pow rnd x y = v.
+Proof.
+intros x y v rnd Ed Eu. unfold k_pow, kernel_field2.
+destruct rnd; cbn [up_of]; first [rewrite Ed | rewrite Eu]; reflexivity.
+Qed.
+
+Lemma k_pown_const :
+  forall x n v rnd,
+  DyadicPow.pown_dir x n false = Some v -> DyadicPow.pown_dir x n true = Some v ->
+  k_pown rnd x n = v.
+Proof.
+intros x n v rnd Ed Eu. unfold k_pown, kernel_field_z.
+destruct rnd; cbn [up_of]; first [rewrite Ed | rewrite Eu]; reflexivity.
+Qed.
+
+Theorem k_pow_c : pow_c k_pow.
+Proof.
+split; [exact (kernel_field2_correct _ _ _ pow_dir_correct) |].
+split; [| split; [| split; [| split; [| split; [| split; [| split; [| split; [| split; [| split;
+  [| split; [| split; [| split]]]]]]]]]]]].
+- intros rnd y Fy Hy. unfold k_pow, kernel_field2.
+  rewrite (pow_dir_zero_neg y (up_of rnd) Fy Hy). reflexivity.
+- intros rnd. apply k_pow_const; vm_compute; reflexivity.
+- intros rnd. exists false. apply k_pow_const; vm_compute; reflexivity.
+- intros rnd s.
+  replace (k_pow rnd (B754_zero false) (B754_zero s)) with DyadicExp.one; [apply one_round |].
+  symmetry. apply k_pow_const; destruct s; vm_compute; reflexivity.
+- intros rnd s.
+  replace (k_pow rnd (B754_infinity false) (B754_zero s)) with DyadicExp.one; [apply one_round |].
+  symmetry. apply k_pow_const; destruct s; vm_compute; reflexivity.
+- intros rnd x s Fx Hx.
+  replace (k_pow rnd x (B754_infinity s)) with DyadicExp.one; [apply one_round |].
+  unfold k_pow, kernel_field2. rewrite (pow_dir_one_inf x s (up_of rnd) Fx Hx). reflexivity.
+- intros rnd x Fx Hx. unfold k_pow, kernel_field2.
+  rewrite (pow_dir_lt1_inf x true (up_of rnd) Fx Hx). reflexivity.
+- intros rnd x Fx Hx. exists false. unfold k_pow, kernel_field2.
+  rewrite (pow_dir_gt1_inf x true (up_of rnd) Fx Hx). reflexivity.
+- intros rnd x Fx Hx. exists false. unfold k_pow, kernel_field2.
+  rewrite (pow_dir_lt1_inf x false (up_of rnd) Fx Hx). reflexivity.
+- intros rnd x Fx Hx. unfold k_pow, kernel_field2.
+  rewrite (pow_dir_gt1_inf x false (up_of rnd) Fx Hx). reflexivity.
+- intros rnd y Fy Hy. exists false. unfold k_pow, kernel_field2.
+  rewrite (pow_dir_inf_neg y (up_of rnd) Fy Hy). reflexivity.
+- intros rnd. exists false. apply k_pow_const; vm_compute; reflexivity.
+- intros rnd y Fy Hy. unfold k_pow, kernel_field2.
+  rewrite (pow_dir_inf_pos y (up_of rnd) Fy Hy). reflexivity.
+- intros rnd. apply k_pow_const; vm_compute; reflexivity.
+Qed.
+
+Theorem k_pown_c : pown_c k_pown.
+Proof.
+split; [exact (kernel_field_z_correct _ _ _ pown_dir_correct) |].
+split; [| split; [| split; [| split; [| split; [| split]]]]].
+- intros rnd s n _ Hn He. unfold k_pown, kernel_field_z.
+  rewrite (pown_dir_zero_neg s n (up_of rnd) Hn), <- Z.negb_even, He, Bool.andb_false_r.
+  reflexivity.
+- intros rnd s n _ Hn Ho. unfold k_pown, kernel_field_z.
+  rewrite (pown_dir_zero_neg s n (up_of rnd) Hn), Ho, Bool.andb_true_r. reflexivity.
+- intros rnd n _ Hn. unfold k_pown, kernel_field_z.
+  rewrite (pown_dir_inf false n (up_of rnd) ltac:(lia)).
+  replace (n <? 0)%Z with true by (symmetry; apply Z.ltb_lt; exact Hn).
+  eexists; reflexivity.
+- intros rnd.
+  replace (k_pown rnd (B754_infinity false) 0%Z) with DyadicExp.one; [apply one_round |].
+  symmetry. apply k_pown_const; vm_compute; reflexivity.
+- intros rnd n _ Hn. unfold k_pown, kernel_field_z.
+  rewrite (pown_dir_inf false n (up_of rnd) ltac:(lia)).
+  replace (n <? 0)%Z with false by (symmetry; apply Z.ltb_ge; lia). reflexivity.
+- intros rnd n _ Hn Ho. unfold k_pown, kernel_field_z.
+  rewrite (pown_dir_inf true n (up_of rnd) ltac:(lia)).
+  replace (n <? 0)%Z with true by (symmetry; apply Z.ltb_lt; exact Hn).
+  eexists; reflexivity.
+- intros rnd n _ Hn Ho. unfold k_pown, kernel_field_z.
+  rewrite (pown_dir_inf true n (up_of rnd) ltac:(lia)).
+  replace (n <? 0)%Z with false by (symmetry; apply Z.ltb_ge; lia). rewrite Ho. reflexivity.
+Qed.
+
 Theorem k_sin_c : sin_c k_sin.
 Proof. exact (kernel_field_correct _ _ sin_dir_correct). Qed.
 
@@ -507,4 +612,19 @@ Theorem kernel_tan_correct :
 Proof.
 intros p has_fma x Hx.
 exact (tan_correct_point (kernel_point p) k_tan_c k_sin_c k_cos_c has_fma x Hx).
+Qed.
+
+Theorem kernel_pow_correct :
+  forall p first_min first_max x y, valid x -> valid y ->
+  is_tightest (image2_set pow_dom Rpow x y) (Interval.pow (kernel_point p) first_min first_max x y).
+Proof.
+intros p f1 f2 x y Hx Hy. exact (pow_correct_point (kernel_point p) k_pow_c f1 f2 x y Hx Hy).
+Qed.
+
+Theorem kernel_pown_correct :
+  forall p n x, is_i32 n -> valid x ->
+  exists y, Interval.powi (kernel_point p) n x = Some y /\
+    is_tightest (image_dom (pown_dom n) (fun r => powerRZ r n) x) y.
+Proof.
+intros p n x Hn Hx. exact (pown_correct_point (kernel_point p) k_pown_c n x Hn Hx).
 Qed.

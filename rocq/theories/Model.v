@@ -217,6 +217,11 @@ Definition shr (w a s : Z) : option Z :=
 Definition leading_zeros (w a : Z) : Z :=
   if a =? 0 then w else w - 1 - Z.log2 a.
 
+(** [a.trailing_zeros()] for an unsigned integer [a] of [w] bits, where
+    [Z.land a (- a)] is the lowest bit of [a] that is set. *)
+Definition trailing_zeros (w a : Z) : Z :=
+  if a =? 0 then w else Z.log2 (Z.land a (- a)).
+
 (** [a / b] and [a % b] for unsigned integers [a] and [b]. The quotient
     rounds toward zero, which for [a, b >= 0] is the floor that [Z.div]
     computes. *)
@@ -1748,7 +1753,7 @@ Definition dy_gt (n : nat) (x y : Dyadic.dyadic) : bool :=
   match Dyadic.cmp n x y with Gt => true | _ => false end.
 
 (** [fn scaled<N>(y, k, h, l) -> Encl<N>], where [k + 1], which cannot
-    overflow, as [|k| <= 2048], is computed without a check, and the
+    overflow, as [|k| <= 2 ^ 14], is computed without a check, and the
     [assert!] is [None]. *)
 Definition scaled (n : nat) (y : Dyadic.encl) (k : Z) (h : Dyadic.dyadic) (l : Dyadic.encl)
   : option Dyadic.encl :=
@@ -2592,6 +2597,223 @@ Definition tan_dir (x : f64) (up : bool) : option f64 :=
   else match tan_small x up with Some v => Some v | None => Dyadic.ziv (ev_tan x) up 1 end.
 
 End DyadicTrig.
+
+(** ** The powers of the dyadic kernel
+
+    The functions of [src/dyadic/pow.rs]: [pow_dir x y up] is [pow(x, y,
+    up)], and [pown_dir x k up] is [pown(x, n, up)] for [k = n], with
+    [None] where the Rust function panics: an [assert!] of this file,
+    [ziv] at its cap, or any operation of the kernel that panics. The
+    [Eval]s are the functions [ev_pow x y] and [ev_pown x k] of a level
+    [n]. The constants and functions of [src/dyadic/exp.rs] that they use
+    are those of [DyadicExp], as are the literals [1.0] and [-1.0],
+    [reduce] is that of [DyadicLog], and [ln2] that of [DyadicConsts].
+    [DyPowCore.v], [DyPown.v] and [DyPow.v] prove them, with the rules
+    before the loop proved in [DyPowRules.v] and [exact] in
+    [DyPowExact.v], which builds on the integers of [DyPowArith.v], and
+    [DyPoint.v] makes a [point] of them. *)
+Module DyadicPow.
+
+(** [POW_START_BITS] and [POWN_START_BITS]. No proof depends on them. *)
+Definition pow_start_bits : Z := 10.
+Definition pown_start_bits : Z := 9.
+
+(** [k as f64] for an [i64] [k], which rounds to nearest, ties to even,
+    as [of_u64]. *)
+Definition of_i64 (k : Z) : f64 := binary_normalize 53 1024 _ _ mode_NE k 0 false.
+
+(** [c as u64], which saturates, and is 0 for NaN. *)
+Definition to_u64 (c : f64) : Z :=
+  match c with
+  | B754_infinity s => if s then 0 else 2 ^ 64 - 1
+  | _ => Z.max 0 (Z.min (2 ^ 64 - 1) (Btrunc c))
+  end.
+
+(** [fn odd_parts(x: f64) -> (u64, i64)], where [m >> z] is [Z.shiftr],
+    as [z < 64] for the nonzero [x] that its callers pass, and [e + z] is
+    computed without a check. *)
+Definition odd_parts (x : f64) : Z * Z :=
+  let bits := to_bits x in
+  let be := Z.land (Z.shiftr bits 52) 0x7ff in
+  let f := Z.land bits (Z.shiftl 1 52 - 1) in
+  let '(m, e) := if be =? 0 then (f, -1074) else (Z.lor f (Z.shiftl 1 52), be - 1075) in
+  let z := trailing_zeros 64 m in
+  (Z.shiftr m z, e + z).
+
+(** [fn expo(x: f64) -> i64], where the sum is computed without a
+    check. *)
+Definition expo (x : f64) : Z :=
+  let '(m, e) := odd_parts x in e + 63 - leading_zeros 64 m.
+
+(** [fn ilog2(v: i64) -> i64], where [v as u64] is [v mod 2 ^ 64]. *)
+Definition ilog2 (v : Z) : Z := 63 - leading_zeros 64 (v mod 2 ^ 64).
+
+(** [fn ln_expo(x: f64) -> i64], where [-g - 1] and the differences are
+    computed without a check. *)
+Definition ln_expo (x : f64) : Z :=
+  let g := expo x in
+  if 1 <=? g then ilog2 g - 1
+  else if g <=? -2 then ilog2 (- g - 1) - 1
+  else expo (sub x DyadicExp.one) - 1.
+
+(** [fn is_odd_integer(y: f64) -> bool] *)
+Definition is_odd_integer (y : f64) : bool :=
+  negb (eq y zero) && (snd (odd_parts y) =? 0).
+
+(** The loop of [fn small_power(r: u64, p: u64) -> Option<u64>], run [p]
+    times, where [t as u64] is [t], as [t < 2 ^ 53] there. *)
+Fixpoint small_power_loop (fuel : nat) (r q : Z) : option Z :=
+  match fuel with
+  | O => Some q
+  | S f => let t := q * r in if 2 ^ 53 <=? t then None else small_power_loop f r t
+  end.
+
+(** [fn small_power(r: u64, p: u64) -> Option<u64>] *)
+Definition small_power (r p : Z) : option Z := small_power_loop (Z.to_nat p) r 1.
+
+(** The loop of [fn exact], run [k] times, where [mx as f64] is [of_u64
+    mx], [s as u64] is [to_u64], [ex % 2] is [Z.rem], [ex /= 2] is
+    [Z.quot], and [s * s], which stays below 2 ^ 54, is computed without
+    a check. *)
+Fixpoint roots_loop (fuel : nat) (mx ex : Z) : option (Z * Z) :=
+  match fuel with
+  | O => Some (mx, ex)
+  | S f =>
+      let s := to_u64 (fsqrt (of_u64 mx)) in
+      if negb (Z.rem ex 2 =? 0) || negb (s * s =? mx) then None
+      else roots_loop f s (Z.quot ex 2)
+  end.
+
+(** [fn exact(x: f64, y: f64) -> Option<f64>], with [Some None] where it
+    returns [None], and [None] where it panics. [my << ey] stays below
+    2 ^ 64, the [i128] products and sums are computed without a check,
+    [q as f64] is [of_u64 q], and [e as i64], after the check of [e], is
+    [e]. *)
+Definition exact (x y : f64) : option (option f64) :=
+  let '(mx, ex) := odd_parts x in
+  let '(my, ey) := odd_parts y in
+  if 11 <? ey then Some None else
+  let '(p, k) := if 0 <=? ey then (Z.shiftl my ey, 0) else (my, - ey) in
+  match roots_loop (Z.to_nat k) mx ex with
+  | None => Some None
+  | Some (mr, er) =>
+      match (if mr =? 1 then Some 1 else if lt y zero then None else small_power mr p) with
+      | None => Some None
+      | Some q =>
+          let e := if lt y zero then - (er * p) else er * p in
+          if (e <? -1074) || (1023 <? e + (63 - leading_zeros 64 q)) then Some None else
+          let* d := Dyadic.from_f64 1 (of_u64 q) in
+          let* d' := Dyadic.shl 1 d e in
+          let* v := Dyadic.to_f64 1 d' false in
+          Some (Some v)
+      end
+  end.
+
+(** [fn to_k(c: f64) -> i64] of this file, where the [assert!] is
+    [None]. *)
+Definition to_k (c : f64) : option Z :=
+  let k := DyadicExp.to_i64 c in
+  if Z.abs k <=? 2 ^ 14 then Some k else None.
+
+(** The [eval::<N>()] of [Pow(x, y)], where [e as f64] and [k as f64]
+    are [of_i64], and [LOG2_E] is [DyadicExp.log2_e]. *)
+Definition ev_pow (x y : f64) (n : nat) : option Dyadic.encl :=
+  let* d := Dyadic.from_f64 n x in
+  let* (e, a, less) := DyadicLog.reduce n d in
+  let* ah := Dyadic.to_f64 n (Dyadic.en_hi a) true in
+  let r := mul ah DyadicExp.log2_e in
+  let c := mul y (add (of_i64 e) (if less then opp r else r)) in
+  let* k := to_k (fceil c) in
+  let* (h, l) := DyadicConsts.ln2 n in
+  let* pk := Dyadic.encl_point n (of_i64 k) in
+  let* py := Dyadic.encl_point n y in
+  let* ye := DyadicExp.mul_int n py e in
+  let* z := Dyadic.encl_sub n pk ye in
+  let* hl := Dyadic.encl_add n {| Dyadic.en_lo := h; Dyadic.en_hi := h |} l in
+  let* zl := Dyadic.encl_mul n z hl in
+  let* ya := DyadicExp.mul_f64 n a y in
+  let* w := if less then Dyadic.encl_add n zl ya else Dyadic.encl_sub n zl ya in
+  DyadicExp.scaled n w k h l.
+
+(** [pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64], where
+    [f64::NAN] is [B754_nan], [y.is_infinite()] is [eq y infinity || eq
+    y DyadicExp.neg_infinity], [x.is_sign_negative()] is [Bsign x], as
+    [x] is not NaN there, [a == b] of two [bool]s is [Bool.eqb], and the
+    sums of [i64]s are computed without a check. *)
+Definition pow_dir (x y : f64) (up : bool) : option f64 :=
+  if eq y zero then Some DyadicExp.one
+  else if is_nan x then Some x
+  else if is_nan y then Some (if eq x DyadicExp.one then DyadicExp.one else y)
+  else if lt x zero then Some B754_nan
+  else if eq x DyadicExp.one then Some DyadicExp.one
+  else if eq y infinity || eq y DyadicExp.neg_infinity then
+    Some (if Bool.eqb (gt x DyadicExp.one) (gt y zero) then infinity else zero)
+  else if eq x zero then
+    let r := if lt y zero then infinity else zero in
+    Some (if Bsign x && is_odd_integer y then opp r else r)
+  else if eq x infinity then Some (if gt y zero then x else zero)
+  else
+    let ey := expo y in
+    let s := ey + ln_expo x in
+    let above := Bool.eqb (gt y zero) (gt x DyadicExp.one) in
+    if 10 <=? s then Some (if above then DyadicExp.overflow up else DyadicExp.underflow up)
+    else if s <=? -58 then
+      Some (DyadicExp.near_one (if above then DyadicExp.one else DyadicExp.m_one) up)
+    else
+      let* r := exact x y in
+      match r with
+      | Some v => Some v
+      | None =>
+          Dyadic.ziv (ev_pow x y) up (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
+      end.
+
+(** [fn powi<N>(x: &Encl<N>, n: u32) -> Encl<N>] for [n = Zpos p]: [xH]
+    is [n == 1], and [xO q] and [xI q] are the even and the odd [n], with
+    [n / 2 = Zpos q]. *)
+Fixpoint powi (n : nat) (x : Dyadic.encl) (p : positive) : option Dyadic.encl :=
+  match p with
+  | xH => Some x
+  | xO q => let* x2 := Dyadic.encl_mul n x x in powi n x2 q
+  | xI q =>
+      let* x2 := Dyadic.encl_mul n x x in
+      let* r := powi n x2 q in
+      Dyadic.encl_mul n x r
+  end.
+
+(** The [eval::<N>()] of [Pown(x, k)], where [k.unsigned_abs()] is
+    [Z.to_pos (Z.abs k)], as [k <> 0] there. *)
+Definition ev_pown (x : f64) (k : Z) (n : nat) : option Dyadic.encl :=
+  let* px := Dyadic.encl_point n x in
+  let* p := powi n px (Z.to_pos (Z.abs k)) in
+  if k <? 0 then
+    let* one_e := Dyadic.encl_point n DyadicExp.one in
+    Dyadic.encl_div n one_e p
+  else Some p.
+
+(** [fn pown_pos(x: f64, n: i32, up: bool) -> f64] for [k = n], where
+    the products and sums of [i64]s, which stay below 2 ^ 42, are
+    computed without a check. *)
+Definition pown_pos (x : f64) (k : Z) (up : bool) : option f64 :=
+  let g := expo x in
+  let '(lo, hi) := if 0 <? k then (g * k, (g + 1) * k) else ((g + 1) * k, g * k) in
+  if 1024 <=? lo then Some (DyadicExp.overflow up)
+  else if hi <=? -1075 then Some (DyadicExp.underflow up)
+  else Dyadic.ziv (ev_pown x k) up (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat).
+
+(** [pub(crate) fn pown(x: f64, n: i32, up: bool) -> f64] for [k = n],
+    where [n % 2] is [Z.rem], [x.is_infinite()] is as in [pow_dir], and
+    [x.is_sign_negative()] is [Bsign x], as [x] is not NaN there. *)
+Definition pown_dir (x : f64) (k : Z) (up : bool) : option f64 :=
+  if k =? 0 then Some DyadicExp.one
+  else if is_nan x then Some x
+  else if eq x zero || (eq x infinity || eq x DyadicExp.neg_infinity) then
+    let r := if Bool.eqb (eq x zero) (k <? 0) then infinity else zero in
+    Some (if Bsign x && negb (Z.rem k 2 =? 0) then opp r else r)
+  else if lt x zero && negb (Z.rem k 2 =? 0) then
+    let* v := pown_pos (opp x) k (negb up) in Some (opp v)
+  else pown_pos (fabs x) k up.
+
+End DyadicPow.
 
 (** ** MPFR
 

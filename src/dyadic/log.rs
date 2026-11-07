@@ -87,7 +87,7 @@ fn atanh_series<const N: usize>(u: &Encl<N>) -> Encl<N> {
 // enclosure `a` of 2 atanh |s| = |ln m| for s = (m - 1) / (m + 1), and whether m < 1, so that
 // ln d = e ln 2 - a if `less` and e ln 2 + a otherwise. The check of e keeps the proofs from
 // having to bound it.
-fn reduce<const N: usize>(d: &Dyadic<N>) -> (i64, Encl<N>, bool) {
+pub(super) fn reduce<const N: usize>(d: &Dyadic<N>) -> (i64, Encl<N>, bool) {
     assert!(!d.neg && !d.is_zero(), "logarithm of a nonpositive number");
     // 2^(b - 1) <= d < 2^b, which fits an `i128`, as `round_up` of `src/dyadic.rs` takes it.
     let b = i128::from(d.exp) + 64 * N as i128;

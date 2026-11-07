@@ -121,13 +121,19 @@ induction i as [|k IH]; intros t Et t' T Ht HtE HEt0 HEt HT HTr H.
   rewrite Nat2Z.inj_succ. nia.
 Qed.
 
-(** ** [atanh_series] *)
+(** ** [atanh_series]
 
-Lemma atanh_series_correct :
+    The bound of the exponents of the result is linear in the bound [E]
+    of those of [u] ([atanh_series_gen]): the scheme starts from [2^13],
+    each of its [terms n <= 821] steps adds [2E + 2^13 + 2^15]
+    ([lc_series_loop_correct]), and the last product by [u] adds
+    [E + 2^13]. [atanh_series_correct] is its bound for [E <= 2^30]. *)
+
+Lemma atanh_series_gen :
   forall n u c E uv,
   level_ok n -> encl_ok n u -> encl_le E u -> 0 <= E <= 2 ^ 30 -> encl_has u uv ->
   DyadicLog.atanh_series n u = Some c ->
-  encl_ok n c /\ encl_le (2 ^ 43) c /\ encl_has c (Ratanh uv).
+  encl_ok n c /\ encl_le (2 ^ 11 * (E + 2 ^ 15)) c /\ encl_has c (Ratanh uv).
 Proof.
 intros n u c E uv Hn Hu HuE HE Huv H. unfold DyadicLog.atanh_series in H.
 destruct (Dyadic.from_f64 n DyadicLog.half) as [half_d|] eqn:Eh; [|discriminate H].
@@ -178,11 +184,23 @@ split; [exact Hc|]. split.
 - rewrite <- HT1r, Rmult_comm. apply Hcv; [exact Huv | exact HT1].
 Qed.
 
+Lemma atanh_series_correct :
+  forall n u c E uv,
+  level_ok n -> encl_ok n u -> encl_le E u -> 0 <= E <= 2 ^ 30 -> encl_has u uv ->
+  DyadicLog.atanh_series n u = Some c ->
+  encl_ok n c /\ encl_le (2 ^ 43) c /\ encl_has c (Ratanh uv).
+Proof.
+intros n u c E uv Hn Hu HuE HE Huv H.
+destruct (atanh_series_gen n u c E uv Hn Hu HuE HE Huv H) as (Hc & HcE & Hcv).
+split; [exact Hc|]. split; [| exact Hcv].
+apply (encl_le_mono (2 ^ 11 * (E + 2 ^ 15))); [lia | exact HcE].
+Qed.
+
 Lemma reduce_correct :
   forall n d e a less,
   level_ok n -> dy_ok n d -> exp_small d ->
   DyadicLog.reduce n d = Some (e, a, less) ->
-  (0 < Dyadic.dy_R d)%R /\ - 2048 <= e <= 2048 /\ encl_ok n a /\ encl_le (2 ^ 44) a /\
+  (0 < Dyadic.dy_R d)%R /\ - 2048 <= e <= 2048 /\ encl_ok n a /\ encl_le (2 ^ 29) a /\
   encl_has a
     (if less then (IZR e * ln 2 - ln (Dyadic.dy_R d))%R
      else (ln (Dyadic.dy_R d) - IZR e * ln 2)%R).
@@ -220,6 +238,9 @@ assert (Pm : (0 < Dyadic.dy_R m)%R) by (rewrite Vm; apply Rmult_lt_0_compat; [ex
 assert (Lm : ln (Dyadic.dy_R m) = (ln (Dyadic.dy_R d) - IZR e0 * ln 2)%R).
 { rewrite Vm, ln_mult by (try exact Pd; apply bpow_gt_0).
   rewrite bpow_exp, ln_exp, opp_IZR. change (IZR (radix_val radix2)) with 2%R. ring. }
+(* The exponents of [m], [1], [m ± 1] and [s] stay within [2^15 + 2^13],
+   so those of [a1] within [2^11 (2^16 + 2^13) <= 2^28]
+   ([atanh_series_gen]), and those of [a = 2 a1] within [2^28 + 1]. *)
 destruct (hh_correct n m (2 ^ 13) Om ltac:(lia)) as (Ome & Lme & Hme).
 destruct (Dyadic.encl_point n DyadicExp.one) as [one_e|] eqn:E1; [|discriminate H].
 destruct (point_step n _ _ Hn E1) as (Oo & Lo & Vlo & _ & _). rewrite dexp_one_R in Vlo.
@@ -244,10 +265,11 @@ destruct (DyadicExp.dy_lt n m (Dyadic.en_lo one_e)) eqn:Ls.
   specialize (Hnv _ _ Ho1 Hme).
   destruct (div_step n num den s _ _ Hn On Od Ln Ld HE14 HE14 Es) as (Os & Ls' & Hsv).
   specialize (Hsv _ _ Hnv Hdv).
-  destruct (atanh_series_correct n s a1 _ _ Hn Os Ls' ltac:(lia) Hsv Ea) as (Oa & La & Ha).
-  destruct (shl_step n a1 1 a2 (2 ^ 43) Hn Oa La ltac:(lia) ltac:(lia) Ea2) as (Oa2 & La2 & Ha2).
+  destruct (atanh_series_gen n s a1 _ _ Hn Os Ls' ltac:(lia) Hsv Ea) as (Oa & La & Ha).
+  assert (La' : encl_le (2 ^ 28) a1) by (eapply encl_le_mono; [| exact La]; lia).
+  destruct (shl_step n a1 1 a2 (2 ^ 28) Hn Oa La' ltac:(lia) ltac:(lia) Ea2) as (Oa2 & La2 & Ha2).
   split; [exact Pd|]. split; [lia|]. split; [exact Oa2|].
-  split; [apply (encl_le_mono (2 ^ 43 + Z.abs 1)); [lia | exact La2]|].
+  split; [apply (encl_le_mono (2 ^ 28 + Z.abs 1)); [lia | exact La2]|].
   specialize (Ha2 _ Ha). change (bpow radix2 1) with 2%R in Ha2.
   rewrite Rmult_comm, <- ln_atanh_inv in Ha2 by exact Pm. rewrite Lm in Ha2.
   replace (IZR e0 * ln 2 - ln (Dyadic.dy_R d))%R
@@ -264,10 +286,11 @@ destruct (DyadicExp.dy_lt n m (Dyadic.en_lo one_e)) eqn:Ls.
   specialize (Hnv _ _ Hme Ho1).
   destruct (div_step n num den s _ _ Hn On Od Ln Ld HE14 HE14 Es) as (Os & Ls' & Hsv).
   specialize (Hsv _ _ Hnv Hdv).
-  destruct (atanh_series_correct n s a1 _ _ Hn Os Ls' ltac:(lia) Hsv Ea) as (Oa & La & Ha).
-  destruct (shl_step n a1 1 a2 (2 ^ 43) Hn Oa La ltac:(lia) ltac:(lia) Ea2) as (Oa2 & La2 & Ha2).
+  destruct (atanh_series_gen n s a1 _ _ Hn Os Ls' ltac:(lia) Hsv Ea) as (Oa & La & Ha).
+  assert (La' : encl_le (2 ^ 28) a1) by (eapply encl_le_mono; [| exact La]; lia).
+  destruct (shl_step n a1 1 a2 (2 ^ 28) Hn Oa La' ltac:(lia) ltac:(lia) Ea2) as (Oa2 & La2 & Ha2).
   split; [exact Pd|]. split; [lia|]. split; [exact Oa2|].
-  split; [apply (encl_le_mono (2 ^ 43 + Z.abs 1)); [lia | exact La2]|].
+  split; [apply (encl_le_mono (2 ^ 28 + Z.abs 1)); [lia | exact La2]|].
   specialize (Ha2 _ Ha). change (bpow radix2 1) with 2%R in Ha2.
   rewrite Rmult_comm, <- ln_atanh in Ha2 by exact Pm. rewrite Lm in Ha2.
   exact Ha2.
@@ -365,19 +388,19 @@ specialize (Hk _ _ (Hk1 _ Hhh) (Hk2 _ Hhl)).
 replace (Dyadic.dy_R h * IZR e + (ln 2 - Dyadic.dy_R h) * IZR e)%R
   with (IZR e * ln 2)%R in Hk by ring.
 assert (HEk : 0 <= Z.max (2 ^ 13 + 2 ^ 13) (2 ^ 14 + 2 ^ 13) + 2 ^ 13 <= 2 ^ 60) by lia.
-assert (HE44 : 0 <= 2 ^ 44 <= 2 ^ 60) by lia.
+assert (HE29 : 0 <= 2 ^ 29 <= 2 ^ 60) by lia.
 split; [exact Pd|].
 destruct less.
 - (* [a] holds [e ln 2 - ln d]. *)
-  destruct (neg_step n a (2 ^ 44) Hn Oa La) as (On & Ln & Hna).
-  destruct (add_step n k _ c _ _ Hn Ok On Lk Ln HEk HE44 H) as (Oc & Lc & Hc).
+  destruct (neg_step n a (2 ^ 29) Hn Oa La) as (On & Ln & Hna).
+  destruct (add_step n k _ c _ _ Hn Ok On Lk Ln HEk HE29 H) as (Oc & Lc & Hc).
   split; [exact Oc|]. split; [eapply encl_le_mono; [| exact Lc]; lia|].
   specialize (Hc _ _ Hk (Hna _ Ha)).
   replace (ln (Dyadic.dy_R d))
     with (IZR e * ln 2 + - (IZR e * ln 2 - ln (Dyadic.dy_R d)))%R by ring.
   exact Hc.
 - (* [a] holds [ln d - e ln 2]. *)
-  destruct (add_step n k _ c _ _ Hn Ok Oa Lk La HEk HE44 H) as (Oc & Lc & Hc).
+  destruct (add_step n k _ c _ _ Hn Ok Oa Lk La HEk HE29 H) as (Oc & Lc & Hc).
   split; [exact Oc|]. split; [eapply encl_le_mono; [| exact Lc]; lia|].
   specialize (Hc _ _ Hk Ha).
   replace (ln (Dyadic.dy_R d)) with (IZR e * ln 2 + (ln (Dyadic.dy_R d) - IZR e * ln 2))%R

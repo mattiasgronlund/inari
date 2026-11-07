@@ -125,7 +125,7 @@ pub(super) fn mul_int<const N: usize>(a: &Encl<N>, k: i64) -> Encl<N> {
 }
 
 // `a` times the `f64` `x`, as a product of enclosures of nonnegative numbers if `a` is one.
-fn mul_f64<const N: usize>(a: &Encl<N>, x: f64) -> Encl<N> {
+pub(super) fn mul_f64<const N: usize>(a: &Encl<N>, x: f64) -> Encl<N> {
     let p = Encl::point(x.abs()).mul(a);
     if x < 0.0 {
         p.neg()
@@ -138,7 +138,12 @@ fn mul_f64<const N: usize>(a: &Encl<N>, x: f64) -> Encl<N> {
 // `ln2` gives it. If `y` holds negative numbers, the reduction takes k + 1 and y + ln 2 instead.
 // The reductions then put y in [0, 2 ln 2], up to their rounding, and the check that `y` is in
 // [0, 2] keeps the proofs from having to show it.
-fn scaled<const N: usize>(mut y: Encl<N>, mut k: i64, h: &Dyadic<N>, l: &Encl<N>) -> Encl<N> {
+pub(super) fn scaled<const N: usize>(
+    mut y: Encl<N>,
+    mut k: i64,
+    h: &Dyadic<N>,
+    l: &Encl<N>,
+) -> Encl<N> {
     if y.lo < Dyadic::ZERO {
         k += 1;
         y = y.add(&Encl { lo: *h, hi: *h }).add(l);
@@ -262,7 +267,7 @@ impl Eval for Tanh {
 }
 
 // The rounding of a number above MAX.
-fn overflow(up: bool) -> f64 {
+pub(super) fn overflow(up: bool) -> f64 {
     if up {
         f64::INFINITY
     } else {
@@ -271,7 +276,7 @@ fn overflow(up: bool) -> f64 {
 }
 
 // The rounding of a number in (0, 2^-1074).
-fn underflow(up: bool) -> f64 {
+pub(super) fn underflow(up: bool) -> f64 {
     if up {
         f64::from_bits(1)
     } else {

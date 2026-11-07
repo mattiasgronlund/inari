@@ -276,12 +276,15 @@ intros n j. induction j as [|j IH]; intros e Ee w e' Hn He HeE HE0 HEb Hw H.
     exact C.
 Qed.
 
+(** The bound of the exponents of the result is linear in the bound [E]
+    of those of [y]: [series] gives [2^9 (E + j + 2^15)] and each of the
+    [j <= 16] squarings doubles the bound and adds [2^13]. *)
 Lemma exp_neg_correct :
   forall n y e E yv,
-  level_ok n -> encl_ok n y -> encl_le E y -> 0 <= E <= 2 ^ 21 ->
+  level_ok n -> encl_ok n y -> encl_le E y -> 0 <= E <= 2 ^ 29 + 2 ^ 20 ->
   encl_has y yv -> (0 <= yv <= 2)%R ->
   DyadicExp.exp_neg n y = Some e ->
-  encl_ok n e /\ encl_le (2 ^ 47) e /\ encl_has e (exp (- yv)).
+  encl_ok n e /\ encl_le (2 ^ 25 * (E + 2 ^ 16)) e /\ encl_has e (exp (- yv)).
 Proof.
 intros n y e E yv Hn Hy HyE HE Hyv Hyv02 H.
 unfold DyadicExp.exp_neg in H.
@@ -310,18 +313,20 @@ assert (HE4 : 0 <= 2 ^ 9 * (E + Z.abs (- j) + 2 ^ 15) <= 2 ^ 60) by lia.
 destruct (sub_step n one_e u e0 _ _ Hn Ho Hu HoE HuE HE3 HE4 E4) as (He0 & He0E & He0v).
 assert (Hev : encl_has e0 (exp (- sv))).
 { replace (exp (- sv)) with (1 - (1 - exp (- sv)))%R by ring. apply He0v; assumption. }
-(* After [j <= 16] squarings, the bound is below [2^16 2^31]. *)
+(* After [j <= 16] squarings, the bound is below [2^16 2^39]. *)
 assert (Hpj : 1 <= 2 ^ j <= 2 ^ 16).
 { split; [cut (0 < 2 ^ j); [lia | apply Z.pow_pos_nonneg; lia] | apply Z.pow_le_mono_r; lia]. }
 set (Ee := Z.max (2 ^ 13) (2 ^ 9 * (E + Z.abs (- j) + 2 ^ 15)) + 2 ^ 13) in He0E.
-assert (HEe : 0 <= Ee /\ Ee + 2 ^ 13 <= 2 ^ 31) by (unfold Ee; lia).
+assert (HEe : 0 <= Ee /\ Ee <= 2 ^ 9 * (E + 2 ^ 4 + 2 ^ 15) + 2 ^ 13 /\ Ee + 2 ^ 13 <= 2 ^ 39)
+  by (unfold Ee; lia).
 assert (HEb : 2 ^ Z.of_nat (Z.to_nat j) * (Ee + 2 ^ 13) <= 2 ^ 60).
 { rewrite Z2Nat.id by lia. nia. }
 destruct (square_loop_correct n (Z.to_nat j) e0 Ee sv e Hn He0 He0E (proj1 HEe) HEb Hev H)
   as (A & B & C).
 rewrite Z2Nat.id in B, C by lia.
 split; [exact A|]. split.
-- apply (encl_le_mono (2 ^ j * (Ee + 2 ^ 13))); [nia | exact B].
+- assert (Hb : 2 ^ j * (Ee + 2 ^ 13) <= 2 ^ 16 * (2 ^ 9 * (E + 2 ^ 4 + 2 ^ 15) + 2 ^ 14)) by nia.
+  apply (encl_le_mono (2 ^ j * (Ee + 2 ^ 13))); [lia | exact B].
 - (* [y 2^-j 2^j = y] *)
   replace yv with (sv * bpow radix2 j)%R; [exact C |].
   unfold sv. rewrite Rmult_assoc, <- bpow_plus, Z.add_opp_diag_l. cbn [bpow]. ring.

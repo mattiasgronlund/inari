@@ -4,7 +4,8 @@
     [tanh_correct], [cosh_correct], [ln_correct], [log2_correct],
     [log10_correct], [asinh_correct], [acosh_correct], [atanh_correct],
     [atan_correct], [asin_correct], [acos_correct], [atan2_correct],
-    [sin_correct], [cos_correct] and [tan_correct] stated for every
+    [sin_correct], [cos_correct], [tan_correct], [pow_correct] and
+    [powi_correct] stated for every
     record [p] whose fields satisfy the parts of [Contract.v] that they
     need, through [of_point p] ([OfPoint.v]). No other theorem is
     restated this way.
@@ -20,7 +21,7 @@ From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr Elem Cosh Atanh ClosedDom Atan2
   Contract OfPointCore OfPoint OfPointElem OfPointPow.
-From Inari Require Sin Cos Tan.
+From Inari Require Sin Cos Tan Pow Powi.
 
 Open Scope R_scope.
 
@@ -197,4 +198,25 @@ Proof.
 intros p Ht Hs Hc has_fma x Hx. rewrite <- (mpfr_point_of_point p).
 exact (Tan.tan_correct (-1073) 1024 (of_point p) has_fma x range_ok_f64
   (of_point_get_d_ok p) (of_point_tan_ok p Ht) (of_point_sin_ok p Hs) (of_point_cos_ok p Hc) Hx).
+Qed.
+
+Theorem pow_correct_point :
+  forall p, pow_c (p_pow p) ->
+  forall first_min first_max x y, valid x -> valid y ->
+  is_tightest (image2_set pow_dom Rpow x y) (Interval.pow p first_min first_max x y).
+Proof.
+intros p Hp f1 f2 x y Hx Hy. rewrite <- (mpfr_point_of_point p).
+exact (Pow.pow_correct (-1073) 1024 (of_point p) f1 f2 x y range_ok_f64 (of_point_get_d_ok p)
+  (of_point_pow_ok p Hp) Hx Hy).
+Qed.
+
+Theorem pown_correct_point :
+  forall p, pown_c (p_pown p) ->
+  forall n x, is_i32 n -> valid x ->
+  exists y, Interval.powi p n x = Some y /\
+    is_tightest (image_dom (pown_dom n) (fun r => powerRZ r n) x) y.
+Proof.
+intros p Hp n x Hn Hx. rewrite <- (mpfr_point_of_point p).
+exact (Powi.powi_correct (-1073) 1024 (of_point p) n x range_ok_f64 (of_point_get_d_ok p)
+  (of_point_pown_ok p Hp) Hn Hx).
 Qed.
