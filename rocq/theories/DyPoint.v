@@ -1,27 +1,28 @@
 (** * The dyadic kernel's functions as fields of a record [point]
 
     The fields of [point] are total functions, and the functions of
-    [DyadicExp], [DyadicLog] and [DyadicAtan] in [Model.v] return [None]
-    where the Rust panics: at the cap of Ziv's strategy, at an [assert!],
-    or at a panic of an operation of the kernel. [k_exp], [k_ln] and the others are the
-    kernel's result where it returns, and the result rounded by definition
+    [DyadicExp], [DyadicLog], [DyadicAtan] and [DyadicTrig] in [Model.v]
+    return [None] where the Rust panics: at the cap of Ziv's strategy, at
+    an [assert!], or at a panic of an operation of the kernel. [k_exp],
+    [k_ln] and the others are the kernel's result where it returns, and
+    the result rounded by definition
     ([round_f64] of [MpfrIdeal.v]) where the Rust panics, so the theorems
     below say nothing about the calls that panic: they cover the calls
     that return. That the loop ends before its cap is not proved.
-    [kernel_point p] is [p] with these sixteen fields. *)
+    [kernel_point p] is [p] with these nineteen fields. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr MpfrRound MpfrIdeal IdealGetD Elem Cosh
   Atanh Contract OfPointCore OfPoint OfPointElem PointTheorems DyExp DyHyp DyLog DyLogHyp DyAtan
-  DyAsin.
+  DyAsin DyTrig.
 
 Open Scope R_scope.
 
 Definition up_of (rnd : mpfr_rnd) : bool := match rnd with RNDD => false | RNDU => true end.
 
-(** The field of the function [dir] of [DyadicExp], [DyadicLog] or
-    [DyadicAtan] for the real function [f]. *)
+(** The field of the function [dir] of [DyadicExp], [DyadicLog],
+    [DyadicAtan] or [DyadicTrig] for the real function [f]. *)
 Definition kernel_field (dir : f64 -> bool -> option f64) (f : R -> R) (rnd : mpfr_rnd) (x : f64)
   : f64 :=
   match dir x (up_of rnd) with Some v => v | None => round_f64 rnd (f (B2R x)) end.
@@ -41,6 +42,9 @@ Definition k_atanh := kernel_field DyadicLog.atanh_dir Ratanh.
 Definition k_atan := kernel_field DyadicAtan.atan_dir atan.
 Definition k_asin := kernel_field DyadicAtan.asin_dir asin.
 Definition k_acos := kernel_field DyadicAtan.acos_dir acos.
+Definition k_sin := kernel_field DyadicTrig.sin_dir sin.
+Definition k_cos := kernel_field DyadicTrig.cos_dir cos.
+Definition k_tan := kernel_field DyadicTrig.tan_dir tan.
 
 (** The same for a function [dir] of two [f64]s, [y] first, and the real
     function [f] of two reals. *)
@@ -58,7 +62,7 @@ Definition kernel_point (p : point) : point := {|
   p_atan := k_atan;
   p_atan2 := k_atan2;
   p_atanh := k_atanh;
-  p_cos := p_cos p;
+  p_cos := k_cos;
   p_cosh := k_cosh;
   p_exp := k_exp;
   p_exp10 := k_exp10;
@@ -68,9 +72,9 @@ Definition kernel_point (p : point) : point := {|
   p_log2 := k_log2;
   p_pow := p_pow p;
   p_pown := p_pown p;
-  p_sin := p_sin p;
+  p_sin := k_sin;
   p_sinh := k_sinh;
-  p_tan := p_tan p;
+  p_tan := k_tan;
   p_tanh := k_tanh
 |}.
 
@@ -436,6 +440,19 @@ split; [| split; [| split; [| split; [| split; [| split]]]]].
   rewrite E. destruct rnd; exact R.
 Qed.
 
+Theorem k_sin_c : sin_c k_sin.
+Proof. exact (kernel_field_correct _ _ sin_dir_correct). Qed.
+
+Theorem k_cos_c : cos_c k_cos.
+Proof. exact (kernel_field_correct _ _ cos_dir_correct). Qed.
+
+(** [tan_dir_correct] holds at every finite argument, so the domain of
+    [tan] is not used. *)
+Theorem k_tan_c : tan_c k_tan.
+Proof.
+exact (kernel_field_correct_dom _ _ _ (fun x up v Fx _ E => tan_dir_correct x up v Fx E)).
+Qed.
+
 Theorem kernel_atan_correct :
   forall p x, valid x ->
   is_tightest (image_dom real_dom atan x) (Interval.atan (kernel_point p) x).
@@ -463,4 +480,31 @@ Theorem kernel_atan2_correct :
     is_tightest (image2_set atan2_dom Ratan2 y x) z.
 Proof.
 intros p y x Hy Hx. exact (atan2_correct_point (kernel_point p) k_atan2_c y x Hy Hx).
+Qed.
+
+Theorem kernel_sin_correct :
+  forall p has_fma first x, valid x ->
+  exists y, Interval.sin (kernel_point p) has_fma first x = Some y /\
+    is_tightest (image_dom real_dom sin x) y.
+Proof.
+intros p has_fma first x Hx.
+exact (sin_correct_point (kernel_point p) k_sin_c k_cos_c has_fma first x Hx).
+Qed.
+
+Theorem kernel_cos_correct :
+  forall p has_fma first x, valid x ->
+  exists y, Interval.cos (kernel_point p) has_fma first x = Some y /\
+    is_tightest (image_dom real_dom cos x) y.
+Proof.
+intros p has_fma first x Hx.
+exact (cos_correct_point (kernel_point p) k_cos_c k_sin_c has_fma first x Hx).
+Qed.
+
+Theorem kernel_tan_correct :
+  forall p has_fma x, valid x ->
+  exists y, Interval.tan (kernel_point p) has_fma x = Some y /\
+    is_tightest (image_dom tan_dom tan x) y.
+Proof.
+intros p has_fma x Hx.
+exact (tan_correct_point (kernel_point p) k_tan_c k_sin_c k_cos_c has_fma x Hx).
 Qed.

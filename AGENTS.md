@@ -34,8 +34,9 @@ crate-wide `#[allow]`s. Local allows need a comment explaining why.
   formatted bounds in `src/format/diff_tests.rs`, operations of the dyadic kernel in
   `src/dyadic/tests.rs`, its exponentials and hyperbolic functions in
   `src/dyadic/exp/tests.rs`, its logarithms and inverse hyperbolic functions in
-  `src/dyadic/log/tests.rs`, and its inverse trigonometric functions in
-  `src/dyadic/atan/tests.rs`.
+  `src/dyadic/log/tests.rs`, its inverse trigonometric functions in
+  `src/dyadic/atan/tests.rs`, and its trigonometric functions in
+  `src/dyadic/trig/tests.rs`.
 
 ## Documentation to update alongside code
 - README.md, "Supported Platforms": add new architectures in the same format,

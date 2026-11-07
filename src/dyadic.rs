@@ -24,8 +24,8 @@
 // exponents of the enclosures that they return. The constants ln 2, ln 10 and π are in
 // `src/dyadic/consts.rs`, the exponentials and the hyperbolic functions computed with the kernel
 // in `src/dyadic/exp.rs`, the logarithms and the inverse hyperbolic functions in
-// `src/dyadic/log.rs`, and the inverse trigonometric functions in `src/dyadic/atan.rs`, which
-// have their own headers.
+// `src/dyadic/log.rs`, the inverse trigonometric functions in `src/dyadic/atan.rs`, and the
+// trigonometric functions in `src/dyadic/trig.rs`, which have their own headers.
 
 use crate::{limbs, simd::round_up_exact};
 use std::cmp::Ordering;
@@ -36,6 +36,7 @@ mod exp;
 mod log;
 #[cfg(test)]
 mod tests;
+mod trig;
 
 /// `(-1)^neg * m * 2^exp`, normalized as the header says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

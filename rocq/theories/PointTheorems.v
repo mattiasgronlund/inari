@@ -3,10 +3,11 @@
     [exp_correct], [exp2_correct], [exp10_correct], [sinh_correct],
     [tanh_correct], [cosh_correct], [ln_correct], [log2_correct],
     [log10_correct], [asinh_correct], [acosh_correct], [atanh_correct],
-    [atan_correct], [asin_correct], [acos_correct] and [atan2_correct]
-    stated for every record [p] whose fields satisfy the parts of
-    [Contract.v] that they need, through [of_point p] ([OfPoint.v]). No
-    other theorem is restated this way.
+    [atan_correct], [asin_correct], [acos_correct], [atan2_correct],
+    [sin_correct], [cos_correct] and [tan_correct] stated for every
+    record [p] whose fields satisfy the parts of [Contract.v] that they
+    need, through [of_point p] ([OfPoint.v]). No other theorem is
+    restated this way.
     [DyPoint.v] applies them to the dyadic kernel's functions. Another
     theorem about the elementary functions would carry over the same way
     if its only hypotheses on [m] are [get_d_ok] and hypotheses [<f>_ok]
@@ -19,6 +20,7 @@ From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr Elem Cosh Atanh ClosedDom Atan2
   Contract OfPointCore OfPoint OfPointElem OfPointPow.
+From Inari Require Sin Cos Tan.
 
 Open Scope R_scope.
 
@@ -165,4 +167,34 @@ Proof.
 intros p Hp y x Hy Hx. rewrite <- (mpfr_point_of_point p).
 exact (atan2_correct (-1073) 1024 (of_point p) y x range_ok_f64 (of_point_get_d_ok p)
   (of_point_atan2_ok p Hp) Hy Hx).
+Qed.
+
+Theorem sin_correct_point :
+  forall p, sin_c (p_sin p) -> cos_c (p_cos p) ->
+  forall has_fma first x, valid x ->
+  exists y, Interval.sin p has_fma first x = Some y /\ is_tightest (image_dom real_dom sin x) y.
+Proof.
+intros p Hs Hc has_fma first x Hx. rewrite <- (mpfr_point_of_point p).
+exact (Sin.sin_correct (-1073) 1024 (of_point p) has_fma first x range_ok_f64
+  (of_point_get_d_ok p) (of_point_sin_ok p Hs) (of_point_cos_ok p Hc) Hx).
+Qed.
+
+Theorem cos_correct_point :
+  forall p, cos_c (p_cos p) -> sin_c (p_sin p) ->
+  forall has_fma first x, valid x ->
+  exists y, Interval.cos p has_fma first x = Some y /\ is_tightest (image_dom real_dom cos x) y.
+Proof.
+intros p Hc Hs has_fma first x Hx. rewrite <- (mpfr_point_of_point p).
+exact (Cos.cos_correct (-1073) 1024 (of_point p) has_fma first x range_ok_f64
+  (of_point_get_d_ok p) (of_point_cos_ok p Hc) (of_point_sin_ok p Hs) Hx).
+Qed.
+
+Theorem tan_correct_point :
+  forall p, tan_c (p_tan p) -> sin_c (p_sin p) -> cos_c (p_cos p) ->
+  forall has_fma x, valid x ->
+  exists y, Interval.tan p has_fma x = Some y /\ is_tightest (image_dom tan_dom tan x) y.
+Proof.
+intros p Ht Hs Hc has_fma x Hx. rewrite <- (mpfr_point_of_point p).
+exact (Tan.tan_correct (-1073) 1024 (of_point p) has_fma x range_ok_f64
+  (of_point_get_d_ok p) (of_point_tan_ok p Ht) (of_point_sin_ok p Hs) (of_point_cos_ok p Hc) Hx).
 Qed.

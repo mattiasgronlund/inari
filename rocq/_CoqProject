@@ -192,4 +192,9 @@ theories/DyAtanTiny.v
 theories/DyAtanCore.v
 theories/DyAtan.v
 theories/DyAsin.v
+theories/TrigSeries.v
+theories/DyTrigTiny.v
+theories/DyTrigReduce.v
+theories/DyTrigCore.v
+theories/DyTrig.v
 theories/DyPoint.v

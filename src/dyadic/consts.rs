@@ -154,7 +154,8 @@ const LN10: [u64; 66] = [
     0x935d_8ddd_aaa8_ac16,
 ];
 
-// floor(π * 2^4222), in limbs, the least significant first. `pub(super)` for `pi_table` of
+// floor(π * 2^4222), in limbs, the least significant first. `pub(super)` for `reduce` of
+// `src/dyadic/trig.rs`, which divides by its top limbs, and for `pi_table` of
 // `src/dyadic/atan/tests.rs`, which checks it.
 pub(super) const PI: [u64; 66] = [
     0xf8ff_9406_ad9e_530e,

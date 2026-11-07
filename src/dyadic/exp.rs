@@ -281,7 +281,7 @@ fn underflow(up: bool) -> f64 {
 
 // The rounding of a number that is 1 if x = 0, in (1, 1 + 2^-52) if x > 0, and in
 // (1 - 2^-53, 1) if x < 0.
-fn near_one(x: f64, up: bool) -> f64 {
+pub(super) fn near_one(x: f64, up: bool) -> f64 {
     if x == 0.0 {
         1.0
     } else if x > 0.0 {

@@ -13,7 +13,8 @@
     its exponential and hyperbolic functions, [DyConst.v], [DyExp.v],
     [DyHyp.v], those about its logarithms, [DyLog.v] and [DyLogHyp.v],
     those about π and its inverse trigonometric functions, [DyConstPi.v],
-    [DyAtan.v] and [DyAsin.v], and [DyPoint.v], are required without being
+    [DyAtan.v] and [DyAsin.v], the one about its trigonometric functions,
+    [DyTrig.v], and [DyPoint.v], are required without being
     imported, as
     some of their names, such as [add_correct], are those of other
     theorems printed here, and their theorems are printed by qualified
@@ -30,7 +31,7 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu A
   MpfrConsistent Contract OfPointCore OfPoint OfPointElem OfPointPow MpfrPoint
   PointTheorems.
 From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyDriver
-  DyConst DyExp DyHyp DyLog DyLogHyp DyConstPi DyAtan DyAsin DyPoint.
+  DyConst DyExp DyHyp DyLog DyLogHyp DyConstPi DyAtan DyAsin DyTrig DyPoint.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -281,6 +282,9 @@ Print Assumptions DyAtan.atan_dir_correct.
 Print Assumptions DyAtan.atan2_dir_correct.
 Print Assumptions DyAsin.asin_dir_correct.
 Print Assumptions DyAsin.acos_dir_correct.
+Print Assumptions DyTrig.sin_dir_correct.
+Print Assumptions DyTrig.cos_dir_correct.
+Print Assumptions DyTrig.tan_dir_correct.
 Print Assumptions DyPoint.k_exp_c.
 Print Assumptions DyPoint.k_exp2_c.
 Print Assumptions DyPoint.k_exp10_c.
@@ -297,6 +301,9 @@ Print Assumptions DyPoint.k_atan_c.
 Print Assumptions DyPoint.k_asin_c.
 Print Assumptions DyPoint.k_acos_c.
 Print Assumptions DyPoint.k_atan2_c.
+Print Assumptions DyPoint.k_sin_c.
+Print Assumptions DyPoint.k_cos_c.
+Print Assumptions DyPoint.k_tan_c.
 Print Assumptions DyPoint.kernel_exp_correct.
 Print Assumptions DyPoint.kernel_exp2_correct.
 Print Assumptions DyPoint.kernel_exp10_correct.
@@ -313,6 +320,9 @@ Print Assumptions DyPoint.kernel_atan_correct.
 Print Assumptions DyPoint.kernel_asin_correct.
 Print Assumptions DyPoint.kernel_acos_correct.
 Print Assumptions DyPoint.kernel_atan2_correct.
+Print Assumptions DyPoint.kernel_sin_correct.
+Print Assumptions DyPoint.kernel_cos_correct.
+Print Assumptions DyPoint.kernel_tan_correct.
 Print Assumptions E_tightest.
 Print Assumptions FRAC_1_PI_tightest.
 Print Assumptions FRAC_1_SQRT_2_tightest.
@@ -479,10 +489,10 @@ Print Assumptions mpfr_ok_default.
     exponent range of [f64], it satisfies [get_d_ok] and each [<f>_ok] of
     [Mpfr.v] where the field of [p] satisfies [<f>_c]. [mpfr_point m]
     satisfies each [<f>_c] where [m] satisfies [get_d_ok] and [<f>_ok],
-    at an exponent range with [range_ok]. Last, [exp_correct],
-    [exp2_correct], [exp10_correct], [sinh_correct], [tanh_correct] and
-    [cosh_correct] stated for every record [point] whose fields satisfy
-    the parts of [Contract.v] that they need ([PointTheorems.v]). *)
+    at an exponent range with [range_ok]. Last, the nineteen theorems
+    from [exp_correct] to [tan_correct] stated for every record [point]
+    whose fields satisfy the parts of [Contract.v] that they need, in
+    the order of [PointTheorems.v]. *)
 Print Assumptions mpfr_point_of_point.
 Print Assumptions of_point_get_d_ok.
 Print Assumptions of_point_acos_ok.
@@ -543,6 +553,9 @@ Print Assumptions atan_correct_point.
 Print Assumptions asin_correct_point.
 Print Assumptions acos_correct_point.
 Print Assumptions atan2_correct_point.
+Print Assumptions sin_correct_point.
+Print Assumptions cos_correct_point.
+Print Assumptions tan_correct_point.
 
 (** The names whose types quantify over an MPFR anywhere, and those of
     them that [Valid.v] declares, for the check of [MpfrExamples.v] in the

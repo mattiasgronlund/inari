@@ -2367,6 +2367,153 @@ Definition atan2_dir (y x : f64) (up : bool) : option f64 :=
 
 End DyadicAtan.
 
+(** ** The trigonometric functions of the dyadic kernel
+
+    The functions of [src/dyadic/trig.rs]: [sin_dir x up] is [sin(x,
+    up)], and the same for [cos] and [tan], with [None] where the Rust
+    function panics: an [assert!] of this file, [ziv] at its cap, or any
+    operation of the kernel that panics. The [Eval]s are the functions
+    [ev_sin x] and the others of a level [n]. The constants and functions
+    of [src/dyadic/exp.rs] that they use are those of [DyadicExp], as are
+    the literals [1.0] and [-1.0], and [PI] is that of [DyadicConsts].
+    The scratch buffer of [reduce] is not modelled, as the one of
+    [with_buf] is not. [DyTrigReduce.v], [DyTrigCore.v] and [DyTrig.v]
+    prove them, with the rules before the loop proved in [DyTrigTiny.v],
+    and [DyPoint.v] makes a [point] of them. *)
+Module DyadicTrig.
+
+(** [NO_REDUCE] = 0.78515625 = 201/256, written with [from_bits]. *)
+Definition no_reduce : f64 := from_bits 0x3fe9200000000000.
+
+(** [GUARD_LIMBS] *)
+Definition guard_limbs : nat := 2.
+
+(** [fn reduce<N>(t: f64) -> (u64, bool, Encl<N>)], where [(d.exp + 64)
+    as usize] is [Z.to_nat], as [d.exp + 64] is not negative there, [64 *
+    l as i64 - 2], [d.exp + s + 1], which is positive, and [-(s + 1)] are
+    computed without a check, as they cannot overflow, [&PI[66 - l..]] is
+    [skipn], [c.copy_from_slice(p)] and the [sub_assign] are [c], whose
+    borrow is dropped, as is the carry of the [add_assign], and the
+    [assert!] is [None]. *)
+Definition reduce (n : nat) (t : f64) : option (Z * bool * Dyadic.encl) :=
+  if le t no_reduce then
+    let* r := Dyadic.encl_point n t in Some (0, false, r)
+  else
+  let* d := Dyadic.from_f64 1 t in
+  let b := Z.to_nat (Dyadic.dy_exp d + 64) in
+  let l := Nat.min (n + guard_limbs + b / 64) 66 in
+  let s := 64 * Z.of_nat l - 2 in
+  let nx := (l + 1 + b / 64)%nat in
+  let p := skipn (66 - l) DyadicConsts.PI in
+  let x := Limbs.shl_into nx (Dyadic.dy_m d) (Dyadic.dy_exp d + s + 1) in
+  let* (q, r) := Limbs.div_rem x p in
+  let c := fst (Limbs.sub_assign p r false) in
+  let up := match Limbs.cmp r c with Gt => true | _ => false end in
+  let q' := if up then fst (Limbs.add_assign q (1 :: nil)) else q in
+  let e := - (s + 1) in
+  let* k := Dyadic.round n false q' e false true in
+  let center := if up then c else r in
+  let* lo := Dyadic.round n false center e false false in
+  let* hi := Dyadic.round n false center e false true in
+  let w := {| Dyadic.en_lo := lo; Dyadic.en_hi := hi |} in
+  let kd := {| Dyadic.en_lo := Dyadic.dy_zero n; Dyadic.en_hi := k |} in
+  let* rho := if up then Dyadic.encl_add n w kd else Dyadic.encl_sub n w kd in
+  let* m1 := Dyadic.from_f64 n DyadicExp.m_one in
+  if DyadicExp.dy_lt n (Dyadic.en_lo rho) m1 then None else
+  let* p1 := Dyadic.from_f64 n DyadicExp.one in
+  if DyadicExp.dy_gt n (Dyadic.en_hi rho) p1 then None else
+  Some (Z.land (Limbs.limb q' 0) 3, up, rho).
+
+(** [fn terms<N>(z: &Encl<N>) -> u64], where [-bits - z.hi.exp], which
+    is positive there, and [64 * N as u64 + 3 + e], which is below
+    [2^64], are computed without a check. *)
+Definition terms (n : nat) (z : Dyadic.encl) : Z :=
+  if - (64 * Z.of_nat n) <=? Dyadic.dy_exp (Dyadic.en_hi z) then 6 * Z.of_nat n + 5
+  else
+    let e := - (64 * Z.of_nat n) - Dyadic.dy_exp (Dyadic.en_hi z) in
+    Z.min (6 * Z.of_nat n + 5) ((64 * Z.of_nat n + 3 + e) / e).
+
+(** The loop [for k in (0..n).rev() { t = one.sub(&z.mul(&t).div_u64((2
+    * k + 1 + o) * (2 * k + 2 + o))) }] of [series], for [k] from [i - 1]
+    down to 0, where the product, which is below [2^64], is computed
+    without a check. *)
+Fixpoint series_loop (n : nat) (one_e z : Dyadic.encl) (o : Z) (i : nat) (t : Dyadic.encl)
+  : option Dyadic.encl :=
+  match i with
+  | O => Some t
+  | S k =>
+      let* p := Dyadic.encl_mul n z t in
+      let* q := Dyadic.encl_div_u64 n p ((2 * Z.of_nat k + 1 + o) * (2 * Z.of_nat k + 2 + o)) in
+      let* t' := Dyadic.encl_sub n one_e q in
+      series_loop n one_e z o k t'
+  end.
+
+(** [fn series<N>(r: &Encl<N>, odd: bool) -> Encl<N>], where
+    [u64::from(odd)] is [Z.b2z]. *)
+Definition series (n : nat) (r : Dyadic.encl) (odd : bool) : option Dyadic.encl :=
+  let* one_e := Dyadic.encl_point n DyadicExp.one in
+  let* z := Dyadic.encl_mul n r r in
+  let* t :=
+    series_loop n one_e z (Z.b2z odd) (Z.to_nat (terms n z))
+      {| Dyadic.en_lo := Dyadic.dy_zero n; Dyadic.en_hi := Dyadic.en_hi one_e |} in
+  if odd then Dyadic.encl_mul n r t else Some t.
+
+(** [fn sin_k<N>(quad: u64, neg: bool, r: &Encl<N>) -> Encl<N>] *)
+Definition sin_k (n : nat) (quad : Z) (neg : bool) (r : Dyadic.encl) : option Dyadic.encl :=
+  if quad mod 2 =? 0 then
+    let* v := series n r true in
+    Some (if xorb neg (quad mod 4 =? 2) then Dyadic.encl_neg n v else v)
+  else
+    let* v := series n r false in
+    Some (if quad mod 4 =? 3 then Dyadic.encl_neg n v else v).
+
+(** The [eval::<N>()] of [Sin(x)], [Cos(t)] and [Tan(x)], where
+    [x.abs()] is [fabs x], [quad + 1], which cannot overflow, as [quad <
+    4], is computed without a check, and [a != b] of two [bool]s is
+    [xorb]. *)
+Definition ev_sin (x : f64) (n : nat) : option Dyadic.encl :=
+  let* (quad, neg, r) := reduce n (fabs x) in
+  let* v := sin_k n quad neg r in
+  Some (if lt x zero then Dyadic.encl_neg n v else v).
+
+Definition ev_cos (t : f64) (n : nat) : option Dyadic.encl :=
+  let* (quad, neg, r) := reduce n t in
+  sin_k n (quad + 1) neg r.
+
+Definition ev_tan (x : f64) (n : nat) : option Dyadic.encl :=
+  let* (quad, neg, r) := reduce n (fabs x) in
+  let* one_e := Dyadic.encl_point n DyadicExp.one in
+  let* s := series n r true in
+  let* a := Dyadic.encl_sub n one_e s in
+  let* b := Dyadic.encl_add n one_e s in
+  let* p := Dyadic.encl_mul n a b in
+  let* c := Dyadic.encl_sqrt n p in
+  let odd := quad mod 2 =? 1 in
+  let* v := if odd then Dyadic.encl_div n c s else Dyadic.encl_div n s c in
+  Some (if xorb (xorb neg odd) (lt x zero) then Dyadic.encl_neg n v else v).
+
+(** [pub(crate) fn sin(x: f64, up: bool) -> f64], where [f64::NAN] is
+    [B754_nan] and [x.abs()] is [fabs x]. *)
+Definition sin_dir (x : f64) (up : bool) : option f64 :=
+  if negb (is_finite x) then Some B754_nan
+  else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.toward_zero x up)
+  else Dyadic.ziv (ev_sin x) up 1.
+
+(** [pub(crate) fn cos(x: f64, up: bool) -> f64], where [-t] is [opp t]. *)
+Definition cos_dir (x : f64) (up : bool) : option f64 :=
+  let t := fabs x in
+  if negb (is_finite t) then Some B754_nan
+  else if lt t DyadicExp.tiny_hyp then Some (DyadicExp.near_one (opp t) up)
+  else Dyadic.ziv (ev_cos t) up 1.
+
+(** [pub(crate) fn tan(x: f64, up: bool) -> f64] *)
+Definition tan_dir (x : f64) (up : bool) : option f64 :=
+  if negb (is_finite x) then Some B754_nan
+  else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.away x up)
+  else Dyadic.ziv (ev_tan x) up 1.
+
+End DyadicTrig.
+
 (** ** MPFR
 
     [src/elementary.rs] computes the bounds of [exp] and the other
