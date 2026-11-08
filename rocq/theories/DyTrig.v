@@ -1,19 +1,30 @@
 (** * sin, cos and tan in the dyadic kernel
 
-    [sin_dir], [cos_dir] and [tan_dir] of [DyadicTrig] in [Model.v],
-    where they return, round [sin], [cos] and [tan] of a finite [x] in
-    the direction [up] ([sin_dir_correct], [cos_dir_correct] and
-    [tan_dir_correct]): the rules of [DyTrigTiny.v] for [|x| < 2^-26],
-    those of [DyCosSmall.v], [DySinSmall.v] and [DyTanSmall.v] where they
-    return, and otherwise [ziv_correct] of [DyDriver.v] with the enclosures of
-    [ev_sin_correct], [ev_cos_correct] and [ev_tan_correct]. Each [ev_]
-    reduces [|x|] to [k π/2 ± ρ] ([reduce_correct] of [DyTrigReduce.v]),
-    encloses [sin] or [cos] of [ρ] by the series ([DyTrigCore.v]), and
-    picks the quadrant by [k mod 4] ([sin_quad] and [tan_quad] of
-    [TrigSeries.v]). [ev_tan] encloses [cos ρ] as [√((1 - sin ρ)(1 + sin
-    ρ))] ([cos_sqrt]) and returns only where the divisor of its quotient
-    excludes 0, so [tan_dir_correct] needs no hypothesis on the domain of
-    [tan]. That the loop ends before its cap is not proved. *)
+    [sin_dir_post], [cos_dir_post] and [tan_dir_post] prove that, for a
+    finite [x], the results of [sin_dir_with z], [cos_dir_with z] and
+    [tan_dir_with z] of [DyadicTrig] in [Model.v] have the property
+    [post] of [sin], [cos] and [tan] of [x], for any driver [z] and any
+    property [post] that every correct rounding has ([rounds_post] of
+    [DyDriver.v]) and that the results of [z] have ([driver_post]). They
+    use the rules of [DyTrigTiny.v] for [|x| < 2^-26], those of
+    [DyCosSmall.v], [DySinSmall.v] and [DyTanSmall.v] where they return,
+    and otherwise the driver with the enclosures of [ev_sin_correct],
+    [ev_cos_correct] and [ev_tan_correct]. Each [ev_] reduces [|x|] to
+    [k π/2 ± ρ] ([reduce_correct] of [DyTrigReduce.v]), encloses [sin] or
+    [cos] of [ρ] by the series ([DyTrigCore.v]), and picks the quadrant
+    by [k mod 4] ([sin_quad] and [tan_quad] of [TrigSeries.v]). [ev_tan]
+    encloses [cos ρ] as [√((1 - sin ρ)(1 + sin ρ))] ([cos_sqrt]) and
+    returns only where the divisor of its quotient excludes 0, so the
+    theorems on [tan] need no hypothesis on the domain of [tan]. So, for
+    a finite [x]: with the driver [ziv_strict], the kernel rounds [sin],
+    [cos] and [tan] of [x] in the direction [up] where it returns
+    ([sin_dir_correct], [cos_dir_correct] and [tan_dir_correct]); the
+    Rust ([sin_dir] and the others, with [Dyadic.ziv]) returns the same
+    value there ([sin_dir_strict], [cos_dir_strict] and [tan_dir_strict]);
+    and wherever the Rust returns, its result is at or above the exact
+    value if [up] and at or below it otherwise ([sin_dir_side],
+    [cos_dir_side] and [tan_dir_side]). That a rounding test passes
+    by the cap is not proved. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -164,34 +175,59 @@ Qed.
 
 (** ** The functions *)
 
-Theorem sin_dir_correct :
+Lemma sin_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
   forall x up v,
-  is_finite x = true -> DyadicTrig.sin_dir x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (sin (B2R x)) (with_val v).
+  is_finite x = true -> DyadicTrig.sin_dir_with z x up = Some v ->
+  post up (sin (B2R x)) v.
 Proof.
-intros x up v Fx H. unfold DyadicTrig.sin_dir in H.
+intros z post Hp Hz x up v Fx H. unfold DyadicTrig.sin_dir_with in H.
 rewrite Fx in H. cbv [negb] in H.
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
-{ injection H as <-. exact (sin_tiny_rule x up Fx G). }
+{ injection H as <-. apply Hp. exact (sin_tiny_rule x up Fx G). }
 destruct (DyadicTrig.sin_small x up) as [w|] eqn:S; cbv iota in H.
-{ injection H as <-. exact (sin_small_rule x up w Fx S). }
-apply (ziv_correct (DyadicTrig.ev_sin x) up 1%nat); [|exact H].
+{ injection H as <-. apply Hp. exact (sin_small_rule x up w Fx S). }
+apply (Hz (DyadicTrig.ev_sin x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_sin_correct x n a Hn Fx Ha).
 Qed.
 
-(** [cos_dir] works on [t = |x|], and [cos |x| = cos x]. *)
-Theorem cos_dir_correct :
+Theorem sin_dir_correct :
   forall x up v,
-  is_finite x = true -> DyadicTrig.cos_dir x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (cos (B2R x)) (with_val v).
+  is_finite x = true -> DyadicTrig.sin_dir_with ziv_strict x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (sin (B2R x)) (with_val v).
+Proof. exact (sin_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem sin_dir_side :
+  forall x up v,
+  is_finite x = true -> DyadicTrig.sin_dir x up = Some v ->
+  f64_side up (sin (B2R x)) v.
+Proof. exact (sin_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem sin_dir_strict :
+  forall x up v,
+  DyadicTrig.sin_dir_with ziv_strict x up = Some v -> DyadicTrig.sin_dir x up = Some v.
 Proof.
-intros x up v Fx H. unfold DyadicTrig.cos_dir in H. cbv zeta in H.
+intros x up v. unfold DyadicTrig.sin_dir, DyadicTrig.sin_dir_with.
+destruct (negb (is_finite x)); [exact (fun h => h)|].
+destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|].
+destruct (DyadicTrig.sin_small x up); [exact (fun h => h)|].
+apply ziv_strict_ziv.
+Qed.
+
+(** [cos_dir] works on [t = |x|], and [cos |x| = cos x]. *)
+Lemma cos_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
+  forall x up v,
+  is_finite x = true -> DyadicTrig.cos_dir_with z x up = Some v ->
+  post up (cos (B2R x)) v.
+Proof.
+intros z post Hp Hz x up v Fx H. unfold DyadicTrig.cos_dir_with in H. cbv zeta in H.
 rewrite (trg_fabs_finite x Fx) in H. cbv [negb] in H.
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
-{ injection H as <-. exact (cos_tiny_rule x up Fx G). }
+{ injection H as <-. apply Hp. exact (cos_tiny_rule x up Fx G). }
 destruct (DyadicTrig.cos_small (fabs x) up) as [w|] eqn:S; cbv iota in H.
-{ injection H as <-. exact (cos_small_rule x up w Fx S). }
-apply (ziv_correct (DyadicTrig.ev_cos (fabs x)) up 1%nat); [|exact H].
+{ injection H as <-. apply Hp. exact (cos_small_rule x up w Fx S). }
+apply (Hz (DyadicTrig.ev_cos (fabs x)) up 1%nat); [|exact H].
 intros n a Hn Ha.
 destruct (ev_cos_correct (fabs x) n a Hn (trg_fabs_finite x Fx) (trg_fabs_pos x) Ha)
   as (Oa & Ha').
@@ -200,17 +236,64 @@ rewrite trg_fabs_R in Ha'. unfold Rabs in Ha'.
 destruct (Rcase_abs (B2R x)); [rewrite cos_neg in Ha'|]; exact Ha'.
 Qed.
 
-Theorem tan_dir_correct :
+Theorem cos_dir_correct :
   forall x up v,
-  is_finite x = true -> DyadicTrig.tan_dir x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (tan (B2R x)) (with_val v).
+  is_finite x = true -> DyadicTrig.cos_dir_with ziv_strict x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (cos (B2R x)) (with_val v).
+Proof. exact (cos_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem cos_dir_side :
+  forall x up v,
+  is_finite x = true -> DyadicTrig.cos_dir x up = Some v ->
+  f64_side up (cos (B2R x)) v.
+Proof. exact (cos_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem cos_dir_strict :
+  forall x up v,
+  DyadicTrig.cos_dir_with ziv_strict x up = Some v -> DyadicTrig.cos_dir x up = Some v.
 Proof.
-intros x up v Fx H. unfold DyadicTrig.tan_dir in H.
+intros x up v. unfold DyadicTrig.cos_dir, DyadicTrig.cos_dir_with. cbv zeta.
+destruct (negb (is_finite (fabs x))); [exact (fun h => h)|].
+destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|].
+destruct (DyadicTrig.cos_small (fabs x) up); [exact (fun h => h)|].
+apply ziv_strict_ziv.
+Qed.
+
+Lemma tan_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
+  forall x up v,
+  is_finite x = true -> DyadicTrig.tan_dir_with z x up = Some v ->
+  post up (tan (B2R x)) v.
+Proof.
+intros z post Hp Hz x up v Fx H. unfold DyadicTrig.tan_dir_with in H.
 rewrite Fx in H. cbv [negb] in H.
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
-{ injection H as <-. exact (tan_tiny_rule x up Fx G). }
+{ injection H as <-. apply Hp. exact (tan_tiny_rule x up Fx G). }
 destruct (DyadicTrig.tan_small x up) as [w|] eqn:S; cbv iota in H.
-{ injection H as <-. exact (tan_small_rule x up w Fx S). }
-apply (ziv_correct (DyadicTrig.ev_tan x) up 1%nat); [|exact H].
+{ injection H as <-. apply Hp. exact (tan_small_rule x up w Fx S). }
+apply (Hz (DyadicTrig.ev_tan x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_tan_correct x n a Hn Fx Ha).
+Qed.
+
+Theorem tan_dir_correct :
+  forall x up v,
+  is_finite x = true -> DyadicTrig.tan_dir_with ziv_strict x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (tan (B2R x)) (with_val v).
+Proof. exact (tan_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem tan_dir_side :
+  forall x up v,
+  is_finite x = true -> DyadicTrig.tan_dir x up = Some v ->
+  f64_side up (tan (B2R x)) v.
+Proof. exact (tan_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem tan_dir_strict :
+  forall x up v,
+  DyadicTrig.tan_dir_with ziv_strict x up = Some v -> DyadicTrig.tan_dir x up = Some v.
+Proof.
+intros x up v. unfold DyadicTrig.tan_dir, DyadicTrig.tan_dir_with.
+destruct (negb (is_finite x)); [exact (fun h => h)|].
+destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|].
+destruct (DyadicTrig.tan_small x up); [exact (fun h => h)|].
+apply ziv_strict_ziv.
 Qed.

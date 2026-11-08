@@ -6,19 +6,29 @@
     The exponents of the dyadics stay small along the chain of squarings
     by the bounds of [DyGrow.v]. Where [x^k] is an [f64], every product
     and the quotient are exact, so the enclosure is that point at every
-    level ([ev_pown_exact]), and [ziv] returns it ([ziv_exact]).
-    [pown_pos x k up] rounds [x^k] in the direction [up]
-    ([pown_pos_correct]): the rules below, which take bounds on [x^k] from
-    the exponent of [x] ([expo_spec] of [DyPowRules.v]), where one
-    applies, and otherwise [ziv_correct] of [DyDriver.v]. It returns the
-    [f64] [x^k] wherever there is one ([pown_pos_exact]). [pown_dir]
+    level ([ev_pown_exact]), and both drivers of [DyDriver.v] return it
+    at their first level ([driver_exact]: [ziv_strict_exact] and
+    [ziv_exact]). [pown_pos_with z x k up] takes the rules below, which
+    bound [x^k] by the exponent of [x] ([expo_spec] of [DyPowRules.v]),
+    where one applies, and otherwise the driver [z]. [pown_dir_with z]
     returns the special values that [pown_c] of [Contract.v] names
-    ([pown_dir_zero_neg] and [pown_dir_inf]), and otherwise [pown_pos] of
-    [|x|], negated for an odd [k] at [x < 0]. Where it returns, it rounds
-    [powerRZ] of a finite [x] and an [i32] [n] in the domain [pown_dom n]
-    in the direction [up] ([pown_dir_correct]), and it returns the [f64]
-    [x^n] at a finite [x <> 0] wherever there is one ([pown_dir_exact]).
-    That the loop ends before its cap elsewhere is not proved. *)
+    ([pown_dir_zero_neg] and [pown_dir_inf]), and otherwise
+    [pown_pos_with z] of [|x|], negated for an odd [k] at [x < 0].
+    [pown_pos_post] proves the result of [pown_pos_with z] at a finite
+    [x > 0] for any driver [z] and property [post] of correct roundings
+    ([rounds_post]) that [z] gives ([driver_post]), and [pown_dir_post]
+    that of [pown_dir_with z] for such a [post] that negation also
+    carries from [-r] to [r] ([odd_post]): where [pown_dir_with z]
+    returns at a finite [x] and an [i32] [n] in the domain [pown_dom n],
+    its result has the property [post] of [powerRZ] in the direction
+    [up]. With [ziv_strict], the kernel rounds correctly where it returns
+    ([pown_dir_correct]), and the Rust returns the same value there
+    ([pown_dir_strict]). Wherever the Rust returns, its result is on the
+    side of [powerRZ] that [up] names ([pown_dir_side]). Both drivers
+    return the [f64] [x^n] at a finite [x <> 0] wherever there is one
+    ([pown_dir_exact_with], and [pown_dir_exact] of the Rust). That a
+    rounding test passes by the cap at the other arguments is not
+    proved. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -341,7 +351,7 @@ Lemma ziv_at_exact :
   Dyadic.ziv_at ev n up = Some (Some v).
 Proof.
 intros ev up n v Hn Fv Nv (a & Ea & (Hlo & Hhi & _) & Vlo & Vhi).
-unfold Dyadic.ziv_at. rewrite Ea. cbv beta iota.
+unfold Dyadic.ziv_at, Dyadic.round_bounds. rewrite Ea. cbv beta iota.
 destruct (to_f64_correct n (Dyadic.en_lo a) up Hn Hlo) as (v1 & E1 & R1).
 destruct (to_f64_correct n (Dyadic.en_hi a) up Hn Hhi) as (v2 & E2 & R2).
 rewrite E1, E2. cbv beta iota.
@@ -369,7 +379,7 @@ Lemma ziv_levels_exact :
   forall ev up start (v : f64) levels,
   (forall n, In n levels -> level_ok n) -> (exists n, In n levels /\ (start <= n)%nat) ->
   (forall n, level_ok n -> Dyadic.ziv_at ev n up = Some (Some v)) ->
-  Dyadic.ziv_levels ev up start levels = Some v.
+  Dyadic.ziv_levels ev up start levels = Some (Some v).
 Proof.
 intros ev up start v levels. induction levels as [|m ls IH]; intros Hl (n & Hin & Hs) Hz.
 - destruct Hin.
@@ -381,21 +391,30 @@ intros ev up start v levels. induction levels as [|m ls IH]; intros Hl (n & Hin 
     * exact Hz.
 Qed.
 
-(** Where [ev] encloses a nonzero [f64] [v] by the point [v] at every
-    level, [ziv] returns [v] at its first level. *)
-Lemma ziv_exact :
+(** A driver [z] returns a nonzero [f64] [v] where [ev] encloses it by the
+    point [v] at every level, from any start up to 64. *)
+Definition driver_exact (z : (nat -> option Dyadic.encl) -> bool -> nat -> option f64) : Prop :=
   forall ev (up : bool) start (v : f64),
   is_finite v = true -> B2R v <> 0%R -> (start <= 64)%nat ->
   (forall n, level_ok n -> exists a, ev n = Some a /\ encl_ok n a /\
      lo_R a = B2R v /\ hi_R a = B2R v) ->
-  Dyadic.ziv ev up start = Some v.
+  z ev up start = Some v.
+
+(** [ziv_strict], and so [ziv], returns [v] at its first level. *)
+Lemma ziv_strict_exact : driver_exact ziv_strict.
 Proof.
-intros ev up start v Fv Nv Hs Hev. unfold Dyadic.ziv.
-apply ziv_levels_exact.
+intros ev up start v Fv Nv Hs Hev. unfold ziv_strict.
+rewrite (ziv_levels_exact ev up start v).
+- reflexivity.
 - intros n Hin. unfold level_ok. cbn [In] in Hin.
   repeat (destruct Hin as [<- | Hin]; [lia |]). destruct Hin.
 - exists 64%nat. split; [| exact Hs]. cbn [In]. do 6 right. left. reflexivity.
 - intros n Hn. apply ziv_at_exact; [exact Hn | exact Fv | exact Nv | exact (Hev n Hn)].
+Qed.
+
+Lemma ziv_exact : driver_exact Dyadic.ziv.
+Proof.
+intros ev up start v Fv Nv Hs Hev. apply ziv_strict_ziv. exact (ziv_strict_exact ev up start v Fv Nv Hs Hev).
 Qed.
 
 (** ** The rules of [pown_pos]
@@ -527,48 +546,49 @@ Qed.
 
 (** ** [pown_pos] *)
 
-Lemma pown_pos_correct :
+Lemma pown_pos_post :
+  forall z post, rounds_post post -> driver_post z post ->
   forall x k (up : bool) v,
   is_finite x = true -> (0 < B2R x)%R -> k <> 0 -> is_i32 k ->
-  DyadicPow.pown_pos x k up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (powerRZ (B2R x) k) (with_val v).
+  DyadicPow.pown_pos_with z x k up = Some v -> post up (powerRZ (B2R x) k) v.
 Proof.
-intros x k up v Fx Hx Hk Hi E.
-assert (Z : forall start, Dyadic.ziv (DyadicPow.ev_pown x k) up start = Some v ->
-            mpfr_round f64_format (if up then RNDU else RNDD) (powerRZ (B2R x) k) (with_val v)).
-{ intros start Hz. apply (ziv_correct (DyadicPow.ev_pown x k) up start _ v); [| exact Hz].
+intros z post Hp Hz x k up v Fx Hx Hk Hi E.
+assert (Hl : forall start, z (DyadicPow.ev_pown x k) up start = Some v ->
+             post up (powerRZ (B2R x) k) v).
+{ intros start H. apply (Hz (DyadicPow.ev_pown x k) up start _ v); [| exact H].
   intros n a Hn Ea. exact (ev_pown_correct x k n a Hn Fx Hx Hk Hi Ea). }
-unfold DyadicPow.pown_pos in E. cbv zeta in E.
+unfold DyadicPow.pown_pos_with in E. cbv zeta in E.
 destruct (0 <? k) eqn:K; cbv beta iota in E.
 - destruct (1024 <=? DyadicPow.expo x * k) eqn:O.
-  + injection E as <-. apply pown_rule_overflow; [exact Fx | exact Hx |].
+  + injection E as <-. apply Hp. apply pown_rule_overflow; [exact Fx | exact Hx |].
     rewrite K. apply Z.leb_le. exact O.
   + destruct ((DyadicPow.expo x + 1) * k <=? -1075) eqn:U.
-    * injection E as <-. apply pown_rule_underflow; [exact Fx | exact Hx |].
+    * injection E as <-. apply Hp. apply pown_rule_underflow; [exact Fx | exact Hx |].
       rewrite K. apply Z.leb_le. exact U.
-    * exact (Z _ E).
+    * exact (Hl _ E).
 - destruct (1024 <=? (DyadicPow.expo x + 1) * k) eqn:O.
-  + injection E as <-. apply pown_rule_overflow; [exact Fx | exact Hx |].
+  + injection E as <-. apply Hp. apply pown_rule_overflow; [exact Fx | exact Hx |].
     rewrite K. apply Z.leb_le. exact O.
   + destruct (DyadicPow.expo x * k <=? -1075) eqn:U.
-    * injection E as <-. apply pown_rule_underflow; [exact Fx | exact Hx |].
+    * injection E as <-. apply Hp. apply pown_rule_underflow; [exact Fx | exact Hx |].
       rewrite K. apply Z.leb_le. exact U.
-    * exact (Z _ E).
+    * exact (Hl _ E).
 Qed.
 
 Lemma pown_pos_exact :
+  forall z, driver_exact z ->
   forall x k (up : bool) (v : f64),
   is_finite x = true -> (0 < B2R x)%R -> k <> 0 -> is_i32 k ->
   is_finite v = true -> powerRZ (B2R x) k = B2R v ->
-  DyadicPow.pown_pos x k up = Some v.
+  DyadicPow.pown_pos_with z x k up = Some v.
 Proof.
-intros x k up v Fx Hx Hk Hi Fv Hv.
+intros z Hd x k up v Fx Hx Hk Hi Fv Hv.
 assert (Nv : B2R v <> 0%R) by (rewrite <- Hv; apply Rgt_not_eq, powerRZ_lt; exact Hx).
 assert (Hz : forall start, (start <= 64)%nat ->
-             Dyadic.ziv (DyadicPow.ev_pown x k) up start = Some v).
-{ intros start Hs. apply ziv_exact; [exact Fv | exact Nv | exact Hs |].
-  intros n Hn. exact (ev_pown_exact x k n v Hn Fx Hx Hk Hi Fv Hv). }
-unfold DyadicPow.pown_pos. cbv zeta.
+             z (DyadicPow.ev_pown x k) up start = Some v).
+{ intros start Hs. exact (Hd (DyadicPow.ev_pown x k) up start v Fv Nv Hs
+    (fun n Hn => ev_pown_exact x k n v Hn Fx Hx Hk Hi Fv Hv)). }
+unfold DyadicPow.pown_pos_with. cbv zeta.
 destruct (0 <? k) eqn:K; cbv beta iota.
 - destruct (1024 <=? DyadicPow.expo x * k) eqn:O.
   + exfalso. apply (pown_rule_not_exact x k v Fx Hx Fv); [| exact Hv].
@@ -586,6 +606,21 @@ destruct (0 <? k) eqn:K; cbv beta iota.
     * apply Hz. destruct (2 ^ DyadicPow.pown_start_bits <=? Z.abs k); lia.
 Qed.
 
+(** Where [pown_pos_with ziv_strict] returns, [pown_pos] returns the same. *)
+Lemma pown_pos_strict :
+  forall x k up v,
+  DyadicPow.pown_pos_with ziv_strict x k up = Some v -> DyadicPow.pown_pos x k up = Some v.
+Proof.
+intros x k up v. unfold DyadicPow.pown_pos, DyadicPow.pown_pos_with. cbv zeta.
+destruct (0 <? k); cbv beta iota.
+- destruct (1024 <=? DyadicPow.expo x * k); [exact (fun h => h) |].
+  destruct ((DyadicPow.expo x + 1) * k <=? -1075); [exact (fun h => h) |].
+  apply ziv_strict_ziv.
+- destruct (1024 <=? (DyadicPow.expo x + 1) * k); [exact (fun h => h) |].
+  destruct (DyadicPow.expo x * k <=? -1075); [exact (fun h => h) |].
+  apply ziv_strict_ziv.
+Qed.
+
 (** ** Helpers of [pown_dir] *)
 
 (** [n % 2 != 0] of the Rust is [Z.odd n]. *)
@@ -593,10 +628,10 @@ Lemma pown_odd_rem : forall n, negb (Z.rem n 2 =? 0) = Z.odd n.
 Proof. intros n. symmetry. apply Zquot.Zodd_rem. Qed.
 
 Lemma pown_dir_zero_pos :
-  forall s n up, 0 < n ->
-  DyadicPow.pown_dir (B754_zero s) n up = Some (B754_zero (s && Z.odd n)).
+  forall z s n up, 0 < n ->
+  DyadicPow.pown_dir_with z (B754_zero s) n up = Some (B754_zero (s && Z.odd n)).
 Proof.
-intros s n up Hn. unfold DyadicPow.pown_dir.
+intros z s n up Hn. unfold DyadicPow.pown_dir_with.
 rewrite (proj2 (Z.eqb_neq n 0)) by lia. rewrite (proj2 (Z.ltb_ge n 0)) by lia.
 rewrite pown_odd_rem.
 destruct s, (Z.odd n); reflexivity.
@@ -604,15 +639,15 @@ Qed.
 
 (** At a finite [x <> 0] and [n <> 0], [pown_dir] calls [pown_pos]. *)
 Lemma pown_dir_nonzero :
-  forall x n up, is_finite x = true -> B2R x <> 0%R -> n <> 0 ->
-  DyadicPow.pown_dir x n up =
+  forall z x n up, is_finite x = true -> B2R x <> 0%R -> n <> 0 ->
+  DyadicPow.pown_dir_with z x n up =
   if Bsign x && Z.odd n then
-    match DyadicPow.pown_pos (opp x) n (negb up) with Some v => Some (opp v) | None => None end
-  else DyadicPow.pown_pos (fabs x) n up.
+    match DyadicPow.pown_pos_with z (opp x) n (negb up) with Some v => Some (opp v) | None => None end
+  else DyadicPow.pown_pos_with z (fabs x) n up.
 Proof.
-intros x n up Fx Nx Hn.
+intros z x n up Fx Nx Hn.
 destruct x as [s|s| |s m e B]; try discriminate Fx; [destruct (Nx eq_refl)|].
-unfold DyadicPow.pown_dir.
+unfold DyadicPow.pown_dir_with.
 rewrite (proj2 (Z.eqb_neq n 0) Hn).
 replace infinity with (@B754_infinity 53 1024 false) by (vm_compute; reflexivity).
 replace DyadicExp.neg_infinity with (@B754_infinity 53 1024 true) by (vm_compute; reflexivity).
@@ -714,13 +749,35 @@ intros [|] r w H; cbn [negb] in H.
 - exact (ParseRound.mpfr_round_up_opp r w H).
 Qed.
 
+(** A property of results that the negation carries from [-r] in the
+    direction [negb up] to [r] in the direction [up], as [pown_rnd_opp]
+    says of rounding. *)
+Definition odd_post (post : bool -> R -> f64 -> Prop) : Prop :=
+  forall up r w, post (negb up) (- r)%R w -> post up r (opp w).
+
+Lemma rounds_odd : odd_post rounds.
+Proof. intros up r w H. exact (pown_rnd_opp up r w H). Qed.
+
+Lemma side_odd : odd_post f64_side.
+Proof.
+intros up r w H.
+assert (Ro : (B2R (opp w) = - B2R w)%R) by apply B2R_Bopp.
+(* [opp] flips the sign of an infinity, keeps NaN, and negates the real
+   of a zero or a finite [w]. *)
+destruct w as [s|s| |s m e B]; unfold opp in Ro |- *; cbn [Bopp f64_side] in H, Ro |- *.
+- rewrite Ro. destruct up; cbn [negb] in H; lra.
+- destruct s, up; cbn [negb] in H |- *; congruence.
+- exact H.
+- rewrite Ro. destruct up; cbn [negb] in H; lra.
+Qed.
+
 (** ** The special values of [pown_dir] *)
 
 Lemma pown_dir_zero_neg :
-  forall s n up, n < 0 ->
-  DyadicPow.pown_dir (B754_zero s) n up = Some (B754_infinity (s && Z.odd n)).
+  forall z s n up, n < 0 ->
+  DyadicPow.pown_dir_with z (B754_zero s) n up = Some (B754_infinity (s && Z.odd n)).
 Proof.
-intros s n up Hn. unfold DyadicPow.pown_dir.
+intros z s n up Hn. unfold DyadicPow.pown_dir_with.
 rewrite (proj2 (Z.eqb_neq n 0)) by lia. rewrite (proj2 (Z.ltb_lt n 0) Hn).
 replace infinity with (@B754_infinity 53 1024 false) by (vm_compute; reflexivity).
 rewrite pown_odd_rem.
@@ -728,11 +785,11 @@ destruct s, (Z.odd n); reflexivity.
 Qed.
 
 Lemma pown_dir_inf :
-  forall s n up, n <> 0 ->
-  DyadicPow.pown_dir (B754_infinity s) n up =
+  forall z s n up, n <> 0 ->
+  DyadicPow.pown_dir_with z (B754_infinity s) n up =
   Some (if n <? 0 then B754_zero (s && Z.odd n) else B754_infinity (s && Z.odd n)).
 Proof.
-intros s n up Hn. unfold DyadicPow.pown_dir.
+intros z s n up Hn. unfold DyadicPow.pown_dir_with.
 rewrite (proj2 (Z.eqb_neq n 0) Hn).
 replace infinity with (@B754_infinity 53 1024 false) by (vm_compute; reflexivity).
 replace DyadicExp.neg_infinity with (@B754_infinity 53 1024 true) by (vm_compute; reflexivity).
@@ -740,65 +797,97 @@ rewrite pown_odd_rem.
 destruct s, (n <? 0), (Z.odd n); reflexivity.
 Qed.
 
-Theorem pown_dir_correct :
+Lemma pown_dir_post :
+  forall z post, rounds_post post -> odd_post post -> driver_post z post ->
   forall x n (up : bool) v,
   is_i32 n -> is_finite x = true -> pown_dom n (B2R x) ->
-  DyadicPow.pown_dir x n up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (powerRZ (B2R x) n) (with_val v).
+  DyadicPow.pown_dir_with z x n up = Some v ->
+  post up (powerRZ (B2R x) n) v.
 Proof.
-intros x n up v Hi Fx Hd E.
+intros z post Hp Ho Hz x n up v Hi Fx Hd E.
 destruct (Z.eq_dec n 0) as [-> | Hn].
-- change (DyadicPow.pown_dir x 0 up) with (Some DyadicExp.one) in E. injection E as <-.
-  cbn [powerRZ]. apply rnd_exact; [exact (proj1 one_B2R) | exact (proj2 one_B2R)].
+- change (DyadicPow.pown_dir_with z x 0 up) with (Some DyadicExp.one) in E. injection E as <-.
+  apply Hp. cbn [powerRZ]. apply rnd_exact; [exact (proj1 one_B2R) | exact (proj2 one_B2R)].
 - destruct (Req_dec (B2R x) 0%R) as [Z0 | Nx].
   + (* [x = +-0]: the domain gives [n > 0], and [x^n = 0]. *)
     assert (Pn : 0 < n) by (destruct Hd as [Hd | Hd]; [lia | contradiction]).
     destruct x as [s|s| |s m e B]; try discriminate Fx.
     2: { exfalso. revert Z0. cbn [B2R]. apply F2R_neq_0. cbn [Fnum]. destruct s; discriminate. }
-    rewrite pown_dir_zero_pos in E by exact Pn. injection E as <-.
-    cbn [B2R]. destruct n as [|p|p]; try lia. cbn [powerRZ].
+    rewrite (pown_dir_zero_pos z) in E by exact Pn. injection E as <-.
+    apply Hp. cbn [B2R]. destruct n as [|p|p]; try lia. cbn [powerRZ].
     rewrite pow_i by apply Pos2Nat.is_pos.
-    cbn [with_val]. apply mpfr_round_zero. exists zero. split; reflexivity.
-  + rewrite (pown_dir_nonzero x n up Fx Nx Hn) in E.
+    unfold rounds. cbn [with_val]. apply mpfr_round_zero. exists zero. split; reflexivity.
+  + rewrite (pown_dir_nonzero z x n up Fx Nx Hn) in E.
     assert (Fo : is_finite (opp x) = true) by (unfold opp; rewrite is_finite_Bopp; exact Fx).
     assert (Ro : (B2R (opp x) = - B2R x)%R) by apply B2R_Bopp.
     assert (Fa : is_finite (fabs x) = true) by (unfold fabs; rewrite is_finite_Babs; exact Fx).
     assert (Ra : B2R (fabs x) = Rabs (B2R x)) by apply B2R_Babs.
     destruct (Bsign x && Z.odd n) eqn:S.
     * (* [x < 0] and an odd [n]: [x^n = -(-x)^n], rounded the other way. *)
-      destruct (pown_neg_pow x n Fx Nx S) as [Sx Hp].
-      destruct (DyadicPow.pown_pos (opp x) n (negb up)) as [w|] eqn:P; [|discriminate E].
-      injection E as <-. apply pown_rnd_opp. rewrite <- Hp, <- Ro.
-      apply (pown_pos_correct (opp x) n (negb up) w Fo);
+      destruct (pown_neg_pow x n Fx Nx S) as [Sx Hq].
+      destruct (DyadicPow.pown_pos_with z (opp x) n (negb up)) as [w|] eqn:P; [|discriminate E].
+      injection E as <-. apply Ho. rewrite <- Hq, <- Ro.
+      apply (pown_pos_post z post Hp Hz (opp x) n (negb up) w Fo);
         [rewrite Ro; lra | exact Hn | exact Hi | exact P].
     * (* Otherwise [x^n = |x|^n]. *)
-      pose proof (pown_pos_correct (fabs x) n up v Fa) as H.
+      pose proof (pown_pos_post z post Hp Hz (fabs x) n up v Fa) as H.
       rewrite Ra, (pown_abs_pow x n Fx Nx S) in H.
       apply H; [apply Rabs_pos_lt; exact Nx | exact Hn | exact Hi | exact E].
 Qed.
 
-Theorem pown_dir_exact :
+Theorem pown_dir_correct :
+  forall x n (up : bool) v,
+  is_i32 n -> is_finite x = true -> pown_dom n (B2R x) ->
+  DyadicPow.pown_dir_with ziv_strict x n up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (powerRZ (B2R x) n) (with_val v).
+Proof. exact (pown_dir_post ziv_strict rounds (fun _ _ _ H => H) rounds_odd ziv_strict_correct). Qed.
+
+Theorem pown_dir_side :
+  forall x n (up : bool) v,
+  is_i32 n -> is_finite x = true -> pown_dom n (B2R x) ->
+  DyadicPow.pown_dir x n up = Some v ->
+  f64_side up (powerRZ (B2R x) n) v.
+Proof. exact (pown_dir_post Dyadic.ziv f64_side rounds_side side_odd ziv_side). Qed.
+
+Theorem pown_dir_strict :
+  forall x n (up : bool) v,
+  DyadicPow.pown_dir_with ziv_strict x n up = Some v -> DyadicPow.pown_dir x n up = Some v.
+Proof.
+intros x n up v. unfold DyadicPow.pown_dir, DyadicPow.pown_dir_with.
+destruct (n =? 0); [exact (fun h => h) |].
+destruct (is_nan x); [exact (fun h => h) |].
+destruct (eq x zero || (eq x infinity || eq x DyadicExp.neg_infinity)); [exact (fun h => h) |].
+destruct (lt x zero && negb (Z.rem n 2 =? 0)).
+- destruct (DyadicPow.pown_pos_with ziv_strict (opp x) n (negb up)) as [w|] eqn:P;
+    [| intros H; discriminate H].
+  pose proof (pown_pos_strict _ _ _ _ P) as Q. unfold DyadicPow.pown_pos in Q.
+  rewrite Q. exact (fun h => h).
+- apply pown_pos_strict.
+Qed.
+
+Lemma pown_dir_exact_with :
+  forall z, driver_exact z ->
   forall x n (v : f64) (up : bool),
   is_i32 n -> is_finite x = true -> B2R x <> 0%R -> is_finite v = true ->
   powerRZ (B2R x) n = B2R v ->
-  DyadicPow.pown_dir x n up = Some v.
+  DyadicPow.pown_dir_with z x n up = Some v.
 Proof.
-intros x n v up Hi Fx Nx Fv E.
+intros z Hd x n v up Hi Fx Nx Fv E.
 destruct (Z.eq_dec n 0) as [-> | Hn].
-- change (DyadicPow.pown_dir x 0 up) with (Some DyadicExp.one). f_equal.
+- change (DyadicPow.pown_dir_with z x 0 up) with (Some DyadicExp.one). f_equal.
   cbn [powerRZ] in E.
   apply B2R_inj; [vm_compute; reflexivity | |].
   + destruct v as [s|s| |s m e B]; try discriminate Fv; [|reflexivity].
     exfalso. cbn [B2R] in E. lra.
   + rewrite (proj2 one_B2R). exact E.
-- rewrite (pown_dir_nonzero x n up Fx Nx Hn).
+- rewrite (pown_dir_nonzero z x n up Fx Nx Hn).
   assert (Fo : is_finite (opp x) = true) by (unfold opp; rewrite is_finite_Bopp; exact Fx).
   assert (Ro : (B2R (opp x) = - B2R x)%R) by apply B2R_Bopp.
   assert (Fa : is_finite (fabs x) = true) by (unfold fabs; rewrite is_finite_Babs; exact Fx).
   assert (Ra : B2R (fabs x) = Rabs (B2R x)) by apply B2R_Babs.
   destruct (Bsign x && Z.odd n) eqn:S.
   + destruct (pown_neg_pow x n Fx Nx S) as [Sx Hp].
-    rewrite (pown_pos_exact (opp x) n (negb up) (opp v)).
+    rewrite (pown_pos_exact z Hd (opp x) n (negb up) (opp v)).
     * f_equal. unfold opp. apply Bopp_involutive.
     * exact Fo.
     * rewrite Ro. lra.
@@ -806,7 +895,14 @@ destruct (Z.eq_dec n 0) as [-> | Hn].
     * exact Hi.
     * unfold opp. rewrite is_finite_Bopp. exact Fv.
     * rewrite Ro, Hp, E. symmetry. apply B2R_Bopp.
-  + apply pown_pos_exact; [exact Fa | | exact Hn | exact Hi | exact Fv |].
+  + apply (pown_pos_exact z Hd); [exact Fa | | exact Hn | exact Hi | exact Fv |].
     * rewrite Ra. apply Rabs_pos_lt. exact Nx.
     * rewrite Ra, (pown_abs_pow x n Fx Nx S). exact E.
 Qed.
+
+Theorem pown_dir_exact :
+  forall x n (v : f64) (up : bool),
+  is_i32 n -> is_finite x = true -> B2R x <> 0%R -> is_finite v = true ->
+  powerRZ (B2R x) n = B2R v ->
+  DyadicPow.pown_dir x n up = Some v.
+Proof. exact (pown_dir_exact_with Dyadic.ziv ziv_exact). Qed.

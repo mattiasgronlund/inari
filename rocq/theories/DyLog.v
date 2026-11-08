@@ -1,14 +1,22 @@
 (** * ln, log2 and log10 in the dyadic kernel
 
-    [ln_dir], [log2_dir] and [log10_dir] of [DyadicLog] in [Model.v],
-    where they return, round [ln], [Rlog2] and [Rlog10] of a finite [x > 0]
-    in the direction [up] ([ln_dir_correct] and the others): the rule for
-    the exact powers of 10 of [DyLogRules.v] where it applies, and
-    otherwise [ziv_correct] of [DyDriver.v] with the enclosures of
-    [ev_ln_correct] and the others. [log2 x] is [e + (ln x - e ln 2) /
-    ln 2] with [e] and the enclosure of [reduce], and [log10 x] is [ln x /
-    ln 10], with the enclosures of ln 2 and ln 10 of [DyConst.v]. That the
-    loop ends before its cap is not proved. *)
+    [ln_dir], [log2_dir] and [log10_dir] of [DyadicLog] in [Model.v]
+    compute [ln], [Rlog2] and [Rlog10] of a finite [x > 0] in the
+    direction [up]: by the rule for the exact powers of 10 of
+    [DyLogRules.v] where it applies, and otherwise by the driver, with the
+    enclosures of [ev_ln_correct] and the others. [ln_dir_post] and the
+    others prove this for any driver [z] and property [post] that holds of
+    every correct rounding ([rounds_post]) and that [z] gives
+    ([driver_post]). So with [ziv_strict] the kernel rounds correctly where
+    it returns ([ln_dir_correct] and the others, by [ziv_strict_correct]
+    of [DyDriver.v]), the Rust returns the same value there
+    ([ln_dir_strict] and the others), and wherever the Rust returns, its
+    result is at or above the exact value if [up], and at or below it
+    otherwise ([ln_dir_side] and the others, by [ziv_side]). [log2 x] is
+    [e + (ln x - e ln 2) / ln 2] with [e] and the enclosure of [reduce],
+    and [log10 x] is [ln x / ln 10], with the enclosures of ln 2 and ln 10
+    of [DyConst.v]. That a rounding test passes by the cap is not
+    proved. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -125,38 +133,103 @@ Qed.
 
 (** ** The directed functions *)
 
+Lemma ln_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
+  forall x up v,
+  is_finite x = true -> log_dom (B2R x) -> DyadicLog.ln_dir_with z x up = Some v ->
+  post up (ln (B2R x)) v.
+Proof.
+intros z post Hp Hz x up v Fx Dx H. unfold DyadicLog.ln_dir_with in H.
+rewrite (log_rules_finite_pos x Fx Dx) in H.
+apply (Hz (DyadicLog.ev_ln x) up 1%nat); [|exact H].
+intros n a Hn Ha. exact (ev_ln_correct x n a Hn Ha).
+Qed.
+
 Theorem ln_dir_correct :
   forall x up v,
-  is_finite x = true -> log_dom (B2R x) -> DyadicLog.ln_dir x up = Some v ->
+  is_finite x = true -> log_dom (B2R x) -> DyadicLog.ln_dir_with ziv_strict x up = Some v ->
   mpfr_round f64_format (if up then RNDU else RNDD) (ln (B2R x)) (with_val v).
+Proof. exact (ln_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem ln_dir_side :
+  forall x up v,
+  is_finite x = true -> log_dom (B2R x) -> DyadicLog.ln_dir x up = Some v ->
+  f64_side up (ln (B2R x)) v.
+Proof. exact (ln_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem ln_dir_strict :
+  forall x up v,
+  DyadicLog.ln_dir_with ziv_strict x up = Some v -> DyadicLog.ln_dir x up = Some v.
 Proof.
-intros x up v Fx Dx H. unfold DyadicLog.ln_dir in H.
+intros x up v. unfold DyadicLog.ln_dir, DyadicLog.ln_dir_with.
+destruct (DyadicLog.log_rules x); [exact (fun h => h)|apply ziv_strict_ziv].
+Qed.
+
+Lemma log2_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
+  forall x up v,
+  is_finite x = true -> log_dom (B2R x) -> DyadicLog.log2_dir_with z x up = Some v ->
+  post up (Rlog2 (B2R x)) v.
+Proof.
+intros z post Hp Hz x up v Fx Dx H. unfold DyadicLog.log2_dir_with in H.
 rewrite (log_rules_finite_pos x Fx Dx) in H.
-apply (ziv_correct (DyadicLog.ev_ln x) up 1%nat); [|exact H].
-intros n a Hn Ha. exact (ev_ln_correct x n a Hn Ha).
+apply (Hz (DyadicLog.ev_log2 x) up 1%nat); [|exact H].
+intros n a Hn Ha. exact (ev_log2_correct x n a Hn Ha).
 Qed.
 
 Theorem log2_dir_correct :
   forall x up v,
-  is_finite x = true -> log_dom (B2R x) -> DyadicLog.log2_dir x up = Some v ->
+  is_finite x = true -> log_dom (B2R x) -> DyadicLog.log2_dir_with ziv_strict x up = Some v ->
   mpfr_round f64_format (if up then RNDU else RNDD) (Rlog2 (B2R x)) (with_val v).
+Proof. exact (log2_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem log2_dir_side :
+  forall x up v,
+  is_finite x = true -> log_dom (B2R x) -> DyadicLog.log2_dir x up = Some v ->
+  f64_side up (Rlog2 (B2R x)) v.
+Proof. exact (log2_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem log2_dir_strict :
+  forall x up v,
+  DyadicLog.log2_dir_with ziv_strict x up = Some v -> DyadicLog.log2_dir x up = Some v.
 Proof.
-intros x up v Fx Dx H. unfold DyadicLog.log2_dir in H.
+intros x up v. unfold DyadicLog.log2_dir, DyadicLog.log2_dir_with.
+destruct (DyadicLog.log_rules x); [exact (fun h => h)|apply ziv_strict_ziv].
+Qed.
+
+Lemma log10_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
+  forall x up v,
+  is_finite x = true -> log_dom (B2R x) -> DyadicLog.log10_dir_with z x up = Some v ->
+  post up (Rlog10 (B2R x)) v.
+Proof.
+intros z post Hp Hz x up v Fx Dx H. unfold DyadicLog.log10_dir_with in H.
 rewrite (log_rules_finite_pos x Fx Dx) in H.
-apply (ziv_correct (DyadicLog.ev_log2 x) up 1%nat); [|exact H].
-intros n a Hn Ha. exact (ev_log2_correct x n a Hn Ha).
+destruct (List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23))
+  as [k|] eqn:Ef.
+- injection H as <-. apply Hp. exact (log10_pow10_rule x up k Fx Ef).
+- apply (Hz (DyadicLog.ev_log10 x) up 1%nat); [|exact H].
+  intros n a Hn Ha. exact (ev_log10_correct x n a Hn Ha).
 Qed.
 
 Theorem log10_dir_correct :
   forall x up v,
-  is_finite x = true -> log_dom (B2R x) -> DyadicLog.log10_dir x up = Some v ->
+  is_finite x = true -> log_dom (B2R x) -> DyadicLog.log10_dir_with ziv_strict x up = Some v ->
   mpfr_round f64_format (if up then RNDU else RNDD) (Rlog10 (B2R x)) (with_val v).
+Proof. exact (log10_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem log10_dir_side :
+  forall x up v,
+  is_finite x = true -> log_dom (B2R x) -> DyadicLog.log10_dir x up = Some v ->
+  f64_side up (Rlog10 (B2R x)) v.
+Proof. exact (log10_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem log10_dir_strict :
+  forall x up v,
+  DyadicLog.log10_dir_with ziv_strict x up = Some v -> DyadicLog.log10_dir x up = Some v.
 Proof.
-intros x up v Fx Dx H. unfold DyadicLog.log10_dir in H.
-rewrite (log_rules_finite_pos x Fx Dx) in H.
-destruct (List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23))
-  as [k|] eqn:Ef.
-- injection H as <-. exact (log10_pow10_rule x up k Fx Ef).
-- apply (ziv_correct (DyadicLog.ev_log10 x) up 1%nat); [|exact H].
-  intros n a Hn Ha. exact (ev_log10_correct x n a Hn Ha).
+intros x up v. unfold DyadicLog.log10_dir, DyadicLog.log10_dir_with.
+destruct (DyadicLog.log_rules x); [exact (fun h => h)|].
+destruct (List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23));
+  [exact (fun h => h)|apply ziv_strict_ziv].
 Qed.

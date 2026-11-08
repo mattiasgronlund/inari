@@ -1,14 +1,22 @@
 (** * asin and acos in the dyadic kernel
 
-    [asin_dir] and [acos_dir] of [DyadicAtan] in [Model.v], where they
-    return, round [asin] and [acos] of a finite [x] in [[-1, 1]] in the
-    direction [up] ([asin_dir_correct] and [acos_dir_correct]): the rule
-    of [DyAtanTiny.v] for a tiny [x] in [asin], and otherwise
-    [ziv_correct] of [DyDriver.v] with the enclosures of
-    [ev_asin_correct] and [ev_acos_correct], from [asin_parts] of
-    [DyAtanCore.v] at [|x|], [asin t + acos t = π/2], and the symmetries
-    [asin(-t) = -asin t] and [acos(-t) = π - acos t]. That the loop ends
-    before its cap is not proved. *)
+    [asin_dir] and [acos_dir] of [DyadicAtan] in [Model.v] apply the rule
+    of [DyAtanTiny.v] for a tiny [x] in [asin], and otherwise the driver
+    [ziv] to the enclosures of [ev_asin_correct] and [ev_acos_correct],
+    from [asin_parts] of [DyAtanCore.v] at [|x|], [asin t + acos t = π/2],
+    and the symmetries [asin(-t) = -asin t] and [acos(-t) = π - acos t].
+    [asin_dir_post] and [acos_dir_post] prove, for any driver [z] in place
+    of [ziv] ([asin_dir_with z] and [acos_dir_with z]) and any property
+    [post] that holds of every correct rounding ([rounds_post]) and that
+    [z] gives ([driver_post] of [DyDriver.v]), that the result has [post]
+    for [asin] and [acos] of a finite [x] in [[-1, 1]] and the direction
+    [up]. So with [ziv_strict] the kernel rounds correctly where it
+    returns ([asin_dir_correct] and [acos_dir_correct], by
+    [ziv_strict_correct]), the Rust returns the same value there
+    ([asin_dir_strict] and [acos_dir_strict]), and wherever the Rust
+    returns, its result is on the side of [up] ([asin_dir_side] and
+    [acos_dir_side], by [ziv_side]). That a rounding test passes by
+    the cap is not proved. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -142,12 +150,14 @@ Qed.
 (** ** The directed functions *)
 
 (** [|x| > 1.0] is false on [asin_dom]. *)
-Theorem asin_dir_correct :
+Lemma asin_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
   forall x up v,
-  is_finite x = true -> asin_dom (B2R x) -> DyadicAtan.asin_dir x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (asin (B2R x)) (with_val v).
+  is_finite x = true -> asin_dom (B2R x) -> DyadicAtan.asin_dir_with z x up = Some v ->
+  post up (asin (B2R x)) v.
 Proof.
-intros x up v Fx Dx H. unfold asin_dom in Dx. unfold DyadicAtan.asin_dir in H.
+intros z post Hp Hz x up v Fx Dx H.
+unfold asin_dom in Dx. unfold DyadicAtan.asin_dir_with in H.
 destruct (as_fabs x Fx Dx) as (Ft & Dt).
 rewrite (fin_not_nan x Fx) in H. cbv iota in H.
 destruct (gt (fabs x) DyadicExp.one) eqn:G1; cbv iota in H.
@@ -155,24 +165,71 @@ destruct (gt (fabs x) DyadicExp.one) eqn:G1; cbv iota in H.
   apply lt_R in G1'; [|reflexivity|exact Ft].
   rewrite dexp_one_R in G1'. lra. }
 destruct (lt (fabs x) DyadicAtan.tiny_asin) eqn:G2; cbv iota in H.
-{ injection H as <-. exact (asin_tiny_rule x up Fx G2). }
-apply (ziv_correct (DyadicAtan.ev_asin x) up 1%nat); [|exact H].
+{ injection H as <-. apply Hp. exact (asin_tiny_rule x up Fx G2). }
+apply (Hz (DyadicAtan.ev_asin x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_asin_correct x n a Hn Fx Dx Ha).
 Qed.
 
-(** [|x| > 1.0] is false on [acos_dom]. *)
-Theorem acos_dir_correct :
+Theorem asin_dir_correct :
   forall x up v,
-  is_finite x = true -> acos_dom (B2R x) -> DyadicAtan.acos_dir x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (acos (B2R x)) (with_val v).
+  is_finite x = true -> asin_dom (B2R x) -> DyadicAtan.asin_dir_with ziv_strict x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (asin (B2R x)) (with_val v).
+Proof. exact (asin_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem asin_dir_side :
+  forall x up v,
+  is_finite x = true -> asin_dom (B2R x) -> DyadicAtan.asin_dir x up = Some v ->
+  f64_side up (asin (B2R x)) v.
+Proof. exact (asin_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem asin_dir_strict :
+  forall x up v,
+  DyadicAtan.asin_dir_with ziv_strict x up = Some v -> DyadicAtan.asin_dir x up = Some v.
 Proof.
-intros x up v Fx Dx H. unfold acos_dom in Dx. unfold DyadicAtan.acos_dir in H.
+intros x up v. unfold DyadicAtan.asin_dir, DyadicAtan.asin_dir_with.
+destruct (is_nan x); [exact (fun h => h)|].
+destruct (gt (fabs x) DyadicExp.one); [exact (fun h => h)|].
+destruct (lt (fabs x) DyadicAtan.tiny_asin); [exact (fun h => h)|].
+apply ziv_strict_ziv.
+Qed.
+
+(** [|x| > 1.0] is false on [acos_dom]. *)
+Lemma acos_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
+  forall x up v,
+  is_finite x = true -> acos_dom (B2R x) -> DyadicAtan.acos_dir_with z x up = Some v ->
+  post up (acos (B2R x)) v.
+Proof.
+intros z post Hp Hz x up v Fx Dx H.
+unfold acos_dom in Dx. unfold DyadicAtan.acos_dir_with in H.
 destruct (as_fabs x Fx Dx) as (Ft & Dt).
 rewrite (fin_not_nan x Fx) in H. cbv iota in H.
 destruct (gt (fabs x) DyadicExp.one) eqn:G1; cbv iota in H.
 { exfalso. assert (G1' : lt DyadicExp.one (fabs x) = true) by exact G1.
   apply lt_R in G1'; [|reflexivity|exact Ft].
   rewrite dexp_one_R in G1'. lra. }
-apply (ziv_correct (DyadicAtan.ev_acos x) up 1%nat); [|exact H].
+apply (Hz (DyadicAtan.ev_acos x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_acos_correct x n a Hn Fx Dx Ha).
+Qed.
+
+Theorem acos_dir_correct :
+  forall x up v,
+  is_finite x = true -> acos_dom (B2R x) -> DyadicAtan.acos_dir_with ziv_strict x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (acos (B2R x)) (with_val v).
+Proof. exact (acos_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem acos_dir_side :
+  forall x up v,
+  is_finite x = true -> acos_dom (B2R x) -> DyadicAtan.acos_dir x up = Some v ->
+  f64_side up (acos (B2R x)) v.
+Proof. exact (acos_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem acos_dir_strict :
+  forall x up v,
+  DyadicAtan.acos_dir_with ziv_strict x up = Some v -> DyadicAtan.acos_dir x up = Some v.
+Proof.
+intros x up v. unfold DyadicAtan.acos_dir, DyadicAtan.acos_dir_with.
+destruct (is_nan x); [exact (fun h => h)|].
+destruct (gt (fabs x) DyadicExp.one); [exact (fun h => h)|].
+apply ziv_strict_ziv.
 Qed.

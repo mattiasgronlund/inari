@@ -24,12 +24,14 @@
 //
 // `rocq/theories/Model.v` transcribes each function of this file except the tests, so it has
 // to be updated along with them. `rocq/theories/DyLog.v` and `rocq/theories/DyLogHyp.v` prove
-// that each of the six functions, at a finite argument in its domain and where it returns
-// rather than panics, returns its result rounded as `mpfr_round` in `rocq/theories/Mpfr.v`
-// says. They build on `rocq/theories/DyLogCore.v` for `atanh_series`, `reduce`, `ln_dy` and
-// `ln_encl`, `rocq/theories/DyLogRules.v` for the identities that the evaluations use and the
-// rules of `log_rules` and of the powers of 10, and `rocq/theories/DyLogTiny.v` for the rules
-// of asinh and atanh at tiny arguments. That `ziv` returns is not proved.
+// that each of the six functions, at a finite argument in its domain and where it does not
+// panic, returns a value on the side of its result that the rounding is on, and, where a rule
+// settles the argument or a rounding test of `ziv` passes, its result rounded as `mpfr_round`
+// in `rocq/theories/Mpfr.v` says. They build on `rocq/theories/DyLogCore.v` for
+// `atanh_series`, `reduce`, `ln_dy` and `ln_encl`, `rocq/theories/DyLogRules.v` for the
+// identities that the evaluations use and the rules of `log_rules` and of the powers of 10,
+// and `rocq/theories/DyLogTiny.v` for the rules of asinh and atanh at tiny arguments. That a
+// test passes by the cap of `ziv` is not proved, nor that the evaluations do not panic.
 
 use super::{
     consts::{ln10, ln2},

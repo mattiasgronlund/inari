@@ -843,8 +843,20 @@ fn ziv_known_roundings() {
     check_ziv(&f, true, f64::MIN);
 }
 
+// `Wide` encloses [0, 1] at every level, so no rounding test passes, and at the cap `ziv`
+// returns the bound on the side of the rounding: 1 rounding up and 0 rounding down, from any
+// start, also one above 64.
 #[test]
-#[should_panic(expected = "the working precision reached its cap of 4096 bits")]
-fn ziv_panics_at_the_cap() {
-    ziv(&Wide, true, 1);
+fn ziv_rounds_outward_at_the_cap() {
+    assert!(check_ziv(&Wide, true, 1.0).is_empty());
+    assert!(check_ziv(&Wide, false, 0.0).is_empty());
+    assert_eq!((ziv(&Wide, true, 65), ziv(&Wide, false, 65)), (1.0, 0.0));
+    assert_eq!((ziv_cap(&Wide, true), ziv_cap(&Wide, false)), (1.0, 0.0));
+    // Where the test passes at 64 limbs, `ziv_cap` returns what `ziv_at` does.
+    for up in [false, true] {
+        assert_eq!(
+            Some(ziv_cap(&Sqrt2Third, up)),
+            ziv_at::<64, _>(&Sqrt2Third, up)
+        );
+    }
 }

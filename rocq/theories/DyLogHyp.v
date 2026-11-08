@@ -1,15 +1,23 @@
 (** * asinh, acosh and atanh in the dyadic kernel
 
-    [asinh_dir], [acosh_dir] and [atanh_dir] of [DyadicLog] in [Model.v],
-    where they return, round [arcsinh], [Racosh] and [Ratanh] of a finite
-    [x] in their domains in the direction [up], as [DyLog.v] does for
-    [ln]: the rules of [DyLogTiny.v] for tiny arguments, and otherwise
-    [ziv_correct] of [DyDriver.v] with the enclosures of [ev_asinh_correct]
-    and the others. For [t = |x|] or [x], each is [atanh] of an argument
-    of at most 0.1748 by [atanh_series], or [ln] of an enclosure by
-    [ln_encl] ([DyLogCore.v]), with the identities of [DyLogRules.v], and
-    the odd functions from [t = |x|]. That the loop ends before its cap is
-    not proved. *)
+    [asinh_dir], [acosh_dir] and [atanh_dir] of [DyadicLog] in [Model.v]
+    compute [arcsinh], [Racosh] and [Ratanh] of a finite [x] in their
+    domains in the direction [up], as [DyLog.v] does for [ln]: by the
+    rules of [DyLogTiny.v] for tiny arguments, and otherwise by the
+    driver, with the enclosures of [ev_asinh_correct] and the others.
+    [asinh_dir_post] and the others prove this for any driver [z] and
+    property [post] that holds of every correct rounding ([rounds_post])
+    and that [z] gives ([driver_post]). So with [ziv_strict] the kernel
+    rounds correctly where it returns ([asinh_dir_correct] and the others,
+    by [ziv_strict_correct] of [DyDriver.v]), the Rust returns the same
+    value there ([asinh_dir_strict] and the others), and wherever the Rust
+    returns, its result is at or above the exact value if [up], and at or
+    below it otherwise ([asinh_dir_side] and the others, by [ziv_side]).
+    For [t = |x|] or [x], each is [atanh] of an argument of at most 0.1748
+    by [atanh_series], or [ln] of an enclosure by [ln_encl]
+    ([DyLogCore.v]), with the identities of [DyLogRules.v], and the odd
+    functions from [t = |x|]. That a rounding test passes by the cap
+    is not proved. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -247,41 +255,87 @@ Qed.
 
 (** ** The directed functions *)
 
-Theorem asinh_dir_correct :
+Lemma asinh_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
   forall x up v,
-  is_finite x = true -> DyadicLog.asinh_dir x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (arcsinh (B2R x)) (with_val v).
+  is_finite x = true -> DyadicLog.asinh_dir_with z x up = Some v ->
+  post up (arcsinh (B2R x)) v.
 Proof.
-intros x up v Fx H. unfold DyadicLog.asinh_dir in H.
+intros z post Hp Hz x up v Fx H. unfold DyadicLog.asinh_dir_with in H.
 rewrite (fin_not_nan x Fx), (fin_neq_inf x Fx), (fin_neq_ninf x Fx) in H. cbn [orb] in H.
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
-{ injection H as <-. exact (asinh_tiny_rule x up Fx G). }
-apply (ziv_correct (DyadicLog.ev_asinh x) up 1%nat); [|exact H].
+{ injection H as <-. apply Hp. exact (asinh_tiny_rule x up Fx G). }
+apply (Hz (DyadicLog.ev_asinh x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_asinh_correct x n a Hn Ha).
 Qed.
 
-(** [x < 1.0] is false on [acosh_dom]. *)
-Theorem acosh_dir_correct :
+Theorem asinh_dir_correct :
   forall x up v,
-  is_finite x = true -> acosh_dom (B2R x) -> DyadicLog.acosh_dir x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (Racosh (B2R x)) (with_val v).
+  is_finite x = true -> DyadicLog.asinh_dir_with ziv_strict x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (arcsinh (B2R x)) (with_val v).
+Proof. exact (asinh_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem asinh_dir_side :
+  forall x up v,
+  is_finite x = true -> DyadicLog.asinh_dir x up = Some v ->
+  f64_side up (arcsinh (B2R x)) v.
+Proof. exact (asinh_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem asinh_dir_strict :
+  forall x up v,
+  DyadicLog.asinh_dir_with ziv_strict x up = Some v -> DyadicLog.asinh_dir x up = Some v.
 Proof.
-intros x up v Fx Dx H. unfold DyadicLog.acosh_dir in H.
+intros x up v. unfold DyadicLog.asinh_dir, DyadicLog.asinh_dir_with.
+destruct (is_nan x || (eq x infinity || eq x DyadicExp.neg_infinity));
+  [exact (fun h => h)|].
+destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|apply ziv_strict_ziv].
+Qed.
+
+(** [x < 1.0] is false on [acosh_dom]. *)
+Lemma acosh_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
+  forall x up v,
+  is_finite x = true -> acosh_dom (B2R x) -> DyadicLog.acosh_dir_with z x up = Some v ->
+  post up (Racosh (B2R x)) v.
+Proof.
+intros z post Hp Hz x up v Fx Dx H. unfold DyadicLog.acosh_dir_with in H.
 rewrite (fin_not_nan x Fx), (fin_neq_inf x Fx) in H. cbn [orb] in H.
 destruct (lt x DyadicExp.one) eqn:G; cbv iota in H.
 { exfalso. apply lt_R in G; [|exact Fx|reflexivity].
   rewrite dexp_one_R in G. unfold acosh_dom in Dx. lra. }
-apply (ziv_correct (DyadicLog.ev_acosh x) up 1%nat); [|exact H].
+apply (Hz (DyadicLog.ev_acosh x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_acosh_correct x n a Fx Dx Hn Ha).
 Qed.
 
-(** [|x| > 1.0] and [|x| == 1.0] are false on [atanh_dom]. *)
-Theorem atanh_dir_correct :
+Theorem acosh_dir_correct :
   forall x up v,
-  is_finite x = true -> atanh_dom (B2R x) -> DyadicLog.atanh_dir x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (Ratanh (B2R x)) (with_val v).
+  is_finite x = true -> acosh_dom (B2R x) -> DyadicLog.acosh_dir_with ziv_strict x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (Racosh (B2R x)) (with_val v).
+Proof. exact (acosh_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem acosh_dir_side :
+  forall x up v,
+  is_finite x = true -> acosh_dom (B2R x) -> DyadicLog.acosh_dir x up = Some v ->
+  f64_side up (Racosh (B2R x)) v.
+Proof. exact (acosh_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem acosh_dir_strict :
+  forall x up v,
+  DyadicLog.acosh_dir_with ziv_strict x up = Some v -> DyadicLog.acosh_dir x up = Some v.
 Proof.
-intros x up v Fx Dx H. unfold DyadicLog.atanh_dir in H. cbv zeta in H.
+intros x up v. unfold DyadicLog.acosh_dir, DyadicLog.acosh_dir_with.
+destruct (is_nan x || eq x infinity); [exact (fun h => h)|].
+destruct (lt x DyadicExp.one); [exact (fun h => h)|apply ziv_strict_ziv].
+Qed.
+
+(** [|x| > 1.0] and [|x| == 1.0] are false on [atanh_dom]. *)
+Lemma atanh_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
+  forall x up v,
+  is_finite x = true -> atanh_dom (B2R x) -> DyadicLog.atanh_dir_with z x up = Some v ->
+  post up (Ratanh (B2R x)) v.
+Proof.
+intros z post Hp Hz x up v Fx Dx H. unfold DyadicLog.atanh_dir_with in H. cbv zeta in H.
 assert (Ft : is_finite (fabs x) = true) by (unfold fabs; rewrite is_finite_Babs; exact Fx).
 assert (A : (Rabs (B2R x) < 1)%R) by (unfold atanh_dom in Dx; apply Rabs_def1; lra).
 rewrite (fin_not_nan x Fx) in H. cbv iota in H.
@@ -295,7 +349,30 @@ destruct (eq (fabs x) DyadicExp.one) eqn:G2; cbv iota in H.
   rewrite dexp_one_R, hyp_fabs in G2.
   destruct (Req_bool_spec (Rabs (B2R x)) 1); [lra | discriminate G2]. }
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G3; cbv iota in H.
-{ injection H as <-. exact (atanh_tiny_rule x up Fx G3). }
-apply (ziv_correct (DyadicLog.ev_atanh x) up 1%nat); [|exact H].
+{ injection H as <-. apply Hp. exact (atanh_tiny_rule x up Fx G3). }
+apply (Hz (DyadicLog.ev_atanh x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_atanh_correct x n a Fx Dx Hn Ha).
+Qed.
+
+Theorem atanh_dir_correct :
+  forall x up v,
+  is_finite x = true -> atanh_dom (B2R x) -> DyadicLog.atanh_dir_with ziv_strict x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (Ratanh (B2R x)) (with_val v).
+Proof. exact (atanh_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem atanh_dir_side :
+  forall x up v,
+  is_finite x = true -> atanh_dom (B2R x) -> DyadicLog.atanh_dir x up = Some v ->
+  f64_side up (Ratanh (B2R x)) v.
+Proof. exact (atanh_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem atanh_dir_strict :
+  forall x up v,
+  DyadicLog.atanh_dir_with ziv_strict x up = Some v -> DyadicLog.atanh_dir x up = Some v.
+Proof.
+intros x up v. unfold DyadicLog.atanh_dir, DyadicLog.atanh_dir_with. cbv zeta.
+destruct (is_nan x); [exact (fun h => h)|].
+destruct (gt (fabs x) DyadicExp.one); [exact (fun h => h)|].
+destruct (eq (fabs x) DyadicExp.one); [exact (fun h => h)|].
+destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|apply ziv_strict_ziv].
 Qed.

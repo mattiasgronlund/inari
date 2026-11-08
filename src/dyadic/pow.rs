@@ -28,14 +28,17 @@
 // `rocq/theories/Model.v` transcribes each function of this file except the tests, so it has
 // to be updated along with them. `rocq/theories/DyPow.v` and `rocq/theories/DyPown.v` prove
 // that `pow` and `pown`, at finite arguments in their domains (`pow_dom` and `pown_dom` of
-// `rocq/theories/Elementary.v`) and where they return rather than panic, return x^y and x^n
-// rounded as `mpfr_round` in `rocq/theories/Mpfr.v` says. `DyPow.v` builds on
-// `rocq/theories/DyPowRules.v` for the rules, `rocq/theories/DyPowCore.v` for `Pow`, and
-// `rocq/theories/DyPowExact.v` and `rocq/theories/DyPowArith.v` for `exact`, and `DyPown.v`
-// proves the rules of x^n and binary powering. They also show that `exact` finds every
-// argument that reaches it whose exact result is an `f64`, and that both functions return that
-// `f64` at every finite argument whose exact result is one, with x > 0 for x^y and x other
-// than 0 for x^n. That they return, rather than panic, at the other arguments is not proved.
+// `rocq/theories/Elementary.v`) and where they do not panic, return values on the side of
+// x^y and x^n that the rounding is on, and, where a rule or `exact` settles the arguments or
+// a rounding test of `ziv` passes, x^y and x^n rounded as `mpfr_round` in
+// `rocq/theories/Mpfr.v` says. `DyPow.v` builds on `rocq/theories/DyPowRules.v` for the
+// rules, `rocq/theories/DyPowCore.v` for `Pow`, and `rocq/theories/DyPowExact.v` and
+// `rocq/theories/DyPowArith.v` for `exact`, and `DyPown.v` proves the rules of x^n and binary
+// powering. They also show that `exact` finds every argument that reaches it whose exact
+// result is an `f64`, and that both functions return that `f64` at every finite argument
+// whose exact result is one, with x > 0 for x^y and x other than 0 for x^n. That a test
+// passes by the cap of `ziv` at the other arguments is not proved, nor that the
+// evaluations do not panic.
 
 use super::{
     consts::ln2,

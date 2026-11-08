@@ -28,14 +28,17 @@
 //
 // `rocq/theories/Model.v` transcribes each function of this file except the tests, so it has
 // to be updated along with them. `rocq/theories/DyAtan.v` and `rocq/theories/DyAsin.v` prove
-// that each of the four functions, at finite arguments in its domain and where it returns
-// rather than panics, returns its result rounded as `mpfr_round` in `rocq/theories/Mpfr.v`
-// says, with the rule of atan at |x| >= `HUGE_ATAN` proved by `atan_huge_rule` in `DyAtan.v`.
-// They build on `rocq/theories/DyAtanCore.v` for `series`, `atan_series`, `atan_encl` and
+// that each of the four functions, at finite arguments in its domain and where it does not
+// panic, returns a value on the side of its result that the rounding is on, and, where a rule
+// that does not call `pi_times` settles the arguments or a rounding test of `ziv` passes, its
+// result rounded as `mpfr_round` in `rocq/theories/Mpfr.v` says, with the rule of atan at
+// |x| >= `HUGE_ATAN`, which calls `pi_times`, proved by `atan_huge_post` in `DyAtan.v`. They
+// build on `rocq/theories/DyAtanCore.v` for `series`, `atan_series`, `atan_encl` and
 // `asin_parts`, `rocq/theories/AtanSeries.v` for the bounds of the series and the halving,
 // `rocq/theories/AtanIdent.v` for the identities that the evaluations use,
 // `rocq/theories/DyConstPi.v` for π, and `rocq/theories/DyAtanTiny.v` for the rules of atan,
-// asin and atan2 at tiny arguments and quotients. That `ziv` returns is not proved.
+// asin and atan2 at tiny arguments and quotients. That a test passes by the cap of `ziv`
+// is not proved, nor that the evaluations do not panic.
 
 use super::{
     consts::pi,

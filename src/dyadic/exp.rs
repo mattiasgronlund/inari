@@ -18,12 +18,14 @@
 //
 // `rocq/theories/Model.v` transcribes each function of this file except the tests, so it has
 // to be updated along with them. `rocq/theories/DyExp.v` and `rocq/theories/DyHyp.v` prove
-// that each of the six functions, at a finite argument and where it returns rather than
-// panics, returns its result rounded as `mpfr_round` in `rocq/theories/Mpfr.v` says. They
-// build on `rocq/theories/DyConst.v` for the constants, `rocq/theories/DyExpCore.v` for
-// `series`, `exp_neg` and `expm1_neg`, and `rocq/theories/DyExpRules.v`,
-// `rocq/theories/DyHypRules.v`, `rocq/theories/DySinhTiny.v` and
-// `rocq/theories/DyTanhTiny.v` for the rules. That `ziv` returns is not proved.
+// that each of the six functions, at a finite argument and where it does not panic, returns a
+// value on the side of its result that the rounding is on, and, where a rule settles the
+// argument or a rounding test of `ziv` passes, its result rounded as `mpfr_round` in
+// `rocq/theories/Mpfr.v` says. They build on `rocq/theories/DyConst.v` for the constants,
+// `rocq/theories/DyExpCore.v` for `series`, `exp_neg` and `expm1_neg`, and
+// `rocq/theories/DyExpRules.v`, `rocq/theories/DyHypRules.v`, `rocq/theories/DySinhTiny.v`
+// and `rocq/theories/DyTanhTiny.v` for the rules. That a test passes by the cap of `ziv`
+// is not proved, nor that the evaluations do not panic.
 
 use super::{
     consts::{ln10, ln2},

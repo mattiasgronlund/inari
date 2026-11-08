@@ -46,14 +46,15 @@
 // `rocq/theories/Model.v` transcribes each function of this file except the tests and the
 // scratch buffer of `reduce`, so it has to be updated along with them.
 // `rocq/theories/DyTrig.v` proves that each of the three functions, at finite arguments and
-// where it returns rather than panics, returns its result rounded as `mpfr_round` in
-// `rocq/theories/Mpfr.v` says. It builds on `rocq/theories/DyTrigReduce.v` for `reduce`,
-// `rocq/theories/DyTrigCore.v` for `series` and `sin_k`, `rocq/theories/TrigSeries.v` for the
-// bounds of the series and the identities that the evaluations use,
-// `rocq/theories/DyTrigTiny.v` for the rules at tiny arguments, and
+// where it does not panic, returns a value on the side of its result that the rounding is on,
+// and, where a rule settles the argument or a rounding test of `ziv` passes, its result
+// rounded as `mpfr_round` in `rocq/theories/Mpfr.v` says. It builds on
+// `rocq/theories/DyTrigReduce.v` for `reduce`, `rocq/theories/DyTrigCore.v` for `series` and
+// `sin_k`, `rocq/theories/TrigSeries.v` for the bounds of the series and the identities that
+// the evaluations use, `rocq/theories/DyTrigTiny.v` for the rules at tiny arguments, and
 // `rocq/theories/DyTrigSmall.v`, `rocq/theories/DyCosSmall.v`, `rocq/theories/DySinSmall.v`
-// and `rocq/theories/DyTanSmall.v` for those at small arguments. That `ziv` returns is not
-// proved.
+// and `rocq/theories/DyTanSmall.v` for those at small arguments. That a test passes by
+// the cap of `ziv` is not proved, nor that the evaluations do not panic.
 
 use super::{
     consts::PI,

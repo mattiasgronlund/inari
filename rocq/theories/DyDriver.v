@@ -2,14 +2,25 @@
 
     The operations [encl_*] of [Dyadic] in [Model.v] return enclosures of
     every result of their operation on points of their operands, with
-    bounds that are the extreme exact results rounded outward. [ziv]
-    returns, if it returns, the real number that every level encloses
-    rounded to an [f64] as [mpfr_round] says ([ziv_correct]), which is the
-    conclusion of [point_correct] in [Contract.v] for [r = f (B2R x)].
-    [None], a panic, is the cap of 4,096 bits or a panic of the
-    evaluation. For a real number that is not an [f64], each level passes
-    once its enclosure is narrower than a width that depends only on that
-    number ([ziv_at_passes]). *)
+    bounds that are the extreme exact results rounded outward. Where a
+    rounding test of [ziv] passes, from a [start] of at most 64, it
+    returns the real number that every level encloses rounded to an
+    [f64] as [mpfr_round] says, which is the conclusion of
+    [point_correct] in [Contract.v] for [r = f (B2R x)]. [ziv_strict] is
+    [ziv] without its last step at the cap, so it returns only where a
+    test passes, and there it returns the correct rounding
+    ([ziv_strict_correct]), as [ziv] does ([ziv_strict_ziv]). From a
+    [start] above 64, which no caller passes, [ziv_strict] tests no
+    level, and only [ziv_side] covers [ziv]. [ziv] itself returns, where
+    its evaluation does not panic, a value on the side of that number
+    that the rounding is on ([ziv_side]): where no test passes, the bound
+    of the enclosure at 64 limbs on that side, rounded outward. [None], a
+    panic, is a panic of the evaluation. For a real number that is not an
+    [f64], each level passes once its enclosure is narrower than a width
+    that depends only on that number ([ziv_at_passes]). [driver_post z
+    post] says that the driver [z] gives a result with the property
+    [post], so that the proofs of the functions of the kernel can be
+    stated once for both drivers. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -757,10 +768,43 @@ Proof.
     + intros g Fg. specialize (R1 g Fg). lra.
 Qed.
 
-(** The level of the levels list that returns. *)
+(** ** The two drivers and the properties of their results *)
+
+(** [ziv] without its last step at the cap: the rounding test at the
+    levels of [ziv] and at 64 limbs, with [None] where none passes or an
+    evaluation panics. *)
+Definition ziv_strict (ev : nat -> option Dyadic.encl) (up : bool) (start : nat) : option f64 :=
+  let* r := Dyadic.ziv_levels ev up start (1 :: 2 :: 4 :: 8 :: 16 :: 32 :: 64 :: nil)%nat in r.
+
+(** [v] is [r] rounded toward +inf if [up], and toward -inf otherwise. *)
+Definition rounds (up : bool) (r : R) (v : f64) : Prop :=
+  mpfr_round f64_format (if up then RNDU else RNDD) r (with_val v).
+
+(** [v] is at or above [r] if [up], and at or below it if not: an
+    infinity of that sign, or a zero or a finite [f64] on that side. *)
+Definition f64_side (up : bool) (r : R) (v : f64) : Prop :=
+  match v with
+  | B754_infinity s => s = negb up
+  | B754_nan => False
+  | _ => if up then (r <= B2R v)%R else (B2R v <= r)%R
+  end.
+
+(** Every correct rounding has the property [post]. *)
+Definition rounds_post (post : bool -> R -> f64 -> Prop) : Prop :=
+  forall up r v, rounds up r v -> post up r v.
+
+(** The driver [z] gives a result with the property [post] of every real
+    number that each level of [ev] encloses. *)
+Definition driver_post (z : (nat -> option Dyadic.encl) -> bool -> nat -> option f64)
+    (post : bool -> R -> f64 -> Prop) : Prop :=
+  forall ev up start r v,
+  (forall n a, level_ok n -> ev n = Some a -> encl_ok n a /\ encl_has a r) ->
+  z ev up start = Some v -> post up r v.
+
+(** The level of the levels list that passes. *)
 Lemma ziv_levels_some :
   forall ev up start levels v,
-  Dyadic.ziv_levels ev up start levels = Some v ->
+  Dyadic.ziv_levels ev up start levels = Some (Some v) ->
   exists n, In n levels /\ Dyadic.ziv_at ev n up = Some (Some v).
 Proof.
   intros ev up start levels v. induction levels as [|n ls IH]; cbn [Dyadic.ziv_levels].
@@ -866,26 +910,120 @@ Proof.
   destruct (Rle_dec x r); destruct (Rcase_abs (g - r)); destruct (Rcase_abs (x - r)); intros; lra.
 Qed.
 
-(** The driver lemma: partial correctness. *)
-Lemma ziv_correct :
-  forall ev up start r v,
+(** A level that passes, in a list of levels of 1 to 64 limbs, gives the
+    correct rounding. *)
+Lemma ziv_levels_rounds :
+  forall ev up start levels r v,
+  (forall n, In n levels -> level_ok n) ->
   (forall n a, level_ok n -> ev n = Some a -> encl_ok n a /\ encl_has a r) ->
-  Dyadic.ziv ev up start = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) r (with_val v).
+  Dyadic.ziv_levels ev up start levels = Some (Some v) -> rounds up r v.
 Proof.
-  intros ev up start r v Hev Hz. unfold Dyadic.ziv in Hz.
-  destruct (ziv_levels_some _ _ _ _ _ Hz) as (n & Hin & E).
-  assert (Hn : level_ok n).
-  { unfold level_ok. cbn [In] in Hin.
-    repeat (destruct Hin as [<-|Hin]; [lia|]). destruct Hin. }
-  unfold Dyadic.ziv_at in E.
-  destruct (ev n) as [x|] eqn:Ex; [|discriminate].
+  intros ev up start levels r v Hl Hev L.
+  destruct (ziv_levels_some _ _ _ _ _ L) as (n & Hin & E).
+  pose proof (Hl n Hin) as Hn.
+  unfold Dyadic.ziv_at, Dyadic.round_bounds in E.
+  destruct (ev n) as [x|] eqn:Ex; [|discriminate]. cbv beta iota in E.
   destruct (Hev n x Hn Ex) as ((Hlo & Hhi & _) & Hr).
   destruct (to_f64_correct n (Dyadic.en_lo x) up Hn Hlo) as (v1 & E1 & R1).
   destruct (to_f64_correct n (Dyadic.en_hi x) up Hn Hhi) as (v2 & E2 & R2).
   rewrite E1, E2 in E. cbv beta iota in E.
   destruct (Model.eq v1 v2) eqn:Q; [|discriminate]. injection E as <-.
   exact (round_between _ _ _ _ _ _ Hr R1 R2 Q).
+Qed.
+
+(** The driver lemma: where a rounding test passes, the result is the
+    correct rounding. *)
+Lemma ziv_strict_correct : driver_post ziv_strict rounds.
+Proof.
+  intros ev up start r v Hev Hz. unfold ziv_strict in Hz.
+  destruct (Dyadic.ziv_levels ev up start _) as [o|] eqn:L; [|discriminate Hz]. subst o.
+  refine (ziv_levels_rounds ev up start _ r v _ Hev L).
+  intros n Hin. unfold level_ok. cbn [In] in Hin.
+  repeat (destruct Hin as [<-|Hin]; [lia|]). destruct Hin.
+Qed.
+
+(** Where one of the levels [ls] and then 64 limbs passes, the levels
+    [ls] and then [ziv_cap] return the same value: a test that passes at
+    64 limbs makes [ziv_cap] return [lo], as [ziv_at] does. *)
+Lemma ziv_levels_cap :
+  forall ev up start ls v,
+  Dyadic.ziv_levels ev up start (ls ++ 64 :: nil)%nat = Some (Some v) ->
+  (let* r := Dyadic.ziv_levels ev up start ls in
+   match r with Some x => Some x | None => Dyadic.ziv_cap ev up end) = Some v.
+Proof.
+  intros ev up start ls v. induction ls as [|n ls IH]; cbn [Dyadic.ziv_levels app].
+  - destruct (start <=? 64)%nat; [|discriminate].
+    unfold Dyadic.ziv_at, Dyadic.ziv_cap.
+    destruct (Dyadic.round_bounds ev 64 up) as [[lo hi]|]; cbv beta iota; [|discriminate].
+    destruct (Model.eq lo hi); cbv beta iota; [|discriminate].
+    intros H. injection H as ->. reflexivity.
+  - destruct (start <=? n)%nat; [|exact IH].
+    destruct (Dyadic.ziv_at ev n up) as [[x|]|]; cbv beta iota; [| exact IH | discriminate].
+    intros H. injection H as ->. reflexivity.
+Qed.
+
+(** Where [ziv_strict] returns, [ziv] returns the same. *)
+Lemma ziv_strict_ziv :
+  forall ev up start v, ziv_strict ev up start = Some v -> Dyadic.ziv ev up start = Some v.
+Proof.
+  intros ev up start v Hz. unfold ziv_strict in Hz. unfold Dyadic.ziv.
+  destruct (Dyadic.ziv_levels ev up start _) as [o|] eqn:L; [|discriminate Hz]. subst o.
+  exact (ziv_levels_cap ev up start (1 :: 2 :: 4 :: 8 :: 16 :: 32 :: nil)%nat v L).
+Qed.
+
+(** A correct rounding is on the side of the number that the rounding is
+    on. *)
+Lemma rounds_side : rounds_post f64_side.
+Proof.
+  intros up r v H. unfold rounds in H.
+  destruct v as [s|s| |s m e B]; cbn [f64_side].
+  - destruct up; cbn [with_val mpfr_round] in H; destruct H as (_ & H & _); exact H.
+  - destruct up, s; cbn [with_val mpfr_round negb] in H |- *; first [reflexivity | contradiction].
+  - destruct up; cbn [with_val mpfr_round] in H; contradiction.
+  - destruct up; cbn [with_val mpfr_round] in H; destruct H as (_ & _ & H & _); exact H.
+Qed.
+
+(** A value on the correct side of [r'] is on the correct side of every
+    [r] that is beyond [r'] in the other direction. *)
+Lemma f64_side_le :
+  forall (up : bool) (r r' : R) (v : f64),
+  (if up then (r <= r')%R else (r' <= r)%R) -> f64_side up r' v -> f64_side up r v.
+Proof.
+  intros up r r' v Hr H.
+  destruct v as [s|s| |s m e B]; cbn [f64_side] in H |- *; try exact H;
+    destruct up; lra.
+Qed.
+
+(** [ziv] returns a value on the correct side: the correct rounding where
+    a test passes, and otherwise the bound on that side rounded outward. *)
+Lemma ziv_side : driver_post Dyadic.ziv f64_side.
+Proof.
+  intros ev up start r v Hev Hz. unfold Dyadic.ziv in Hz.
+  destruct (Dyadic.ziv_levels ev up start _) as [[x|]|] eqn:L; cbv beta iota in Hz;
+    [| |discriminate Hz].
+  - (* A level below the cap passes. *)
+    injection Hz as <-. apply rounds_side.
+    refine (ziv_levels_rounds ev up start _ r x _ Hev L).
+    intros n Hin. unfold level_ok. cbn [In] in Hin.
+    repeat (destruct Hin as [<-|Hin]; [lia|]). destruct Hin.
+  - (* The cap: both bounds of the enclosure at 64 limbs, rounded. *)
+    assert (H64 : level_ok 64) by (unfold level_ok; lia).
+    unfold Dyadic.ziv_cap, Dyadic.round_bounds in Hz.
+    destruct (ev 64%nat) as [a|] eqn:Ea; [|discriminate]. cbv beta iota in Hz.
+    destruct (Hev 64%nat a H64 Ea) as ((Hlo & Hhi & _) & Hr).
+    destruct (to_f64_correct 64 (Dyadic.en_lo a) up H64 Hlo) as (v1 & E1 & R1).
+    destruct (to_f64_correct 64 (Dyadic.en_hi a) up H64 Hhi) as (v2 & E2 & R2).
+    rewrite E1, E2 in Hz. cbv beta iota in Hz. injection Hz as <-.
+    destruct (Model.eq v1 v2) eqn:Q; cbn [orb].
+    + (* The test passes at the cap. *)
+      exact (rounds_side _ _ _ (round_between _ _ _ _ _ _ Hr R1 R2 Q)).
+    + (* Otherwise [hi] rounded up is at or above [hi], and [lo] rounded
+         down at or below [lo]. *)
+      destruct up; cbn [negb].
+      * apply f64_side_le with (Dyadic.dy_R (Dyadic.en_hi a)); [apply Hr |].
+        exact (rounds_side true _ _ R2).
+      * apply f64_side_le with (Dyadic.dy_R (Dyadic.en_lo a)); [apply Hr |].
+        exact (rounds_side false _ _ R1).
 Qed.
 
 (** The termination lemma: a real number that is not a finite [f64],
@@ -908,7 +1046,7 @@ Proof.
   unfold lo_R, hi_R in Hw.
   destruct (to_f64_correct n (Dyadic.en_lo a) up Hn Hlo) as (v1 & E1 & R1).
   destruct (to_f64_correct n (Dyadic.en_hi a) up Hn Hhi) as (v2 & E2 & R2).
-  unfold Dyadic.ziv_at. rewrite Ea, E1, E2. cbv beta iota.
+  unfold Dyadic.ziv_at, Dyadic.round_bounds. rewrite Ea, E1, E2. cbv beta iota.
   apply round_transfer with (r := r) in R1;
     [| apply gap_interval with d; [exact Hgap | unfold Rabs; destruct Rcase_abs; lra]].
   apply round_transfer with (r := r) in R2;

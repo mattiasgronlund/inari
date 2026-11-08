@@ -1,18 +1,28 @@
 (** * atan and atan2 in the dyadic kernel
 
-    [atan_dir] and [atan2_dir] of [DyadicAtan] in [Model.v], where they
-    return, round [atan] of a finite [x] and [Ratan2] of finite [y] and
-    [x] with [y <> 0] or [x > 0] in the direction [up]
-    ([atan_dir_correct] and [atan2_dir_correct]): the rules of
-    [DyAtanTiny.v] for tiny arguments and quotients, [atan_huge_rule]
-    for atan at [|x| >= 2^54], and otherwise
-    [ziv_correct] of [DyDriver.v] with the enclosures of
-    [ev_atan_correct] and [ev_atan2_correct]. [ev_atan2] reduces
-    [atan2(y, x)] to [atan] of [|y|/|x|] or [|x|/|y|] by the octant of
-    [(x, y)], with π of [DyConstPi.v]. [pi_times c up] rounds [c π]
-    ([pi_times_correct]); it gives the values at the infinities,
-    which the last lemmas state. That the loop ends before its cap is
-    not proved. *)
+    [atan_dir] and [atan2_dir] of [DyadicAtan] in [Model.v] apply the
+    rules of [DyAtanTiny.v] for tiny arguments and quotients, [pi_times]
+    for atan at [|x| >= 2^54] ([atan_huge_post]) and for atan2 at
+    [x = ±0], and otherwise the driver [ziv] to the enclosures of
+    [ev_atan_correct] and [ev_atan2_correct].
+    [atan_dir_post] and [atan2_dir_post] prove, for any driver [z] in
+    place of [ziv] ([atan_dir_with z] and [atan2_dir_with z]) and any
+    property [post] that holds of every correct rounding ([rounds_post]),
+    carries over between two reals with no [f64] strictly between them
+    ([gap_post], for atan's rule at [|x| >= 2^54]) and that [z] gives
+    ([driver_post] of [DyDriver.v]), that the result has [post] for
+    [atan] of a finite [x], and for [Ratan2] of finite [y] and [x] with
+    [y <> 0] or [x > 0], and the direction [up]. So with [ziv_strict]
+    the kernel rounds correctly where it returns ([atan_dir_correct] and
+    [atan2_dir_correct], by [ziv_strict_correct]), the Rust returns the
+    same value there ([atan_dir_strict] and [atan2_dir_strict]), and
+    wherever the Rust returns, its result is on the side of [up]
+    ([atan_dir_side] and [atan2_dir_side], by [ziv_side]). [ev_atan2]
+    reduces [atan2(y, x)] to [atan] of [|y|/|x|] or [|x|/|y|] by the
+    octant of [(x, y)], with π of [DyConstPi.v]. [pi_times_with z c up]
+    gives [c π] the property [post] ([pi_times_post]), and the values at
+    the infinities, which the last lemmas state for [ziv_strict]. That a
+    rounding test passes by the cap is not proved. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -84,14 +94,27 @@ destruct (mul_step n pc p a _ _ Hn Oc Op Lc Lp ltac:(lia) ltac:(lia) H) as (Oa &
 split; [exact Oa | exact (Ha _ _ Hc Hp)].
 Qed.
 
+Lemma pi_times_post :
+  forall z post, driver_post z post ->
+  forall c up v,
+  is_finite c = true -> DyadicAtan.pi_times_with z c up = Some v -> post up (B2R c * PI)%R v.
+Proof.
+intros z post Hz c up v Fc H. unfold DyadicAtan.pi_times_with in H.
+apply (Hz (DyadicAtan.ev_pi c) up 1%nat); [|exact H].
+intros n a Hn Ha. exact (ev_pi_correct c n a Hn Fc Ha).
+Qed.
+
 Lemma pi_times_correct :
   forall c up v,
-  is_finite c = true -> DyadicAtan.pi_times c up = Some v ->
+  is_finite c = true -> DyadicAtan.pi_times_with ziv_strict c up = Some v ->
   mpfr_round f64_format (if up then RNDU else RNDD) (B2R c * PI) (with_val v).
+Proof. exact (pi_times_post ziv_strict rounds ziv_strict_correct). Qed.
+
+Lemma pi_times_strict :
+  forall c up v,
+  DyadicAtan.pi_times_with ziv_strict c up = Some v -> DyadicAtan.pi_times c up = Some v.
 Proof.
-intros c up v Fc H. unfold DyadicAtan.pi_times in H.
-apply (ziv_correct (DyadicAtan.ev_pi c) up 1%nat); [|exact H].
-intros n a Hn Ha. exact (ev_pi_correct c n a Hn Fc Ha).
+intros c up v. unfold DyadicAtan.pi_times, DyadicAtan.pi_times_with. apply ziv_strict_ziv.
 Qed.
 
 (** [atan |x|] by [atan_encl], then [atan (-t) = - atan t]. *)
@@ -228,6 +251,32 @@ destruct rnd, v as [|[|]|s|y]; cbn [mpfr_round] in *; try contradiction;
     | (destruct H as [H0 H]; split; [exact H0 | first [exact (DN _ H) | exact (UP _ H)]]) ].
 Qed.
 
+(** A property of results that carries over between two reals with no
+    [f64] strictly between them, as [atn_round_gap] says of rounding. *)
+Definition gap_post (post : bool -> R -> f64 -> Prop) : Prop :=
+  forall up lo hi ra rb v,
+  (forall g, f64_format g -> g <= lo \/ hi <= g)%R ->
+  (lo < ra < hi)%R -> (lo < rb < hi)%R -> post up ra v -> post up rb v.
+
+Lemma rounds_gap : gap_post rounds.
+Proof.
+intros up lo hi ra rb v Hg Ha Hb H. unfold rounds in H |- *.
+exact (atn_round_gap _ lo hi ra rb _ Hg Ha Hb H).
+Qed.
+
+(** If [up], a finite [v] at or above [ra] is an [f64] above [lo], so
+    at or above [hi] and above [rb]; the other direction is symmetric,
+    and an infinity or NaN does not depend on the real. *)
+Lemma side_gap : gap_post f64_side.
+Proof.
+intros up lo hi ra rb v Hg (Ha1 & Ha2) (Hb1 & Hb2) H.
+destruct (is_finite v) eqn:Fv.
+- destruct (Hg _ (f64_format_B2R v Fv)) as [G|G];
+    destruct v as [s|s| |s m e Hv]; try discriminate Fv;
+    cbn [f64_side] in H |- *; destruct up; lra.
+- destruct v as [s|s| |s m e Hv]; try discriminate Fv; exact H.
+Qed.
+
 (** The bounds of [Interval::FRAC_PI_2], the [f64]s next to [π/2]
     ([PiTight.v]). *)
 Local Notation pi2_lo := (Interval.inf_raw Interval.FRAC_PI_2).
@@ -279,16 +328,18 @@ Qed.
 
 (** For a finite [x] with [|x| >= 2^54], [atan x] and [±π/2] (the sign of
     [x]) lie strictly between the same two adjacent [f64]s, so that
-    [pi_times (copysign 0.5 x) up] rounds [atan x]: [atan x] is above
-    [π/2 - 2^-54] for [x >= 2^54], and the [f64] below [π/2] is
+    [post], which [pi_times_with z (copysign 0.5 x) up] gives [±π/2]
+    ([pi_times_post]), carries over to [atan x] ([gap_post]): [atan x]
+    is above [π/2 - 2^-54] for [x >= 2^54], and the [f64] below [π/2] is
     [π/2 - 6.1e-17]. *)
-Lemma atan_huge_rule :
+Lemma atan_huge_post :
+  forall z post, gap_post post -> driver_post z post ->
   forall x up v,
   is_finite x = true -> ge (fabs x) DyadicAtan.huge_atan = true ->
-  DyadicAtan.pi_times (copysign DyadicLog.half x) up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (atan (B2R x)) (with_val v).
+  DyadicAtan.pi_times_with z (copysign DyadicLog.half x) up = Some v ->
+  post up (atan (B2R x)) v.
 Proof.
-intros x up v Fx G H.
+intros z post Hg Hz x up v Fx G H.
 (* [huge_atan] is [2^54]. *)
 assert (Fh : is_finite DyadicAtan.huge_atan = true) by (vm_compute; reflexivity).
 assert (Hh : B2R DyadicAtan.huge_atan = 18014398509481984%R).
@@ -307,52 +358,77 @@ destruct (atn_huge_between _ Ht) as (A & P).
 assert (Sh : Bsign DyadicLog.half = false) by (vm_compute; reflexivity).
 assert (Fhalf : is_finite DyadicLog.half = true) by (vm_compute; reflexivity).
 destruct (atn_copysign DyadicLog.half x Sh Fhalf) as (Fc & Vc).
-pose proof (pi_times_correct _ up v Fc H) as R.
+pose proof (pi_times_post z post Hz _ up v Fc H) as R.
 rewrite Vc, lc_half_R in R.
 revert R. destruct (Bsign x) eqn:Sx; intros R.
-- (* [x <= -2^54]: [atan x = - atan |x|], and [R] rounds [-π/2]. *)
+- (* [x <= -2^54]: [atan x = - atan |x|], and [R] is [post] at [-π/2]. *)
   pose proof (atn_sign_true x Sx) as Xn.
   rewrite (Rabs_left1 _ Xn), atan_opp in A.
-  apply (atn_round_gap _ (- B2R pi2_hi) (- B2R pi2_lo) (- (1 / 2) * PI)%R);
+  apply (Hg up (- B2R pi2_hi)%R (- B2R pi2_lo)%R (- (1 / 2) * PI)%R);
     [| lra | lra | exact R].
   intros g Fg. exact (proj2 (atn_pi2_gap g Fg)).
-- (* [x >= 2^54], and [R] rounds [π/2]. *)
+- (* [x >= 2^54], and [R] is [post] at [π/2]. *)
   pose proof (atn_sign_false x Sx) as Xp.
   rewrite (Rabs_pos_eq _ Xp) in A.
-  apply (atn_round_gap _ (B2R pi2_lo) (B2R pi2_hi) (1 / 2 * PI)%R);
+  apply (Hg up (B2R pi2_lo) (B2R pi2_hi) (1 / 2 * PI)%R);
     [| lra | lra | exact R].
   intros g Fg. exact (proj1 (atn_pi2_gap g Fg)).
 Qed.
 
-Theorem atan_dir_correct :
+Lemma atan_dir_post :
+  forall z post, rounds_post post -> gap_post post -> driver_post z post ->
   forall x up v,
-  is_finite x = true -> DyadicAtan.atan_dir x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (atan (B2R x)) (with_val v).
+  is_finite x = true -> DyadicAtan.atan_dir_with z x up = Some v ->
+  post up (atan (B2R x)) v.
 Proof.
-intros x up v Fx H. unfold DyadicAtan.atan_dir in H.
+intros z post Hp Hg Hz x up v Fx H. unfold DyadicAtan.atan_dir_with in H.
 rewrite (fin_not_nan x Fx) in H.
 destruct (ge (fabs x) DyadicAtan.huge_atan) eqn:G0; cbv iota in H.
-{ exact (atan_huge_rule x up v Fx G0 H). }
+{ exact (atan_huge_post z post Hg Hz x up v Fx G0 H). }
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
-{ injection H as <-. exact (atan_tiny_rule x up Fx G). }
-apply (ziv_correct (DyadicAtan.ev_atan x) up 1%nat); [|exact H].
+{ injection H as <-. apply Hp. exact (atan_tiny_rule x up Fx G). }
+apply (Hz (DyadicAtan.ev_atan x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_atan_correct x n a Hn Fx Ha).
 Qed.
 
-(** [pi_times (copysign 0.5 (±∞)) up] returns, and rounds [±π/2]. *)
+Theorem atan_dir_correct :
+  forall x up v,
+  is_finite x = true -> DyadicAtan.atan_dir_with ziv_strict x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (atan (B2R x)) (with_val v).
+Proof. exact (atan_dir_post ziv_strict rounds (fun _ _ _ H => H) rounds_gap ziv_strict_correct). Qed.
+
+Theorem atan_dir_side :
+  forall x up v,
+  is_finite x = true -> DyadicAtan.atan_dir x up = Some v ->
+  f64_side up (atan (B2R x)) v.
+Proof. exact (atan_dir_post Dyadic.ziv f64_side rounds_side side_gap ziv_side). Qed.
+
+Theorem atan_dir_strict :
+  forall x up v,
+  DyadicAtan.atan_dir_with ziv_strict x up = Some v -> DyadicAtan.atan_dir x up = Some v.
+Proof.
+intros x up v. unfold DyadicAtan.atan_dir, DyadicAtan.atan_dir_with.
+destruct (is_nan x); [exact (fun h => h)|].
+destruct (ge (fabs x) DyadicAtan.huge_atan); [apply pi_times_strict|].
+destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|].
+apply ziv_strict_ziv.
+Qed.
+
+(** [pi_times_with ziv_strict (copysign 0.5 (±∞)) up] returns, and
+    rounds [±π/2]. *)
 Lemma atn_pi_half_inf :
   forall s up, exists v,
-  DyadicAtan.pi_times (copysign DyadicLog.half (B754_infinity s)) up = Some v /\
+  DyadicAtan.pi_times_with ziv_strict (copysign DyadicLog.half (B754_infinity s)) up = Some v /\
   mpfr_round f64_format (if up then RNDU else RNDD) (if s then - (PI / 2) else PI / 2)%R
     (with_val v).
 Proof.
 intros s up.
 (* A test of [Some] by [vm_compute]: [vm_compute in E] of the [None]
    case takes minutes. *)
-assert (Hs : match DyadicAtan.pi_times (copysign DyadicLog.half (B754_infinity s)) up with
+assert (Hs : match DyadicAtan.pi_times_with ziv_strict (copysign DyadicLog.half (B754_infinity s)) up with
              | Some _ => true | None => false end = true)
   by (destruct s, up; vm_compute; reflexivity).
-destruct (DyadicAtan.pi_times (copysign DyadicLog.half (B754_infinity s)) up) as [v|] eqn:E;
+destruct (DyadicAtan.pi_times_with ziv_strict (copysign DyadicLog.half (B754_infinity s)) up) as [v|] eqn:E;
   [| discriminate Hs].
 exists v. split; [reflexivity|].
 assert (Sh : Bsign DyadicLog.half = false) by (vm_compute; reflexivity).
@@ -365,11 +441,11 @@ destruct s.
 - replace (PI / 2)%R with (1 / 2 * PI)%R by field. exact R.
 Qed.
 
-(** [pi_times (copysign 1.0 y) up] of a finite [y] other than 0 returns,
-    and rounds [±π] by the sign of [y]. *)
+(** [pi_times_with ziv_strict (copysign 1.0 y) up] of a finite [y]
+    other than 0 returns, and rounds [±π] by the sign of [y]. *)
 Lemma atn_pi_one :
   forall y up, is_finite y = true -> B2R y <> 0%R -> exists v,
-  DyadicAtan.pi_times (copysign DyadicExp.one y) up = Some v /\
+  DyadicAtan.pi_times_with ziv_strict (copysign DyadicExp.one y) up = Some v /\
   mpfr_round f64_format (if up then RNDU else RNDD) (if Bsign y then - PI else PI)%R
     (with_val v).
 Proof.
@@ -379,10 +455,10 @@ assert (C : copysign DyadicExp.one y =
             if Bsign y then opp DyadicExp.one else DyadicExp.one)
   by (unfold copysign; rewrite S1; destruct (Bsign y); reflexivity).
 assert (Hs : forall b : bool,
-             match DyadicAtan.pi_times (if b then opp DyadicExp.one else DyadicExp.one) up with
+             match DyadicAtan.pi_times_with ziv_strict (if b then opp DyadicExp.one else DyadicExp.one) up with
              | Some _ => true | None => false end = true)
   by (intros b; destruct b, up; vm_compute; reflexivity).
-destruct (DyadicAtan.pi_times (copysign DyadicExp.one y) up) as [v|] eqn:E;
+destruct (DyadicAtan.pi_times_with ziv_strict (copysign DyadicExp.one y) up) as [v|] eqn:E;
   [| specialize (Hs (Bsign y)); rewrite <- C, E in Hs; discriminate Hs].
 exists v. split; [reflexivity|].
 destruct (atn_copysign DyadicExp.one y S1 (proj1 one_B2R)) as (Fc & Vc).
@@ -396,14 +472,14 @@ Qed.
 
 Lemma atan_dir_infinity :
   forall s up, exists v,
-  DyadicAtan.atan_dir (B754_infinity s) up = Some v /\
+  DyadicAtan.atan_dir_with ziv_strict (B754_infinity s) up = Some v /\
   mpfr_round f64_format (if up then RNDU else RNDD) (if s then - (PI / 2) else PI / 2)%R
     (with_val v).
 Proof.
 intros s up.
-assert (E : DyadicAtan.atan_dir (B754_infinity s) up =
-            DyadicAtan.pi_times (copysign DyadicLog.half (B754_infinity s)) up).
-{ unfold DyadicAtan.atan_dir.
+assert (E : DyadicAtan.atan_dir_with ziv_strict (B754_infinity s) up =
+            DyadicAtan.pi_times_with ziv_strict (copysign DyadicLog.half (B754_infinity s)) up).
+{ unfold DyadicAtan.atan_dir_with.
   replace (ge (fabs (B754_infinity s)) DyadicAtan.huge_atan)
     with true by (destruct s; vm_compute; reflexivity).
   reflexivity. }
@@ -413,13 +489,14 @@ Qed.
 (** At [y = ±0] (so [x > 0]), [y] is [atan2 0 x = 0]; at [x = ±0],
     [π/2] of the sign of [y]; for [x > 0] and an exact tiny [y / x], the
     rule of [atan_tiny_rule]; and otherwise the loop. *)
-Theorem atan2_dir_correct :
+Lemma atan2_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
   forall y x up v,
   is_finite y = true -> is_finite x = true -> (B2R y <> 0 \/ 0 < B2R x)%R ->
-  DyadicAtan.atan2_dir y x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (Ratan2 (B2R y) (B2R x)) (with_val v).
+  DyadicAtan.atan2_dir_with z y x up = Some v ->
+  post up (Ratan2 (B2R y) (B2R x)) v.
 Proof.
-intros y x up v Fy Fx D H. unfold DyadicAtan.atan2_dir in H.
+intros z post Hp Hz y x up v Fy Fx D H. unfold DyadicAtan.atan2_dir_with in H.
 rewrite (fin_not_nan y Fy), (fin_not_nan x Fx) in H. cbn [orb] in H.
 destruct (atn_eq_zero y Fy) as (Z1 & Z2).
 destruct (eq y zero) eqn:Ey0; cbv iota in H.
@@ -430,6 +507,7 @@ destruct (eq y zero) eqn:Ey0; cbv iota in H.
     by (destruct (Bsign x) eqn:S; [apply atn_sign_true in S; lra | reflexivity]).
   rewrite Sx in H. cbn [negb] in H. injection H as <-.
   rewrite Z1, (Ratan2_zero_y_pos _ Px).
+  apply Hp. cbv [rounds].
   destruct y as [s|s| |s m e Hb]; try discriminate Fy.
   - cbn [with_val]. apply mpfr_round_zero. exists zero. split; reflexivity.
   - exfalso. revert Z1. cbn [B2R]. apply F2R_neq_0. cbn [Fnum].
@@ -445,7 +523,7 @@ destruct (eq x zero) eqn:Ex0; cbv iota in H.
   assert (Sh : Bsign DyadicLog.half = false) by (vm_compute; reflexivity).
   assert (Fh : is_finite DyadicLog.half = true) by (vm_compute; reflexivity).
   destruct (atn_copysign DyadicLog.half y Sh Fh) as (Fc & Vc).
-  pose proof (pi_times_correct _ up v Fc H) as R.
+  pose proof (pi_times_post z post Hz _ up v Fc H) as R.
   rewrite Vc, lc_half_R in R. rewrite X1.
   revert R. destruct (Bsign y) eqn:Sy; intros R.
   - pose proof (atn_sign_true y Sy) as Yn.
@@ -468,34 +546,65 @@ destruct (gt x zero) eqn:Gx; cbv beta iota in H.
     injection H as <-.
     destruct (tiny_quotient_correct y x q Fy Fx G1 Eq) as (Fq & Vq & Tq).
     rewrite (Ratan2_pos_x _ _ G1), <- Vq.
-    exact (atan_tiny_rule q up Fq Tq).
-  + apply (ziv_correct (DyadicAtan.ev_atan2 y x) up 1%nat); [|exact H].
+    apply Hp. exact (atan_tiny_rule q up Fq Tq).
+  + apply (Hz (DyadicAtan.ev_atan2 y x) up 1%nat); [|exact H].
     intros n a Hn Ha. exact (ev_atan2_correct y x n a Hn Fy Fx Z2 X2 Ha).
-- apply (ziv_correct (DyadicAtan.ev_atan2 y x) up 1%nat); [|exact H].
+- apply (Hz (DyadicAtan.ev_atan2 y x) up 1%nat); [|exact H].
   intros n a Hn Ha. exact (ev_atan2_correct y x n a Hn Fy Fx Z2 X2 Ha).
+Qed.
+
+Theorem atan2_dir_correct :
+  forall y x up v,
+  is_finite y = true -> is_finite x = true -> (B2R y <> 0 \/ 0 < B2R x)%R ->
+  DyadicAtan.atan2_dir_with ziv_strict y x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (Ratan2 (B2R y) (B2R x)) (with_val v).
+Proof. exact (atan2_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem atan2_dir_side :
+  forall y x up v,
+  is_finite y = true -> is_finite x = true -> (B2R y <> 0 \/ 0 < B2R x)%R ->
+  DyadicAtan.atan2_dir y x up = Some v ->
+  f64_side up (Ratan2 (B2R y) (B2R x)) v.
+Proof. exact (atan2_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem atan2_dir_strict :
+  forall y x up v,
+  DyadicAtan.atan2_dir_with ziv_strict y x up = Some v -> DyadicAtan.atan2_dir y x up = Some v.
+Proof.
+intros y x up v. unfold DyadicAtan.atan2_dir, DyadicAtan.atan2_dir_with.
+destruct (is_nan y || is_nan x); [exact (fun h => h)|].
+destruct (eq y zero).
+{ destruct (negb (Bsign x)); [exact (fun h => h) | apply pi_times_strict]. }
+destruct (eq y infinity || eq y DyadicExp.neg_infinity); [apply pi_times_strict|].
+destruct (eq x infinity); [exact (fun h => h)|].
+destruct (eq x DyadicExp.neg_infinity); [apply pi_times_strict|].
+destruct (eq x zero); [apply pi_times_strict|].
+destruct (gt x zero); [|apply ziv_strict_ziv].
+destruct (DyadicAtan.tiny_quotient y x) as [[q|]|];
+  [exact (fun h => h) | apply ziv_strict_ziv | exact (fun h => h)].
 Qed.
 
 Lemma atan2_dir_inf_pos :
   forall y up, is_finite y = true ->
-  exists s', DyadicAtan.atan2_dir y (B754_infinity false) up = Some (B754_zero s' : f64).
+  exists s', DyadicAtan.atan2_dir_with ziv_strict y (B754_infinity false) up = Some (B754_zero s' : f64).
 Proof.
 intros y up Fy.
 destruct y as [s|s| |s m e Hb]; try discriminate Fy;
   exists s; destruct s, up; vm_compute; reflexivity.
 Qed.
 
-(** [atan2_dir y (-∞) up] of a finite [y] other than 0 is
-    [pi_times (copysign 1.0 y) up]. *)
+(** [atan2_dir_with ziv_strict y (-∞) up] of a finite [y] other than 0
+    is [pi_times_with ziv_strict (copysign 1.0 y) up]. *)
 Lemma atn_inf_neg :
   forall y up, is_finite y = true -> B2R y <> 0%R ->
-  DyadicAtan.atan2_dir y (B754_infinity true) up =
-  DyadicAtan.pi_times (copysign DyadicExp.one y) up.
+  DyadicAtan.atan2_dir_with ziv_strict y (B754_infinity true) up =
+  DyadicAtan.pi_times_with ziv_strict (copysign DyadicExp.one y) up.
 Proof.
 intros y up Fy Y0.
 assert (Ey0 : eq y zero = false)
   by (destruct (eq y zero) eqn:E0; [apply (proj1 (atn_eq_zero y Fy)) in E0; contradiction
                                     | reflexivity]).
-unfold DyadicAtan.atan2_dir.
+unfold DyadicAtan.atan2_dir_with.
 rewrite (fin_not_nan y Fy), Ey0, (fin_neq_inf y Fy), (fin_neq_ninf y Fy).
 replace (eq (B754_infinity true : f64) infinity) with false by (vm_compute; reflexivity).
 replace (eq (B754_infinity true : f64) DyadicExp.neg_infinity) with true
@@ -505,7 +614,7 @@ Qed.
 
 Lemma atan2_dir_inf_neg_pos :
   forall y up, is_finite y = true -> (0 < B2R y)%R -> exists v,
-  DyadicAtan.atan2_dir y (B754_infinity true) up = Some v /\
+  DyadicAtan.atan2_dir_with ziv_strict y (B754_infinity true) up = Some v /\
   mpfr_round f64_format (if up then RNDU else RNDD) PI (with_val v).
 Proof.
 intros y up Fy Py.
@@ -519,7 +628,7 @@ Qed.
 
 Lemma atan2_dir_inf_neg_neg :
   forall y up, is_finite y = true -> (B2R y < 0)%R -> exists v,
-  DyadicAtan.atan2_dir y (B754_infinity true) up = Some v /\
+  DyadicAtan.atan2_dir_with ziv_strict y (B754_infinity true) up = Some v /\
   mpfr_round f64_format (if up then RNDU else RNDD) (- PI)%R (with_val v).
 Proof.
 intros y up Fy Ny.
@@ -533,14 +642,14 @@ Qed.
 
 Lemma atan2_dir_y_inf :
   forall s x up, is_finite x = true -> exists v,
-  DyadicAtan.atan2_dir (B754_infinity s) x up = Some v /\
+  DyadicAtan.atan2_dir_with ziv_strict (B754_infinity s) x up = Some v /\
   mpfr_round f64_format (if up then RNDU else RNDD) (if s then - (PI / 2) else PI / 2)%R
     (with_val v).
 Proof.
 intros s x up Fx.
-assert (E : DyadicAtan.atan2_dir (B754_infinity s) x up =
-            DyadicAtan.pi_times (copysign DyadicLog.half (B754_infinity s)) up).
-{ unfold DyadicAtan.atan2_dir.
+assert (E : DyadicAtan.atan2_dir_with ziv_strict (B754_infinity s) x up =
+            DyadicAtan.pi_times_with ziv_strict (copysign DyadicLog.half (B754_infinity s)) up).
+{ unfold DyadicAtan.atan2_dir_with.
   rewrite (fin_not_nan x Fx), (fin_neq_inf x Fx), (fin_neq_ninf x Fx).
   replace (eq (B754_infinity s) zero) with false by (destruct s; vm_compute; reflexivity).
   replace (eq (B754_infinity s) infinity || eq (B754_infinity s) DyadicExp.neg_infinity)

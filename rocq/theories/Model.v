@@ -1496,29 +1496,41 @@ Definition encl_shl (n : nat) (a : encl) (k : Z) : option encl :=
   let* hi := shl n (en_hi a) k in
   Some {| en_lo := lo; en_hi := hi |}.
 
-(** [fn ziv_at<N, E>(f: &E, up: bool) -> Option<f64>], for [ev n] the
+(** [fn round_bounds<N, E>(f: &E, up: bool) -> (f64, f64)], for [ev n] the
     [f.eval::<N>()] of [N = n], [None] where it panics. *)
-Definition ziv_at (ev : nat -> option encl) (n : nat) (up : bool) : option (option f64) :=
+Definition round_bounds (ev : nat -> option encl) (n : nat) (up : bool) : option (f64 * f64) :=
   let* x := ev n in
   let* lo := to_f64 n (en_lo x) up in
   let* hi := to_f64 n (en_hi x) up in
+  Some (lo, hi).
+
+(** [fn ziv_at<N, E>(f: &E, up: bool) -> Option<f64>] *)
+Definition ziv_at (ev : nat -> option encl) (n : nat) (up : bool) : option (option f64) :=
+  let* (lo, hi) := round_bounds ev n up in
   Some (if eq lo hi then Some lo else None).
 
-(** [fn ziv<E>(f: &E, up: bool, start: usize) -> f64]: the [panic!] at
-    the cap, after the last level, is [None]. *)
+(** [fn ziv_cap<E>(f: &E, up: bool) -> f64], where [!up] is [negb up]. *)
+Definition ziv_cap (ev : nat -> option encl) (up : bool) : option f64 :=
+  let* (lo, hi) := round_bounds ev 64 up in
+  Some (if eq lo hi || negb up then lo else hi).
+
+(** The levels [levels] of [fn ziv]'s [try_levels!]: [Some (Some x)] at the
+    first that passes, [Some None] if none does, [None] where one panics. *)
 Fixpoint ziv_levels (ev : nat -> option encl) (up : bool) (start : nat) (levels : list nat)
-  : option f64 :=
+  : option (option f64) :=
   match levels with
-  | nil => None
+  | nil => Some None
   | n :: ls =>
       if (start <=? n)%nat then
         let* r := ziv_at ev n up in
-        match r with Some x => Some x | None => ziv_levels ev up start ls end
+        match r with Some x => Some (Some x) | None => ziv_levels ev up start ls end
       else ziv_levels ev up start ls
   end.
 
+(** [fn ziv<E>(f: &E, up: bool, start: usize) -> f64] *)
 Definition ziv (ev : nat -> option encl) (up : bool) (start : nat) : option f64 :=
-  ziv_levels ev up start (1 :: 2 :: 4 :: 8 :: 16 :: 32 :: 64 :: nil)%nat.
+  let* r := ziv_levels ev up start (1 :: 2 :: 4 :: 8 :: 16 :: 32 :: nil)%nat in
+  match r with Some x => Some x | None => ziv_cap ev up end.
 
 End Dyadic.
 
@@ -1625,13 +1637,13 @@ End DyadicConsts.
 
     The functions of [src/dyadic/exp.rs]: [exp_dir x up] is [exp(x, up)],
     and the same for [exp2], [exp10], [sinh], [cosh] and [tanh], with
-    [None] where the Rust function panics: an [assert!] of this file,
-    [ziv] at its cap, or any operation of the kernel that panics. The
-    [Eval]s are the functions [ev_exp x] and the others of a level [n].
-    [DyExpCore.v], [DyExp.v] and [DyHyp.v] prove them, with the rules
-    before the loop proved in [DyExpRules.v], [DyHypRules.v],
-    [DySinhTiny.v] and [DyTanhTiny.v], and [DyPoint.v] makes a [point] of
-    them. *)
+    [None] where the Rust function panics: an [assert!] of this file or
+    any operation of the kernel that panics. The [Eval]s are the
+    functions [ev_exp x] and the others of a level [n]. [DyExpCore.v],
+    [DyExp.v] and [DyHyp.v] prove them, with the rules before the loop
+    proved in [DyExpRules.v], [DyHypRules.v], [DySinhTiny.v] and
+    [DyTanhTiny.v], and [DyPoint.v] makes a [point] of them with
+    [DyDriver.ziv_strict] for [ziv] (the section [Driver] below). *)
 Module DyadicExp.
 
 (** The [f64] literals of the file, written with [from_bits]: [1.0],
@@ -1866,28 +1878,35 @@ Definition away (x : f64) (up : bool) : f64 :=
 Definition toward_zero (x : f64) (up : bool) : f64 :=
   if eq x zero || Bool.eqb (gt x zero) up then x else from_bits (to_bits x - 1).
 
+(** The functions of the file with [ziv] a parameter: [exp_dir_with ziv] is
+    [exp] with [ziv] for [Dyadic.ziv], and [exp_dir] after the section is
+    [exp_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
+    returns only where a rounding test passes ([DyDriver.ziv_strict]). *)
+Section Driver.
+Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
+
 (** [pub(crate) fn exp(x: f64, up: bool) -> f64] *)
-Definition exp_dir (x : f64) (up : bool) : option f64 :=
+Definition exp_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x || eq x infinity then Some x
   else if eq x neg_infinity then Some zero
   else if ge x (from_bits 0x4086300000000000) (* 710.0 *) then Some (overflow up)
   else if le x (from_bits 0xc087500000000000) (* -746.0 *) then Some (underflow up)
   else if lt (fabs x) tiny_exp then Some (near_one x up)
-  else Dyadic.ziv (ev_exp x) up 1.
+  else ziv (ev_exp x) up 1.
 
 (** [pub(crate) fn exp2(x: f64, up: bool) -> f64] *)
-Definition exp2_dir (x : f64) (up : bool) : option f64 :=
+Definition exp2_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x || eq x infinity then Some x
   else if eq x neg_infinity then Some zero
   else if ge x (from_bits 0x4090000000000000) (* 1024.0 *) then Some (overflow up)
   else if lt x (from_bits 0xc090cc0000000000) (* -1075.0 *) then Some (underflow up)
   else if lt (fabs x) tiny_exp then Some (near_one x up)
-  else Dyadic.ziv (ev_exp2 x) up 1.
+  else ziv (ev_exp2 x) up 1.
 
 (** [pub(crate) fn exp10(x: f64, up: bool) -> f64], where
     [(1.0..=22.0).contains(&x)] is [1.0 <= x && x <= 22.0], and [x as
     usize], for such an integer [x], is [to_i64 x]. *)
-Definition exp10_dir (x : f64) (up : bool) : option f64 :=
+Definition exp10_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x || eq x infinity then Some x
   else if eq x neg_infinity then Some zero
   else if ge x (from_bits 0x4073500000000000) (* 309.0 *) then Some (overflow up)
@@ -1895,27 +1914,27 @@ Definition exp10_dir (x : f64) (up : bool) : option f64 :=
   else if lt (fabs x) tiny_exp10 then Some (near_one x up)
   else if le one x && le x (from_bits 0x4036000000000000) (* 22.0 *) && eq x (ffloor x) then
     Some (pow10 (to_i64 x))
-  else Dyadic.ziv (ev_exp10 x) up 1.
+  else ziv (ev_exp10 x) up 1.
 
 (** [pub(crate) fn sinh(x: f64, up: bool) -> f64], where [x.is_infinite()]
     is [x == f64::INFINITY || x == f64::NEG_INFINITY]. *)
-Definition sinh_dir (x : f64) (up : bool) : option f64 :=
+Definition sinh_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x || (eq x infinity || eq x neg_infinity) then Some x
   else if ge x (from_bits 0x4086380000000000) (* 711.0 *) then Some (overflow up)
   else if le x (from_bits 0xc086380000000000) (* -711.0 *) then Some (opp (overflow (negb up)))
   else if lt (fabs x) tiny_hyp then Some (away x up)
-  else Dyadic.ziv (ev_sinh x) up 1.
+  else ziv (ev_sinh x) up 1.
 
 (** [pub(crate) fn cosh(x: f64, up: bool) -> f64] *)
-Definition cosh_dir (x : f64) (up : bool) : option f64 :=
+Definition cosh_dir_with (x : f64) (up : bool) : option f64 :=
   let t := fabs x in
   if is_nan t || eq t infinity then Some t
   else if ge t (from_bits 0x4086380000000000) (* 711.0 *) then Some (overflow up)
   else if lt t tiny_hyp then Some (near_one t up)
-  else Dyadic.ziv (ev_cosh t) up 1.
+  else ziv (ev_cosh t) up 1.
 
 (** [pub(crate) fn tanh(x: f64, up: bool) -> f64] *)
-Definition tanh_dir (x : f64) (up : bool) : option f64 :=
+Definition tanh_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x then Some x
   else if eq x infinity then Some one
   else if eq x neg_infinity then Some m_one
@@ -1924,7 +1943,16 @@ Definition tanh_dir (x : f64) (up : bool) : option f64 :=
   else if le x (from_bits 0xc033000000000000) (* -19.0 *) then
     Some (if up then opp one_minus_ulp else m_one)
   else if lt (fabs x) tiny_hyp then Some (toward_zero x up)
-  else Dyadic.ziv (ev_tanh x) up 1.
+  else ziv (ev_tanh x) up 1.
+
+End Driver.
+
+Definition exp_dir := exp_dir_with Dyadic.ziv.
+Definition exp2_dir := exp2_dir_with Dyadic.ziv.
+Definition exp10_dir := exp10_dir_with Dyadic.ziv.
+Definition sinh_dir := sinh_dir_with Dyadic.ziv.
+Definition cosh_dir := cosh_dir_with Dyadic.ziv.
+Definition tanh_dir := tanh_dir_with Dyadic.ziv.
 
 End DyadicExp.
 
@@ -1932,13 +1960,14 @@ End DyadicExp.
 
     The functions of [src/dyadic/log.rs]: [ln_dir x up] is [ln(x, up)],
     and the same for [log2], [log10], [asinh], [acosh] and [atanh], with
-    [None] where the Rust function panics: an [assert!] of this file,
-    [ziv] at its cap, or any operation of the kernel that panics. The
-    [Eval]s are the functions [ev_ln x] and the others of a level [n].
-    The constants and functions of [src/dyadic/exp.rs] that they use are
-    those of [DyadicExp]. [DyLogCore.v], [DyLog.v] and [DyLogHyp.v] prove
-    them, with the rules before the loop proved in [DyLogRules.v] and
-    [DyLogTiny.v], and [DyPoint.v] makes a [point] of them. *)
+    [None] where the Rust function panics: an [assert!] of this file or
+    any operation of the kernel that panics. The [Eval]s are the
+    functions [ev_ln x] and the others of a level [n]. The constants and
+    functions of [src/dyadic/exp.rs] that they use are those of
+    [DyadicExp]. [DyLogCore.v], [DyLog.v] and [DyLogHyp.v] prove them,
+    with the rules before the loop proved in [DyLogRules.v] and
+    [DyLogTiny.v], and [DyPoint.v] makes a [point] of them with
+    [DyDriver.ziv_strict] for [ziv] (the section [Driver] below). *)
 Module DyadicLog.
 
 (** The [f64] literals of the file, written with [from_bits]: [0.5],
@@ -2091,48 +2120,64 @@ Definition log_rules (x : f64) : option f64 :=
   else if lt x zero then Some B754_nan
   else None.
 
+(** The functions of the file with [ziv] a parameter: [ln_dir_with ziv] is
+    [ln] with [ziv] for [Dyadic.ziv], and [ln_dir] after the section is
+    [ln_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
+    returns only where a rounding test passes ([DyDriver.ziv_strict]). *)
+Section Driver.
+Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
+
 (** [pub(crate) fn ln(x: f64, up: bool) -> f64] *)
-Definition ln_dir (x : f64) (up : bool) : option f64 :=
-  match log_rules x with Some r => Some r | None => Dyadic.ziv (ev_ln x) up 1 end.
+Definition ln_dir_with (x : f64) (up : bool) : option f64 :=
+  match log_rules x with Some r => Some r | None => ziv (ev_ln x) up 1 end.
 
 (** [pub(crate) fn log2(x: f64, up: bool) -> f64] *)
-Definition log2_dir (x : f64) (up : bool) : option f64 :=
-  match log_rules x with Some r => Some r | None => Dyadic.ziv (ev_log2 x) up 1 end.
+Definition log2_dir_with (x : f64) (up : bool) : option f64 :=
+  match log_rules x with Some r => Some r | None => ziv (ev_log2 x) up 1 end.
 
 (** [pub(crate) fn log10(x: f64, up: bool) -> f64], where
     [POW10.iter().position(|&p| p == x)] is the first [k] of [0, ..., 22]
     with [eq (DyadicExp.pow10 k) x], and [k as f64] is [of_u64 k]. *)
-Definition log10_dir (x : f64) (up : bool) : option f64 :=
+Definition log10_dir_with (x : f64) (up : bool) : option f64 :=
   match log_rules x with
   | Some r => Some r
   | None =>
       match List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23) with
       | Some k => Some (of_u64 (Z.of_nat k))
-      | None => Dyadic.ziv (ev_log10 x) up 1
+      | None => ziv (ev_log10 x) up 1
       end
   end.
 
 (** [pub(crate) fn asinh(x: f64, up: bool) -> f64], where [x.is_infinite()]
     is [x == f64::INFINITY || x == f64::NEG_INFINITY]. *)
-Definition asinh_dir (x : f64) (up : bool) : option f64 :=
+Definition asinh_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x || (eq x infinity || eq x DyadicExp.neg_infinity) then Some x
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.toward_zero x up)
-  else Dyadic.ziv (ev_asinh x) up 1.
+  else ziv (ev_asinh x) up 1.
 
 (** [pub(crate) fn acosh(x: f64, up: bool) -> f64] *)
-Definition acosh_dir (x : f64) (up : bool) : option f64 :=
+Definition acosh_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x || eq x infinity then Some x
   else if lt x DyadicExp.one then Some B754_nan
-  else Dyadic.ziv (ev_acosh x) up 1.
+  else ziv (ev_acosh x) up 1.
 
 (** [pub(crate) fn atanh(x: f64, up: bool) -> f64] *)
-Definition atanh_dir (x : f64) (up : bool) : option f64 :=
+Definition atanh_dir_with (x : f64) (up : bool) : option f64 :=
   let t := fabs x in
   if is_nan x then Some x
   else if gt t DyadicExp.one then Some B754_nan
   else if eq t DyadicExp.one then Some (if gt x zero then infinity else DyadicExp.neg_infinity)
   else if lt t DyadicExp.tiny_hyp then Some (DyadicExp.away x up)
-  else Dyadic.ziv (ev_atanh x) up 1.
+  else ziv (ev_atanh x) up 1.
+
+End Driver.
+
+Definition ln_dir := ln_dir_with Dyadic.ziv.
+Definition log2_dir := log2_dir_with Dyadic.ziv.
+Definition log10_dir := log10_dir_with Dyadic.ziv.
+Definition asinh_dir := asinh_dir_with Dyadic.ziv.
+Definition acosh_dir := acosh_dir_with Dyadic.ziv.
+Definition atanh_dir := atanh_dir_with Dyadic.ziv.
 
 End DyadicLog.
 
@@ -2141,14 +2186,15 @@ End DyadicLog.
     The functions of [src/dyadic/atan.rs]: [atan_dir x up] is [atan(x,
     up)], and the same for [asin] and [acos], and [atan2_dir y x up] is
     [atan2(y, x, up)], with [None] where the Rust function panics: an
-    [assert!] of this file, [ziv] at its cap, or any operation of the
-    kernel that panics. The [Eval]s are the functions [ev_atan x] and the
-    others of a level [n]. The constants and functions of
-    [src/dyadic/exp.rs] that they use are those of [DyadicExp], as are
-    the literals [1.0] and [f64::NEG_INFINITY], and the literal [0.5] is
-    [DyadicLog.half]. [DyAtanCore.v], [DyAtan.v] and [DyAsin.v] prove
-    them, with the rules before the loop proved in [DyAtanTiny.v], and
-    [DyPoint.v] makes a [point] of them. *)
+    [assert!] of this file or any operation of the kernel that panics.
+    The [Eval]s are the functions [ev_atan x] and the others of a level
+    [n]. The constants and functions of [src/dyadic/exp.rs] that they use
+    are those of [DyadicExp], as are the literals [1.0] and
+    [f64::NEG_INFINITY], and the literal [0.5] is [DyadicLog.half].
+    [DyAtanCore.v], [DyAtan.v] and [DyAsin.v] prove them, with the rules
+    before the loop proved in [DyAtanTiny.v], and [DyPoint.v] makes a
+    [point] of them with [DyDriver.ziv_strict] for [ziv] (the section
+    [Driver] below). *)
 Module DyadicAtan.
 
 (** The [f64] literals of the file, written with [from_bits]: [T1] =
@@ -2317,8 +2363,15 @@ Definition ev_acos (x : f64) (n : nat) : option Dyadic.encl :=
     Dyadic.encl_sub n p r
   else Some r.
 
+(** The functions of the file with [ziv] a parameter: [atan_dir_with ziv] is
+    [atan] with [ziv] for [Dyadic.ziv], and [atan_dir] after the section is
+    [atan_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
+    returns only where a rounding test passes ([DyDriver.ziv_strict]). *)
+Section Driver.
+Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
+
 (** [fn pi_times(c: f64, up: bool) -> f64] *)
-Definition pi_times (c : f64) (up : bool) : option f64 := Dyadic.ziv (ev_pi c) up 1.
+Definition pi_times_with (c : f64) (up : bool) : option f64 := ziv (ev_pi c) up 1.
 
 (** [fn tiny_quotient(y: f64, x: f64) -> Option<f64>], with [Some None]
     for [None], where [a.exp - b.exp], which cannot overflow, is computed
@@ -2334,48 +2387,56 @@ Definition tiny_quotient (y x : f64) : option (option f64) :=
   Some (if eq q q' && lt (fabs q) DyadicExp.tiny_hyp then Some q else None).
 
 (** [pub(crate) fn atan(x: f64, up: bool) -> f64] *)
-Definition atan_dir (x : f64) (up : bool) : option f64 :=
+Definition atan_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x then Some x
-  else if ge (fabs x) huge_atan then pi_times (copysign DyadicLog.half x) up
+  else if ge (fabs x) huge_atan then pi_times_with (copysign DyadicLog.half x) up
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.toward_zero x up)
-  else Dyadic.ziv (ev_atan x) up 1.
+  else ziv (ev_atan x) up 1.
 
 (** [pub(crate) fn asin(x: f64, up: bool) -> f64] *)
-Definition asin_dir (x : f64) (up : bool) : option f64 :=
+Definition asin_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x then Some x
   else if gt (fabs x) DyadicExp.one then Some B754_nan
   else if lt (fabs x) tiny_asin then Some (DyadicExp.away x up)
-  else Dyadic.ziv (ev_asin x) up 1.
+  else ziv (ev_asin x) up 1.
 
 (** [pub(crate) fn acos(x: f64, up: bool) -> f64] *)
-Definition acos_dir (x : f64) (up : bool) : option f64 :=
+Definition acos_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x then Some x
   else if gt (fabs x) DyadicExp.one then Some B754_nan
-  else Dyadic.ziv (ev_acos x) up 1.
+  else ziv (ev_acos x) up 1.
 
 (** [pub(crate) fn atan2(y: f64, x: f64, up: bool) -> f64], where
     [x.is_sign_positive()] is [negb (Bsign x)], as [x] is not NaN there,
     [y.is_infinite()] is [y == f64::INFINITY || y == f64::NEG_INFINITY],
     and [0.0_f64.copysign(y)] is [copysign zero y]. *)
-Definition atan2_dir (y x : f64) (up : bool) : option f64 :=
+Definition atan2_dir_with (y x : f64) (up : bool) : option f64 :=
   if is_nan y || is_nan x then Some B754_nan
   else if eq y zero then
-    if negb (Bsign x) then Some y else pi_times (copysign DyadicExp.one y) up
+    if negb (Bsign x) then Some y else pi_times_with (copysign DyadicExp.one y) up
   else if eq y infinity || eq y DyadicExp.neg_infinity then
     let c :=
       if eq x infinity then quarter
       else if eq x DyadicExp.neg_infinity then three_quarters
       else DyadicLog.half in
-    pi_times (copysign c y) up
+    pi_times_with (copysign c y) up
   else if eq x infinity then Some (copysign zero y)
-  else if eq x DyadicExp.neg_infinity then pi_times (copysign DyadicExp.one y) up
-  else if eq x zero then pi_times (copysign DyadicLog.half y) up
+  else if eq x DyadicExp.neg_infinity then pi_times_with (copysign DyadicExp.one y) up
+  else if eq x zero then pi_times_with (copysign DyadicLog.half y) up
   else
     let* q := if gt x zero then tiny_quotient y x else Some None in
     match q with
     | Some q => Some (DyadicExp.toward_zero q up)
-    | None => Dyadic.ziv (ev_atan2 y x) up 1
+    | None => ziv (ev_atan2 y x) up 1
     end.
+
+End Driver.
+
+Definition pi_times := pi_times_with Dyadic.ziv.
+Definition atan_dir := atan_dir_with Dyadic.ziv.
+Definition asin_dir := asin_dir_with Dyadic.ziv.
+Definition acos_dir := acos_dir_with Dyadic.ziv.
+Definition atan2_dir := atan2_dir_with Dyadic.ziv.
 
 End DyadicAtan.
 
@@ -2383,17 +2444,18 @@ End DyadicAtan.
 
     The functions of [src/dyadic/trig.rs]: [sin_dir x up] is [sin(x,
     up)], and the same for [cos] and [tan], with [None] where the Rust
-    function panics: an [assert!] of this file, [ziv] at its cap, or any
-    operation of the kernel that panics. The [Eval]s are the functions
-    [ev_sin x] and the others of a level [n]. The constants and functions
-    of [src/dyadic/exp.rs] that they use are those of [DyadicExp], as are
+    function panics: an [assert!] of this file or any operation of the
+    kernel that panics. The [Eval]s are the functions [ev_sin x] and the
+    others of a level [n]. The constants and functions of
+    [src/dyadic/exp.rs] that they use are those of [DyadicExp], as are
     the literals [1.0] and [-1.0], and [PI] is that of [DyadicConsts].
     The scratch buffer of [reduce] is not modelled, as the one of
     [with_buf] is not. [DyTrigReduce.v], [DyTrigCore.v] and [DyTrig.v]
     prove them, with the rules before the loop proved in [DyTrigTiny.v]
     and, for [cos_small], [sin_small] and [tan_small], in [DyCosSmall.v],
     [DySinSmall.v] and [DyTanSmall.v], and [DyPoint.v] makes a [point] of
-    them. *)
+    them with [DyDriver.ziv_strict] for [ziv] (the section [Driver]
+    below). *)
 Module DyadicTrig.
 
 (** [NO_REDUCE] = 0.78515625 = 201/256, written with [from_bits]. *)
@@ -2573,28 +2635,41 @@ Definition tan_small (x : f64) (up : bool) : option f64 :=
   let v := from_bits (b + j + Z.b2z (xorb up neg)) in
   Some (if neg then opp v else v).
 
+(** The functions of the file with [ziv] a parameter: [sin_dir_with ziv] is
+    [sin] with [ziv] for [Dyadic.ziv], and [sin_dir] after the section is
+    [sin_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
+    returns only where a rounding test passes ([DyDriver.ziv_strict]). *)
+Section Driver.
+Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
+
 (** [pub(crate) fn sin(x: f64, up: bool) -> f64], where [f64::NAN] is
     [B754_nan], [x.abs()] is [fabs x], and [o.unwrap_or_else(|| e)] of
     an [Option<f64>] [o] is [match o with Some v => Some v | None => e
     end]. *)
-Definition sin_dir (x : f64) (up : bool) : option f64 :=
+Definition sin_dir_with (x : f64) (up : bool) : option f64 :=
   if negb (is_finite x) then Some B754_nan
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.toward_zero x up)
-  else match sin_small x up with Some v => Some v | None => Dyadic.ziv (ev_sin x) up 1 end.
+  else match sin_small x up with Some v => Some v | None => ziv (ev_sin x) up 1 end.
 
 (** [pub(crate) fn cos(x: f64, up: bool) -> f64], where [-t] is [opp t],
     and the rest is as in [sin_dir]. *)
-Definition cos_dir (x : f64) (up : bool) : option f64 :=
+Definition cos_dir_with (x : f64) (up : bool) : option f64 :=
   let t := fabs x in
   if negb (is_finite t) then Some B754_nan
   else if lt t DyadicExp.tiny_hyp then Some (DyadicExp.near_one (opp t) up)
-  else match cos_small t up with Some v => Some v | None => Dyadic.ziv (ev_cos t) up 1 end.
+  else match cos_small t up with Some v => Some v | None => ziv (ev_cos t) up 1 end.
 
 (** [pub(crate) fn tan(x: f64, up: bool) -> f64], as [sin_dir]. *)
-Definition tan_dir (x : f64) (up : bool) : option f64 :=
+Definition tan_dir_with (x : f64) (up : bool) : option f64 :=
   if negb (is_finite x) then Some B754_nan
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.away x up)
-  else match tan_small x up with Some v => Some v | None => Dyadic.ziv (ev_tan x) up 1 end.
+  else match tan_small x up with Some v => Some v | None => ziv (ev_tan x) up 1 end.
+
+End Driver.
+
+Definition sin_dir := sin_dir_with Dyadic.ziv.
+Definition cos_dir := cos_dir_with Dyadic.ziv.
+Definition tan_dir := tan_dir_with Dyadic.ziv.
 
 End DyadicTrig.
 
@@ -2602,16 +2677,17 @@ End DyadicTrig.
 
     The functions of [src/dyadic/pow.rs]: [pow_dir x y up] is [pow(x, y,
     up)], and [pown_dir x k up] is [pown(x, n, up)] for [k = n], with
-    [None] where the Rust function panics: an [assert!] of this file,
-    [ziv] at its cap, or any operation of the kernel that panics. The
-    [Eval]s are the functions [ev_pow x y] and [ev_pown x k] of a level
-    [n]. The constants and functions of [src/dyadic/exp.rs] that they use
-    are those of [DyadicExp], as are the literals [1.0] and [-1.0],
+    [None] where the Rust function panics: an [assert!] of this file or
+    any operation of the kernel that panics. The [Eval]s are the
+    functions [ev_pow x y] and [ev_pown x k] of a level [n]. The
+    constants and functions of [src/dyadic/exp.rs] that they use are
+    those of [DyadicExp], as are the literals [1.0] and [-1.0],
     [reduce] is that of [DyadicLog], and [ln2] that of [DyadicConsts].
     [DyPowCore.v], [DyPown.v] and [DyPow.v] prove them, with the rules
     before the loop proved in [DyPowRules.v] and [exact] in
     [DyPowExact.v], which builds on the integers of [DyPowArith.v], and
-    [DyPoint.v] makes a [point] of them. *)
+    [DyPoint.v] makes a [point] of them with [DyDriver.ziv_strict] for
+    [ziv] (the section [Driver] below). *)
 Module DyadicPow.
 
 (** [POW_START_BITS] and [POWN_START_BITS]. No proof depends on them. *)
@@ -2735,12 +2811,19 @@ Definition ev_pow (x y : f64) (n : nat) : option Dyadic.encl :=
   let* w := if less then Dyadic.encl_add n zl ya else Dyadic.encl_sub n zl ya in
   DyadicExp.scaled n w k h l.
 
+(** The functions of the file with [ziv] a parameter: [pow_dir_with ziv] is
+    [pow] with [ziv] for [Dyadic.ziv], and [pow_dir] after the section is
+    [pow_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
+    returns only where a rounding test passes ([DyDriver.ziv_strict]). *)
+Section Driver.
+Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
+
 (** [pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64], where
     [f64::NAN] is [B754_nan], [y.is_infinite()] is [eq y infinity || eq
     y DyadicExp.neg_infinity], [x.is_sign_negative()] is [Bsign x], as
     [x] is not NaN there, [a == b] of two [bool]s is [Bool.eqb], and the
     sums of [i64]s are computed without a check. *)
-Definition pow_dir (x y : f64) (up : bool) : option f64 :=
+Definition pow_dir_with (x y : f64) (up : bool) : option f64 :=
   if eq y zero then Some DyadicExp.one
   else if is_nan x then Some x
   else if is_nan y then Some (if eq x DyadicExp.one then DyadicExp.one else y)
@@ -2764,7 +2847,7 @@ Definition pow_dir (x y : f64) (up : bool) : option f64 :=
       match r with
       | Some v => Some v
       | None =>
-          Dyadic.ziv (ev_pow x y) up (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
+          ziv (ev_pow x y) up (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
       end.
 
 (** [fn powi<N>(x: &Encl<N>, n: u32) -> Encl<N>] for [n = Zpos p]: [xH]
@@ -2793,25 +2876,31 @@ Definition ev_pown (x : f64) (k : Z) (n : nat) : option Dyadic.encl :=
 (** [fn pown_pos(x: f64, n: i32, up: bool) -> f64] for [k = n], where
     the products and sums of [i64]s, which stay below 2 ^ 42, are
     computed without a check. *)
-Definition pown_pos (x : f64) (k : Z) (up : bool) : option f64 :=
+Definition pown_pos_with (x : f64) (k : Z) (up : bool) : option f64 :=
   let g := expo x in
   let '(lo, hi) := if 0 <? k then (g * k, (g + 1) * k) else ((g + 1) * k, g * k) in
   if 1024 <=? lo then Some (DyadicExp.overflow up)
   else if hi <=? -1075 then Some (DyadicExp.underflow up)
-  else Dyadic.ziv (ev_pown x k) up (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat).
+  else ziv (ev_pown x k) up (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat).
 
 (** [pub(crate) fn pown(x: f64, n: i32, up: bool) -> f64] for [k = n],
     where [n % 2] is [Z.rem], [x.is_infinite()] is as in [pow_dir], and
     [x.is_sign_negative()] is [Bsign x], as [x] is not NaN there. *)
-Definition pown_dir (x : f64) (k : Z) (up : bool) : option f64 :=
+Definition pown_dir_with (x : f64) (k : Z) (up : bool) : option f64 :=
   if k =? 0 then Some DyadicExp.one
   else if is_nan x then Some x
   else if eq x zero || (eq x infinity || eq x DyadicExp.neg_infinity) then
     let r := if Bool.eqb (eq x zero) (k <? 0) then infinity else zero in
     Some (if Bsign x && negb (Z.rem k 2 =? 0) then opp r else r)
   else if lt x zero && negb (Z.rem k 2 =? 0) then
-    let* v := pown_pos (opp x) k (negb up) in Some (opp v)
-  else pown_pos (fabs x) k up.
+    let* v := pown_pos_with (opp x) k (negb up) in Some (opp v)
+  else pown_pos_with (fabs x) k up.
+
+End Driver.
+
+Definition pow_dir := pow_dir_with Dyadic.ziv.
+Definition pown_pos := pown_pos_with Dyadic.ziv.
+Definition pown_dir := pown_dir_with Dyadic.ziv.
 
 End DyadicPow.
 

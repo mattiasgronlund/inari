@@ -21,12 +21,19 @@
 // tests, so it has to be updated along with them. `rocq/theories/DyRound.v`,
 // `rocq/theories/DyConv.v`, `rocq/theories/DyIsqrt.v`, `rocq/theories/DyOps.v` and
 // `rocq/theories/DyDriver.v` prove them correct, and `rocq/theories/DyGrow.v` bounds the
-// exponents of the enclosures that they return. The constants ln 2, ln 10 and π are in
-// `src/dyadic/consts.rs`, the exponentials and the hyperbolic functions computed with the kernel
-// in `src/dyadic/exp.rs`, the logarithms and the inverse hyperbolic functions in
-// `src/dyadic/log.rs`, the inverse trigonometric functions in `src/dyadic/atan.rs`, the
-// trigonometric functions in `src/dyadic/trig.rs`, and the powers x^y and x^n in
-// `src/dyadic/pow.rs`, which have their own headers.
+// exponents of the enclosures that they return. `ziv` does not panic at its cap of 64 limbs:
+// where no rounding test passes, it returns the bound of the enclosure at 64 limbs on the side
+// of the rounding, rounded outward. `DyDriver.v` shows that it returns the correct rounding
+// where a test passes, from a `start` of at most 64 as every function of the kernel gives
+// (`ziv_strict_correct` and `ziv_strict_ziv`), and a value on the side of the rounding
+// wherever the evaluation does not panic (`ziv_side`). That the value at the cap is within one
+// `f64` of the correct rounding is not proved.
+//
+// The constants ln 2, ln 10 and π are in `src/dyadic/consts.rs`, the exponentials and the
+// hyperbolic functions computed with the kernel in `src/dyadic/exp.rs`, the logarithms and the
+// inverse hyperbolic functions in `src/dyadic/log.rs`, the inverse trigonometric functions in
+// `src/dyadic/atan.rs`, the trigonometric functions in `src/dyadic/trig.rs`, and the powers
+// x^y and x^n in `src/dyadic/pow.rs`, which have their own headers.
 
 use crate::{limbs, simd::round_up_exact};
 use std::cmp::Ordering;
@@ -550,13 +557,19 @@ pub(crate) trait Eval {
     fn eval<const N: usize>(&self) -> Encl<N>;
 }
 
+/// `round_bounds(f, up) = (lo, hi)`, the bounds of `f.eval::<N>()` rounded toward +∞ if `up`
+/// and toward -∞ otherwise to `f64`s.
+fn round_bounds<const N: usize, E: Eval>(f: &E, up: bool) -> (f64, f64) {
+    let x = f.eval::<N>();
+    (x.lo.to_f64(up), x.hi.to_f64(up))
+}
+
 /// Ziv's rounding test at `N` limbs: the number that `f` encloses rounded toward +∞ if `up`
 /// and toward -∞ otherwise to an `f64`, if both bounds of `f.eval::<N>()` round to it.
 /// Directed rounding is monotonic, so that number is then also the rounding of each number
 /// between them.
 pub(crate) fn ziv_at<const N: usize, E: Eval>(f: &E, up: bool) -> Option<f64> {
-    let x = f.eval::<N>();
-    let (lo, hi) = (x.lo.to_f64(up), x.hi.to_f64(up));
+    let (lo, hi) = round_bounds::<N, E>(f, up);
     // `==` takes -0 and +0 as equal, either of which is a zero rounded as MPFR rounds it.
     if lo == hi {
         Some(lo)
@@ -565,10 +578,27 @@ pub(crate) fn ziv_at<const N: usize, E: Eval>(f: &E, up: bool) -> Option<f64> {
     }
 }
 
+/// The last step of Ziv's strategy, at its cap of 64 limbs, that is, 4,096 bits: the rounding
+/// test of `ziv_at`, and where it fails, the bound of `f.eval::<64>()` on the side of the
+/// rounding, rounded outward: the upper bound rounded toward +∞ if `up`, and the lower bound
+/// rounded toward -∞ otherwise. Either way the result is on that side of the number that `f`
+/// encloses, but it is known to be its correct rounding only where the test passes.
+fn ziv_cap<E: Eval>(f: &E, up: bool) -> f64 {
+    let (lo, hi) = round_bounds::<64, E>(f, up);
+    // The test passes where `lo == hi`, and then `lo` is returned as in `ziv_at`.
+    if lo == hi || !up {
+        lo
+    } else {
+        hi
+    }
+}
+
 /// The number that `f` encloses rounded toward +∞ if `up` and toward -∞ otherwise to an `f64`,
-/// by Ziv's strategy: the rounding test at each of 1, 2, 4, 8, 16, 32 and 64 limbs that is at
-/// least `start`, in that order, until it passes. Panics if it has not passed at 64 limbs, that
-/// is, 4,096 bits.
+/// by Ziv's strategy: the rounding test at each of 1, 2, 4, 8, 16 and 32 limbs that is at least
+/// `start`, in that order, until it passes, and then `ziv_cap` at 64 limbs, whatever `start`
+/// is. The result is correctly rounded if a test passes. Where none does, it is the outward
+/// rounding of the enclosure at 64 limbs, which is on the correct side of the number but not
+/// known to be its correct rounding.
 pub(crate) fn ziv<E: Eval>(f: &E, up: bool, start: usize) -> f64 {
     macro_rules! try_levels {
         ($($n:literal),*) => {
@@ -581,6 +611,6 @@ pub(crate) fn ziv<E: Eval>(f: &E, up: bool, start: usize) -> f64 {
             )*
         };
     }
-    try_levels!(1, 2, 4, 8, 16, 32, 64);
-    panic!("the working precision reached its cap of 4096 bits")
+    try_levels!(1, 2, 4, 8, 16, 32);
+    ziv_cap(f, up)
 }

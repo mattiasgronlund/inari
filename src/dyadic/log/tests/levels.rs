@@ -4,12 +4,13 @@
 //
 // Each function is taken at a few ordinary arguments, which no rule of `log.rs` settles, at
 // each of the 64 levels from 1 to 64 limbs, not only at those that `ziv` tries. At each of them,
-// `ziv_at` either fails or gives the rounding of the function, in both feature sets. With `gmp`,
-// each enclosure also holds the value of the function that MPFR computes, and each doubling of
-// the precision at least halves its width.
+// `ziv_at` either fails or gives the rounding of the function, in both feature sets. `ziv_cap`,
+// the step of `ziv` at its cap of 64 limbs, also gives the rounding at each argument, in both
+// directions. With `gmp`, each enclosure also holds the value of the function that MPFR
+// computes, and each doubling of the precision at least halves its width.
 
 use super::*;
-use crate::dyadic::ziv_at;
+use crate::dyadic::{ziv_at, ziv_cap};
 
 // The array of `$f::<N, _> $args` for each N from 1 to 64, in that order.
 macro_rules! at_each_level {
@@ -84,6 +85,19 @@ fn forced<E: Eval>(f: &E, i: usize, x: f64) {
     // roundings of each level, and not only of the first that passes.
     for (l, &p) in passed.iter().enumerate().skip(1) {
         assert!(p, "{}({:e}) fails at {} limbs", FUNCTIONS[i].0, x, l + 1);
+    }
+    // As level 64 passes, `ziv_cap`, the step of `ziv` at its cap, gives the rounding.
+    for up in [false, true] {
+        let y = ziv_cap(f, up);
+        assert!(
+            y.to_bits() == want[usize::from(up)].to_bits(),
+            "{}({:e}) at the cap, up = {}: {:e} != {:e}",
+            FUNCTIONS[i].0,
+            x,
+            up,
+            y,
+            want[usize::from(up)]
+        );
     }
     #[cfg(feature = "gmp")]
     mpfr::enclosures(f, i, x);

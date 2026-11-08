@@ -2,20 +2,25 @@
 
     The fields of [point] are total functions, and the functions of
     [DyadicExp], [DyadicLog], [DyadicAtan], [DyadicTrig] and [DyadicPow]
-    in [Model.v] return [None] where the Rust panics: at the cap of Ziv's strategy, at
-    an [assert!], or at a panic of an operation of the kernel. [k_exp],
-    [k_ln] and the others are the kernel's result where it returns, and
-    the result rounded by definition
-    ([round_f64] of [MpfrIdeal.v]) where the Rust panics, so the theorems
-    below say nothing about the calls that panic: they cover the calls
-    that return. That the loop ends before its cap is not proved.
+    in [Model.v] return [None] where the Rust panics: at an [assert!], or
+    at a panic of an operation of the kernel. [k_exp], [k_ln] and the
+    others are the results of [exp_dir_with ziv_strict] and the others,
+    the kernel with the driver [ziv_strict] of [DyDriver.v], where they
+    return, and the result rounded by definition ([round_f64] of
+    [MpfrIdeal.v]) where they do not. Where they return, the Rust returns
+    the same value ([exp_dir_strict] and the others). So the theorems
+    below cover the calls that a rule settles without [ziv] or at which
+    a rounding test of [ziv] passes. They say nothing about the calls at
+    which no test passes up to the cap of Ziv's strategy, where the Rust
+    returns a value on the correct side ([exp_dir_side] and the others),
+    or that panic. That a rounding test passes by the cap is not proved.
     [kernel_point p] is [p] with these twenty-one fields. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr MpfrRound MpfrIdeal IdealGetD Elem Cosh
-  Atanh Contract OfPointCore OfPoint OfPointElem PointTheorems DyExp DyHyp DyLog DyLogHyp DyAtan
-  DyAsin DyTrig DyPowRules DyPown DyPow.
+  Atanh Contract OfPointCore OfPoint OfPointElem PointTheorems DyDriver DyExp DyHyp DyLog DyLogHyp
+  DyAtan DyAsin DyTrig DyPowRules DyPown DyPow.
 
 Open Scope R_scope.
 
@@ -27,24 +32,24 @@ Definition kernel_field (dir : f64 -> bool -> option f64) (f : R -> R) (rnd : mp
   : f64 :=
   match dir x (up_of rnd) with Some v => v | None => round_f64 rnd (f (B2R x)) end.
 
-Definition k_exp := kernel_field DyadicExp.exp_dir exp.
-Definition k_exp2 := kernel_field DyadicExp.exp2_dir Rexp2.
-Definition k_exp10 := kernel_field DyadicExp.exp10_dir Rexp10.
-Definition k_sinh := kernel_field DyadicExp.sinh_dir sinh.
-Definition k_cosh := kernel_field DyadicExp.cosh_dir cosh.
-Definition k_tanh := kernel_field DyadicExp.tanh_dir tanh.
-Definition k_ln := kernel_field DyadicLog.ln_dir ln.
-Definition k_log2 := kernel_field DyadicLog.log2_dir Rlog2.
-Definition k_log10 := kernel_field DyadicLog.log10_dir Rlog10.
-Definition k_asinh := kernel_field DyadicLog.asinh_dir arcsinh.
-Definition k_acosh := kernel_field DyadicLog.acosh_dir Racosh.
-Definition k_atanh := kernel_field DyadicLog.atanh_dir Ratanh.
-Definition k_atan := kernel_field DyadicAtan.atan_dir atan.
-Definition k_asin := kernel_field DyadicAtan.asin_dir asin.
-Definition k_acos := kernel_field DyadicAtan.acos_dir acos.
-Definition k_sin := kernel_field DyadicTrig.sin_dir sin.
-Definition k_cos := kernel_field DyadicTrig.cos_dir cos.
-Definition k_tan := kernel_field DyadicTrig.tan_dir tan.
+Definition k_exp := kernel_field (DyadicExp.exp_dir_with ziv_strict) exp.
+Definition k_exp2 := kernel_field (DyadicExp.exp2_dir_with ziv_strict) Rexp2.
+Definition k_exp10 := kernel_field (DyadicExp.exp10_dir_with ziv_strict) Rexp10.
+Definition k_sinh := kernel_field (DyadicExp.sinh_dir_with ziv_strict) sinh.
+Definition k_cosh := kernel_field (DyadicExp.cosh_dir_with ziv_strict) cosh.
+Definition k_tanh := kernel_field (DyadicExp.tanh_dir_with ziv_strict) tanh.
+Definition k_ln := kernel_field (DyadicLog.ln_dir_with ziv_strict) ln.
+Definition k_log2 := kernel_field (DyadicLog.log2_dir_with ziv_strict) Rlog2.
+Definition k_log10 := kernel_field (DyadicLog.log10_dir_with ziv_strict) Rlog10.
+Definition k_asinh := kernel_field (DyadicLog.asinh_dir_with ziv_strict) arcsinh.
+Definition k_acosh := kernel_field (DyadicLog.acosh_dir_with ziv_strict) Racosh.
+Definition k_atanh := kernel_field (DyadicLog.atanh_dir_with ziv_strict) Ratanh.
+Definition k_atan := kernel_field (DyadicAtan.atan_dir_with ziv_strict) atan.
+Definition k_asin := kernel_field (DyadicAtan.asin_dir_with ziv_strict) asin.
+Definition k_acos := kernel_field (DyadicAtan.acos_dir_with ziv_strict) acos.
+Definition k_sin := kernel_field (DyadicTrig.sin_dir_with ziv_strict) sin.
+Definition k_cos := kernel_field (DyadicTrig.cos_dir_with ziv_strict) cos.
+Definition k_tan := kernel_field (DyadicTrig.tan_dir_with ziv_strict) tan.
 
 (** The same for a function [dir] of two [f64]s and the real function [f]
     of two reals, in the same order. *)
@@ -52,15 +57,15 @@ Definition kernel_field2 (dir : f64 -> f64 -> bool -> option f64) (f : R -> R ->
     (rnd : mpfr_rnd) (y x : f64) : f64 :=
   match dir y x (up_of rnd) with Some v => v | None => round_f64 rnd (f (B2R y) (B2R x)) end.
 
-Definition k_atan2 := kernel_field2 DyadicAtan.atan2_dir Ratan2.
-Definition k_pow := kernel_field2 DyadicPow.pow_dir Rpow.
+Definition k_atan2 := kernel_field2 (DyadicAtan.atan2_dir_with ziv_strict) Ratan2.
+Definition k_pow := kernel_field2 (DyadicPow.pow_dir_with ziv_strict) Rpow.
 
 (** The same for a function [dir] of an [f64] and an integer. *)
 Definition kernel_field_z (dir : f64 -> Z -> bool -> option f64) (f : R -> Z -> R)
     (rnd : mpfr_rnd) (x : f64) (n : Z) : f64 :=
   match dir x n (up_of rnd) with Some v => v | None => round_f64 rnd (f (B2R x) n) end.
 
-Definition k_pown := kernel_field_z DyadicPow.pown_dir powerRZ.
+Definition k_pown := kernel_field_z (DyadicPow.pown_dir_with ziv_strict) powerRZ.
 
 Definition kernel_point (p : point) : point := {|
   p_acos := k_acos;
@@ -183,11 +188,11 @@ Theorem k_exp_c : exp_c k_exp.
 Proof.
 split; [exact (kernel_field_correct _ _ exp_dir_correct) | split].
 - exists false. unfold k_exp, kernel_field. cbn [up_of].
-  replace (DyadicExp.exp_dir (B754_infinity true) false) with (Some (B754_zero false : f64))
+  replace (DyadicExp.exp_dir_with ziv_strict (B754_infinity true) false) with (Some (B754_zero false : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 - unfold k_exp, kernel_field. cbn [up_of].
-  replace (DyadicExp.exp_dir (B754_infinity false) true) with (Some (B754_infinity false : f64))
+  replace (DyadicExp.exp_dir_with ziv_strict (B754_infinity false) true) with (Some (B754_infinity false : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 Qed.
@@ -196,11 +201,11 @@ Theorem k_exp2_c : exp2_c k_exp2.
 Proof.
 split; [exact (kernel_field_correct _ _ exp2_dir_correct) | split].
 - exists false. unfold k_exp2, kernel_field. cbn [up_of].
-  replace (DyadicExp.exp2_dir (B754_infinity true) false) with (Some (B754_zero false : f64))
+  replace (DyadicExp.exp2_dir_with ziv_strict (B754_infinity true) false) with (Some (B754_zero false : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 - unfold k_exp2, kernel_field. cbn [up_of].
-  replace (DyadicExp.exp2_dir (B754_infinity false) true) with (Some (B754_infinity false : f64))
+  replace (DyadicExp.exp2_dir_with ziv_strict (B754_infinity false) true) with (Some (B754_infinity false : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 Qed.
@@ -209,11 +214,11 @@ Theorem k_exp10_c : exp10_c k_exp10.
 Proof.
 split; [exact (kernel_field_correct _ _ exp10_dir_correct) | split].
 - exists false. unfold k_exp10, kernel_field. cbn [up_of].
-  replace (DyadicExp.exp10_dir (B754_infinity true) false) with (Some (B754_zero false : f64))
+  replace (DyadicExp.exp10_dir_with ziv_strict (B754_infinity true) false) with (Some (B754_zero false : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 - unfold k_exp10, kernel_field. cbn [up_of].
-  replace (DyadicExp.exp10_dir (B754_infinity false) true) with (Some (B754_infinity false : f64))
+  replace (DyadicExp.exp10_dir_with ziv_strict (B754_infinity false) true) with (Some (B754_infinity false : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 Qed.
@@ -222,11 +227,11 @@ Theorem k_sinh_c : sinh_c k_sinh.
 Proof.
 split; [exact (kernel_field_correct _ _ sinh_dir_correct) | split].
 - unfold k_sinh, kernel_field. cbn [up_of].
-  replace (DyadicExp.sinh_dir (B754_infinity true) false) with (Some (B754_infinity true : f64))
+  replace (DyadicExp.sinh_dir_with ziv_strict (B754_infinity true) false) with (Some (B754_infinity true : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 - unfold k_sinh, kernel_field. cbn [up_of].
-  replace (DyadicExp.sinh_dir (B754_infinity false) true) with (Some (B754_infinity false : f64))
+  replace (DyadicExp.sinh_dir_with ziv_strict (B754_infinity false) true) with (Some (B754_infinity false : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 Qed.
@@ -235,7 +240,7 @@ Theorem k_cosh_c : cosh_c k_cosh.
 Proof.
 split; [exact (kernel_field_correct _ _ cosh_dir_correct) |].
 intros s. unfold k_cosh, kernel_field. cbn [up_of].
-replace (DyadicExp.cosh_dir (B754_infinity s) true) with (Some (B754_infinity false : f64))
+replace (DyadicExp.cosh_dir_with ziv_strict (B754_infinity s) true) with (Some (B754_infinity false : f64))
   by (destruct s; vm_compute; reflexivity).
 reflexivity.
 Qed.
@@ -244,11 +249,11 @@ Theorem k_tanh_c : tanh_c k_tanh.
 Proof.
 split; [exact (kernel_field_correct _ _ tanh_dir_correct) | split].
 - unfold k_tanh, kernel_field. cbn [up_of].
-  replace (DyadicExp.tanh_dir (B754_infinity true) false) with (Some DyadicExp.m_one)
+  replace (DyadicExp.tanh_dir_with ziv_strict (B754_infinity true) false) with (Some DyadicExp.m_one)
     by (vm_compute; reflexivity).
   apply m_one_round.
 - unfold k_tanh, kernel_field. cbn [up_of].
-  replace (DyadicExp.tanh_dir (B754_infinity false) true) with (Some DyadicExp.one)
+  replace (DyadicExp.tanh_dir_with ziv_strict (B754_infinity false) true) with (Some DyadicExp.one)
     by (vm_compute; reflexivity).
   apply one_round.
 Qed.
@@ -298,11 +303,11 @@ Theorem k_ln_c : ln_c k_ln.
 Proof.
 split; [exact (kernel_field_correct_dom _ _ _ ln_dir_correct) | split].
 - intros s. unfold k_ln, kernel_field. cbn [up_of].
-  replace (DyadicLog.ln_dir (B754_zero s) false) with (Some (B754_infinity true : f64))
+  replace (DyadicLog.ln_dir_with ziv_strict (B754_zero s) false) with (Some (B754_infinity true : f64))
     by (destruct s; vm_compute; reflexivity).
   reflexivity.
 - unfold k_ln, kernel_field. cbn [up_of].
-  replace (DyadicLog.ln_dir (B754_infinity false) true) with (Some (B754_infinity false : f64))
+  replace (DyadicLog.ln_dir_with ziv_strict (B754_infinity false) true) with (Some (B754_infinity false : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 Qed.
@@ -311,11 +316,11 @@ Theorem k_log2_c : log2_c k_log2.
 Proof.
 split; [exact (kernel_field_correct_dom _ _ _ log2_dir_correct) | split].
 - intros s. unfold k_log2, kernel_field. cbn [up_of].
-  replace (DyadicLog.log2_dir (B754_zero s) false) with (Some (B754_infinity true : f64))
+  replace (DyadicLog.log2_dir_with ziv_strict (B754_zero s) false) with (Some (B754_infinity true : f64))
     by (destruct s; vm_compute; reflexivity).
   reflexivity.
 - unfold k_log2, kernel_field. cbn [up_of].
-  replace (DyadicLog.log2_dir (B754_infinity false) true) with (Some (B754_infinity false : f64))
+  replace (DyadicLog.log2_dir_with ziv_strict (B754_infinity false) true) with (Some (B754_infinity false : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 Qed.
@@ -324,11 +329,11 @@ Theorem k_log10_c : log10_c k_log10.
 Proof.
 split; [exact (kernel_field_correct_dom _ _ _ log10_dir_correct) | split].
 - intros s. unfold k_log10, kernel_field. cbn [up_of].
-  replace (DyadicLog.log10_dir (B754_zero s) false) with (Some (B754_infinity true : f64))
+  replace (DyadicLog.log10_dir_with ziv_strict (B754_zero s) false) with (Some (B754_infinity true : f64))
     by (destruct s; vm_compute; reflexivity).
   reflexivity.
 - unfold k_log10, kernel_field. cbn [up_of].
-  replace (DyadicLog.log10_dir (B754_infinity false) true) with (Some (B754_infinity false : f64))
+  replace (DyadicLog.log10_dir_with ziv_strict (B754_infinity false) true) with (Some (B754_infinity false : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 Qed.
@@ -337,11 +342,11 @@ Theorem k_asinh_c : asinh_c k_asinh.
 Proof.
 split; [exact (kernel_field_correct _ _ asinh_dir_correct) | split].
 - unfold k_asinh, kernel_field. cbn [up_of].
-  replace (DyadicLog.asinh_dir (B754_infinity true) false) with (Some (B754_infinity true : f64))
+  replace (DyadicLog.asinh_dir_with ziv_strict (B754_infinity true) false) with (Some (B754_infinity true : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 - unfold k_asinh, kernel_field. cbn [up_of].
-  replace (DyadicLog.asinh_dir (B754_infinity false) true) with (Some (B754_infinity false : f64))
+  replace (DyadicLog.asinh_dir_with ziv_strict (B754_infinity false) true) with (Some (B754_infinity false : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 Qed.
@@ -350,7 +355,7 @@ Theorem k_acosh_c : acosh_c k_acosh.
 Proof.
 split; [exact (kernel_field_correct_dom _ _ _ acosh_dir_correct) |].
 unfold k_acosh, kernel_field. cbn [up_of].
-replace (DyadicLog.acosh_dir (B754_infinity false) true) with (Some (B754_infinity false : f64))
+replace (DyadicLog.acosh_dir_with ziv_strict (B754_infinity false) true) with (Some (B754_infinity false : f64))
   by (vm_compute; reflexivity).
 reflexivity.
 Qed.
@@ -374,14 +379,14 @@ split; [exact (kernel_field_correct_dom _ _ _ atanh_dir_correct) | split].
   rewrite (f64_of_value x DyadicExp.m_one (-1) Fx ltac:(vm_compute; reflexivity)
     DyHypRules.hyp_lit_m_one ltac:(lra) Hx).
   unfold k_atanh, kernel_field. cbn [up_of].
-  replace (DyadicLog.atanh_dir DyadicExp.m_one false) with (Some (B754_infinity true : f64))
+  replace (DyadicLog.atanh_dir_with ziv_strict DyadicExp.m_one false) with (Some (B754_infinity true : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 - intros x Fx Hx.
   rewrite (f64_of_value x DyadicExp.one 1 Fx ltac:(vm_compute; reflexivity)
     (proj2 one_B2R) ltac:(lra) Hx).
   unfold k_atanh, kernel_field. cbn [up_of].
-  replace (DyadicLog.atanh_dir DyadicExp.one true) with (Some (B754_infinity false : f64))
+  replace (DyadicLog.atanh_dir_with ziv_strict DyadicExp.one true) with (Some (B754_infinity false : f64))
     by (vm_compute; reflexivity).
   reflexivity.
 Qed.
@@ -467,7 +472,7 @@ Qed.
     the constant clauses of [pow_c] and [pown_c]. *)
 Lemma k_pow_const :
   forall x y v rnd,
-  DyadicPow.pow_dir x y false = Some v -> DyadicPow.pow_dir x y true = Some v ->
+  DyadicPow.pow_dir_with ziv_strict x y false = Some v -> DyadicPow.pow_dir_with ziv_strict x y true = Some v ->
   k_pow rnd x y = v.
 Proof.
 intros x y v rnd Ed Eu. unfold k_pow, kernel_field2.
@@ -476,7 +481,7 @@ Qed.
 
 Lemma k_pown_const :
   forall x n v rnd,
-  DyadicPow.pown_dir x n false = Some v -> DyadicPow.pown_dir x n true = Some v ->
+  DyadicPow.pown_dir_with ziv_strict x n false = Some v -> DyadicPow.pown_dir_with ziv_strict x n true = Some v ->
   k_pown rnd x n = v.
 Proof.
 intros x n v rnd Ed Eu. unfold k_pown, kernel_field_z.
@@ -522,26 +527,26 @@ Proof.
 split; [exact (kernel_field_z_correct _ _ _ pown_dir_correct) |].
 split; [| split; [| split; [| split; [| split; [| split]]]]].
 - intros rnd s n _ Hn He. unfold k_pown, kernel_field_z.
-  rewrite (pown_dir_zero_neg s n (up_of rnd) Hn), <- Z.negb_even, He, Bool.andb_false_r.
+  rewrite (pown_dir_zero_neg ziv_strict s n (up_of rnd) Hn), <- Z.negb_even, He, Bool.andb_false_r.
   reflexivity.
 - intros rnd s n _ Hn Ho. unfold k_pown, kernel_field_z.
-  rewrite (pown_dir_zero_neg s n (up_of rnd) Hn), Ho, Bool.andb_true_r. reflexivity.
+  rewrite (pown_dir_zero_neg ziv_strict s n (up_of rnd) Hn), Ho, Bool.andb_true_r. reflexivity.
 - intros rnd n _ Hn. unfold k_pown, kernel_field_z.
-  rewrite (pown_dir_inf false n (up_of rnd) ltac:(lia)).
+  rewrite (pown_dir_inf ziv_strict false n (up_of rnd) ltac:(lia)).
   replace (n <? 0)%Z with true by (symmetry; apply Z.ltb_lt; exact Hn).
   eexists; reflexivity.
 - intros rnd.
   replace (k_pown rnd (B754_infinity false) 0%Z) with DyadicExp.one; [apply one_round |].
   symmetry. apply k_pown_const; vm_compute; reflexivity.
 - intros rnd n _ Hn. unfold k_pown, kernel_field_z.
-  rewrite (pown_dir_inf false n (up_of rnd) ltac:(lia)).
+  rewrite (pown_dir_inf ziv_strict false n (up_of rnd) ltac:(lia)).
   replace (n <? 0)%Z with false by (symmetry; apply Z.ltb_ge; lia). reflexivity.
 - intros rnd n _ Hn Ho. unfold k_pown, kernel_field_z.
-  rewrite (pown_dir_inf true n (up_of rnd) ltac:(lia)).
+  rewrite (pown_dir_inf ziv_strict true n (up_of rnd) ltac:(lia)).
   replace (n <? 0)%Z with true by (symmetry; apply Z.ltb_lt; exact Hn).
   eexists; reflexivity.
 - intros rnd n _ Hn Ho. unfold k_pown, kernel_field_z.
-  rewrite (pown_dir_inf true n (up_of rnd) ltac:(lia)).
+  rewrite (pown_dir_inf ziv_strict true n (up_of rnd) ltac:(lia)).
   replace (n <? 0)%Z with false by (symmetry; apply Z.ltb_ge; lia). rewrite Ho. reflexivity.
 Qed.
 

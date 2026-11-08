@@ -1,12 +1,24 @@
 (** * sinh, cosh and tanh in the dyadic kernel
 
-    [sinh_dir], [cosh_dir] and [tanh_dir] of [DyadicExp] in [Model.v],
-    where they return, round [sinh], [cosh] and [tanh] of a finite [x] in
-    the direction [up], as [DyExp.v] does for [exp]: [cosh t] and, for
-    [t > 1], [sinh t] from [e^t] and its reciprocal, [sinh t] for
-    [t <= 1] as [u (2 - u) / (2 (1 - u))] and [tanh t] as [u / (2 - u)]
-    for [u = 1 - e^-t] or [u = 1 - e^-2t], and the odd functions from
-    [t = |x|]. That the loop ends before its cap is not proved. *)
+    [sinh_dir], [cosh_dir] and [tanh_dir] of [DyadicExp] in [Model.v]
+    apply the rules of [DyHypRules.v], [DySinhTiny.v] and [DyTanhTiny.v]
+    where one applies, and otherwise the driver [ziv] to the enclosures of
+    [ev_sinh_correct] and the others, as [DyExp.v] does for [exp]:
+    [cosh t] and, for [t > 1], [sinh t] from [e^t] and its reciprocal,
+    [sinh t] for [t <= 1] as [u (2 - u) / (2 (1 - u))] and [tanh t] as
+    [u / (2 - u)] for [u = 1 - e^-t] or [u = 1 - e^-2t], and the odd
+    functions from [t = |x|]. [sinh_dir_post] and the others prove, for
+    any driver [z] in place of [ziv] ([sinh_dir_with z] and the others)
+    and any property [post] that holds of every correct rounding
+    ([rounds_post]) and that [z] gives ([driver_post] of [DyDriver.v]),
+    that the result has [post] for [sinh], [cosh] and [tanh] of a finite
+    [x] and the direction [up]. So with [ziv_strict] the kernel rounds
+    correctly where it returns ([sinh_dir_correct] and the others, by
+    [ziv_strict_correct]), the Rust returns the same value there
+    ([sinh_dir_strict] and the others), and wherever the Rust returns, its
+    result is on the side of [up] ([sinh_dir_side] and the others, by
+    [ziv_side]). That a rounding test passes by the cap is not
+    proved. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN Mult_error.
@@ -14,6 +26,16 @@ From Inari Require Import Model Mpfr Limbs Elementary ExpReal DyRound DyConv DyO
   DyGrow DyExpCore DyExpRules DyHypRules DySinhTiny DyTanhTiny DyExp.
 
 Open Scope Z_scope.
+
+(** Where [ziv_strict] returns, [Dyadic.ziv] returns the same: the goal
+    [<body with ziv_strict> = Some v -> <body with Dyadic.ziv> = Some v]
+    of a function of this file, split at its guards, which name neither
+    driver. *)
+Local Ltac dir_strict :=
+  repeat match goal with
+  | |- (if ?c then _ else _) = Some _ -> _ => destruct c; [exact (fun h => h)|]
+  end;
+  apply ziv_strict_ziv.
 
 (** ** Helpers
 
@@ -287,36 +309,57 @@ Qed.
 
 (** ** The functions *)
 
-Theorem sinh_dir_correct :
+Lemma sinh_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
   forall x up v,
-  is_finite x = true -> DyadicExp.sinh_dir x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (sinh (B2R x)) (with_val v).
+  is_finite x = true -> DyadicExp.sinh_dir_with z x up = Some v ->
+  post up (sinh (B2R x)) v.
 Proof.
-intros x up v Fx H. unfold DyadicExp.sinh_dir in H.
+intros z post Hp Hz x up v Fx H. unfold DyadicExp.sinh_dir_with in H.
 rewrite (fin_not_nan x Fx), (fin_neq_inf x Fx), (fin_neq_ninf x Fx) in H. cbn [orb] in H.
 destruct (ge x (from_bits 0x4086380000000000)) eqn:G1; cbv iota in H.
-{ injection H as <-. exact (sinh_overflow_rule x up Fx G1). }
+{ injection H as <-. apply Hp. exact (sinh_overflow_rule x up Fx G1). }
 destruct (le x (from_bits 0xc086380000000000)) eqn:G2; cbv iota in H.
-{ injection H as <-. exact (sinh_overflow_neg_rule x up Fx G2). }
+{ injection H as <-. apply Hp. exact (sinh_overflow_neg_rule x up Fx G2). }
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G3; cbv iota in H.
-{ injection H as <-. exact (sinh_tiny_rule x up Fx G3). }
-apply (ziv_correct (DyadicExp.ev_sinh x) up 1%nat); [|exact H].
+{ injection H as <-. apply Hp. exact (sinh_tiny_rule x up Fx G3). }
+apply (Hz (DyadicExp.ev_sinh x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_sinh_correct x n a Hn Ha).
 Qed.
 
-Theorem cosh_dir_correct :
+Theorem sinh_dir_correct :
   forall x up v,
-  is_finite x = true -> DyadicExp.cosh_dir x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (cosh (B2R x)) (with_val v).
+  is_finite x = true -> DyadicExp.sinh_dir_with ziv_strict x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (sinh (B2R x)) (with_val v).
+Proof. exact (sinh_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem sinh_dir_side :
+  forall x up v,
+  is_finite x = true -> DyadicExp.sinh_dir x up = Some v ->
+  f64_side up (sinh (B2R x)) v.
+Proof. exact (sinh_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem sinh_dir_strict :
+  forall x up v,
+  DyadicExp.sinh_dir_with ziv_strict x up = Some v -> DyadicExp.sinh_dir x up = Some v.
 Proof.
-intros x up v Fx H. unfold DyadicExp.cosh_dir in H. cbv zeta in H.
+intros x up v. unfold DyadicExp.sinh_dir, DyadicExp.sinh_dir_with. dir_strict.
+Qed.
+
+Lemma cosh_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
+  forall x up v,
+  is_finite x = true -> DyadicExp.cosh_dir_with z x up = Some v ->
+  post up (cosh (B2R x)) v.
+Proof.
+intros z post Hp Hz x up v Fx H. unfold DyadicExp.cosh_dir_with in H. cbv zeta in H.
 assert (Ft : is_finite (fabs x) = true) by (unfold fabs; rewrite is_finite_Babs; exact Fx).
 rewrite (fin_not_nan _ Ft), (fin_neq_inf _ Ft) in H. cbn [orb] in H.
 destruct (ge (fabs x) (from_bits 0x4086380000000000)) eqn:G1; cbv iota in H.
-{ injection H as <-. exact (cosh_overflow_rule x up Fx G1). }
+{ injection H as <-. apply Hp. exact (cosh_overflow_rule x up Fx G1). }
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G3; cbv iota in H.
-{ injection H as <-. exact (cosh_tiny_rule x up Fx G3). }
-apply (ziv_correct (DyadicExp.ev_cosh (fabs x)) up 1%nat); [|exact H].
+{ injection H as <-. apply Hp. exact (cosh_tiny_rule x up Fx G3). }
+apply (Hz (DyadicExp.ev_cosh (fabs x)) up 1%nat); [|exact H].
 intros n a Hn Ha. destruct (ev_cosh_correct _ n a Hn Ha) as (Oa & Ha').
 split; [exact Oa|].
 rewrite hyp_fabs in Ha'.
@@ -325,19 +368,58 @@ destruct (Rle_or_lt 0 (B2R x)) as [P|P].
 - rewrite Rabs_left in Ha' by exact P. rewrite cosh_even in Ha'. exact Ha'.
 Qed.
 
-Theorem tanh_dir_correct :
+Theorem cosh_dir_correct :
   forall x up v,
-  is_finite x = true -> DyadicExp.tanh_dir x up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (tanh (B2R x)) (with_val v).
+  is_finite x = true -> DyadicExp.cosh_dir_with ziv_strict x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (cosh (B2R x)) (with_val v).
+Proof. exact (cosh_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem cosh_dir_side :
+  forall x up v,
+  is_finite x = true -> DyadicExp.cosh_dir x up = Some v ->
+  f64_side up (cosh (B2R x)) v.
+Proof. exact (cosh_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem cosh_dir_strict :
+  forall x up v,
+  DyadicExp.cosh_dir_with ziv_strict x up = Some v -> DyadicExp.cosh_dir x up = Some v.
 Proof.
-intros x up v Fx H. unfold DyadicExp.tanh_dir in H.
+intros x up v. unfold DyadicExp.cosh_dir, DyadicExp.cosh_dir_with. cbv zeta. dir_strict.
+Qed.
+
+Lemma tanh_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
+  forall x up v,
+  is_finite x = true -> DyadicExp.tanh_dir_with z x up = Some v ->
+  post up (tanh (B2R x)) v.
+Proof.
+intros z post Hp Hz x up v Fx H. unfold DyadicExp.tanh_dir_with in H.
 rewrite (fin_not_nan x Fx), (fin_neq_inf x Fx), (fin_neq_ninf x Fx) in H. cbv iota in H.
 destruct (ge x (from_bits 0x4033000000000000)) eqn:G1; cbv iota in H.
-{ injection H as <-. exact (tanh_big_rule x up Fx G1). }
+{ injection H as <-. apply Hp. exact (tanh_big_rule x up Fx G1). }
 destruct (le x (from_bits 0xc033000000000000)) eqn:G2; cbv iota in H.
-{ injection H as <-. exact (tanh_big_neg_rule x up Fx G2). }
+{ injection H as <-. apply Hp. exact (tanh_big_neg_rule x up Fx G2). }
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G3; cbv iota in H.
-{ injection H as <-. exact (tanh_tiny_rule x up Fx G3). }
-apply (ziv_correct (DyadicExp.ev_tanh x) up 1%nat); [|exact H].
+{ injection H as <-. apply Hp. exact (tanh_tiny_rule x up Fx G3). }
+apply (Hz (DyadicExp.ev_tanh x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_tanh_correct x n a Hn Ha).
+Qed.
+
+Theorem tanh_dir_correct :
+  forall x up v,
+  is_finite x = true -> DyadicExp.tanh_dir_with ziv_strict x up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (tanh (B2R x)) (with_val v).
+Proof. exact (tanh_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem tanh_dir_side :
+  forall x up v,
+  is_finite x = true -> DyadicExp.tanh_dir x up = Some v ->
+  f64_side up (tanh (B2R x)) v.
+Proof. exact (tanh_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem tanh_dir_strict :
+  forall x up v,
+  DyadicExp.tanh_dir_with ziv_strict x up = Some v -> DyadicExp.tanh_dir x up = Some v.
+Proof.
+intros x up v. unfold DyadicExp.tanh_dir, DyadicExp.tanh_dir_with. dir_strict.
 Qed.

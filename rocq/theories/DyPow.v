@@ -1,16 +1,25 @@
 (** * pow in the dyadic kernel
 
-    [pow_dir] of [DyadicPow] in [Model.v] returns the special values that
-    [pow_c] of [Contract.v] names ([pow_dir_zero_neg] and the others
-    below). Where it returns, it rounds [Rpow] of [Elementary.v] of finite
-    [x] and [y] in the domain [pow_dom] in the direction [up]
-    ([pow_dir_correct]): the rules of [DyPowRules.v] where one applies,
-    the exact cases of [DyPowExact.v], and otherwise [ziv_correct] of
-    [DyDriver.v] with the enclosure of [ev_pow_correct] of [DyPowCore.v].
-    Where the result at a finite [x > 0] is itself a finite [f64], it
-    returns it ([pow_dir_exact]), so Ziv's loop never runs on such an
-    argument. That the loop ends before its cap at the other arguments is
-    not proved. [pown_dir] is in [DyPown.v]. *)
+    [pow_dir_with ziv_strict] of [DyadicPow] in [Model.v], the kernel
+    with the driver [ziv_strict] of [DyDriver.v], returns the special
+    values that [pow_c] of [Contract.v] names ([pow_dir_zero_neg] and the
+    others below). [pow_dir_post] proves that, for finite [x] and [y] in
+    the domain [pow_dom], the results of [pow_dir_with z] have the
+    property [post] of [Rpow] of [Elementary.v], for any driver [z] and
+    any property [post] that every correct rounding has ([rounds_post])
+    and that the results of [z] have ([driver_post]): by the rules of
+    [DyPowRules.v] where one applies, the exact cases of [DyPowExact.v],
+    and otherwise the driver with the enclosure of [ev_pow_correct] of
+    [DyPowCore.v]. So, for such [x] and [y]: with [ziv_strict], the
+    kernel rounds [Rpow] in the direction [up] where it returns
+    ([pow_dir_correct]); the Rust ([pow_dir], with [Dyadic.ziv]) returns
+    the same value there ([pow_dir_strict]); and wherever the Rust
+    returns, its result is at or above [Rpow] if [up] and at or below it
+    otherwise ([pow_dir_side]). Where the result at a finite [x > 0] is
+    itself a finite [f64], the Rust returns it ([pow_dir_exact]), so
+    Ziv's loop never runs on such an argument. That a rounding test
+    passes by the cap at the other arguments is not proved.
+    [pown_dir] is in [DyPown.v]. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -84,11 +93,11 @@ Qed.
 
 Lemma pow_dir_zero_neg :
   forall y up, is_finite y = true -> (B2R y < 0)%R ->
-  DyadicPow.pow_dir (B754_zero false) y up = Some (B754_infinity false).
+  DyadicPow.pow_dir_with ziv_strict (B754_zero false) y up = Some (B754_infinity false).
 Proof.
 intros y up Fy Hy.
 assert (Y0 : B2R y <> B2R zero) by (change (B2R zero) with 0%R; lra).
-unfold DyadicPow.pow_dir.
+unfold DyadicPow.pow_dir_with.
 rewrite (eq_false_of y zero Fy eq_refl Y0), (fin_not_nan y Fy), (fin_neq_inf y Fy),
   (fin_neq_ninf y Fy), (proj2 (lt_fin y zero Fy eq_refl) Hy).
 vm_compute. reflexivity.
@@ -96,20 +105,20 @@ Qed.
 
 Lemma pow_dir_one_inf :
   forall x s up, is_finite x = true -> B2R x = 1%R ->
-  DyadicPow.pow_dir x (B754_infinity s) up = Some DyadicExp.one.
+  DyadicPow.pow_dir_with ziv_strict x (B754_infinity s) up = Some DyadicExp.one.
 Proof.
 intros x s up Fx Hx.
 destruct one_B2R as [F1 H1].
 assert (Lx : (B2R zero <= B2R x)%R) by (change (B2R zero) with 0%R; lra).
 assert (Ex : B2R x = B2R DyadicExp.one) by lra.
-unfold DyadicPow.pow_dir.
+unfold DyadicPow.pow_dir_with.
 rewrite (fin_not_nan x Fx), (lt_false_of x zero Fx eq_refl Lx), (proj2 (eq_fin x _ Fx F1) Ex).
 destruct s; vm_compute; reflexivity.
 Qed.
 
 Lemma pow_dir_lt1_inf :
   forall x s up, is_finite x = true -> (0 < B2R x < 1)%R ->
-  DyadicPow.pow_dir x (B754_infinity s) up =
+  DyadicPow.pow_dir_with ziv_strict x (B754_infinity s) up =
   Some (if s then B754_infinity false else B754_zero false).
 Proof.
 intros x s up Fx Hx.
@@ -117,7 +126,7 @@ destruct one_B2R as [F1 H1].
 assert (Lx : (B2R zero <= B2R x)%R) by (change (B2R zero) with 0%R; lra).
 assert (Ex : B2R x <> B2R DyadicExp.one) by lra.
 assert (Gx : (B2R x <= B2R DyadicExp.one)%R) by lra.
-unfold DyadicPow.pow_dir.
+unfold DyadicPow.pow_dir_with.
 rewrite (fin_not_nan x Fx), (lt_false_of x zero Fx eq_refl Lx), (eq_false_of x _ Fx F1 Ex).
 change (gt x DyadicExp.one) with (lt DyadicExp.one x).
 rewrite (lt_false_of DyadicExp.one x F1 Fx Gx).
@@ -126,7 +135,7 @@ Qed.
 
 Lemma pow_dir_gt1_inf :
   forall x s up, is_finite x = true -> (1 < B2R x)%R ->
-  DyadicPow.pow_dir x (B754_infinity s) up =
+  DyadicPow.pow_dir_with ziv_strict x (B754_infinity s) up =
   Some (if s then B754_zero false else B754_infinity false).
 Proof.
 intros x s up Fx Hx.
@@ -134,7 +143,7 @@ destruct one_B2R as [F1 H1].
 assert (Lx : (B2R zero <= B2R x)%R) by (change (B2R zero) with 0%R; lra).
 assert (Ex : B2R x <> B2R DyadicExp.one) by lra.
 assert (Gx : (B2R DyadicExp.one < B2R x)%R) by lra.
-unfold DyadicPow.pow_dir.
+unfold DyadicPow.pow_dir_with.
 rewrite (fin_not_nan x Fx), (lt_false_of x zero Fx eq_refl Lx), (eq_false_of x _ Fx F1 Ex).
 change (gt x DyadicExp.one) with (lt DyadicExp.one x).
 rewrite (proj2 (lt_fin DyadicExp.one x F1 Fx) Gx).
@@ -143,12 +152,12 @@ Qed.
 
 Lemma pow_dir_inf_neg :
   forall y up, is_finite y = true -> (B2R y < 0)%R ->
-  DyadicPow.pow_dir (B754_infinity false) y up = Some (B754_zero false).
+  DyadicPow.pow_dir_with ziv_strict (B754_infinity false) y up = Some (B754_zero false).
 Proof.
 intros y up Fy Hy.
 assert (Y0 : B2R y <> B2R zero) by (change (B2R zero) with 0%R; lra).
 assert (Gy : (B2R y <= B2R zero)%R) by (change (B2R zero) with 0%R; lra).
-unfold DyadicPow.pow_dir.
+unfold DyadicPow.pow_dir_with.
 rewrite (eq_false_of y zero Fy eq_refl Y0), (fin_not_nan y Fy), (fin_neq_inf y Fy),
   (fin_neq_ninf y Fy).
 change (gt y zero) with (lt zero y).
@@ -158,11 +167,11 @@ Qed.
 
 Lemma pow_dir_inf_pos :
   forall y up, is_finite y = true -> (0 < B2R y)%R ->
-  DyadicPow.pow_dir (B754_infinity false) y up = Some (B754_infinity false).
+  DyadicPow.pow_dir_with ziv_strict (B754_infinity false) y up = Some (B754_infinity false).
 Proof.
 intros y up Fy Hy.
 assert (Y0 : B2R y <> B2R zero) by (change (B2R zero) with 0%R; lra).
-unfold DyadicPow.pow_dir.
+unfold DyadicPow.pow_dir_with.
 rewrite (eq_false_of y zero Fy eq_refl Y0), (fin_not_nan y Fy), (fin_neq_inf y Fy),
   (fin_neq_ninf y Fy).
 change (gt y zero) with (lt zero y).
@@ -170,23 +179,24 @@ rewrite (proj2 (lt_fin zero y eq_refl Fy) Hy).
 vm_compute. reflexivity.
 Qed.
 
-Theorem pow_dir_correct :
+Lemma pow_dir_post :
+  forall z post, rounds_post post -> driver_post z post ->
   forall x y (up : bool) v,
   is_finite x = true -> is_finite y = true -> pow_dom (B2R x) (B2R y) ->
-  DyadicPow.pow_dir x y up = Some v ->
-  mpfr_round f64_format (if up then RNDU else RNDD) (Rpow (B2R x) (B2R y)) (with_val v).
+  DyadicPow.pow_dir_with z x y up = Some v ->
+  post up (Rpow (B2R x) (B2R y)) v.
 Proof.
-intros x y up v Fx Fy Hd E.
+intros z post Hp Hz x y up v Fx Fy Hd E.
 assert (Fz : is_finite zero = true) by reflexivity.
 assert (F1 : is_finite DyadicExp.one = true) by exact (proj1 one_B2R).
 assert (Hx0 : (0 <= B2R x)%R) by (destruct Hd as [H | [H _]]; lra).
-unfold DyadicPow.pow_dir in E.
+unfold DyadicPow.pow_dir_with in E.
 destruct (eq y zero) eqn:Y0.
 { cbv iota in E. injection E as <-.
   apply (eq_fin y zero Fy Fz) in Y0. change (B2R zero) with 0%R in Y0.
   assert (Px : (0 < B2R x)%R) by (destruct Hd as [H | [_ H]]; lra).
   unfold Rpow. destruct (Rle_dec (B2R x) 0) as [H | _]; [lra |].
-  rewrite Y0, (Rpower_O _ Px). exact (rnd_exact _ _ _ F1 (proj2 one_B2R)). }
+  rewrite Y0, (Rpower_O _ Px). apply Hp. exact (rnd_exact _ _ _ F1 (proj2 one_B2R)). }
 rewrite (fin_not_nan x Fx), (fin_not_nan y Fy) in E. cbv iota in E.
 destruct (lt x zero) eqn:L.
 { apply (lt_fin x zero Fx Fz) in L. change (B2R zero) with 0%R in L. lra. }
@@ -194,7 +204,7 @@ destruct (eq x DyadicExp.one) eqn:X1.
 { cbv iota in E. injection E as <-.
   apply (eq_fin x _ Fx F1) in X1. rewrite (proj2 one_B2R) in X1.
   unfold Rpow. destruct (Rle_dec (B2R x) 0) as [H | _]; [lra |].
-  rewrite X1, Rpower_base_1. exact (rnd_exact _ _ _ F1 (proj2 one_B2R)). }
+  rewrite X1, Rpower_base_1. apply Hp. exact (rnd_exact _ _ _ F1 (proj2 one_B2R)). }
 rewrite (fin_neq_inf y Fy), (fin_neq_ninf y Fy) in E. cbn [orb] in E. cbv iota in E.
 destruct (eq x zero) eqn:X0.
 { (* [x = ±0] and [y > 0]: the result is a zero of either sign. *)
@@ -204,7 +214,7 @@ destruct (eq x zero) eqn:X0.
   destruct (lt y zero) eqn:Ly.
   { apply (lt_fin y zero Fy Fz) in Ly. change (B2R zero) with 0%R in Ly. lra. }
   unfold Rpow. destruct (Rle_dec (B2R x) 0) as [_ | H]; [| lra].
-  apply rnd_exact; destruct (Bsign x && DyadicPow.is_odd_integer y); reflexivity. }
+  apply Hp. apply rnd_exact; destruct (Bsign x && DyadicPow.is_odd_integer y); reflexivity. }
 rewrite (fin_neq_inf x Fx) in E. cbv iota zeta in E.
 apply (eq_fin_false x _ Fx F1) in X1. rewrite (proj2 one_B2R) in X1.
 apply (eq_fin_false y zero Fy Fz) in Y0. change (B2R zero) with 0%R in Y0.
@@ -213,30 +223,63 @@ assert (Px : (0 < B2R x)%R) by (destruct Hd as [H | [H _]]; lra).
 replace (Rpow (B2R x) (B2R y)) with (Rpower (B2R x) (B2R y))
   by (unfold Rpow; destruct (Rle_dec (B2R x) 0) as [H | _]; [lra | reflexivity]).
 destruct (10 <=? DyadicPow.expo y + DyadicPow.ln_expo x) eqn:S1.
-{ apply Z.leb_le in S1. injection E as <-.
+{ apply Z.leb_le in S1. injection E as <-. apply Hp.
   destruct (Bool.eqb (gt y zero) (gt x DyadicExp.one)) eqn:A.
   - exact (pow_rule_overflow x y up Fx Px X1 Fy Y0 S1 A).
   - exact (pow_rule_underflow x y up Fx Px X1 Fy Y0 S1 A). }
 destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58) eqn:S2.
-{ apply Z.leb_le in S2. injection E as <-.
+{ apply Z.leb_le in S2. injection E as <-. apply Hp.
   exact (pow_rule_near_one x y up Fx Px X1 Fy Y0 S2). }
 destruct (DyadicPow.exact x y) as [[w|]|] eqn:Ex; [| | discriminate E].
 - injection E as <-. destruct (exact_sound x y w Fx Px Fy Y0 Ex) as [Fw Hw].
-  exact (rnd_exact _ _ _ Fw Hw).
-- refine (ziv_correct (DyadicPow.ev_pow x y) up _ _ v _ E).
+  apply Hp. exact (rnd_exact _ _ _ Fw Hw).
+- refine (Hz (DyadicPow.ev_pow x y) up _ _ v _ E).
   intros n a Hn Ea. exact (ev_pow_correct n x y a Hn Fx Px Fy Ea).
 Qed.
 
-Theorem pow_dir_exact :
-  forall x y (v : f64) (up : bool),
+Theorem pow_dir_correct :
+  forall x y (up : bool) v,
+  is_finite x = true -> is_finite y = true -> pow_dom (B2R x) (B2R y) ->
+  DyadicPow.pow_dir_with ziv_strict x y up = Some v ->
+  mpfr_round f64_format (if up then RNDU else RNDD) (Rpow (B2R x) (B2R y)) (with_val v).
+Proof. exact (pow_dir_post ziv_strict rounds (fun _ _ _ H => H) ziv_strict_correct). Qed.
+
+Theorem pow_dir_side :
+  forall x y (up : bool) v,
+  is_finite x = true -> is_finite y = true -> pow_dom (B2R x) (B2R y) ->
+  DyadicPow.pow_dir x y up = Some v ->
+  f64_side up (Rpow (B2R x) (B2R y)) v.
+Proof. exact (pow_dir_post Dyadic.ziv f64_side rounds_side ziv_side). Qed.
+
+Theorem pow_dir_strict :
+  forall x y (up : bool) v,
+  DyadicPow.pow_dir_with ziv_strict x y up = Some v -> DyadicPow.pow_dir x y up = Some v.
+Proof.
+intros x y up v. unfold DyadicPow.pow_dir, DyadicPow.pow_dir_with. cbv zeta.
+destruct (eq y zero); [exact (fun h => h)|].
+destruct (is_nan x); [exact (fun h => h)|].
+destruct (is_nan y); [exact (fun h => h)|].
+destruct (lt x zero); [exact (fun h => h)|].
+destruct (eq x DyadicExp.one); [exact (fun h => h)|].
+destruct (eq y infinity || eq y DyadicExp.neg_infinity); [exact (fun h => h)|].
+destruct (eq x zero); [exact (fun h => h)|].
+destruct (eq x infinity); [exact (fun h => h)|].
+destruct (10 <=? DyadicPow.expo y + DyadicPow.ln_expo x); [exact (fun h => h)|].
+destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58); [exact (fun h => h)|].
+destruct (DyadicPow.exact x y) as [[w|]|]; [exact (fun h => h) | | exact (fun h => h)].
+apply ziv_strict_ziv.
+Qed.
+
+Lemma pow_dir_exact_with :
+  forall z x y (v : f64) (up : bool),
   is_finite x = true -> (0 < B2R x)%R -> is_finite y = true -> is_finite v = true ->
   Rpower (B2R x) (B2R y) = B2R v ->
-  DyadicPow.pow_dir x y up = Some v.
+  DyadicPow.pow_dir_with z x y up = Some v.
 Proof.
-intros x y v up Fx Hx Fy Fv Hv.
+intros z x y v up Fx Hx Fy Fv Hv.
 assert (Fz : is_finite zero = true) by reflexivity.
 assert (F1 : is_finite DyadicExp.one = true) by exact (proj1 one_B2R).
-unfold DyadicPow.pow_dir.
+unfold DyadicPow.pow_dir_with.
 destruct (eq y zero) eqn:Y0.
 { apply (eq_fin y zero Fy Fz) in Y0. change (B2R zero) with 0%R in Y0.
   rewrite Y0, (Rpower_O _ Hx) in Hv. cbv iota. f_equal. symmetry.
@@ -262,3 +305,10 @@ destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58) eqn:S2.
   right. apply Z.leb_le. exact S2. }
 rewrite (exact_complete x y v Fx Hx X1 Fy Y0 Fv Hv). reflexivity.
 Qed.
+
+Theorem pow_dir_exact :
+  forall x y (v : f64) (up : bool),
+  is_finite x = true -> (0 < B2R x)%R -> is_finite y = true -> is_finite v = true ->
+  Rpower (B2R x) (B2R y) = B2R v ->
+  DyadicPow.pow_dir x y up = Some v.
+Proof. exact (pow_dir_exact_with Dyadic.ziv). Qed.
