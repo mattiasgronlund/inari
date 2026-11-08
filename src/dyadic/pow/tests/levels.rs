@@ -176,6 +176,8 @@ fn forced_levels() {
 // - The second drew 10^7 arguments from each of four of those sets: x^y with |t| in
 //   [100, 745), with x next to 1 and with x in [2^-64, 2^64), and x^n with n of a uniform bit
 //   length.
+// Since these searches, the arguments with an integer y from -2^31 to 2^31 - 1 that would
+// reach `Pow`, as in the set with an integer y and in the case at y = 2 below, go to `Pown`.
 // Each comment gives the bits that its case needs, -log2 of the distance from its value to the
 // nearest `f64` relative to the value, with MPFR at 1024 bits for the first search and 512 for
 // the second. The two cases at n = 36 of `check_pow_ui` in the tests of MPFR (`tests/tpow.c`),

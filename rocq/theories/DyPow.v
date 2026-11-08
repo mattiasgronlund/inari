@@ -9,9 +9,11 @@
     any property [post] that every correct rounding has ([rounds_post])
     and that the results of [z] have ([driver_post]): by the rules of
     [DyPowRules.v] where one applies, the exact cases of [DyPowExact.v],
-    and otherwise the driver with the enclosure of [ev_pow_correct] of
-    [DyPowCore.v]. So, for such [x] and [y]: with [ziv_strict], the
-    kernel rounds [Rpow] in the direction [up] where it returns
+    [pown_pos_post] of [DyPown.v] for an integer [y] from [-2^31] to
+    [2^31 - 1], which [pow] passes to [pown_pos], and otherwise the
+    driver with the enclosure of [ev_pow_correct] of [DyPowCore.v]. So,
+    for such [x] and [y]: with [ziv_strict], the kernel rounds [Rpow] in
+    the direction [up] where it returns
     ([pow_dir_correct]); the Rust ([pow_dir], with [Dyadic.ziv]) returns
     the same value there ([pow_dir_strict]); and wherever the Rust
     returns, its result is at or above [Rpow] if [up] and at or below it
@@ -26,8 +28,13 @@ From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr MpfrRound Limbs Elementary DyRound DyConv DyOps DyDriver
   DyGrow DyConst DyExpCore DyExpRules DyExp DyLogRules DyLogCore DyPowArith DyPowRules
   DyPowExact DyPowCore.
+From Inari Require DyPown.
 
 Open Scope Z_scope.
+
+(** [c as i32] is in the range of an [i32]. *)
+Lemma to_i32_range : forall c, is_i32 (DyadicPow.to_i32 c).
+Proof. intros c. unfold DyadicPow.to_i32, is_i32. destruct c; try destruct s; lia. Qed.
 
 (** ** Comparisons of finite [f64]s *)
 
@@ -233,8 +240,18 @@ destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58) eqn:S2.
 destruct (DyadicPow.exact x y) as [[w|]|] eqn:Ex; [| | discriminate E].
 - injection E as <-. destruct (exact_sound x y w Fx Px Fy Y0 Ex) as [Fw Hw].
   apply Hp. exact (rnd_exact _ _ _ Fw Hw).
-- refine (Hz (DyadicPow.ev_pow x y) up _ _ v _ E).
-  intros n a Hn Ea. exact (ev_pow_correct n x y a Hn Fx Px Fy Ea).
+- cbv beta iota in E.
+  destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y) eqn:I.
+  + (* An integer [y] from [-2^31] to [2^31 - 1]: x^y is [powerRZ x k] for [k = y]. *)
+    assert (Hi : is_i32 (DyadicPow.to_i32 y)) by apply to_i32_range.
+    destruct (of_i64_exact (DyadicPow.to_i32 y)) as [Fk Vk]; [unfold is_i32 in Hi; lia |].
+    apply (eq_fin _ _ Fk Fy) in I. rewrite Vk in I.
+    assert (Hk : DyadicPow.to_i32 y <> 0)
+      by (intros K; apply Y0; rewrite <- I, K; reflexivity).
+    rewrite <- I, <- (powerRZ_Rpower _ _ Px).
+    exact (DyPown.pown_pos_post z post Hp Hz x _ up v Fx Px Hk Hi E).
+  + refine (Hz (DyadicPow.ev_pow x y) up _ _ v _ E).
+    intros n a Hn Ea. exact (ev_pow_correct n x y a Hn Fx Px Fy Ea).
 Qed.
 
 Theorem pow_dir_correct :
@@ -267,7 +284,9 @@ destruct (eq x infinity); [exact (fun h => h)|].
 destruct (10 <=? DyadicPow.expo y + DyadicPow.ln_expo x); [exact (fun h => h)|].
 destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58); [exact (fun h => h)|].
 destruct (DyadicPow.exact x y) as [[w|]|]; [exact (fun h => h) | | exact (fun h => h)].
-apply ziv_strict_ziv.
+cbv beta iota.
+destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y);
+  [apply DyPown.pown_pos_strict | apply ziv_strict_ziv].
 Qed.
 
 Lemma pow_dir_exact_with :

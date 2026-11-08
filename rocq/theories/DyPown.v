@@ -16,8 +16,9 @@
     [pown_pos_with z] of [|x|], negated for an odd [k] at [x < 0].
     [pown_pos_post] proves the result of [pown_pos_with z] at a finite
     [x > 0] for any driver [z] and property [post] of correct roundings
-    ([rounds_post]) that [z] gives ([driver_post]), and [pown_dir_post]
-    that of [pown_dir_with z] for such a [post] that negation also
+    ([rounds_post]) that [z] gives ([driver_post]), and [DyPow.v] uses it
+    for the integer [y] that [pow] passes to [pown_pos]. [pown_dir_post]
+    proves that of [pown_dir_with z] for such a [post] that negation also
     carries from [-r] to [r] ([odd_post]): where [pown_dir_with z]
     returns at a finite [x] and an [i32] [n] in the domain [pown_dom n],
     its result has the property [post] of [powerRZ] in the direction

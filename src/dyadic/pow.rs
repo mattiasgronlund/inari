@@ -12,8 +12,12 @@
 // of `src/dyadic/exp.rs` says why). x^y is an `f64` at many arguments, and `exact` finds each
 // of them before the loop, from the odd parts of x and y, in integers. x^n is an `f64` only
 // where binary powering of the exact x rounds nothing, so the loop settles those at its first
-// level. `ziv` computes the rest from an `Eval`, at a first level that grows with the bits
-// that the evaluation loses.
+// level. x^y at an integer y from -2^31 to 2^31 - 1 that `exact` leaves is computed as x^n for
+// n = y, as binary powering took fewer instructions than the logarithm and the exponential of
+// `Pow` on each set of such y counted (cachegrind); `mpfr_pow` also passes an integer y below
+// 2^256 in magnitude to `mpfr_pow_z`, which computes x^y by multiplications. `ziv` computes
+// the rest from an `Eval`, at a first level that grows with the bits that the evaluation
+// loses.
 //
 // x^y = e^t for t = y ln x, for x > 0. The evaluation takes ln x = e ln 2 + σ a for the
 // (e, a, less) of `reduce` of `src/dyadic/log.rs`, with σ = -1 if `less` and 1 otherwise, and
@@ -32,13 +36,13 @@
 // x^y and x^n that the rounding is on, and, where a rule or `exact` settles the arguments or
 // a rounding test of `ziv` passes, x^y and x^n rounded as `mpfr_round` in
 // `rocq/theories/Mpfr.v` says. `DyPow.v` builds on `rocq/theories/DyPowRules.v` for the
-// rules, `rocq/theories/DyPowCore.v` for `Pow`, and `rocq/theories/DyPowExact.v` and
-// `rocq/theories/DyPowArith.v` for `exact`, and `DyPown.v` proves the rules of x^n and binary
-// powering. They also show that `exact` finds every argument that reaches it whose exact
-// result is an `f64`, and that both functions return that `f64` at every finite argument
-// whose exact result is one, with x > 0 for x^y and x other than 0 for x^n. That a test
-// passes by the cap of `ziv` at the other arguments is not proved, nor that the
-// evaluations do not panic.
+// rules, `rocq/theories/DyPowCore.v` for `Pow`, `rocq/theories/DyPowExact.v` and
+// `rocq/theories/DyPowArith.v` for `exact`, and `DyPown.v` for the integer y that `pow` passes
+// to x^n. `DyPown.v` proves the rules of x^n and binary powering. These files also show that
+// `exact` finds every argument that reaches it whose exact result is an `f64`, and that both
+// functions return that `f64` at every finite argument whose exact result is one, with x > 0
+// for x^y and x other than 0 for x^n. That a test passes by the cap of `ziv` at the other
+// arguments is not proved, nor that the evaluations do not panic.
 
 use super::{
     consts::ln2,
@@ -57,6 +61,10 @@ mod tests;
 // fewest instructions (cachegrind), summed over random sets of the arguments that reach `ziv`:
 // for x^y, |y ln x| from 100 to 745, x next to 1, integer y, arguments next to an exact case,
 // and log-uniform x and y; for x^n, n = ±17, |n| up to 40, and |n| log-uniform up to 2^31.
+// `pow` has passed an integer y from -2^31 to 2^31 - 1 to x^n since. The set of integer y
+// took the same instructions at every value counted from 6 to 12, and the other sets of x^y
+// alone took more at 4 and 5 than at 6, so that without it the value for x^y still took the
+// fewest.
 const POW_START_BITS: i64 = 10;
 const POWN_START_BITS: u32 = 9;
 
@@ -245,6 +253,12 @@ pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64 {
             near_one(if above { 1.0 } else { -1.0 }, up)
         } else if let Some(v) = exact(x, y) {
             v
+        } else if f64::from(y as i32) == y {
+            // An integer y from -2^31 to 2^31 - 1: `y as i32` saturates, so that a y outside
+            // that range or not an integer fails the test. Binary powering takes at most
+            // 2 log2 |y| products of enclosures, and a quotient for y < 0, where `Pow`
+            // evaluates a logarithm and an exponential, as the header says.
+            pown_pos(x, y as i32, up)
         } else {
             // The evaluation loses about the bits of |y a| + 1, and |y a| <= min(|t|, |y| / 2).
             let start = if ey.min(s + 4) >= POW_START_BITS {

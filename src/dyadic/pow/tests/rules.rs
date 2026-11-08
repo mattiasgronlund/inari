@@ -1,10 +1,13 @@
 // Tests of the powers of the dyadic kernel at the thresholds of the rules that `pow.rs` applies
-// before Ziv's strategy, and next to 1, through `check_pow` and `check_pown` of `tests.rs`.
+// before Ziv's strategy, at the ends of the one that takes an integer y from -2^31 to 2^31 - 1
+// to `pown_pos` rather than to the loop of `Pow`, and next to 1, through `check_pow` and
+// `check_pown` of `tests.rs`.
 //
 // Where a bound on a result gives its roundings, the tests also assert them with
 // `check_rounding`, so that they check results in both feature sets, not only against MPFR.
 
 use super::*;
+use crate::dyadic::ziv_at;
 
 // ln x for a finite x > 0, through `ln_1p` in [1/2, 2], where x - 1 is exact (Sterbenz's
 // lemma), so that the relative error is a few ulps next to 1 too.
@@ -345,5 +348,91 @@ fn known_roundings() {
         let x = times_pow2(1.0 + k * u, e);
         let want = times_pow2(1.0 + (2.0 * k + 1.0) * u, 2 * e);
         check_known(x, 2, want, want);
+    }
+}
+
+// Whether `pow` takes a finite y to `pown_pos` after its rules and `exact`, by the test of
+// `pow.rs`: `y as i32` saturates, so that only an integer y from -2^31 to 2^31 - 1 passes.
+fn routed(y: f64) -> bool {
+    f64::from(y as i32) == y
+}
+
+// x^y for integers y up to the ends of the route and past them: in both feature sets, `pow`
+// gives what `pown` gives wherever the test of the route passes, whether the route, `exact` or
+// a rule settles the arguments, and with `gmp`, what MPFR gives at every y.
+#[test]
+fn integer_route() {
+    // The ends of the route pass the test, and the integers next to them outside it fail it,
+    // as 1/2 does.
+    assert!(routed(2147483647.0) && routed(-2147483648.0));
+    for y in [2147483648.0, 2147483649.0, -2147483649.0, 0.5] {
+        assert!(!routed(y), "{:e} passes", y);
+    }
+    // y = ±(2^j - 1), ±2^j and ±(2^j + 1) for j up to 31, at and next to each power of two,
+    // so that binary powering squares from 0 to 31 times. Of those at and next to the ends of
+    // the route, where neither a rule nor `exact` settles x^y, 2^31 - 1, -(2^31 - 1) and -2^31
+    // take it, and 2^31, 2^31 + 1 and -2^31 - 1 the loop of `Pow`.
+    let mut ys = vec![];
+    for j in 0..=31 {
+        let p = pow2(j);
+        for y in [p - 1.0, p, p + 1.0] {
+            if y != 0.0 {
+                ys.extend([y, -y]);
+            }
+        }
+    }
+    let (u, h) = (pow2(-52), pow2(-53));
+    // x at k ulps from 1, where |y ln x| < 2^-17 for every |y| < 2^32, so that no rule
+    // settles x^y, nor `exact` but at y = 1, and binary powering squares up to 31 times. 1/2
+    // and 2, whose x^y = 2^±y `exact` settles where it is an `f64`, so that the route takes
+    // only the y at which it is at least 2^1024 or below 2^-1074. 3 and 1.5, whose x^y is an
+    // `f64` only for y from 0 to 33 (3^33 < 2^53 < 3^34), so that the route takes every other
+    // y below the bound of the rule s >= 10 of `pow` (|y| = 2^11 for 3 and 2^12 for 1.5),
+    // past the overflow and underflow thresholds too.
+    let mut xs = vec![0.5, 2.0, 3.0, 1.5];
+    for k in 1..=4 {
+        let k = f64::from(k);
+        xs.extend([1.0 + k * u, 1.0 - k * h]);
+    }
+    // And x = 2^(q / y), at which x^y is next to 2^q where x is normal: below 2^-1074 and at
+    // it, at the least normal `f64`, below 2^1024, and between. x is +∞ for y = -1 and
+    // q <= -1074, where the rules of both functions give 0.
+    let qs = [
+        -1074.5, -1074.0, -1022.0, -500.0, -1.0, 1.0, 500.0, 1023.0, 1023.9,
+    ];
+    for &y in &ys {
+        let near = qs.iter().map(|q| (q / y).exp2());
+        for x in xs.iter().copied().chain(near) {
+            if routed(y) {
+                for up in [false, true] {
+                    let (a, b) = (pow(x, y, up), pown(x, y as i32, up));
+                    assert!(
+                        a.to_bits() == b.to_bits(),
+                        "pow({:e}, {:e}) = {:e} but pown gives {:e}, up = {}",
+                        x,
+                        y,
+                        a,
+                        b,
+                        up
+                    );
+                }
+            }
+            check_pow(x, y);
+        }
+    }
+}
+
+// x^34 at x = 3: 3^34 = 16677181699666569 is above 2^53, so that `exact` leaves pow(3, 34) to
+// the route, and odd, so that it is the midpoint of the `f64`s 16677181699666568 and
+// 16677181699666570 (2 apart there), its roundings toward -∞ and toward +∞. Binary powering
+// takes the products 3^2, 3^4, 3^8, 3^16, 3^32 and 3^2 3^32, each below 2^64 and so exact at
+// one limb, where `ziv_at` then settles both directions.
+#[test]
+fn three_to_the_34() {
+    let (d, u) = (16677181699666568.0, 16677181699666570.0);
+    check_known(3.0, 34, d, u);
+    for (up, want) in [(false, d), (true, u)] {
+        let r = ziv_at::<1, _>(&Pown(3.0, 34), up);
+        assert_eq!(r, Some(want), "3^34 at one limb, up = {}", up);
     }
 }

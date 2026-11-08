@@ -2695,7 +2695,7 @@ Definition pow_start_bits : Z := 10.
 Definition pown_start_bits : Z := 9.
 
 (** [k as f64] for an [i64] [k], which rounds to nearest, ties to even,
-    as [of_u64]. *)
+    as [of_u64], and [f64::from(n)] for an [i32] [n], which is exact. *)
 Definition of_i64 (k : Z) : f64 := binary_normalize 53 1024 _ _ mode_NE k 0 false.
 
 (** [c as u64], which saturates, and is 0 for NaN. *)
@@ -2703,6 +2703,13 @@ Definition to_u64 (c : f64) : Z :=
   match c with
   | B754_infinity s => if s then 0 else 2 ^ 64 - 1
   | _ => Z.max 0 (Z.min (2 ^ 64 - 1) (Btrunc c))
+  end.
+
+(** [c as i32], which saturates, and is 0 for NaN. *)
+Definition to_i32 (c : f64) : Z :=
+  match c with
+  | B754_infinity s => if s then - 2 ^ 31 else 2 ^ 31 - 1
+  | _ => Z.max (- 2 ^ 31) (Z.min (2 ^ 31 - 1) (Btrunc c))
   end.
 
 (** [fn odd_parts(x: f64) -> (u64, i64)], where [m >> z] is [Z.shiftr],
@@ -2818,38 +2825,6 @@ Definition ev_pow (x y : f64) (n : nat) : option Dyadic.encl :=
 Section Driver.
 Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
 
-(** [pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64], where
-    [f64::NAN] is [B754_nan], [y.is_infinite()] is [eq y infinity || eq
-    y DyadicExp.neg_infinity], [x.is_sign_negative()] is [Bsign x], as
-    [x] is not NaN there, [a == b] of two [bool]s is [Bool.eqb], and the
-    sums of [i64]s are computed without a check. *)
-Definition pow_dir_with (x y : f64) (up : bool) : option f64 :=
-  if eq y zero then Some DyadicExp.one
-  else if is_nan x then Some x
-  else if is_nan y then Some (if eq x DyadicExp.one then DyadicExp.one else y)
-  else if lt x zero then Some B754_nan
-  else if eq x DyadicExp.one then Some DyadicExp.one
-  else if eq y infinity || eq y DyadicExp.neg_infinity then
-    Some (if Bool.eqb (gt x DyadicExp.one) (gt y zero) then infinity else zero)
-  else if eq x zero then
-    let r := if lt y zero then infinity else zero in
-    Some (if Bsign x && is_odd_integer y then opp r else r)
-  else if eq x infinity then Some (if gt y zero then x else zero)
-  else
-    let ey := expo y in
-    let s := ey + ln_expo x in
-    let above := Bool.eqb (gt y zero) (gt x DyadicExp.one) in
-    if 10 <=? s then Some (if above then DyadicExp.overflow up else DyadicExp.underflow up)
-    else if s <=? -58 then
-      Some (DyadicExp.near_one (if above then DyadicExp.one else DyadicExp.m_one) up)
-    else
-      let* r := exact x y in
-      match r with
-      | Some v => Some v
-      | None =>
-          ziv (ev_pow x y) up (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
-      end.
-
 (** [fn powi<N>(x: &Encl<N>, n: u32) -> Encl<N>] for [n = Zpos p]: [xH]
     is [n == 1], and [xO q] and [xI q] are the even and the odd [n], with
     [n / 2 = Zpos q]. *)
@@ -2882,6 +2857,42 @@ Definition pown_pos_with (x : f64) (k : Z) (up : bool) : option f64 :=
   if 1024 <=? lo then Some (DyadicExp.overflow up)
   else if hi <=? -1075 then Some (DyadicExp.underflow up)
   else ziv (ev_pown x k) up (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat).
+
+(** [pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64], where
+    [f64::NAN] is [B754_nan], [y.is_infinite()] is [eq y infinity || eq
+    y DyadicExp.neg_infinity], [x.is_sign_negative()] is [Bsign x], as
+    [x] is not NaN there, [a == b] of two [bool]s is [Bool.eqb], the
+    sums of [i64]s are computed without a check, [y as i32] is [to_i32 y],
+    and [f64::from(y as i32)] is [of_i64 (to_i32 y)]. [pown_pos_with],
+    which it calls, comes before it here, and after it in the Rust. *)
+Definition pow_dir_with (x y : f64) (up : bool) : option f64 :=
+  if eq y zero then Some DyadicExp.one
+  else if is_nan x then Some x
+  else if is_nan y then Some (if eq x DyadicExp.one then DyadicExp.one else y)
+  else if lt x zero then Some B754_nan
+  else if eq x DyadicExp.one then Some DyadicExp.one
+  else if eq y infinity || eq y DyadicExp.neg_infinity then
+    Some (if Bool.eqb (gt x DyadicExp.one) (gt y zero) then infinity else zero)
+  else if eq x zero then
+    let r := if lt y zero then infinity else zero in
+    Some (if Bsign x && is_odd_integer y then opp r else r)
+  else if eq x infinity then Some (if gt y zero then x else zero)
+  else
+    let ey := expo y in
+    let s := ey + ln_expo x in
+    let above := Bool.eqb (gt y zero) (gt x DyadicExp.one) in
+    if 10 <=? s then Some (if above then DyadicExp.overflow up else DyadicExp.underflow up)
+    else if s <=? -58 then
+      Some (DyadicExp.near_one (if above then DyadicExp.one else DyadicExp.m_one) up)
+    else
+      let* r := exact x y in
+      match r with
+      | Some v => Some v
+      | None =>
+          if eq (of_i64 (to_i32 y)) y then pown_pos_with x (to_i32 y) up
+          else
+            ziv (ev_pow x y) up (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
+      end.
 
 (** [pub(crate) fn pown(x: f64, n: i32, up: bool) -> f64] for [k = n],
     where [n % 2] is [Z.rem], [x.is_infinite()] is as in [pow_dir], and
