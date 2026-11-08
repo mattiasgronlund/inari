@@ -3508,7 +3508,6 @@ fn minimal_fma_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_pown_test() {
     assert_eq2!(I::EMPTY.powi(0), I::EMPTY);
@@ -3889,7 +3888,6 @@ fn minimal_pown_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_pown_dec_test() {
     assert_eq2!(nd2di(-5.0, 10.0, D::Com).powi(0), nd2di(1.0, 1.0, D::Com));
@@ -3932,7 +3930,6 @@ fn minimal_pown_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_pow_test() {
     assert_eq2!(I::EMPTY.pow(I::EMPTY), I::EMPTY);
@@ -7249,7 +7246,6 @@ fn minimal_pow_test() {
     assert_eq2!(n2i(-1.0, -0.1).pow(n2i(-2.5, -2.5)), I::EMPTY);
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_pow_dec_test() {
     assert_eq2!(
@@ -7590,7 +7586,6 @@ fn minimal_pow_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_exp_test() {
     assert_eq2!(I::EMPTY.exp(), I::EMPTY);
@@ -7653,7 +7648,6 @@ fn minimal_exp_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_exp_dec_test() {
     assert_eq2!(
@@ -7666,7 +7660,6 @@ fn minimal_exp_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_exp2_test() {
     assert_eq2!(I::EMPTY.exp2(), I::EMPTY);
@@ -7707,7 +7700,6 @@ fn minimal_exp2_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_exp2_dec_test() {
     assert_eq2!(
@@ -7720,7 +7712,6 @@ fn minimal_exp2_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_exp10_test() {
     assert_eq2!(I::EMPTY.exp10(), I::EMPTY);
@@ -7771,7 +7762,6 @@ fn minimal_exp10_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_exp10_dec_test() {
     assert_eq2!(
@@ -7784,7 +7774,6 @@ fn minimal_exp10_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_log_test() {
     assert_eq2!(I::EMPTY.ln(), I::EMPTY);
@@ -7843,7 +7832,6 @@ fn minimal_log_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_log_dec_test() {
     assert_eq2!(
@@ -7860,7 +7848,6 @@ fn minimal_log_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_log2_test() {
     assert_eq2!(I::EMPTY.log2(), I::EMPTY);
@@ -7902,7 +7889,6 @@ fn minimal_log2_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_log2_dec_test() {
     assert_eq2!(
@@ -7920,7 +7906,6 @@ fn minimal_log2_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_log10_test() {
     assert_eq2!(I::EMPTY.log10(), I::EMPTY);
@@ -7963,7 +7948,6 @@ fn minimal_log10_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_log10_dec_test() {
     assert_eq2!(
@@ -7976,7 +7960,6 @@ fn minimal_log10_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_sin_test() {
     assert_eq2!(I::EMPTY.sin(), I::EMPTY);
@@ -8126,7 +8109,6 @@ fn minimal_sin_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_sin_dec_test() {
     assert_eq2!(
@@ -8143,7 +8125,6 @@ fn minimal_sin_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_cos_test() {
     assert_eq2!(I::EMPTY.cos(), I::EMPTY);
@@ -8302,7 +8283,6 @@ fn minimal_cos_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_cos_dec_test() {
     assert_eq2!(
@@ -8319,7 +8299,6 @@ fn minimal_cos_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_tan_test() {
     assert_eq2!(I::EMPTY.tan(), I::EMPTY);
@@ -8408,7 +8387,6 @@ fn minimal_tan_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_tan_dec_test() {
     assert_eq2!(DI::EMPTY.tan(), DI::EMPTY);
@@ -8536,7 +8514,6 @@ fn minimal_tan_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_asin_test() {
     assert_eq2!(I::EMPTY.asin(), I::EMPTY);
@@ -8595,7 +8572,6 @@ fn minimal_asin_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_asin_dec_test() {
     assert_eq2!(
@@ -8620,7 +8596,6 @@ fn minimal_asin_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_acos_test() {
     assert_eq2!(I::EMPTY.acos(), I::EMPTY);
@@ -8673,7 +8648,6 @@ fn minimal_acos_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_acos_dec_test() {
     assert_eq2!(
@@ -8698,7 +8672,6 @@ fn minimal_acos_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_atan_test() {
     assert_eq2!(I::EMPTY.atan(), I::EMPTY);
@@ -8731,7 +8704,6 @@ fn minimal_atan_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_atan_dec_test() {
     assert_eq2!(
@@ -8756,7 +8728,6 @@ fn minimal_atan_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_atan2_test() {
     assert_eq2!(I::EMPTY.atan2(I::EMPTY), I::EMPTY);
@@ -9269,7 +9240,6 @@ fn minimal_atan2_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_atan2_dec_test() {
     assert_eq2!(DI::EMPTY.atan2(DI::EMPTY), DI::EMPTY);
@@ -9885,7 +9855,6 @@ fn minimal_atan2_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_sinh_test() {
     assert_eq2!(I::EMPTY.sinh(), I::EMPTY);
@@ -9916,7 +9885,6 @@ fn minimal_sinh_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_sinh_dec_test() {
     assert_eq2!(
@@ -9941,7 +9909,6 @@ fn minimal_sinh_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_cosh_test() {
     assert_eq2!(I::EMPTY.cosh(), I::EMPTY);
@@ -9963,7 +9930,6 @@ fn minimal_cosh_test() {
     assert_eq2!(n2i(-1.1, 2.3).cosh(), n2i(1.0, 5.037220649268762));
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_cosh_dec_test() {
     assert_eq2!(
@@ -9988,7 +9954,6 @@ fn minimal_cosh_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_tanh_test() {
     assert_eq2!(I::EMPTY.tanh(), I::EMPTY);
@@ -10010,7 +9975,6 @@ fn minimal_tanh_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_tanh_dec_test() {
     assert_eq2!(
@@ -10035,7 +9999,6 @@ fn minimal_tanh_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_asinh_test() {
     assert_eq2!(I::EMPTY.asinh(), I::EMPTY);
@@ -10066,7 +10029,6 @@ fn minimal_asinh_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_asinh_dec_test() {
     assert_eq2!(
@@ -10091,7 +10053,6 @@ fn minimal_asinh_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_acosh_test() {
     assert_eq2!(I::EMPTY.acosh(), I::EMPTY);
@@ -10113,7 +10074,6 @@ fn minimal_acosh_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_acosh_dec_test() {
     assert_eq2!(
@@ -10144,7 +10104,6 @@ fn minimal_acosh_dec_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_atanh_test() {
     assert_eq2!(I::EMPTY.atanh(), I::EMPTY);
@@ -10176,7 +10135,6 @@ fn minimal_atanh_test() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_atanh_dec_test() {
     assert_eq2!(

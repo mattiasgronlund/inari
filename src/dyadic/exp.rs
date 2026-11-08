@@ -1,6 +1,9 @@
 // The exponentials e^x, 2^x and 10^x and the hyperbolic functions sinh, cosh and tanh with the
-// dyadic kernel, each rounded to an `f64` toward +∞ if `up` and toward -∞ otherwise, as
-// `exp_rd`, `exp_ru` and the others of `src/mpfr_calls/mpfr.rs` round them with MPFR.
+// dyadic kernel, each rounded to an `f64` toward +∞ if `up` and toward -∞ otherwise, as MPFR
+// rounds them (`src/dyadic.rs` says what `ziv` returns at its cap). `src/mpfr_calls/kernel.rs`
+// makes them the `exp_rd`, `exp_ru` and the others that `src/elementary.rs` calls, and the
+// tests on 64-bit Linux and macOS compare them with those of the MPFR backend,
+// `src/mpfr_calls/mpfr.rs`.
 //
 // Each function first settles some arguments by rules: NaN and ±∞, the arguments beyond a
 // threshold past which the results overflow or are below 2^-1075 in magnitude, those whose

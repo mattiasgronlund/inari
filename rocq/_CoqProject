@@ -154,7 +154,6 @@ theories/ValidSetOp.v
 theories/ValidOps.v
 theories/ValidDecOps.v
 theories/ValidElem.v
-theories/Valid.v
 theories/MpfrIdeal.v
 theories/IdealRound.v
 theories/IdealGetD.v
@@ -169,7 +168,8 @@ theories/OfPointElem.v
 theories/OfPointPow.v
 theories/MpfrPoint.v
 theories/PointTheorems.v
-theories/MpfrExamples.v
+theories/PointDec.v
+theories/PointValid.v
 theories/DyGrow.v
 theories/AtanhSeries.v
 theories/DyConst.v
@@ -208,3 +208,6 @@ theories/DyPowCore.v
 theories/DyPown.v
 theories/DyPow.v
 theories/DyPoint.v
+theories/DyPointDec.v
+theories/Valid.v
+theories/MpfrExamples.v

@@ -222,3 +222,24 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --all-targets --target x86_64-unknown-linux-gnu
+
+  # Windows, with the MSVC toolchain. Cargo.toml gives the dev-dependencies on
+  # `rug` and `gmp-mpfr-sys` only for 64-bit Linux and macOS, and the tests that
+  # compare with MPFR are compiled under the same `cfg`, so this job builds no
+  # GMP or MPFR, and runs the other tests.
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          profile: minimal
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --release

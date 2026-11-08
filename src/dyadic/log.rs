@@ -1,7 +1,9 @@
 // The logarithms ln x, log2 x and log10 x and the inverse hyperbolic functions asinh, acosh and
 // atanh with the dyadic kernel, each rounded to an `f64` toward +∞ if `up` and toward -∞
-// otherwise, as `ln_rd`, `ln_ru` and the others of `src/mpfr_calls/mpfr.rs` round them with
-// MPFR.
+// otherwise, as MPFR rounds them (`src/dyadic.rs` says what `ziv` returns at its cap).
+// `src/mpfr_calls/kernel.rs` makes them the `ln_rd`, `ln_ru` and the others that
+// `src/elementary.rs` calls, and the tests on 64-bit Linux and macOS compare them with those
+// of the MPFR backend, `src/mpfr_calls/mpfr.rs`.
 //
 // Each function first settles some arguments by rules: NaN, ±∞, the arguments outside its
 // domain, the zeros of ln, log2 and log10 and the ±1 of atanh, whose results are infinite, the

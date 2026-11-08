@@ -225,8 +225,60 @@ impl Eq for Rat {}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::Interval;
+
+    // Whether the interval literal `s` is accepted.
+    pub(super) fn accepted(s: &str) -> bool {
+        s.parse::<Interval>().is_ok()
+    }
+
+    #[test]
+    fn literal_verdicts() {
+        // 10^-999999999 against 2 * 10^-999999999, which need no power of 5.
+        assert!(!accepted("[2e-999999999, 1e-999999999]"));
+        assert!(accepted("[1e-999999999, 2e-999999999]"));
+        assert!(accepted("[10e-999999999, 1e-999999998]"));
+        assert!(accepted("[1e-999999998, 10e-999999999]"));
+        assert!(!accepted(
+            "[10000000000000000000001e-999999999, 1e-999999977]"
+        ));
+        assert!(accepted("[1e600000000, 1e600000000]"));
+        assert!(accepted("[1e-600000000, 1e600000000]"));
+        assert!(!accepted("[1e600000000, 1e-600000000]"));
+        // 10^-600000000 is about 2^-1993156856.93.
+        assert!(!accepted("[1e-600000000, 0x1p-1993156913]"));
+        assert!(accepted("[0x1p-1993156913, 1e-600000000]"));
+        assert!(!accepted("[1e-600000000, 0x1p-1993156857]"));
+        assert!(accepted("[0x1p-1993156857, 1e-600000000]"));
+        assert!(accepted("[1e-600000000, 0x1p-1993156856]"));
+        assert!(!accepted("[0x1p-1993156856, 1e-600000000]"));
+        assert!(accepted("[-1e-600000000, -0x1p-1993156857]"));
+        assert!(!accepted("[-0x1p-1993156857, -1e-600000000]"));
+        // 5^20 * 10^-20 = 2^-20.
+        assert!(accepted("[0x1p-20, 95367431640625e-20]"));
+        assert!(accepted("[95367431640625e-20, 0x1p-20]"));
+        assert!(!accepted("[95367431640626e-20, 0x1p-20]"));
+        assert!(accepted("[1e-2147483648, 0x1p-2147483648]"));
+        assert!(!accepted("[0x1p-2147483648, 1e-2147483648]"));
+        assert!(accepted("[0x1p2147483647, 1e2147483647]"));
+        assert!(!accepted("[1e2147483647, 0x1p2147483647]"));
+        assert!(accepted("[3333333333333333e-16, 1/3]"));
+        assert!(!accepted("[1/3, 3333333333333333e-16]"));
+        assert!(accepted("[1/3, 0x0.55555555555555555556p0]"));
+        assert!(!accepted("[1/3, 0x0.55555555555555555555p0]"));
+        assert!(!accepted("[1/3, 1e-999999999]"));
+    }
+}
+
+// The tests that compare with MPFR, a dev-dependency only on 64-bit Linux and macOS.
+#[cfg(all(
+    test,
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
+mod mpfr_tests {
+    use super::tests::accepted;
+    use super::*;
     use gmp_mpfr_sys::mpfr;
     use rug::{
         float::Round,
@@ -389,11 +441,6 @@ mod tests {
             assert_eq!(a.cmp(&b), w, "{} {:?} {} {:?}", sx, x, sy, y);
             assert_eq!(a == b, w == Equal);
         }
-    }
-
-    // Whether the interval literal `s` is accepted.
-    fn accepted(s: &str) -> bool {
-        s.parse::<Interval>().is_ok()
     }
 
     #[test]
@@ -661,42 +708,5 @@ mod tests {
             let neg = |s: &str| format!("-{}", s);
             assert_eq!(accepted(&lit(&neg(&d), &neg(&h))), want != Greater);
         }
-    }
-
-    #[test]
-    fn literal_verdicts() {
-        // 10^-999999999 against 2 * 10^-999999999, which need no power of 5.
-        assert!(!accepted("[2e-999999999, 1e-999999999]"));
-        assert!(accepted("[1e-999999999, 2e-999999999]"));
-        assert!(accepted("[10e-999999999, 1e-999999998]"));
-        assert!(accepted("[1e-999999998, 10e-999999999]"));
-        assert!(!accepted(
-            "[10000000000000000000001e-999999999, 1e-999999977]"
-        ));
-        assert!(accepted("[1e600000000, 1e600000000]"));
-        assert!(accepted("[1e-600000000, 1e600000000]"));
-        assert!(!accepted("[1e600000000, 1e-600000000]"));
-        // 10^-600000000 is about 2^-1993156856.93.
-        assert!(!accepted("[1e-600000000, 0x1p-1993156913]"));
-        assert!(accepted("[0x1p-1993156913, 1e-600000000]"));
-        assert!(!accepted("[1e-600000000, 0x1p-1993156857]"));
-        assert!(accepted("[0x1p-1993156857, 1e-600000000]"));
-        assert!(accepted("[1e-600000000, 0x1p-1993156856]"));
-        assert!(!accepted("[0x1p-1993156856, 1e-600000000]"));
-        assert!(accepted("[-1e-600000000, -0x1p-1993156857]"));
-        assert!(!accepted("[-0x1p-1993156857, -1e-600000000]"));
-        // 5^20 * 10^-20 = 2^-20.
-        assert!(accepted("[0x1p-20, 95367431640625e-20]"));
-        assert!(accepted("[95367431640625e-20, 0x1p-20]"));
-        assert!(!accepted("[95367431640626e-20, 0x1p-20]"));
-        assert!(accepted("[1e-2147483648, 0x1p-2147483648]"));
-        assert!(!accepted("[0x1p-2147483648, 1e-2147483648]"));
-        assert!(accepted("[0x1p2147483647, 1e2147483647]"));
-        assert!(!accepted("[1e2147483647, 0x1p2147483647]"));
-        assert!(accepted("[3333333333333333e-16, 1/3]"));
-        assert!(!accepted("[1/3, 3333333333333333e-16]"));
-        assert!(accepted("[1/3, 0x0.55555555555555555556p0]"));
-        assert!(!accepted("[1/3, 0x0.55555555555555555555p0]"));
-        assert!(!accepted("[1/3, 1e-999999999]"));
     }
 }

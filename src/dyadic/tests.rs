@@ -1,7 +1,8 @@
-// Tests of the dyadic kernel. With `gmp`, each operation is compared with MPFR through `rug` at
-// the same precision, where it has to give the same number, and Ziv's strategy with MPFR's
-// rounding of the same real number to an `f64`. Without it, the tests check identities that
-// hold exactly, and roundings to `f64` that are known.
+// Tests of the dyadic kernel. On 64-bit Linux and macOS, where the tests have MPFR, each
+// operation is compared with MPFR through `rug` at the same precision, where it has to give the
+// same number, and Ziv's strategy with MPFR's rounding of the same real number to an `f64`. On
+// every platform, the tests check identities that hold exactly, and roundings to `f64` that are
+// known.
 
 use super::*;
 
@@ -201,7 +202,10 @@ fn check_ziv<E: Eval>(f: &E, up: bool, want: f64) -> Vec<usize> {
     levels
 }
 
-#[cfg(feature = "gmp")]
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 mod mpfr {
     use super::*;
     use rug::{float::Round, integer::Order, Float, Integer};
@@ -672,7 +676,7 @@ mod mpfr {
     }
 }
 
-// Exact identities, which the tests without `gmp` check.
+// Exact identities, which the tests check on every platform.
 fn identities<const N: usize>(rng: &mut Rng) {
     for _ in 0..n_cases::<N>() {
         let (a, b) = (rng.dyadic::<N>(300), rng.dyadic::<N>(300));

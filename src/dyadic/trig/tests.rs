@@ -1,9 +1,10 @@
-// Tests of the trigonometric functions of the dyadic kernel. Every generator runs in both
-// feature sets through `check`, which checks that the two directions give the same `f64` or two
-// adjacent ones, or NaN for both. With `gmp`, it also compares both directions with the
-// function of `src/mpfr_calls/mpfr.rs` that computes the same function with MPFR, which they
-// have to agree with bit for bit. The generator of the `f64`s nearest to multiples of π/2
-// needs π to more bits than an `f64` has, so it runs only with `gmp`.
+// Tests of the trigonometric functions of the dyadic kernel. Every generator runs on every
+// platform through `check`, which checks that the two directions give the same `f64` or two
+// adjacent ones, or NaN for both. On 64-bit Linux and macOS, where the tests have MPFR, it also
+// compares both directions with the function of `src/mpfr_calls/mpfr.rs` that computes the
+// same function with MPFR, which they have to agree with bit for bit. The generator of the
+// `f64`s nearest to multiples of π/2 needs π to more bits than an `f64` has, so it runs only
+// where the tests have MPFR.
 
 use super::*;
 use crate::dyadic::tests::Rng;
@@ -92,7 +93,10 @@ fn check(i: usize, x: f64) {
     let (name, f) = FUNCTIONS[i];
     let (lo, hi) = (f(x, false), f(x, true));
     check_pair(name, x, lo, hi);
-    #[cfg(feature = "gmp")]
+    #[cfg(all(
+        target_pointer_width = "64",
+        any(target_os = "linux", target_os = "macos")
+    ))]
     mpfr::check(i, x, lo, hi);
 }
 
@@ -572,10 +576,13 @@ fn random_arguments() {
     }
 }
 
-#[cfg(feature = "gmp")]
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 mod mpfr {
     use super::*;
-    use crate::mpfr_calls::*;
+    use crate::mpfr_calls::mpfr::*;
 
     type Mpfr = fn(f64) -> f64;
 

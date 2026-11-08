@@ -36,24 +36,15 @@ mod boolean;
 mod bytes;
 mod classify;
 mod constants;
-// Only the tests use the dyadic kernel, until the elementary functions are computed with it
-// without GMP.
-#[cfg(test)]
 mod dyadic;
-#[cfg(feature = "gmp")]
 mod elementary;
-#[cfg(feature = "gmp")]
 mod format;
 mod integer;
-#[cfg(any(feature = "gmp", test))]
 mod limbs;
-#[cfg(feature = "gmp")]
 mod mpfr_calls;
-#[cfg(feature = "gmp")]
 mod nat;
 mod numeric;
 mod overlap;
-#[cfg(feature = "gmp")]
 mod parse;
 mod set_op;
 mod simd;

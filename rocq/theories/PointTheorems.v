@@ -7,8 +7,9 @@
     [sin_correct], [cos_correct], [tan_correct], [pow_correct] and
     [powi_correct] stated for every
     record [p] whose fields satisfy the parts of [Contract.v] that they
-    need, through [of_point p] ([OfPoint.v]). No other theorem is
-    restated this way.
+    need, through [of_point p] ([OfPoint.v]). [PointDec.v] and
+    [PointValid.v] restate the theorems about the decorated elementary
+    functions and those of [ValidElem.v] the same way.
     [DyPoint.v] applies them to the dyadic kernel's functions. Another
     theorem about the elementary functions would carry over the same way
     if its only hypotheses on [m] are [get_d_ok] and hypotheses [<f>_ok]

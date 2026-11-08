@@ -1,6 +1,8 @@
 // The trigonometric functions sin, cos and tan with the dyadic kernel, each rounded to an `f64`
-// toward +∞ if `up` and toward -∞ otherwise, as `sin_rd`, `sin_ru` and the others of
-// `src/mpfr_calls/mpfr.rs` round them with MPFR.
+// toward +∞ if `up` and toward -∞ otherwise, as MPFR rounds them (`src/dyadic.rs` says what
+// `ziv` returns at its cap). `src/mpfr_calls/kernel.rs` makes them the `sin_rd`, `sin_ru` and
+// the others that `src/elementary.rs` calls, and the tests on 64-bit Linux and macOS compare
+// them with those of the MPFR backend, `src/mpfr_calls/mpfr.rs`.
 //
 // Each function first settles some arguments by rules: NaN and ±∞, at which it is NaN, the
 // arguments of magnitude below 2^-26, whose results are within an ulp of x for sin and tan and

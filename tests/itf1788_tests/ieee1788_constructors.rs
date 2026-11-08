@@ -27,7 +27,6 @@ fn ieee1788_a() {
 }
 
 // Examples from Sections 9.7.1 and 9.8
-#[cfg(feature = "gmp")]
 #[test]
 fn ieee1788_b() {
     assert_eq2!(t2i("[1.2345]"), n2i(1.2345, 1.2345000000000002));
@@ -37,7 +36,6 @@ fn ieee1788_b() {
 }
 
 // Examples from Table 9.4
-#[cfg(feature = "gmp")]
 #[test]
 fn ieee1788_c() {
     assert_eq2!(t2i("[1.e-3, 1.1e-3]"), n2i(0.0009999999999999998, 0.0011));
@@ -54,7 +52,6 @@ fn ieee1788_c() {
 }
 
 // Examples from Section 10.5.1
-#[cfg(feature = "gmp")]
 #[test]
 fn ieee1788_d() {
     assert_eq2!(t2i("[1.234e5,Inf]"), n2i(123400.0, f64::INFINITY));
@@ -69,7 +66,6 @@ fn ieee1788_e() {
 }
 
 // Examples from Table 12.1
-#[cfg(feature = "gmp")]
 #[test]
 fn ieee1788_e2() {
     assert_eq2!(t2di("[ ]"), DI::EMPTY);
@@ -111,7 +107,6 @@ fn ieee1788_e2() {
 }
 
 // Examples from Section 12.11.3
-#[cfg(feature = "gmp")]
 #[test]
 fn ieee1788_f() {
     assert_eq2!(t2i("[]"), I::EMPTY);

@@ -4,7 +4,7 @@
 // `check_pown` of `tests.rs`.
 //
 // Where a bound on a result gives its roundings, the tests also assert them with
-// `check_rounding`, so that they check results in both feature sets, not only against MPFR.
+// `check_rounding`, so that they check results on every platform, not only against MPFR.
 
 use super::*;
 use crate::dyadic::ziv_at;
@@ -357,9 +357,9 @@ fn routed(y: f64) -> bool {
     f64::from(y as i32) == y
 }
 
-// x^y for integers y up to the ends of the route and past them: in both feature sets, `pow`
-// gives what `pown` gives wherever the test of the route passes, whether the route, `exact` or
-// a rule settles the arguments, and with `gmp`, what MPFR gives at every y.
+// x^y for integers y up to the ends of the route and past them: on every platform, `pow` gives
+// what `pown` gives wherever the test of the route passes, whether the route, `exact` or a rule
+// settles the arguments, and where the tests have MPFR, what MPFR gives at every y.
 #[test]
 fn integer_route() {
     // The ends of the route pass the test, and the integers next to them outside it fail it,

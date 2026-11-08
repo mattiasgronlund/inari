@@ -20,7 +20,6 @@
 use crate::*;
 use inari::{DecInterval as DI, Decoration as D, Interval as I, Overlap as O};
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_atan2_test() {
     assert_eq2!(I::EMPTY.atan2(I::EMPTY), I::EMPTY);

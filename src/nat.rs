@@ -249,6 +249,59 @@ impl Shl<u64> for &Nat {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic]
+    fn div_by_zero() {
+        Nat::from_u64(1).div_rem(&Nat::from_u64(0));
+    }
+
+    #[test]
+    #[should_panic]
+    fn sub_below_zero() {
+        let _ = &Nat::from_limbs(vec![0, 1]) - &Nat::from_limbs(vec![1, 1]);
+    }
+
+    #[test]
+    fn ord_by_value() {
+        // The derived `Ord` of the limbs would say `[1, 2] < [2, 1]`.
+        let x = Nat::from_limbs(vec![1, 2]);
+        let y = Nat::from_limbs(vec![2, 1]);
+        assert!(x > y);
+        assert!(Nat::from_limbs(vec![0, 1]) > Nat::from_u64(u64::MAX));
+        assert_eq!(x.cmp(&x.clone()), Ordering::Equal);
+    }
+
+    #[test]
+    fn low_u128() {
+        for (v, x) in [
+            (vec![], 0),
+            (vec![7], 7),
+            (vec![1, 2], 2 << 64 | 1),
+            (vec![u64::MAX, u64::MAX, 3], u128::MAX),
+        ] {
+            assert_eq!(Nat::from_limbs(v).low_u128(), x);
+        }
+    }
+
+    #[test]
+    fn divisor_longer_than_dividend() {
+        let x = Nat::from_limbs(vec![u64::MAX; 3]);
+        let y = Nat::from_limbs(vec![0, 0, 0, 1]);
+        let (q, r) = x.div_rem(&y);
+        assert!(q.is_zero());
+        assert_eq!(r, x);
+    }
+}
+
+// The tests that compare with `rug`, a dev-dependency only on 64-bit Linux and macOS.
+#[cfg(all(
+    test,
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
+mod rug_tests {
+    use super::*;
     use rug::{integer::Order, Integer};
 
     struct Rng(u64);
@@ -443,28 +496,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn div_by_zero() {
-        Nat::from_u64(1).div_rem(&Nat::from_u64(0));
-    }
-
-    #[test]
-    #[should_panic]
-    fn sub_below_zero() {
-        let _ = &Nat::from_limbs(vec![0, 1]) - &Nat::from_limbs(vec![1, 1]);
-    }
-
-    #[test]
-    fn ord_by_value() {
-        // The derived `Ord` of the limbs would say `[1, 2] < [2, 1]`.
-        let x = Nat::from_limbs(vec![1, 2]);
-        let y = Nat::from_limbs(vec![2, 1]);
-        assert!(x > y);
-        assert!(Nat::from_limbs(vec![0, 1]) > Nat::from_u64(u64::MAX));
-        assert_eq!(x.cmp(&x.clone()), Ordering::Equal);
-    }
-
-    #[test]
     fn bits_of_powers_of_two() {
         let one = Nat::from_u64(1);
         for k in 0..300 {
@@ -472,18 +503,6 @@ mod tests {
             assert_eq!(p.bits(), k + 1);
             assert_eq!((&p - &one).bits(), k);
             check(&p, &(Integer::from(1) << k as u32));
-        }
-    }
-
-    #[test]
-    fn low_u128() {
-        for (v, x) in [
-            (vec![], 0),
-            (vec![7], 7),
-            (vec![1, 2], 2 << 64 | 1),
-            (vec![u64::MAX, u64::MAX, 3], u128::MAX),
-        ] {
-            assert_eq!(Nat::from_limbs(v).low_u128(), x);
         }
     }
 
@@ -711,15 +730,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn divisor_longer_than_dividend() {
-        let x = Nat::from_limbs(vec![u64::MAX; 3]);
-        let y = Nat::from_limbs(vec![0, 0, 0, 1]);
-        let (q, r) = x.div_rem(&y);
-        assert!(q.is_zero());
-        assert_eq!(r, x);
     }
 
     #[test]

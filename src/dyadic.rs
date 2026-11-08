@@ -1,6 +1,7 @@
 // Dyadic numbers of a fixed precision, enclosures of real numbers by them, and Ziv's strategy
 // for rounding a real number to an `f64` from enclosures of increasing precision: the
-// multi-precision kernel that the elementary functions will be computed with, without GMP.
+// multi-precision kernel that the elementary functions compute their bounds with, through
+// `src/mpfr_calls/kernel.rs`.
 //
 // A `Dyadic<N>` is `(-1)^neg * m * 2^exp` for a mantissa `m` of `N` 64-bit limbs, the least
 // significant first, at the precision p = 64 N bits. It is normalized: 0 is `m = 0` with
@@ -18,7 +19,9 @@
 // `rocq/theories/DyRound.v`).
 //
 // `rocq/theories/Model.v` transcribes each function of this file except `with_buf` and the
-// tests, so it has to be updated along with them. `rocq/theories/DyRound.v`,
+// tests, so it has to be updated along with them. Nor does it transcribe the record of the
+// levels that `ziv` uses (`ZIV_LEVEL`) or the statements of `ziv` that set it: only the tests
+// compile them, and they change no result. `rocq/theories/DyRound.v`,
 // `rocq/theories/DyConv.v`, `rocq/theories/DyIsqrt.v`, `rocq/theories/DyOps.v` and
 // `rocq/theories/DyDriver.v` prove them correct, and `rocq/theories/DyGrow.v` bounds the
 // exponents of the enclosures that they return. `ziv` does not panic at its cap of 64 limbs:
@@ -46,6 +49,15 @@ mod pow;
 #[cfg(test)]
 mod tests;
 mod trig;
+
+// The functions that `src/mpfr_calls/kernel.rs` calls.
+pub(crate) use self::{
+    atan::{acos, asin, atan, atan2},
+    exp::{cosh, exp, exp10, exp2, sinh, tanh},
+    log::{acosh, asinh, atanh, ln, log10, log2},
+    pow::{pow, pown},
+    trig::{cos, sin, tan},
+};
 
 /// `(-1)^neg * m * 2^exp`, normalized as the header says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -593,6 +605,59 @@ fn ziv_cap<E: Eval>(f: &E, up: bool) -> f64 {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    // The levels that `ziv` has used on this thread since `reset_ziv_level`, as `ziv_level`
+    // gives them.
+    static ZIV_LEVEL: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+// `reset_ziv_level` and `ziv_level` have the `cfg` of `src/mpfr_calls/tests.rs`, their only
+// caller, so that they are not dead code in the tests of the other platforms.
+
+/// Forgets the levels that `ziv` has used on this thread, so that `ziv_level` is `(0, 0)` until
+/// `ziv` is called again.
+#[cfg(all(
+    test,
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
+pub(crate) fn reset_ziv_level() {
+    ZIV_LEVEL.with(|l| l.set((0, 0)));
+}
+
+/// The levels that `ziv` has used on this thread since `reset_ziv_level`: `(level, failed)`,
+/// where `level` is the highest level, in limbs, at which it returned, and `failed` the number
+/// of its rounding tests at 1 to 32 limbs that failed. `level` is 1, 2, 4, 8, 16 or 32 where the
+/// test at that many limbs passed, 64 where `ziv` called `ziv_cap`, whether the test of
+/// `ziv_cap` passed or not, and 0 if `ziv` has not returned.
+#[cfg(all(
+    test,
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
+pub(crate) fn ziv_level() -> (usize, usize) {
+    ZIV_LEVEL.with(|l| l.get())
+}
+
+// Records that `ziv` returns at `n` limbs.
+#[cfg(test)]
+fn record_ziv_level(n: usize) {
+    ZIV_LEVEL.with(|l| {
+        let (level, failed) = l.get();
+        l.set((level.max(n), failed));
+    });
+}
+
+// Records that a rounding test of `ziv` failed.
+#[cfg(test)]
+fn record_ziv_failure() {
+    ZIV_LEVEL.with(|l| {
+        let (level, failed) = l.get();
+        l.set((level, failed + 1));
+    });
+}
+
 /// The number that `f` encloses rounded toward +∞ if `up` and toward -∞ otherwise to an `f64`,
 /// by Ziv's strategy: the rounding test at each of 1, 2, 4, 8, 16 and 32 limbs that is at least
 /// `start`, in that order, until it passes, and then `ziv_cap` at 64 limbs, whatever `start`
@@ -600,17 +665,24 @@ fn ziv_cap<E: Eval>(f: &E, up: bool) -> f64 {
 /// rounding of the enclosure at 64 limbs, which is on the correct side of the number but not
 /// known to be its correct rounding.
 pub(crate) fn ziv<E: Eval>(f: &E, up: bool, start: usize) -> f64 {
+    // The tests also record the levels that it uses, for `ziv_level`.
     macro_rules! try_levels {
         ($($n:literal),*) => {
             $(
                 if start <= $n {
                     if let Some(x) = ziv_at::<$n, E>(f, up) {
+                        #[cfg(test)]
+                        record_ziv_level($n);
                         return x;
                     }
+                    #[cfg(test)]
+                    record_ziv_failure();
                 }
             )*
         };
     }
     try_levels!(1, 2, 4, 8, 16, 32);
+    #[cfg(test)]
+    record_ziv_level(64);
     ziv_cap(f, up)
 }

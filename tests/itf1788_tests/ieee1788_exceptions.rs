@@ -20,7 +20,6 @@
 use crate::*;
 use inari::{DecInterval as DI, Decoration as D, Interval as I, Overlap as O};
 
-#[cfg(feature = "gmp")]
 #[test]
 fn exceptions() {
     assert_eq2!(t2i("[+infinity]"), I::EMPTY);

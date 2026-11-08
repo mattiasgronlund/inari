@@ -1,8 +1,8 @@
 // Tests of the logarithms and inverse hyperbolic functions of the dyadic kernel. Every generator
-// runs in both feature sets through `check`, which checks that the two directions give the same
-// `f64` or two adjacent ones, or NaN for both. With `gmp`, `check` also compares both
-// directions with the function of `src/mpfr_calls/mpfr.rs` that computes the same function
-// with MPFR, which they have to agree with bit for bit.
+// runs on every platform through `check`, which checks that the two directions give the same
+// `f64` or two adjacent ones, or NaN for both. On 64-bit Linux and macOS, where the tests have
+// MPFR, `check` also compares both directions with the function of `src/mpfr_calls/mpfr.rs`
+// that computes the same function with MPFR, which they have to agree with bit for bit.
 
 use super::*;
 use crate::dyadic::tests::Rng;
@@ -75,7 +75,10 @@ fn check(i: usize, x: f64) {
             hi
         );
     }
-    #[cfg(feature = "gmp")]
+    #[cfg(all(
+        target_pointer_width = "64",
+        any(target_os = "linux", target_os = "macos")
+    ))]
     mpfr::check(i, x, lo, hi);
 }
 
@@ -487,10 +490,13 @@ fn random_arguments() {
     }
 }
 
-#[cfg(feature = "gmp")]
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 mod mpfr {
     use super::*;
-    use crate::mpfr_calls::*;
+    use crate::mpfr_calls::mpfr::*;
 
     type Mpfr = fn(f64) -> f64;
 

@@ -216,7 +216,6 @@ fn fi_lib_divii() {
     assert_eq2!(n2i(0.0, 3.0) / n2i(2.0, 3.0), n2i(0.0, 1.5));
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn fi_lib_unary_functions_gmp() {
     assert_eq2!(

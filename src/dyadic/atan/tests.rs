@@ -1,8 +1,8 @@
-// Tests of the inverse trigonometric functions of the dyadic kernel. Every generator runs in
-// both feature sets through `check` and `check2`, which check that the two directions give the
-// same `f64` or two adjacent ones, or NaN for both. With `gmp`, they also compare both
-// directions with the function of `src/mpfr_calls/mpfr.rs` that computes the same function
-// with MPFR, which they have to agree with bit for bit.
+// Tests of the inverse trigonometric functions of the dyadic kernel. Every generator runs on
+// every platform through `check` and `check2`, which check that the two directions give the
+// same `f64` or two adjacent ones, or NaN for both. On 64-bit Linux and macOS, where the tests
+// have MPFR, they also compare both directions with the function of `src/mpfr_calls/mpfr.rs`
+// that computes the same function with MPFR, which they have to agree with bit for bit.
 
 use super::*;
 use crate::dyadic::tests::Rng;
@@ -95,7 +95,10 @@ fn check(i: usize, x: f64) {
     let (name, f) = FUNCTIONS[i];
     let (lo, hi) = (f(x, false), f(x, true));
     check_pair(name, &format!("{:e}", x), lo, hi);
-    #[cfg(feature = "gmp")]
+    #[cfg(all(
+        target_pointer_width = "64",
+        any(target_os = "linux", target_os = "macos")
+    ))]
     mpfr::check(i, x, lo, hi);
 }
 
@@ -103,7 +106,10 @@ fn check(i: usize, x: f64) {
 fn check2(y: f64, x: f64) {
     let (lo, hi) = (atan2(y, x, false), atan2(y, x, true));
     check_pair("atan2", &format!("{:e}, {:e}", y, x), lo, hi);
-    #[cfg(feature = "gmp")]
+    #[cfg(all(
+        target_pointer_width = "64",
+        any(target_os = "linux", target_os = "macos")
+    ))]
     mpfr::check2(y, x, lo, hi);
 }
 
@@ -641,10 +647,13 @@ fn random_arguments() {
     }
 }
 
-#[cfg(feature = "gmp")]
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 mod mpfr {
     use super::*;
-    use crate::{dyadic::consts::PI, mpfr_calls::*};
+    use crate::{dyadic::consts::PI, mpfr_calls::mpfr::*};
 
     type Mpfr = fn(f64) -> f64;
 

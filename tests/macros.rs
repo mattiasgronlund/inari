@@ -33,9 +33,8 @@ fn macros() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
-fn macros_gmp() {
+fn macros_strings() {
     assert_eq!(
         inari::interval!("[1.0, 2.0]").unwrap(),
         inari::const_interval!(1.0, 2.0)

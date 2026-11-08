@@ -1,6 +1,8 @@
 // The inverse trigonometric functions atan, asin, acos and atan2 with the dyadic kernel, each
-// rounded to an `f64` toward +∞ if `up` and toward -∞ otherwise, as `atan_rd`, `atan_ru` and
-// the others of `src/mpfr_calls/mpfr.rs` round them with MPFR.
+// rounded to an `f64` toward +∞ if `up` and toward -∞ otherwise, as MPFR rounds them
+// (`src/dyadic.rs` says what `ziv` returns at its cap). `src/mpfr_calls/kernel.rs` makes them
+// the `atan_rd`, `atan_ru` and the others that `src/elementary.rs` calls, and the tests on
+// 64-bit Linux and macOS compare them with those of the MPFR backend, `src/mpfr_calls/mpfr.rs`.
 //
 // Each function first settles some arguments by rules: NaN, ±∞, the arguments outside the
 // domains of asin and acos, the arguments of atan and asin of magnitude below 2^-26 and 2^-27,

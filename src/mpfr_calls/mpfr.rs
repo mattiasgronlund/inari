@@ -1,13 +1,11 @@
-// The MPFR backend of `src/mpfr_calls.rs`, which says what calls it.
+// The MPFR backend of `src/mpfr_calls.rs`, which only the tests compile. `src/mpfr_calls.rs`
+// says what calls it.
 
 use gmp_mpfr_sys::mpfr::{
     self,
     rnd_t::{RNDD, RNDU},
 };
-use rug::Float;
-#[cfg(test)]
-use rug::Rational;
-#[cfg(test)]
+use rug::{Float, Rational};
 use std::{ffi::CString, os::raw::c_char};
 
 // Panics unless the linked MPFR is built thread-safe, as the MPFR that `gmp-mpfr-sys` builds
@@ -15,17 +13,18 @@ use std::{ffi::CString, os::raw::c_char};
 // and one that is not keeps its flags and its exponent range global rather than per thread
 // (§4.7 "Memory Handling" of the MPFR manual), and its caches of constants such as π too
 // (`MPFR_CACHE_ATTR` in MPFR's `mpfr-impl.h`). There, two threads that call MPFR at once can
-// write the same flags and the same cache, and in the tests, another thread can change the
-// range that `with_parse_range` sets before it restores it. inari calls this before the MPFR
-// calls of each of its operations: in the `let` arms of `mpfr_fn!`, `mpfr_fn2!` and
-// `mpfr_fn_si!`, all below, so that a program linked with such an MPFR panics on its first
-// operation that calls MPFR, whether or not it runs more than one thread.
-// `with_parse_range` and `fmt_bound_mpfr`, which only the tests compile, call it too.
-// `mpfr::buildopt_tls_p` (§5.12 "Miscellaneous Functions") returns whether MPFR was built
-// thread-safe, which is fixed when MPFR is built, so calling it every time gives the same
-// answer as calling it once. `rocq/theories/Model.v` leaves this function out of `mpfr_fn`,
-// `mpfr_fn2` and `mpfr_fn_si`, as it either panics or does nothing, so a change that makes
-// it do anything else has to be modelled there.
+// write the same flags and the same cache, and another thread, such as another test, can
+// change the range that `with_parse_range` sets before it restores it. The `let` arms of
+// `mpfr_fn!`, `mpfr_fn2!` and `mpfr_fn_si!`, all below, call this before their MPFR call, and
+// `with_parse_range` and `fmt_bound_mpfr` call it too, so that with such an MPFR, a test
+// panics on its first MPFR call through any of them, whether or not it runs more than one
+// thread. `get_d` does not call it, and the MPFR calls that the tests make themselves, not
+// through this file, are not checked. The library calls no MPFR. `mpfr::buildopt_tls_p` (§5.12
+// "Miscellaneous Functions") returns whether MPFR was built thread-safe, which is fixed when
+// MPFR is built, so calling it every time gives the same answer as calling it once.
+// `rocq/theories/Model.v` leaves this function out of `mpfr_fn`, `mpfr_fn2` and `mpfr_fn_si`,
+// as it either panics or does nothing, so a change that makes it do anything else has to be
+// modelled there.
 pub(crate) fn assert_thread_safe() {
     assert!(
         unsafe { mpfr::buildopt_tls_p() } != 0,
@@ -36,7 +35,7 @@ pub(crate) fn assert_thread_safe() {
 
 // `mpfr::get_d` of the MPFR number `x`, rounded in the direction `rnd`. The functions that
 // `mpfr_fn!`, `mpfr_fn2!` and `mpfr_fn_si!` below define convert their results with it, as
-// `round_rational`, which only the tests compile, does, and `mpfr_tests` tests it.
+// `round_rational` does, and `mpfr_tests` tests it.
 // `rocq/theories/Model.v` transcribes it as `mpfr_get_d m rnd` in `mpfr_fn`, `mpfr_fn2` and
 // `mpfr_fn_si`, so it has to be updated along with them.
 // `rocq/theories/Mpfr.v` states what the proofs assume of `mpfr::get_d` (`get_d_ok`). A
@@ -49,16 +48,15 @@ pub(crate) fn get_d(x: &Float, rnd: mpfr::rnd_t) -> f64 {
 
 // `f()` at the exponent range `emin = -1073`, `emax = 1024`, at which `round_rational` below
 // rounds to the numbers that an `f64` holds: it saves MPFR's exponent range, sets it to that
-// one, calls `f` and restores it. Only the tests compile it. `mpfr_tests` calls it too, and
-// `round_rational_oracle` there checks the range during `f()` and after it. `round_rational`
-// takes MPFR's exponent range to stay as this function sets it until it restores it. No
+// one, calls `f` and restores it. `mpfr_tests` calls it too, and `round_rational_oracle` there
+// checks the range during `f()` and after it. `round_rational` takes MPFR's exponent range to
+// stay as this function sets it until it restores it. No
 // other thread, such as another test, can change it in between where MPFR keeps it per
 // thread, as the MPFR that `gmp-mpfr-sys` builds does, which `range_per_thread` in
 // `src/elementary/mpfr_tests.rs` tests. A system MPFR built without thread-local storage,
 // which the feature `use-system-libs` of `gmp-mpfr-sys` can link, keeps it global instead,
 // and fails that test, and with such an MPFR, `assert_thread_safe` above panics before this
 // function reads or sets the range.
-#[cfg(test)]
 pub(crate) fn with_parse_range<T>(f: impl FnOnce() -> T) -> T {
     assert_thread_safe();
     let (orig_emin, orig_emax) = unsafe { (mpfr::get_emin(), mpfr::get_emax()) };
@@ -80,12 +78,11 @@ pub(crate) fn with_parse_range<T>(f: impl FnOnce() -> T) -> T {
 // `mpfr::set_q`, then `f` set with `mpfr::subnormalize` to `r` rounded in the same direction
 // to the numbers that an `f64` holds, which have fewer than 53 bits below
 // `f64::MIN_POSITIVE`, and converted with `get_d`, all at the range that `with_parse_range`
-// sets. It returns `f`, the ternary value of `mpfr::subnormalize` and the `f64`. Only the
-// tests compile it. `after_set_q` gets `f` and the ternary value after `mpfr::set_q`, for
+// sets. It returns `f`, the ternary value of `mpfr::subnormalize` and the `f64`.
+// `after_set_q` gets `f` and the ternary value after `mpfr::set_q`, for
 // `round_rational_oracle` in `mpfr_tests`, which checks this function against what the MPFR
 // manual states of `mpfr_set_q`, `mpfr_subnormalize` and `mpfr_get_d`.
 // `src/parse/diff_tests.rs` passes one that does nothing.
-#[cfg(test)]
 pub(crate) fn round_rational(
     r: &Rational,
     rnd: mpfr::rnd_t,
@@ -103,12 +100,12 @@ pub(crate) fn round_rational(
 
 // `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn`
 // of an abstract MPFR function in the fields of `mpfr_point`, for the proofs of the
-// functions of `src/elementary.rs` in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`,
-// `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
-// `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, and of `quadrant` there, which calls
-// `sin_rd` and `cos_ru`, in `rocq/theories/TrigQuad.v`, for `mpfr_acos_c` and the other
-// theorems of `rocq/theories/MpfrPoint.v` about them, and for `mpfr_point_of_point` in
-// `rocq/theories/OfPoint.v`, so it has to be updated along with it.
+// functions of `src/elementary.rs` with this backend in `rocq/theories/Elem.v`,
+// `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`,
+// `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, and of `quadrant`
+// there, which calls `sin_rd` and `cos_ru`, in `rocq/theories/TrigQuad.v`, for `mpfr_acos_c`
+// and the other theorems of `rocq/theories/MpfrPoint.v` about them, and for
+// `mpfr_point_of_point` in `rocq/theories/OfPoint.v`, so it has to be updated along with it.
 // `rocq/theories/Mpfr.v` states what those proofs assume of the MPFR functions and of
 // `mpfr::get_d`, and `mpfr_tests` tests the linked MPFR against it.
 macro_rules! mpfr_fn {
@@ -128,7 +125,7 @@ macro_rules! mpfr_fn {
     // above convert with `get_d`: `x` as an MPFR number of 53 bits, set to `$mpfr_f` of it
     // rounded in the direction `rnd`.
     (let $z:ident = $mpfr_f:ident($x:expr, $rnd:expr)) => {
-        crate::mpfr_calls::assert_thread_safe();
+        crate::mpfr_calls::mpfr::assert_thread_safe();
         let x: f64 = $x;
         let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
         let rnd = $rnd;
@@ -144,7 +141,6 @@ macro_rules! mpfr_fn {
     }};
 }
 // For `mpfr_tests`, which calls MPFR through the arms of this macro and of the two below.
-#[cfg(test)]
 pub(crate) use mpfr_fn;
 
 // `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn2`
@@ -171,7 +167,7 @@ macro_rules! mpfr_fn2 {
     // The same as for `mpfr_fn!`, with `y` as an MPFR number of 53 bits too. Like `$z`, it
     // lives to the end of the caller's block, so the functions above clear it after `get_d`.
     (let $z:ident = $mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {
-        crate::mpfr_calls::assert_thread_safe();
+        crate::mpfr_calls::mpfr::assert_thread_safe();
         let (x, y): (f64, f64) = ($x, $y);
         let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
         let y = Float::with_val(f64::MANTISSA_DIGITS, y);
@@ -186,7 +182,6 @@ macro_rules! mpfr_fn2 {
         x
     }};
 }
-#[cfg(test)]
 pub(crate) use mpfr_fn2;
 
 // `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn_si`
@@ -212,7 +207,7 @@ macro_rules! mpfr_fn_si {
 
     // The same as for `mpfr_fn!`, with the `i32` `y` passed as a `c_long`.
     (let $z:ident = $mpfr_f:ident($x:expr, $y:expr, $rnd:expr)) => {
-        crate::mpfr_calls::assert_thread_safe();
+        crate::mpfr_calls::mpfr::assert_thread_safe();
         let (x, y): (f64, i32) = ($x, $y);
         let mut $z = Float::with_val(f64::MANTISSA_DIGITS, x);
         let rnd = $rnd;
@@ -226,7 +221,6 @@ macro_rules! mpfr_fn_si {
         x
     }};
 }
-#[cfg(test)]
 pub(crate) use mpfr_fn_si;
 
 mpfr_fn!(acos, acos_rd, acos_ru);
@@ -259,7 +253,6 @@ mpfr_fn!(tanh, tanh_rd, tanh_ru);
 // `assert_thread_safe` before the MPFR call. It reads all the `len` bytes that MPFR wrote,
 // where inari used to stop at the first NUL, so that a NUL that MPFR writes in a digit (see
 // `mpfr_bumps_exact` in `src/format/diff_tests.rs`) shows.
-#[cfg(test)]
 pub(crate) fn fmt_bound_mpfr(x: f64, prec: Option<usize>, conv: char, up: bool) -> String {
     assert!(!x.is_nan());
     if x.is_infinite() {

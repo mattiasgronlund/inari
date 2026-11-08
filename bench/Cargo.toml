@@ -11,8 +11,6 @@ publish = false
 
 [features]
 force-generic = ["inari/force-generic"]
-# The trigonometric functions call MPFR, so the `trig` benchmark needs it.
-gmp = ["inari/gmp"]
 
 [dependencies]
 inari = { path = "..", default-features = false, features = ["__bench"] }
@@ -34,7 +32,6 @@ harness = false
 [[bench]]
 name = "trig"
 harness = false
-required-features = ["gmp"]
 
 [profile.bench]
 codegen-units = 1

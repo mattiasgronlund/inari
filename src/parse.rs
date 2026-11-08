@@ -10,7 +10,11 @@ use nom::{
 use rat::Rat;
 use std::{result, str::FromStr};
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 mod diff_tests;
 mod rat;
 
@@ -836,6 +840,7 @@ impl Interval {
 #[cfg(test)]
 mod tests {
     use crate::*;
+    use std::time::{Duration, Instant};
     use Interval as I;
     use IntervalErrorKind::*;
 
@@ -991,5 +996,35 @@ mod tests {
         assert!(x.is_empty());
         assert_eq!(x.decoration(), Decoration::Trv);
         assert!(dec_interval!("[nai]").unwrap().is_nai());
+    }
+
+    #[test]
+    fn huge_exponents_end_to_end() {
+        // `rational_to_f64` decides these from the numbers of bits and the exponents, without a
+        // power of five as wide as the exponent, so each takes about a microsecond in a release
+        // build, while 10^1900000000 alone has over 6 * 10^9 bits. None of them needs a
+        // comparison of the two bounds.
+        let tiny = f64::from_bits(1);
+        let (max, inf) = (f64::MAX, f64::INFINITY);
+        for (s, a, b) in [
+            ("[1e1900000000]", max, inf),
+            ("[-1e1900000000]", -inf, -max),
+            ("[1e-2147483648]", 0.0, tiny),
+            ("[-1e-2147483648]", -tiny, 0.0),
+            ("[1e2147483647]", max, inf),
+            ("[0x1p2147483647]", max, inf),
+            ("[0x1p-2147483648]", 0.0, tiny),
+            ("[123456789012345678901234567890e-2147483648]", 0.0, tiny),
+            ("1?e1900000000", max, inf),
+            ("1?e-2147483648", 0.0, tiny),
+        ] {
+            let start = Instant::now();
+            let x = s.parse::<Interval>();
+            let elapsed = start.elapsed();
+            assert_eq!(x, Interval::try_from((a, b)), "{}", s);
+            assert!(elapsed < Duration::from_millis(100), "{}: {:?}", s, elapsed);
+        }
+        let x = "[1e1900000000]_com".parse::<DecInterval>().unwrap();
+        assert_eq!(x.decoration(), Decoration::Dac);
     }
 }

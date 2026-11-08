@@ -12,5 +12,5 @@ pub mod conformance {}
 #[allow(clippy::doc_overindented_list_items)]
 pub mod formal_intro {}
 
-#[cfg_attr(feature = "gmp", doc = include_str!("_docs/intro.md"))]
+#[doc = include_str!("_docs/intro.md")]
 pub mod intro {}

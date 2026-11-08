@@ -35,7 +35,7 @@
 // `src/mpfr_calls/mpfr.rs` panics there.
 
 use crate::{
-    mpfr_calls::{get_d, mpfr_fn, mpfr_fn2, mpfr_fn_si, round_rational, with_parse_range},
+    mpfr_calls::mpfr::{get_d, mpfr_fn, mpfr_fn2, mpfr_fn_si, round_rational, with_parse_range},
     *,
 };
 use gmp_mpfr_sys::mpfr::{
@@ -150,7 +150,7 @@ fn is_ternary(r: &Rational, v: &Value, t: i32) -> bool {
 }
 
 // `range_ok emin emax`: MPFR's exponent range in this thread, the one that
-// `src/elementary.rs` runs in, contains that of `f64`.
+// `src/elementary.rs` runs in with the MPFR backend, contains that of `f64`.
 #[test]
 fn range_ok() {
     let (emin, emax) = range();

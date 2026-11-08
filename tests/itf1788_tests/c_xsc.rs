@@ -244,7 +244,6 @@ fn cxsc_intervalstdfunc() {
     assert_eq2!(n2i(81.0, 81.0).sqrt(), n2i(9.0, 9.0));
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn cxsc_intervalstdfunc_gmp() {
     assert_eq2!(n2i(2.0, 2.0).pow(n2i(2.0, 2.0)), n2i(4.0, 4.0));

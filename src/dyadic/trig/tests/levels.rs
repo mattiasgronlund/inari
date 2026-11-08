@@ -5,12 +5,12 @@
 // Each function is taken at a few ordinary arguments, which no rule of `trig.rs` settles, and at
 // some near multiples of π/2 and some huge ones, at each of the 64 levels from 1 to 64 limbs,
 // not only at those that `ziv` tries. At each of them, `ziv_at` either fails or gives the
-// rounding of the function, in both feature sets. `ziv_cap`, the step of `ziv` at its cap of
-// 64 limbs, also gives the rounding at each argument, in both directions. With `gmp`, each
-// enclosure also holds the value of the function that MPFR computes, each doubling of the
-// precision at least halves its width, and at each level at which `reduce` is under its cap of
-// the 66 limbs of `PI`, the width at `N` limbs is at most 2^(8 - 64 N) times the magnitude of
-// the value.
+// rounding of the function, on every platform. `ziv_cap`, the step of `ziv` at its cap of 64
+// limbs, also gives the rounding at each argument, in both directions. On 64-bit Linux and
+// macOS, where the tests have MPFR, each enclosure also holds the value of the function that
+// MPFR computes, each doubling of the precision at least halves its width, and at each level
+// at which `reduce` is under its cap of the 66 limbs of `PI`, the width at `N` limbs is at most
+// 2^(8 - 64 N) times the magnitude of the value.
 
 use super::*;
 use crate::dyadic::{ziv_at, ziv_cap};
@@ -134,7 +134,10 @@ fn forced<E: Eval>(f: &E, i: usize, x: f64) {
             want[usize::from(up)]
         );
     }
-    #[cfg(feature = "gmp")]
+    #[cfg(all(
+        target_pointer_width = "64",
+        any(target_os = "linux", target_os = "macos")
+    ))]
     mpfr::enclosures(f, i, x);
 }
 
@@ -148,7 +151,10 @@ fn forced_levels() {
     }
 }
 
-#[cfg(feature = "gmp")]
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 mod mpfr {
     use super::*;
     use crate::dyadic::tests::check_normal;

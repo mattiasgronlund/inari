@@ -26,14 +26,23 @@ fn rem_euclid_2(x: f64) -> f64 {
 // `rocq/theories/Model.v` transcribes this function for the proofs of `(Dec)Interval::cos`,
 // `(Dec)Interval::sin` and `(Dec)Interval::tan`, so it has to be updated along with it.
 // `quadrant_correct` in `rocq/theories/TrigQuad.v` shows that it returns
-// `floor(x / (π/2)) mod 4` for a finite `x`.
+// `floor(x / (π/2)) mod 4` for a finite `x`, given `sin_rd` and `cos_ru` that round correctly.
 //
 // Returns the quadrant `floor(x / (π/2)) mod 4` of a finite `x`, from the signs of `sin(x)`
 // and `cos(x)`: `[0, π/2)` has `sin(x) >= 0` and `cos(x) > 0`, `[π/2, π)` has `sin(x) >= 0`
-// and `cos(x) <= 0`, and so on, modulo 2π. MPFR rounds correctly, so `sin_rd(x) < 0.0`
-// exactly when `sin(x) < 0`, and `cos_ru(x) > 0.0` exactly when `cos(x) > 0`, however close
-// `x` is to a multiple of π/2. As π is irrational, no float is a multiple of π/2 other than
-// 0, so `sin(x)` and `cos(x)` are never 0 where the quadrant would then be wrong.
+// and `cos(x) <= 0`, and so on, modulo 2π. `sin_rd` and `cos_ru` call the dyadic kernel
+// through `src/mpfr_calls/kernel.rs`, which rounds correctly where one of its rules settles
+// `x` or a rounding test of Ziv's strategy passes, as does the MPFR backend of the tests if
+// MPFR does what `rocq/theories/Mpfr.v` says. There `sin_rd(x) < 0.0` exactly when
+// `sin(x) < 0`, and `cos_ru(x) > 0.0` exactly when `cos(x) > 0`, however close `x` is to a
+// multiple of π/2. As π is irrational, no float is a multiple of π/2 other than 0, so
+// `sin(x)` and `cos(x)` are never 0 where the quadrant would then be wrong. Where no rounding
+// test passes, up to the one at the cap of 4,096 bits, the kernel returns the bound of its
+// enclosure on the side of the rounding, rounded outward. That keeps the sign of a
+// `sin(x) < 0` and of a `cos(x) > 0`, but gives the right sign for a `sin(x) > 0` or a
+// `cos(x) < 0` only where the enclosure holds no number of the other sign. A bound below
+// `|sin(x)|` and `|cos(x)|` on the width of the enclosures at 4,096 bits would show that, and
+// is not proved, though no known argument reaches the cap.
 fn quadrant(x: f64) -> f64 {
     let sin_neg = sin_rd(x) < 0.0;
     let cos_pos = cos_ru(x) > 0.0;
@@ -79,9 +88,12 @@ fn floors_exact(a: f64, b: f64, qa: f64, qb: f64, c: Interval) -> bool {
 }
 
 // Proved correct in `rocq/theories/Elem.v`, from `rocq/theories/LogDom.v`, for the portable
-// backend, for `ln`, `log10` and `log2` and their decorated versions, assuming what
-// `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes the functions
-// that this macro defines, so it has to be updated along with it.
+// backend, for `ln`, `log10` and `log2` and their decorated versions. This holds with the
+// dyadic kernel where each call of it that they make returns by one of its rules or by a
+// passing rounding test of Ziv's strategy (`kernel_<f>_correct` in `rocq/theories/DyPoint.v`
+// and `kernel_dec_<f>_correct` in `rocq/theories/DyPointDec.v`), and with the MPFR backend of
+// the tests, assuming what `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v`
+// transcribes the functions that this macro defines, so it has to be updated along with it.
 macro_rules! impl_log {
     ($(#[$meta:meta])* $f:ident, $f_impl:ident, $f_rd:ident, $f_ru:ident) => {
         $(#[$meta])*
@@ -115,11 +127,15 @@ macro_rules! impl_log {
 
 // Proved correct in `rocq/theories/Elem.v`, from `rocq/theories/MonoInc.v`, for the
 // portable backend, for `asinh`, `atan`, `exp`, `exp10`, `exp2`, `sinh` and `tanh` and
-// their decorated versions, assuming what `rocq/theories/Mpfr.v` says of MPFR, and for the
-// decorated versions of `atan`, `exp`, `exp10`, `exp2` and `tanh` also if `self` is `com`
-// only when `self.x()` is common, which `rocq/theories/ComCommon.v` proves of every
-// `DecInterval` that the library makes. `rocq/theories/Model.v` transcribes the function
-// that this macro defines, so it has to be updated along with it.
+// their decorated versions, and for the decorated versions of `atan`, `exp`, `exp10`, `exp2`
+// and `tanh` also if `self` is `com` only when `self.x()` is common, which
+// `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes. This
+// holds with the dyadic kernel where each call of it that they make returns by one of its
+// rules or by a passing rounding test of Ziv's strategy (`kernel_<f>_correct` in
+// `rocq/theories/DyPoint.v` and `kernel_dec_<f>_correct` in `rocq/theories/DyPointDec.v`),
+// and with the MPFR backend of the tests, assuming what `rocq/theories/Mpfr.v` says of MPFR.
+// `rocq/theories/Model.v` transcribes the function that this macro defines, so it has to be
+// updated along with it.
 macro_rules! impl_mono_inc {
     ($(#[$meta:meta])* $f:ident, $f_rd:ident, $f_ru:ident) => {
         $(#[$meta])*
@@ -149,7 +165,11 @@ impl Interval {
 
     fn acos_impl(self) -> (Self, Decoration) {
         // Proved correct, with `Interval::acos` and `DecInterval::acos`, in
-        // `rocq/theories/ClosedDom.v` for the portable backend, assuming what
+        // `rocq/theories/ClosedDom.v` for the portable backend. This holds with the dyadic
+        // kernel where each call of it that they make returns by one of its rules or by a
+        // passing rounding test of Ziv's strategy (`kernel_acos_correct` in
+        // `rocq/theories/DyPoint.v` and `kernel_dec_acos_correct` in
+        // `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming what
         // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
         // function and `Interval::acos`, so it has to be updated along with them.
         const DOM: Interval = const_interval!(-1.0, 1.0);
@@ -182,10 +202,13 @@ impl Interval {
 
     fn acosh_impl(self) -> (Self, Decoration) {
         // Proved correct, with `Interval::acosh` and `DecInterval::acosh`, in
-        // `rocq/theories/Elem.v`, from `rocq/theories/ClosedDom.v`, for the portable backend,
-        // assuming what `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v`
-        // transcribes this function and `Interval::acosh`, so it has to be updated along
-        // with them.
+        // `rocq/theories/Elem.v`, from `rocq/theories/ClosedDom.v`, for the portable backend.
+        // This holds with the dyadic kernel where each call of it that they make returns by
+        // one of its rules or by a passing rounding test of Ziv's strategy
+        // (`kernel_acosh_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_acosh_correct`
+        // in `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming
+        // what `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
+        // function and `Interval::acosh`, so it has to be updated along with them.
         const DOM: Interval = const_interval!(1.0, f64::INFINITY);
         let x = self.intersection(DOM);
 
@@ -216,10 +239,13 @@ impl Interval {
 
     fn asin_impl(self) -> (Self, Decoration) {
         // Proved correct, with `Interval::asin` and `DecInterval::asin`, in
-        // `rocq/theories/Elem.v`, from `rocq/theories/ClosedDom.v`, for the portable backend,
-        // assuming what `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v`
-        // transcribes this function and `Interval::asin`, so it has to be updated along with
-        // them.
+        // `rocq/theories/Elem.v`, from `rocq/theories/ClosedDom.v`, for the portable backend.
+        // This holds with the dyadic kernel where each call of it that they make returns by
+        // one of its rules or by a passing rounding test of Ziv's strategy
+        // (`kernel_asin_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_asin_correct` in
+        // `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming what
+        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
+        // function and `Interval::asin`, so it has to be updated along with them.
         const DOM: Interval = const_interval!(-1.0, 1.0);
         let x = self.intersection(DOM);
 
@@ -277,12 +303,15 @@ impl Interval {
     #[allow(clippy::many_single_char_names)]
     fn atan2_impl(self, rhs: Self) -> (Self, Decoration) {
         // Proved correct, with `Interval::atan2` and `DecInterval::atan2`, in
-        // `rocq/theories/Atan2.v` for the portable backend, assuming what
-        // `rocq/theories/Mpfr.v` says of MPFR, and for `DecInterval::atan2` also if `self`
-        // and `rhs` are `com` only when their intervals are common, which
+        // `rocq/theories/Atan2.v` for the portable backend, and for `DecInterval::atan2` also
+        // if `self` and `rhs` are `com` only when their intervals are common, which
         // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
-        // `rocq/theories/Model.v` transcribes this function and `Interval::atan2`, so it has
-        // to be updated along with them.
+        // This holds with the dyadic kernel where each call of it that they make returns by
+        // one of its rules or by a passing rounding test of Ziv's strategy
+        // (`kernel_atan2_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_atan2_correct`
+        // in `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming
+        // what `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
+        // function and `Interval::atan2`, so it has to be updated along with them.
         let (x, y) = (rhs, self);
         let a = x.inf_raw();
         let b = x.sup_raw();
@@ -378,7 +407,8 @@ impl Interval {
             //M_Z => See above.
             N0_Z => (Self::PI, Decoration::Trv),
             // The next case cannot be merged with N1_P0 unless we replace -0.0 with +0.0
-            // since IEEE 754/MPFR's atan2 returns ±π for y = ±0.0, x < 0.0, while we want only +π.
+            // since IEEE 754/MPFR's atan2, which the dyadic kernel follows, returns ±π for
+            // y = ±0.0, x < 0.0, while we want only +π.
             N1_Z => (Self::PI, Decoration::Dac),
             P0_Z => (Self::zero(), Decoration::Trv),
             //P1_Z => See above.
@@ -407,13 +437,18 @@ impl Interval {
     #[allow(clippy::many_single_char_names)]
     fn atanh_impl(self) -> (Self, Decoration) {
         // Proved correct, with `Interval::atanh` and `DecInterval::atanh`, in
-        // `rocq/theories/Atanh.v` for the portable backend, assuming what
-        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
-        // function and `Interval::atanh`, so it has to be updated along with them.
+        // `rocq/theories/Atanh.v` for the portable backend. This holds with the dyadic kernel
+        // where each call of it that they make returns by one of its rules or by a passing
+        // rounding test of Ziv's strategy (`kernel_atanh_correct` in `rocq/theories/DyPoint.v`
+        // and `kernel_dec_atanh_correct` in `rocq/theories/DyPointDec.v`), and with the MPFR
+        // backend of the tests, assuming what `rocq/theories/Mpfr.v` says of MPFR.
+        // `rocq/theories/Model.v` transcribes this function and `Interval::atanh`, so it has
+        // to be updated along with them.
         //
         // Mathematically, the domain of atanh is (-1.0, 1.0), not [-1.0, 1.0].
         // However, IEEE 754/MPFR's atanh returns ±infinity for ±1.0,
-        // (and signals the divide-by-zero exception), so we will make use of that.
+        // (and signals the divide-by-zero exception), and so does the dyadic kernel's, without
+        // a signal, so we will make use of that.
         const DOM: Interval = const_interval!(-1.0, 1.0);
         let x = self.intersection(DOM);
 
@@ -441,17 +476,22 @@ impl Interval {
     /// | $\R$   | $\[-1, 1\]$ |
     #[must_use]
     pub fn cos(self) -> Self {
-        // Proved, with `DecInterval::cos`, in `rocq/theories/Cos.v` for the portable backend,
-        // assuming what `rocq/theories/Mpfr.v` says of MPFR, also of `mpfr::sin`, which
-        // `quadrant` calls: the result is the tightest interval that contains the image of
-        // `self`, and `DecInterval::cos` decorates it as IEEE 1788
-        // asks if `self` is `com` only when `self.x()` is common, which
-        // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
-        // `rocq/theories/TrigQuad.v`, `rocq/theories/TrigCount.v` and
-        // `rocq/theories/TrigCert.v` prove what `quadrant`, `quadrants` and `floors_exact`
-        // return. `rocq/theories/Model.v` transcribes this function, so it has to be updated
-        // along with it. `max` and `min` may return either zero if both arguments are zeros,
-        // so the model takes which one they return as an argument.
+        // Proved, with `DecInterval::cos`, in `rocq/theories/Cos.v` for the portable backend:
+        // the result is the tightest interval that contains the image of `self`, and
+        // `DecInterval::cos` decorates it as IEEE 1788 asks if `self` is `com` only when
+        // `self.x()` is common, which `rocq/theories/ComCommon.v` proves of every
+        // `DecInterval` that the library makes. This holds with the dyadic kernel where each
+        // call of it that they make, the calls of `sin_rd` and `cos_ru` that `quadrant` makes
+        // through `src/mpfr_calls/kernel.rs` among them, returns by one of its rules or by a
+        // passing rounding test of Ziv's strategy (`kernel_cos_correct` in
+        // `rocq/theories/DyPoint.v` and `kernel_dec_cos_correct` in
+        // `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming what
+        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/TrigQuad.v`,
+        // `rocq/theories/TrigCount.v` and `rocq/theories/TrigCert.v` prove what `quadrant`,
+        // `quadrants` and `floors_exact` return. `rocq/theories/Model.v` transcribes this
+        // function, so it has to be updated along with it. `max` and `min` may return either
+        // zero if both arguments are zeros, so the model takes which one they return as an
+        // argument.
         if self.is_empty() {
             return self;
         }
@@ -512,7 +552,11 @@ impl Interval {
     #[must_use]
     pub fn cosh(self) -> Self {
         // Proved correct, with `DecInterval::cosh`, in `rocq/theories/Cosh.v` for the
-        // portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR.
+        // portable backend. This holds with the dyadic kernel where each call of it that they
+        // make returns by one of its rules or by a passing rounding test of Ziv's strategy
+        // (`kernel_cosh_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_cosh_correct`
+        // in `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming
+        // what `rocq/theories/Mpfr.v` says of MPFR.
         // `rocq/theories/Model.v` transcribes this function, so it has to be updated along
         // with it. `(-a).max(b)` may return either zero if `-a` and `b` are zeros, so the
         // model takes which one it returns as an argument.
@@ -632,10 +676,14 @@ impl Interval {
     #[allow(clippy::many_single_char_names)]
     fn pow_impl(self, rhs: Self) -> (Self, Decoration) {
         // Proved correct, with `Interval::pow` and `DecInterval::pow`, in
-        // `rocq/theories/Pow.v` for the portable backend, assuming what `rocq/theories/Mpfr.v`
-        // says of MPFR, and for `DecInterval::pow` also if `self` and `rhs` are `com` only
-        // when their intervals are common, which `rocq/theories/ComCommon.v` proves of every
-        // `DecInterval` that the library makes. `rocq/theories/Model.v` transcribes this
+        // `rocq/theories/Pow.v` for the portable backend, and for `DecInterval::pow` also if
+        // `self` and `rhs` are `com` only when their intervals are common, which
+        // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
+        // This holds with the dyadic kernel where each call of it that they make returns by
+        // one of its rules or by a passing rounding test of Ziv's strategy
+        // (`kernel_pow_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_pow_correct` in
+        // `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming what
+        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
         // function and `Interval::pow`, so it has to be updated along with them. `min` and
         // `max` may return either zero if both arguments are zeros, so the model takes which
         // ones they return as arguments.
@@ -730,10 +778,14 @@ impl Interval {
 
     fn powi_impl(self, rhs: i32) -> (Self, Decoration) {
         // Proved correct, with `Interval::powi` and `DecInterval::powi`, in
-        // `rocq/theories/Powi.v` for the portable backend and every `rhs`, assuming what
-        // `rocq/theories/Mpfr.v` says of MPFR, and for `DecInterval::powi` with `rhs <= 0`
-        // also if `self` is `com` only when `self.x()` is common, which
-        // `rocq/theories/ComCommon.v` proves of every `DecInterval` that the library makes.
+        // `rocq/theories/Powi.v` for the portable backend and every `rhs`, and for
+        // `DecInterval::powi` with `rhs <= 0` also if `self` is `com` only when `self.x()` is
+        // common, which `rocq/theories/ComCommon.v` proves of every `DecInterval` that the
+        // library makes. This holds with the dyadic kernel where each call of it that they
+        // make returns by one of its rules or by a passing rounding test of Ziv's strategy
+        // (`kernel_pown_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_pown_correct`
+        // in `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming
+        // what `rocq/theories/Mpfr.v` says of MPFR.
         // `rocq/theories/Model.v` transcribes this function and `Interval::powi`, so it has
         // to be updated along with them.
         if self.is_empty() {
@@ -799,12 +851,17 @@ impl Interval {
     /// | $\R$   | $\[-1, 1\]$ |
     #[must_use]
     pub fn sin(self) -> Self {
-        // Proved, with `DecInterval::sin`, in `rocq/theories/Sin.v` for the portable backend,
-        // assuming what `rocq/theories/Mpfr.v` says of MPFR, also of `mpfr::cos`, which
-        // `quadrant` calls: the result is the tightest interval that contains the image of
-        // `self`, and `DecInterval::sin` decorates it as IEEE 1788 asks if `self` is `com`
-        // only when `self.x()` is common, which `rocq/theories/ComCommon.v` proves of every
-        // `DecInterval` that the library makes. `rocq/theories/TrigQuad.v`,
+        // Proved, with `DecInterval::sin`, in `rocq/theories/Sin.v` for the portable backend:
+        // the result is the tightest interval that contains the image of `self`, and
+        // `DecInterval::sin` decorates it as IEEE 1788 asks if `self` is `com` only when
+        // `self.x()` is common, which `rocq/theories/ComCommon.v` proves of every
+        // `DecInterval` that the library makes. This holds with the dyadic kernel where each
+        // call of it that they make, the calls of `sin_rd` and `cos_ru` that `quadrant` makes
+        // through `src/mpfr_calls/kernel.rs` among them, returns by one of its rules or by a
+        // passing rounding test of Ziv's strategy (`kernel_sin_correct` in
+        // `rocq/theories/DyPoint.v` and `kernel_dec_sin_correct` in
+        // `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming what
+        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/TrigQuad.v`,
         // `rocq/theories/TrigCount.v` and `rocq/theories/TrigCert.v` prove what `quadrant`,
         // `quadrants` and `floors_exact` return. `rocq/theories/Model.v` transcribes this
         // function, so it has to be updated along with it. `max` and `min` may return either
@@ -872,10 +929,14 @@ impl Interval {
 
     fn tan_impl(self) -> (Self, Decoration) {
         // Proved, with `Interval::tan` and `DecInterval::tan`, in `rocq/theories/Tan.v` for
-        // the portable backend, assuming what `rocq/theories/Mpfr.v` says of MPFR, also of
-        // `mpfr::sin` and `mpfr::cos`, which `quadrant` calls: the result is the tightest
-        // interval that contains the image of `self`, and `DecInterval::tan` decorates it as
-        // IEEE 1788 asks. `rocq/theories/TrigQuad.v`,
+        // the portable backend: the result is the tightest interval that contains the image
+        // of `self`, and `DecInterval::tan` decorates it as IEEE 1788 asks. This holds with
+        // the dyadic kernel where each call of it that they make, the calls of `sin_rd` and
+        // `cos_ru` that `quadrant` makes through `src/mpfr_calls/kernel.rs` among them,
+        // returns by one of its rules or by a passing rounding test of Ziv's strategy
+        // (`kernel_tan_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_tan_correct` in
+        // `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming what
+        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/TrigQuad.v`,
         // `rocq/theories/TrigCount.v` and `rocq/theories/TrigCert.v` prove what `quadrant`,
         // `quadrants` and `floors_exact` return. `rocq/theories/Model.v` transcribes this
         // function and `Interval::tan`, so it has to be updated along with them.
@@ -1004,7 +1065,11 @@ impl DecInterval {
     impl_dec!(tanh);
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 mod mpfr_tests;
 
 #[cfg(test)]

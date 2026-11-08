@@ -14,7 +14,11 @@
     which no test passes up to the cap of Ziv's strategy, where the Rust
     returns a value on the correct side ([exp_dir_side] and the others),
     or that panic. That a rounding test passes by the cap is not proved.
-    [kernel_point p] is [p] with these twenty-one fields. *)
+    [kernel_point] is the record of these twenty-one fields.
+    [DyPointDec.v] applies the theorems of [PointDec.v] to it in the same
+    way, and [Valid.v] those of [PointValid.v], in the cases of
+    [made_valid] for its constructors [made_kernel_exp],
+    [dmade_kernel_exp] and the others. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -67,7 +71,7 @@ Definition kernel_field_z (dir : f64 -> Z -> bool -> option f64) (f : R -> Z -> 
 
 Definition k_pown := kernel_field_z (DyadicPow.pown_dir_with ziv_strict) powerRZ.
 
-Definition kernel_point (p : point) : point := {|
+Definition kernel_point : point := {|
   p_acos := k_acos;
   p_acosh := k_acosh;
   p_asin := k_asin;
@@ -259,44 +263,44 @@ split; [exact (kernel_field_correct _ _ tanh_dir_correct) | split].
 Qed.
 
 Theorem kernel_exp_correct :
-  forall p x, valid x -> is_tightest (image_dom real_dom exp x) (Interval.exp (kernel_point p) x).
+  forall x, valid x -> is_tightest (image_dom real_dom exp x) (Interval.exp kernel_point x).
 Proof.
-intros p x Hx. exact (exp_correct_point (kernel_point p) k_exp_c x Hx).
+intros x Hx. exact (exp_correct_point kernel_point k_exp_c x Hx).
 Qed.
 
 Theorem kernel_exp2_correct :
-  forall p x, valid x ->
-  is_tightest (image_dom real_dom Rexp2 x) (Interval.exp2 (kernel_point p) x).
+  forall x, valid x ->
+  is_tightest (image_dom real_dom Rexp2 x) (Interval.exp2 kernel_point x).
 Proof.
-intros p x Hx. exact (exp2_correct_point (kernel_point p) k_exp2_c x Hx).
+intros x Hx. exact (exp2_correct_point kernel_point k_exp2_c x Hx).
 Qed.
 
 Theorem kernel_exp10_correct :
-  forall p x, valid x ->
-  is_tightest (image_dom real_dom Rexp10 x) (Interval.exp10 (kernel_point p) x).
+  forall x, valid x ->
+  is_tightest (image_dom real_dom Rexp10 x) (Interval.exp10 kernel_point x).
 Proof.
-intros p x Hx. exact (exp10_correct_point (kernel_point p) k_exp10_c x Hx).
+intros x Hx. exact (exp10_correct_point kernel_point k_exp10_c x Hx).
 Qed.
 
 Theorem kernel_sinh_correct :
-  forall p x, valid x ->
-  is_tightest (image_dom real_dom sinh x) (Interval.sinh (kernel_point p) x).
+  forall x, valid x ->
+  is_tightest (image_dom real_dom sinh x) (Interval.sinh kernel_point x).
 Proof.
-intros p x Hx. exact (sinh_correct_point (kernel_point p) k_sinh_c x Hx).
+intros x Hx. exact (sinh_correct_point kernel_point k_sinh_c x Hx).
 Qed.
 
 Theorem kernel_cosh_correct :
-  forall p first x, valid x ->
-  is_tightest (image_dom real_dom cosh x) (Interval.cosh (kernel_point p) first x).
+  forall first x, valid x ->
+  is_tightest (image_dom real_dom cosh x) (Interval.cosh kernel_point first x).
 Proof.
-intros p first x Hx. exact (cosh_correct_point (kernel_point p) k_cosh_c first x Hx).
+intros first x Hx. exact (cosh_correct_point kernel_point k_cosh_c first x Hx).
 Qed.
 
 Theorem kernel_tanh_correct :
-  forall p x, valid x ->
-  is_tightest (image_dom real_dom tanh x) (Interval.tanh (kernel_point p) x).
+  forall x, valid x ->
+  is_tightest (image_dom real_dom tanh x) (Interval.tanh kernel_point x).
 Proof.
-intros p x Hx. exact (tanh_correct_point (kernel_point p) k_tanh_c x Hx).
+intros x Hx. exact (tanh_correct_point kernel_point k_tanh_c x Hx).
 Qed.
 
 Theorem k_ln_c : ln_c k_ln.
@@ -392,44 +396,44 @@ split; [exact (kernel_field_correct_dom _ _ _ atanh_dir_correct) | split].
 Qed.
 
 Theorem kernel_ln_correct :
-  forall p x, valid x -> is_tightest (image_dom log_dom ln x) (Interval.ln (kernel_point p) x).
+  forall x, valid x -> is_tightest (image_dom log_dom ln x) (Interval.ln kernel_point x).
 Proof.
-intros p x Hx. exact (ln_correct_point (kernel_point p) k_ln_c x Hx).
+intros x Hx. exact (ln_correct_point kernel_point k_ln_c x Hx).
 Qed.
 
 Theorem kernel_log2_correct :
-  forall p x, valid x ->
-  is_tightest (image_dom log_dom Rlog2 x) (Interval.log2 (kernel_point p) x).
+  forall x, valid x ->
+  is_tightest (image_dom log_dom Rlog2 x) (Interval.log2 kernel_point x).
 Proof.
-intros p x Hx. exact (log2_correct_point (kernel_point p) k_log2_c x Hx).
+intros x Hx. exact (log2_correct_point kernel_point k_log2_c x Hx).
 Qed.
 
 Theorem kernel_log10_correct :
-  forall p x, valid x ->
-  is_tightest (image_dom log_dom Rlog10 x) (Interval.log10 (kernel_point p) x).
+  forall x, valid x ->
+  is_tightest (image_dom log_dom Rlog10 x) (Interval.log10 kernel_point x).
 Proof.
-intros p x Hx. exact (log10_correct_point (kernel_point p) k_log10_c x Hx).
+intros x Hx. exact (log10_correct_point kernel_point k_log10_c x Hx).
 Qed.
 
 Theorem kernel_asinh_correct :
-  forall p x, valid x ->
-  is_tightest (image_dom real_dom arcsinh x) (Interval.asinh (kernel_point p) x).
+  forall x, valid x ->
+  is_tightest (image_dom real_dom arcsinh x) (Interval.asinh kernel_point x).
 Proof.
-intros p x Hx. exact (asinh_correct_point (kernel_point p) k_asinh_c x Hx).
+intros x Hx. exact (asinh_correct_point kernel_point k_asinh_c x Hx).
 Qed.
 
 Theorem kernel_acosh_correct :
-  forall p x, valid x ->
-  is_tightest (image_dom acosh_dom Racosh x) (Interval.acosh (kernel_point p) x).
+  forall x, valid x ->
+  is_tightest (image_dom acosh_dom Racosh x) (Interval.acosh kernel_point x).
 Proof.
-intros p x Hx. exact (acosh_correct_point (kernel_point p) k_acosh_c x Hx).
+intros x Hx. exact (acosh_correct_point kernel_point k_acosh_c x Hx).
 Qed.
 
 Theorem kernel_atanh_correct :
-  forall p x, valid x ->
-  is_tightest (image_dom atanh_dom Ratanh x) (Interval.atanh (kernel_point p) x).
+  forall x, valid x ->
+  is_tightest (image_dom atanh_dom Ratanh x) (Interval.atanh kernel_point x).
 Proof.
-intros p x Hx. exact (atanh_correct_point (kernel_point p) k_atanh_c x Hx).
+intros x Hx. exact (atanh_correct_point kernel_point k_atanh_c x Hx).
 Qed.
 
 Theorem k_atan_c : atan_c k_atan.
@@ -564,72 +568,72 @@ exact (kernel_field_correct_dom _ _ _ (fun x up v Fx _ E => tan_dir_correct x up
 Qed.
 
 Theorem kernel_atan_correct :
-  forall p x, valid x ->
-  is_tightest (image_dom real_dom atan x) (Interval.atan (kernel_point p) x).
+  forall x, valid x ->
+  is_tightest (image_dom real_dom atan x) (Interval.atan kernel_point x).
 Proof.
-intros p x Hx. exact (atan_correct_point (kernel_point p) k_atan_c x Hx).
+intros x Hx. exact (atan_correct_point kernel_point k_atan_c x Hx).
 Qed.
 
 Theorem kernel_asin_correct :
-  forall p x, valid x ->
-  is_tightest (image_dom asin_dom asin x) (Interval.asin (kernel_point p) x).
+  forall x, valid x ->
+  is_tightest (image_dom asin_dom asin x) (Interval.asin kernel_point x).
 Proof.
-intros p x Hx. exact (asin_correct_point (kernel_point p) k_asin_c x Hx).
+intros x Hx. exact (asin_correct_point kernel_point k_asin_c x Hx).
 Qed.
 
 Theorem kernel_acos_correct :
-  forall p x, valid x ->
-  is_tightest (image_dom acos_dom acos x) (Interval.acos (kernel_point p) x).
+  forall x, valid x ->
+  is_tightest (image_dom acos_dom acos x) (Interval.acos kernel_point x).
 Proof.
-intros p x Hx. exact (acos_correct_point (kernel_point p) k_acos_c x Hx).
+intros x Hx. exact (acos_correct_point kernel_point k_acos_c x Hx).
 Qed.
 
 Theorem kernel_atan2_correct :
-  forall p y x, valid y -> valid x ->
-  exists z, Interval.atan2 (kernel_point p) y x = Some z /\
+  forall y x, valid y -> valid x ->
+  exists z, Interval.atan2 kernel_point y x = Some z /\
     is_tightest (image2_set atan2_dom Ratan2 y x) z.
 Proof.
-intros p y x Hy Hx. exact (atan2_correct_point (kernel_point p) k_atan2_c y x Hy Hx).
+intros y x Hy Hx. exact (atan2_correct_point kernel_point k_atan2_c y x Hy Hx).
 Qed.
 
 Theorem kernel_sin_correct :
-  forall p has_fma first x, valid x ->
-  exists y, Interval.sin (kernel_point p) has_fma first x = Some y /\
+  forall has_fma first x, valid x ->
+  exists y, Interval.sin kernel_point has_fma first x = Some y /\
     is_tightest (image_dom real_dom sin x) y.
 Proof.
-intros p has_fma first x Hx.
-exact (sin_correct_point (kernel_point p) k_sin_c k_cos_c has_fma first x Hx).
+intros has_fma first x Hx.
+exact (sin_correct_point kernel_point k_sin_c k_cos_c has_fma first x Hx).
 Qed.
 
 Theorem kernel_cos_correct :
-  forall p has_fma first x, valid x ->
-  exists y, Interval.cos (kernel_point p) has_fma first x = Some y /\
+  forall has_fma first x, valid x ->
+  exists y, Interval.cos kernel_point has_fma first x = Some y /\
     is_tightest (image_dom real_dom cos x) y.
 Proof.
-intros p has_fma first x Hx.
-exact (cos_correct_point (kernel_point p) k_cos_c k_sin_c has_fma first x Hx).
+intros has_fma first x Hx.
+exact (cos_correct_point kernel_point k_cos_c k_sin_c has_fma first x Hx).
 Qed.
 
 Theorem kernel_tan_correct :
-  forall p has_fma x, valid x ->
-  exists y, Interval.tan (kernel_point p) has_fma x = Some y /\
+  forall has_fma x, valid x ->
+  exists y, Interval.tan kernel_point has_fma x = Some y /\
     is_tightest (image_dom tan_dom tan x) y.
 Proof.
-intros p has_fma x Hx.
-exact (tan_correct_point (kernel_point p) k_tan_c k_sin_c k_cos_c has_fma x Hx).
+intros has_fma x Hx.
+exact (tan_correct_point kernel_point k_tan_c k_sin_c k_cos_c has_fma x Hx).
 Qed.
 
 Theorem kernel_pow_correct :
-  forall p first_min first_max x y, valid x -> valid y ->
-  is_tightest (image2_set pow_dom Rpow x y) (Interval.pow (kernel_point p) first_min first_max x y).
+  forall first_min first_max x y, valid x -> valid y ->
+  is_tightest (image2_set pow_dom Rpow x y) (Interval.pow kernel_point first_min first_max x y).
 Proof.
-intros p f1 f2 x y Hx Hy. exact (pow_correct_point (kernel_point p) k_pow_c f1 f2 x y Hx Hy).
+intros f1 f2 x y Hx Hy. exact (pow_correct_point kernel_point k_pow_c f1 f2 x y Hx Hy).
 Qed.
 
 Theorem kernel_pown_correct :
-  forall p n x, is_i32 n -> valid x ->
-  exists y, Interval.powi (kernel_point p) n x = Some y /\
+  forall n x, is_i32 n -> valid x ->
+  exists y, Interval.powi kernel_point n x = Some y /\
     is_tightest (image_dom (pown_dom n) (fun r => powerRZ r n) x) y.
 Proof.
-intros p n x Hn Hx. exact (pown_correct_point (kernel_point p) k_pown_c n x Hn Hx).
+intros n x Hn Hx. exact (pown_correct_point kernel_point k_pown_c n x Hn Hx).
 Qed.

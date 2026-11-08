@@ -1,6 +1,6 @@
 // Throughput of `sin`, `cos` and `tan` of intervals with the selected backend, on N
-// intervals of each of four classes (see `intervals`). The functions call MPFR, so this
-// benchmark needs the `gmp` feature: `cargo bench --features gmp --bench trig`.
+// intervals of each of four classes (see `intervals`). The functions compute their bounds
+// with inari's own kernel, so this benchmark needs no feature: `cargo bench --bench trig`.
 
 use criterion::{
     criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode, Throughput,

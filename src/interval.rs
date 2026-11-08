@@ -341,14 +341,6 @@ macro_rules! _interval {
     }};
 }
 
-#[cfg(not(feature = "gmp"))]
-#[macro_export]
-macro_rules! interval {
-    ($a:expr, $b:expr) => {
-        $crate::_interval!($a, $b)
-    };
-}
-
 /// Creates an [`Interval`] from [`f64`] bounds or from a bare interval literal.
 ///
 /// There are two variants of the macro:
@@ -374,7 +366,6 @@ macro_rules! interval {
 /// For creating a constant, the macro [`const_interval!`] should be preferred over this one.
 ///
 /// [`const_interval!`]: crate::const_interval
-#[cfg(feature = "gmp")]
 #[macro_export]
 macro_rules! interval {
     ($s:expr) => {{
@@ -424,7 +415,6 @@ macro_rules! interval {
 /// assert!(result.is_err());
 /// assert_eq!(result.unwrap_err().kind(), IntervalErrorKind::UndefinedOperation);
 /// ```
-#[cfg(feature = "gmp")]
 #[macro_export]
 macro_rules! interval_exact {
     ($s:expr) => {{
@@ -445,14 +435,6 @@ macro_rules! _dec_interval {
         is_f64($b);
         $crate::DecInterval::try_from(($a, $b))
     }};
-}
-
-#[cfg(not(feature = "gmp"))]
-#[macro_export]
-macro_rules! dec_interval {
-    ($a:expr, $b:expr) => {
-        $crate::_dec_interval!($a, $b)
-    };
 }
 
 /// Creates a [`DecInterval`] from [`f64`] bounds or from a decorated interval literal.
@@ -481,7 +463,6 @@ macro_rules! dec_interval {
 /// For creating a constant, the macro [`const_dec_interval!`] should be preferred over this one.
 ///
 /// [`const_dec_interval!`]: crate::const_dec_interval
-#[cfg(feature = "gmp")]
 #[macro_export]
 macro_rules! dec_interval {
     ($s:expr) => {{

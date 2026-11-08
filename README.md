@@ -21,9 +21,9 @@ The following CPUs are supported and continuously tested:
 
 - **AArch64 (ARM64)**
 
-Other architectures, such as WebAssembly (`wasm32`) and RISC-V (`riscv64`), are supported by a portable backend (experimental). It only relies on floating-point arithmetic in the default rounding mode, and requires no target features, but it is slower than the backends for x86-64 and AArch64. It uses fused multiply-add instructions where the target has them. On WebAssembly, building with `RUSTFLAGS='-Ctarget-feature=+simd128'` selects a faster variant that uses 128-bit SIMD instructions.
+Other architectures, such as 32-bit x86 (`i686`), WebAssembly (`wasm32`) and RISC-V (`riscv64`), are supported by a portable backend (experimental). It only relies on floating-point arithmetic in the default rounding mode, and requires no target features, but it is slower than the backends for x86-64 and AArch64. It uses fused multiply-add instructions where the target has them. On WebAssembly, building with `RUSTFLAGS='-Ctarget-feature=+simd128'` selects a faster variant that uses 128-bit SIMD instructions.
 
-When using the Cargo feature `gmp` (see below), target platforms are limited to those that are supported by the [`gmp-mpfr-sys`](https://crates.io/crates/gmp-mpfr-sys) crate. For example, MSVC is not supported. With `gmp`, inari supports 64-bit Linux and macOS (CI tests x86-64 Linux and AArch64 macOS). Other targets, such as 32-bit targets and 64-bit Windows, are not supported with `gmp` and are not tested. If `gmp-mpfr-sys` links a system MPFR, through its feature `use-system-libs`, that MPFR has to be built thread-safe, as it is by default where the system supports thread-local storage, and inari panics on its first operation that calls MPFR, such as an elementary function, if it is not: such an MPFR keeps its flags, its exponent range and its caches of constants such as π global, so threads that call it at the same time can interfere.
+Interval literals, formatting and the elementary functions need neither GMP nor MPFR, nor a Cargo feature: inari computes them with code of its own, a multi-precision kernel for the elementary functions. CI tests x86-64 Linux, x86-64 Windows with MSVC (`x86_64-pc-windows-msvc`), AArch64 macOS, 32-bit x86 Linux (`i686-unknown-linux-gnu`) and WebAssembly (`wasm32-wasip1`, with and without `simd128`), and only builds for `wasm32-unknown-unknown` and `riscv64gc-unknown-linux-gnu`. On 64-bit Linux and macOS, the tests also compare inari's results with MPFR's, through the dev-dependencies `rug` and [`gmp-mpfr-sys`](https://crates.io/crates/gmp-mpfr-sys); on the other targets, they run without these comparisons.
 
 ## Building for Several x86-64 Levels
 
@@ -39,7 +39,7 @@ done
 RUSTFLAGS="-Ctarget-cpu=x86-64" cargo build --release --target x86_64-unknown-linux-gnu --target-dir target/x86-64 --features inari/force-generic
 ```
 
-Each build lands in `target/<level>/x86_64-unknown-linux-gnu/release/`. `--features inari/force-generic` needs inari as a direct dependency of the package you build. The separate `--target-dir`s keep the builds from overwriting one another, and `--target` keeps `RUSTFLAGS` away from build scripts and procedural macros, which run on the build machine (see [`build.rustflags`](https://doc.rust-lang.org/cargo/reference/config.html#buildrustflags)): without it, a build for `x86-64-v4` on a machine without AVX-512 can die with SIGILL in a build script, such as that of `gmp-mpfr-sys`.
+Each build lands in `target/<level>/x86_64-unknown-linux-gnu/release/`. `--features inari/force-generic` needs inari as a direct dependency of the package you build. The separate `--target-dir`s keep the builds from overwriting one another, and `--target` keeps `RUSTFLAGS` away from build scripts and procedural macros, which run on the build machine (see [`build.rustflags`](https://doc.rust-lang.org/cargo/reference/config.html#buildrustflags)): without it, a build for `x86-64-v4` on a machine without AVX-512 can die with SIGILL in one of them.
 
 For a program, a small launcher, itself built for `x86-64`, can run the build for the highest level the CPU has. It must test the whole level as the psABI defines it, not only the features that select inari's backend, because a build for a level lets the compiler use any feature of the level in any code it compiles. In Rust 1.96, `std::is_x86_feature_detected!` has a name for each feature that `x86-64-v2`, `x86-64-v3` and `x86-64-v4` add to `x86-64` but LAHF-SAHF and OSXSAVE; it tests OSXSAVE as part of AVX, and for AVX and AVX-512 it also tests that the operating system has enabled them.
 
@@ -47,7 +47,7 @@ For a shared library (a `cdylib`) on Linux with glibc 2.33 or later, the dynamic
 
 ## Cargo Features
 
-- `gmp` (enabled by default) - Enables [operations](https://docs.rs/inari/latest/inari/_docs/conformance/) that depend on GMP and MPFR. You can opt out of the feature to reduce dependencies. Even in that case, you still have access to all operations required by certain kinds of tasks, such as making fast robust predicates for computational geometry.
+- `gmp` - Deprecated, and does nothing; to be removed in the next major release. It used to be enabled by default, and to enable interval literals, formatting and the elementary functions, which need neither GMP nor MPFR now (see above). The features `gmp-mpfr-sys`, `nom` and `rug`, which Cargo used to derive from the optional dependencies of `gmp`, are deprecated and do nothing too.
 - `force-generic` - Uses the portable backend (see above) on x86-64, AArch64 and WebAssembly with `simd128` too. It is slower. Unlike the AArch64 backend, it does not change the rounding mode, and on x86-64 it also builds for target CPUs without SSE4.2, such as the default `x86-64`.
 
 ## [Changelog](CHANGELOG.md)

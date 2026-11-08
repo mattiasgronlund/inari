@@ -3,8 +3,8 @@
 // next to it, through `check_pow` and `check_pown` of `tests.rs`.
 //
 // Where the binomial series or a bound on a square root gives the roundings of a result, the
-// tests also assert them with `check_rounding`, so that they check results in both feature
-// sets, not only against MPFR. Below, u = 2^-52 and h = 2^-53 are the gaps between the `f64`s
+// tests also assert them with `check_rounding`, so that they check results on every platform,
+// not only against MPFR. Below, u = 2^-52 and h = 2^-53 are the gaps between the `f64`s
 // in [1, 2) and in [1/2, 1).
 
 use super::*;

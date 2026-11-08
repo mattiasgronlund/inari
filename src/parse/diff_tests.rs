@@ -5,8 +5,10 @@
 // `f64`s, midpoints and numbers just beside them, written as decimal, hexadecimal and `p/q`
 // literals give them, on subnormal numbers, on exponents up to `i32::MAX` and down to
 // `i32::MIN`, and on zeros of both signs. The literals also go through the grammar, and MPFR
-// gets their values as `literal_case` reads them, without the grammar. The last test times
-// literals whose exponents are huge, from end to end.
+// gets their values as `literal_case` reads them, without the grammar.
+// `huge_exponents_end_to_end`, which times literals whose exponents are huge from end to end,
+// needs no MPFR, so it is in `mod tests` of `src/parse.rs`, which also runs where the tests
+// have no MPFR.
 //
 // Uncertain literals such as `-1.25?3ue-7` go through `FromStr` of `Interval` and
 // `DecInterval` and `Interval::_try_from_str_exact` from end to end. `uncertain_oracle` reads
@@ -30,14 +32,12 @@
 // cases.
 
 use super::{number, parse_number, rational_to_f64, InfSup, Nat, Number, Rat};
-use crate::{mpfr_calls::round_rational, DecInterval, Decoration, Interval, IntervalErrorKind};
+use crate::{
+    mpfr_calls::mpfr::round_rational, DecInterval, Decoration, Interval, IntervalErrorKind,
+};
 use gmp_mpfr_sys::mpfr::rnd_t;
 use rug::{integer::Order, Integer, Rational};
-use std::{
-    cmp::Ordering,
-    f64::consts::LOG2_10,
-    time::{Duration, Instant},
-};
+use std::{cmp::Ordering, f64::consts::LOG2_10};
 
 struct Rng(u64);
 
@@ -1305,34 +1305,4 @@ fn edges() {
         }
     }
     assert!(report.is_empty(), "{}", report.join("\n"));
-}
-
-#[test]
-fn huge_exponents_end_to_end() {
-    // `rational_to_f64` decides these from the numbers of bits and the exponents, without a
-    // power of five as wide as the exponent, so each takes about a microsecond in a release
-    // build, while 10^1900000000 alone has over 6 * 10^9 bits. None of them needs a
-    // comparison of the two bounds.
-    let tiny = f64::from_bits(1);
-    let (max, inf) = (f64::MAX, f64::INFINITY);
-    for (s, a, b) in [
-        ("[1e1900000000]", max, inf),
-        ("[-1e1900000000]", -inf, -max),
-        ("[1e-2147483648]", 0.0, tiny),
-        ("[-1e-2147483648]", -tiny, 0.0),
-        ("[1e2147483647]", max, inf),
-        ("[0x1p2147483647]", max, inf),
-        ("[0x1p-2147483648]", 0.0, tiny),
-        ("[123456789012345678901234567890e-2147483648]", 0.0, tiny),
-        ("1?e1900000000", max, inf),
-        ("1?e-2147483648", 0.0, tiny),
-    ] {
-        let start = Instant::now();
-        let x = s.parse::<Interval>();
-        let elapsed = start.elapsed();
-        assert_eq!(x, Interval::try_from((a, b)), "{}", s);
-        assert!(elapsed < Duration::from_millis(100), "{}: {:?}", s, elapsed);
-    }
-    let x = "[1e1900000000]_com".parse::<crate::DecInterval>().unwrap();
-    assert_eq!(x.decoration(), crate::Decoration::Dac);
 }

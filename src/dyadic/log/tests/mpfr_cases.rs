@@ -1,5 +1,5 @@
 // The cases of MPFR's own tests of these functions, from MPFR 4.2.2's `tests/` (as gmp-mpfr-sys
-// 1.7.1 ships them), in both feature sets. The files that these tests read with `data_check`,
+// 1.7.1 ships them), on every platform. The files that these tests read with `data_check`,
 // `tests/data/log` and the like, are not in the crate, so their cases are not here.
 
 use super::*;

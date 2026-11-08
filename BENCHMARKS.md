@@ -54,8 +54,11 @@ correcting a round-to-nearest result.
 - Linux 7.0, `schedutil` governor, rustc 1.96.0, criterion 0.7.0, wasmtime 49.0.
 - `lto = "fat"` and `codegen-units = 1`, so that the primitives are inlined into
   the benchmarks as they are within inari.
-- The trigonometric functions call MPFR. Their section links GMP 6.3.0 and
-  MPFR 4.2.2, as built by `gmp-mpfr-sys` 1.7.1.
+- The trigonometric section measures builds in which `sin`, `cos` and `tan`
+  computed their bounds with MPFR. They linked GMP 6.3.0 and MPFR 4.2.2, as
+  built by `gmp-mpfr-sys` 1.7.1. inari now computes those bounds with its own
+  multi-precision kernel (`src/dyadic.rs`), which that section does not
+  measure.
 - Each run was pinned to one core with `taskset -c 11`, on an otherwise idle
   machine (load average below 3). Rounds measured on a loaded machine were
   discarded; see "Variance".
@@ -176,7 +179,9 @@ The trigonometric section was measured on 2026-11-02 between 03:00 and 03:55.
 `ced0d5f`, the commit before `216e5f5`, `216e5f5` itself and `b2390de` were
 built with the `trig` benchmark of `416ba9a` added (the measured copy differed
 only in comments), with
-`RUSTFLAGS=-Ctarget-cpu=haswell` and `--features gmp`, so with `fma`. Each
+`RUSTFLAGS=-Ctarget-cpu=haswell`, so with `fma`, and with the bench package's
+`--features gmp`, which the `trig` benchmark needed then, as the trigonometric
+functions called MPFR. Each
 benchmark took criterion's default 3 s of warm-up and 5 s of measurement, with
 flat sampling, as one iteration takes milliseconds. Nine rounds ran the three
 builds interleaved, in an order rotated from round to round, and were kept
@@ -738,8 +743,8 @@ the tightest. `216e5f5` keeps the division as the fast path. Where the two floor
 differ, unless the argument is a singleton or at least 8 wide (4 for `tan`),
 `floors_exact` divides each bound alone to confirm them, and where it cannot,
 `quadrants` reads the quadrants of the bounds from the signs of `sin_rd` and
-`cos_ru` of each. That is four MPFR calls, where the result itself makes at
-most two.
+`cos_ru` of each. That is four calls, of MPFR in the builds measured here,
+where the result itself makes at most two.
 
 The `trig` benchmark times each function on the same 1024 intervals of each of
 four classes, drawn with a fixed seed:
@@ -761,8 +766,10 @@ How many of the 1024 intervals of each class reach `floors_exact` in
 | big | 338 / 165 / 338 | 24 / 13 / 24 |
 
 The columns are `216e5f5^` (`ced0d5f`), `216e5f5` and `b2390de`, the main
-branch when this was measured. Times are in µs per interval operation, medians
-over nine rounds; see "Variance" above.
+branch when this was measured. All three computed the bounds with MPFR 4.2.2,
+built by `gmp-mpfr-sys` 1.7.1 (see "Setup"), so these are not times of the
+current code. Times are in µs per interval operation, medians over nine rounds;
+see "Variance" above.
 
 | Benchmark | ced0d5f (µs) | 216e5f5 (µs) | ratio | b2390de (µs) | ratio | spread |
 |---|--:|--:|--:|--:|--:|--:|
@@ -1159,14 +1166,18 @@ The 2.0.0 columns of the sections on tiny products come from
 `inari = "=2.0.0"` with `default-features = false`, with the same
 `[profile.bench]`.
 
-The trigonometric functions call MPFR, so their benchmark, `benches/trig.rs`,
-needs the package's `gmp` feature, which builds GMP and MPFR through
-`gmp-mpfr-sys`. Without it, `cargo bench` skips that benchmark.
+The trigonometric functions compute their bounds with inari's own kernel, so
+their benchmark, `benches/trig.rs`, needs no feature, and `cargo bench` runs it
+with the others. To run it alone:
 
 ```bash
 cd bench
-RUSTFLAGS=-Ctarget-cpu=haswell cargo bench --features gmp --bench trig
+RUSTFLAGS=-Ctarget-cpu=haswell cargo bench --bench trig
 ```
+
+The trigonometric section above was measured before that, with the package's
+`gmp` feature, which built GMP and MPFR through `gmp-mpfr-sys`. The package no
+longer has that feature.
 
 For WebAssembly, with wasmtime on the path:
 

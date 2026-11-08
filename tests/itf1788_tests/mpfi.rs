@@ -59,7 +59,6 @@ fn mpfi_abs() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_acos() {
     // special values
@@ -92,7 +91,6 @@ fn mpfi_acos() {
     assert_eq2!(n2i(-1.0, 1.0).acos(), n2i(0.0, 3.1415926535897936));
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_acosh() {
     // special values
@@ -282,7 +280,6 @@ fn mpfi_add_d() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_asin() {
     // special values
@@ -312,7 +309,6 @@ fn mpfi_asin() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_asinh() {
     // special values
@@ -377,7 +373,6 @@ fn mpfi_asinh() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_atan() {
     // special values
@@ -445,7 +440,6 @@ fn mpfi_atan() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_atan2() {
     // special values
@@ -512,7 +506,6 @@ fn mpfi_atan2() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_atanh() {
     // special values
@@ -565,7 +558,6 @@ fn mpfi_bounded_p() {
     assert!(n2i(0.9999999999999999, 2.0).is_common_interval());
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_cos() {
     // special values
@@ -648,7 +640,6 @@ fn mpfi_cos() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_cosh() {
     // special values
@@ -1196,7 +1187,6 @@ fn mpfi_d_sub() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_exp() {
     // special values
@@ -1230,7 +1220,6 @@ fn mpfi_exp() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_exp2() {
     // special values
@@ -1524,7 +1513,6 @@ fn mpfi_is_strictly_pos() {
     assert!(n2i(0.0, 0.0).strict_precedes(n2i(0.9999999999999999, 2.0)));
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_log() {
     // special values
@@ -1550,7 +1538,6 @@ fn mpfi_log() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_log2() {
     // special values
@@ -1572,7 +1559,6 @@ fn mpfi_log2() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_log10() {
     // special values
@@ -1983,7 +1969,6 @@ fn mpfi_put_d() {
     assert_eq2!(n2i(5.0, 5.0).convex_hull(n2i(0.0, 0.0)), n2i(0.0, 5.0));
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_sin() {
     // special values
@@ -2211,7 +2196,6 @@ fn mpfi_sin() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_sinh() {
     // special values
@@ -2471,7 +2455,6 @@ fn mpfi_sub_d() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_tan() {
     // special values
@@ -2696,7 +2679,6 @@ fn mpfi_tan() {
     );
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn mpfi_tanh() {
     // special values

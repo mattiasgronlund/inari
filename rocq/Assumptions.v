@@ -15,7 +15,7 @@
     those about π and its inverse trigonometric functions, [DyConstPi.v],
     [DyAtan.v] and [DyAsin.v], the one about its trigonometric functions,
     [DyTrig.v], those about its powers, [DyPown.v] and [DyPow.v], and
-    [DyPoint.v], are required without being imported, as
+    [DyPoint.v] and [DyPointDec.v], are required without being imported, as
     some of their names, such as [add_correct], are those of other
     theorems printed here, and their theorems are printed by qualified
     name. None of them quantifies over an MPFR. *)
@@ -29,9 +29,10 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu A
   ConstTight ConstPi ConstInv ConstLn ConstLog ValidMake ValidSetOp ValidOps ValidDecOps
   ValidElem Valid MpfrIdeal IdealRound IdealGetD IdealElem IdealPow IdealAtan2
   MpfrConsistent Contract OfPointCore OfPoint OfPointElem OfPointPow MpfrPoint
-  PointTheorems.
+  PointTheorems PointDec PointValid.
 From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyDriver
-  DyConst DyExp DyHyp DyLog DyLogHyp DyConstPi DyAtan DyAsin DyTrig DyPown DyPow DyPoint.
+  DyConst DyExp DyHyp DyLog DyLogHyp DyConstPi DyAtan DyAsin DyTrig DyPown DyPow DyPoint
+  DyPointDec.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -375,6 +376,27 @@ Print Assumptions DyPoint.kernel_cos_correct.
 Print Assumptions DyPoint.kernel_tan_correct.
 Print Assumptions DyPoint.kernel_pow_correct.
 Print Assumptions DyPoint.kernel_pown_correct.
+Print Assumptions DyPointDec.kernel_dec_exp_correct.
+Print Assumptions DyPointDec.kernel_dec_exp2_correct.
+Print Assumptions DyPointDec.kernel_dec_exp10_correct.
+Print Assumptions DyPointDec.kernel_dec_sinh_correct.
+Print Assumptions DyPointDec.kernel_dec_tanh_correct.
+Print Assumptions DyPointDec.kernel_dec_cosh_correct.
+Print Assumptions DyPointDec.kernel_dec_ln_correct.
+Print Assumptions DyPointDec.kernel_dec_log2_correct.
+Print Assumptions DyPointDec.kernel_dec_log10_correct.
+Print Assumptions DyPointDec.kernel_dec_asinh_correct.
+Print Assumptions DyPointDec.kernel_dec_acosh_correct.
+Print Assumptions DyPointDec.kernel_dec_atanh_correct.
+Print Assumptions DyPointDec.kernel_dec_atan_correct.
+Print Assumptions DyPointDec.kernel_dec_asin_correct.
+Print Assumptions DyPointDec.kernel_dec_acos_correct.
+Print Assumptions DyPointDec.kernel_dec_atan2_correct.
+Print Assumptions DyPointDec.kernel_dec_sin_correct.
+Print Assumptions DyPointDec.kernel_dec_cos_correct.
+Print Assumptions DyPointDec.kernel_dec_tan_correct.
+Print Assumptions DyPointDec.kernel_dec_pow_correct.
+Print Assumptions DyPointDec.kernel_dec_pown_correct.
 Print Assumptions E_tightest.
 Print Assumptions FRAC_1_PI_tightest.
 Print Assumptions FRAC_1_SQRT_2_tightest.
@@ -544,7 +566,9 @@ Print Assumptions mpfr_ok_default.
     at an exponent range with [range_ok]. Last, the twenty-one theorems
     from [exp_correct_point] to [pown_correct_point], stated for every
     record [point] whose fields satisfy the parts of [Contract.v] that
-    they need, in the order of [PointTheorems.v]. *)
+    they need, in the order of [PointTheorems.v], then those of the
+    decorated functions in [PointDec.v], and those of validity in
+    [PointValid.v], stated the same way. *)
 Print Assumptions mpfr_point_of_point.
 Print Assumptions of_point_get_d_ok.
 Print Assumptions of_point_acos_ok.
@@ -610,6 +634,69 @@ Print Assumptions cos_correct_point.
 Print Assumptions tan_correct_point.
 Print Assumptions pow_correct_point.
 Print Assumptions pown_correct_point.
+Print Assumptions dec_exp_correct_point.
+Print Assumptions dec_exp2_correct_point.
+Print Assumptions dec_exp10_correct_point.
+Print Assumptions dec_sinh_correct_point.
+Print Assumptions dec_tanh_correct_point.
+Print Assumptions dec_cosh_correct_point.
+Print Assumptions dec_ln_correct_point.
+Print Assumptions dec_log2_correct_point.
+Print Assumptions dec_log10_correct_point.
+Print Assumptions dec_asinh_correct_point.
+Print Assumptions dec_acosh_correct_point.
+Print Assumptions dec_atanh_correct_point.
+Print Assumptions dec_atan_correct_point.
+Print Assumptions dec_asin_correct_point.
+Print Assumptions dec_acos_correct_point.
+Print Assumptions dec_atan2_correct_point.
+Print Assumptions dec_sin_correct_point.
+Print Assumptions dec_cos_correct_point.
+Print Assumptions dec_tan_correct_point.
+Print Assumptions dec_pow_correct_point.
+Print Assumptions dec_pown_correct_point.
+Print Assumptions exp_valid_point.
+Print Assumptions dec_exp_valid_point.
+Print Assumptions exp2_valid_point.
+Print Assumptions dec_exp2_valid_point.
+Print Assumptions exp10_valid_point.
+Print Assumptions dec_exp10_valid_point.
+Print Assumptions sinh_valid_point.
+Print Assumptions dec_sinh_valid_point.
+Print Assumptions tanh_valid_point.
+Print Assumptions dec_tanh_valid_point.
+Print Assumptions cosh_valid_point.
+Print Assumptions dec_cosh_valid_point.
+Print Assumptions ln_valid_point.
+Print Assumptions dec_ln_valid_point.
+Print Assumptions log2_valid_point.
+Print Assumptions dec_log2_valid_point.
+Print Assumptions log10_valid_point.
+Print Assumptions dec_log10_valid_point.
+Print Assumptions asinh_valid_point.
+Print Assumptions dec_asinh_valid_point.
+Print Assumptions acosh_valid_point.
+Print Assumptions dec_acosh_valid_point.
+Print Assumptions atanh_valid_point.
+Print Assumptions dec_atanh_valid_point.
+Print Assumptions atan_valid_point.
+Print Assumptions dec_atan_valid_point.
+Print Assumptions asin_valid_point.
+Print Assumptions dec_asin_valid_point.
+Print Assumptions acos_valid_point.
+Print Assumptions dec_acos_valid_point.
+Print Assumptions atan2_valid_point.
+Print Assumptions dec_atan2_valid_point.
+Print Assumptions sin_valid_point.
+Print Assumptions dec_sin_valid_point.
+Print Assumptions cos_valid_point.
+Print Assumptions dec_cos_valid_point.
+Print Assumptions tan_valid_point.
+Print Assumptions dec_tan_valid_point.
+Print Assumptions pow_valid_point.
+Print Assumptions dec_pow_valid_point.
+Print Assumptions pown_valid_point.
+Print Assumptions dec_pown_valid_point.
 
 (** The names whose types quantify over an MPFR anywhere, and those of
     them that [Valid.v] declares, for the check of [MpfrExamples.v] in the

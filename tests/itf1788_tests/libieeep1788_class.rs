@@ -66,7 +66,6 @@ fn minimal_nums_to_decorated_interval_test() {
     assert_eq2!(n2di(f64::INFINITY, f64::INFINITY), DI::NAI);
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_text_to_interval_test() {
     assert_eq2!(t2i("[ Empty  ]"), I::EMPTY);
@@ -155,7 +154,6 @@ fn minimal_text_to_interval_test() {
     assert_eq2!(t2i("[0x1.00000000000002p0,0x1.00000000000001p0]"), I::EMPTY);
 }
 
-#[cfg(feature = "gmp")]
 #[test]
 fn minimal_text_to_decorated_interval_test() {
     assert_eq2!(t2di("[ Empty  ]"), DI::EMPTY);

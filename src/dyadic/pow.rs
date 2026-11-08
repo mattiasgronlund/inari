@@ -1,6 +1,9 @@
 // The powers x^y for an `f64` y and x^n for an `i32` n with the dyadic kernel, each rounded to
-// an `f64` toward +∞ if `up` and toward -∞ otherwise, as `pow_rd`, `pow_ru`, `pown_rd` and
-// `pown_ru` of `src/mpfr_calls/mpfr.rs` round them with MPFR.
+// an `f64` toward +∞ if `up` and toward -∞ otherwise, as MPFR rounds them but for x^y at
+// x < 0 (below; `src/dyadic.rs` says what `ziv` returns at its cap). `src/mpfr_calls/kernel.rs`
+// makes them the `pow_rd`, `pow_ru`, `pown_rd` and `pown_ru` that `src/elementary.rs` calls,
+// and the tests on 64-bit Linux and macOS compare them with those of the MPFR backend,
+// `src/mpfr_calls/mpfr.rs`.
 //
 // Each function first settles some arguments by rules: NaN, the zeros and the infinities, the
 // zero exponents, x = 1 for x^y, and, from bounds on the exponents of the arguments, some of

@@ -1,8 +1,9 @@
-// Tests of the powers of the dyadic kernel. Every generator runs in both feature sets through
+// Tests of the powers of the dyadic kernel. Every generator runs on every platform through
 // `check_pow` and `check_pown`, which check that the two directions give the same `f64` or two
-// adjacent ones, or NaN for both. With `gmp`, they also compare both directions with `pow_rd`,
-// `pow_ru`, `pown_rd` and `pown_ru` of `src/mpfr_calls/mpfr.rs`, which compute them with MPFR,
-// which they have to agree with bit for bit.
+// adjacent ones, or NaN for both. On 64-bit Linux and macOS, where the tests have MPFR, they
+// also compare both directions with `pow_rd`, `pow_ru`, `pown_rd` and `pown_ru` of
+// `src/mpfr_calls/mpfr.rs`, which compute them with MPFR, which they have to agree with bit for
+// bit.
 
 use super::*;
 use crate::dyadic::tests::Rng;
@@ -120,7 +121,10 @@ fn check_pair(what: &str, lo: f64, hi: f64) {
 fn check_pow(x: f64, y: f64) {
     let (lo, hi) = (pow(x, y, false), pow(x, y, true));
     check_pair(&format!("pow({:e}, {:e})", x, y), lo, hi);
-    #[cfg(feature = "gmp")]
+    #[cfg(all(
+        target_pointer_width = "64",
+        any(target_os = "linux", target_os = "macos")
+    ))]
     mpfr::check_pow(x, y, lo, hi);
 }
 
@@ -128,7 +132,10 @@ fn check_pow(x: f64, y: f64) {
 fn check_pown(x: f64, n: i32) {
     let (lo, hi) = (pown(x, n, false), pown(x, n, true));
     check_pair(&format!("pown({:e}, {})", x, n), lo, hi);
-    #[cfg(feature = "gmp")]
+    #[cfg(all(
+        target_pointer_width = "64",
+        any(target_os = "linux", target_os = "macos")
+    ))]
     mpfr::check_pown(x, n, lo, hi);
 }
 
@@ -549,9 +556,12 @@ fn random_wide() {
     }
 }
 
-#[cfg(feature = "gmp")]
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 mod mpfr {
-    use crate::mpfr_calls::*;
+    use crate::mpfr_calls::mpfr::*;
 
     fn same(a: f64, b: f64) -> bool {
         a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan())

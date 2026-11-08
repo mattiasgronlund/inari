@@ -1,5 +1,5 @@
 // The cases of MPFR's own tests of these functions, from MPFR 4.2.2's `tests/` (as gmp-mpfr-sys
-// 1.7.1 ships them), in both feature sets: `tatan.c` for atan and atan2, `tasin.c` and
+// 1.7.1 ships them), on every platform: `tatan.c` for atan and atan2, `tasin.c` and
 // `tacos.c`. The files that these tests read with `data_check`, `tests/data/atan` and the like,
 // are not in the crate, and their `test_generic` and `bad_cases` draw their arguments at
 // random, so none of their cases are here.

@@ -1162,8 +1162,9 @@ Definition add (x y : list Z) : list Z :=
 Definition mul (x y : list Z) : option (list Z) :=
   let* out := Limbs.mul_into (length x + length y) x y in Some (from_limbs out).
 
-(** [&x << k], where [usize::try_from(k / 64).unwrap()] holds on the
-    64-bit targets that [gmp] needs. *)
+(** [&x << k], where [usize::try_from(k / 64).unwrap()] holds on 64-bit
+    targets. On a 32-bit target it panics if [k / 64] is at least
+    [2 ^ 32], which is not modelled. *)
 Definition shl (x : list Z) (k : Z) : list Z :=
   if is_zero x then nil
   else from_limbs (Limbs.shl_into (Z.to_nat (k / 64) + length x + 1) x k).
@@ -1527,7 +1528,10 @@ Fixpoint ziv_levels (ev : nat -> option encl) (up : bool) (start : nat) (levels 
       else ziv_levels ev up start ls
   end.
 
-(** [fn ziv<E>(f: &E, up: bool, start: usize) -> f64] *)
+(** [fn ziv<E>(f: &E, up: bool, start: usize) -> f64]. The statements of
+    [fn ziv] under [#[cfg(test)]], which record the levels that it uses in
+    [ZIV_LEVEL], are not transcribed: only the tests compile them, and they
+    change no result. *)
 Definition ziv (ev : nat -> option encl) (up : bool) (start : nat) : option f64 :=
   let* r := ziv_levels ev up start (1 :: 2 :: 4 :: 8 :: 16 :: 32 :: nil)%nat in
   match r with Some x => Some x | None => ziv_cap ev up end.
@@ -2918,35 +2922,46 @@ End DyadicPow.
 (** ** MPFR
 
     [src/elementary.rs] computes the bounds of [exp] and the other
-    elementary functions with functions of [src/mpfr_calls.rs], which call
-    MPFR through [rug] and [gmp_mpfr_sys]. Those functions are the fields
-    of the record [point] below, which the elementary functions take as
-    their first argument [pt].
+    elementary functions with functions of [src/mpfr_calls.rs]. Those
+    functions are the fields of the record [point] below, which the
+    elementary functions take as their first argument [pt]. They have two
+    backends, with the same names and arguments.
+    [src/mpfr_calls/kernel.rs], which no [cfg] gates, calls the dyadic
+    kernel of [src/dyadic.rs] and is the one that the library uses.
+    [kernel_point] of [DyPoint.v] models it with [kernel_field] and the
+    functions of [DyadicExp] and the other modules above, at the calls
+    that a rule settles or at which a rounding test of Ziv's strategy
+    passes (see [DyPoint.v]). [src/mpfr_calls/mpfr.rs] calls MPFR through
+    [rug] and [gmp_mpfr_sys]. Only the tests compile it, on 64-bit Linux
+    and macOS, and this section models it.
 
     The model leaves MPFR's functions abstract: an MPFR number is an
     [mpfr_t], and the MPFR functions with which [src/mpfr_calls/mpfr.rs]
     computes those bounds, [mpfr::get_d] and the 21 that the uses of
     [mpfr_fn!], [mpfr_fn2!] and [mpfr_fn_si!] there call, are the fields
     of a record [mpfr], of which [mpfr_point] makes the record [point]
-    that inari uses. [Mpfr.v] states what the MPFR manual says of them,
-    and the theorems stated for MPFR functions [m] assume it of [m]. The
-    other functions of [gmp_mpfr_sys::mpfr] that [src/mpfr_calls/mpfr.rs]
-    calls are not fields: [assert_thread_safe()], which calls
-    [mpfr::buildopt_tls_p], is left out; and [with_parse_range] and
-    [round_rational], which call [mpfr::get_emin], [mpfr::get_emax],
-    [mpfr::set_emin], [mpfr::set_emax], [mpfr::set_q] and
-    [mpfr::subnormalize], and [fmt_bound_mpfr], which prints a bound of an
-    interval with [mpfr::asprintf] and [mpfr::free_str], as inari did
-    before [src/format/digits.rs], are compiled only for the tests, and are
-    not modelled. Outside these, what it does through [rug] is
-    [Float::with_val], which is [with_val] below, and the allocation and
-    freeing of MPFR numbers, which are left out.
+    of the MPFR backend. [Mpfr.v] states what the MPFR manual says of
+    them, and the theorems stated for MPFR functions [m] assume it of
+    [m]. The other functions of [gmp_mpfr_sys::mpfr] that
+    [src/mpfr_calls/mpfr.rs] calls are not fields:
+    [assert_thread_safe()], which calls [mpfr::buildopt_tls_p], is left
+    out; and [with_parse_range] and [round_rational], which call
+    [mpfr::get_emin], [mpfr::get_emax], [mpfr::set_emin],
+    [mpfr::set_emax], [mpfr::set_q] and [mpfr::subnormalize], and
+    [fmt_bound_mpfr], which prints a bound of an interval with
+    [mpfr::asprintf] and [mpfr::free_str], as inari did before
+    [src/format/digits.rs], are not modelled. Outside these, what it does
+    through [rug] is [Float::with_val], which is [with_val] below, and
+    the allocation and freeing of MPFR numbers, which are left out.
 
     [Contract.v] states what each field of [point] must do at the level
     of [f64]s; [MpfrPoint.v] shows that [mpfr_point m] does it under
-    [Mpfr.v]'s hypotheses, and [PointTheorems.v] proves [exp_correct] and
-    the other theorems that its header lists for every record that does
-    (as [exp_correct_point] and the others). *)
+    [Mpfr.v]'s hypotheses, and [DyPoint.v] that [kernel_point] does it
+    ([k_exp_c] and the others). [PointTheorems.v] proves [exp_correct]
+    and the other theorems that its header lists for every record that
+    does (as [exp_correct_point] and the others), and [PointDec.v] and
+    [PointValid.v] the theorems about the decorated functions and about
+    [valid] that their headers list. *)
 
 (** [mpfr::rnd_t::RNDD] and [mpfr::rnd_t::RNDU], rounding toward -inf and
     toward +inf. *)
@@ -3027,9 +3042,9 @@ Record mpfr : Type := {
     an MPFR number of 53 bits, set to [f] of it rounded in the direction
     [rnd], and then converted to an [f64] in the same direction by
     [get_d], which calls [mpfr::get_d]. The call of
-    [crate::mpfr_calls::assert_thread_safe()] that begins the [let] arm is
-    left out: it panics where the linked MPFR is not built thread-safe,
-    and does nothing otherwise. *)
+    [crate::mpfr_calls::mpfr::assert_thread_safe()] that begins the [let]
+    arm is left out: it panics where the linked MPFR is not built
+    thread-safe, and does nothing otherwise. *)
 Definition mpfr_fn (m : mpfr) (f : mpfr_rnd -> mpfr_t -> mpfr_t)
     (rnd : mpfr_rnd) (x : f64) : f64 :=
   mpfr_get_d m rnd (f rnd (with_val x)).
@@ -3059,19 +3074,30 @@ Definition is_i32 (n : Z) : Prop := (- 2 ^ 31 <= n < 2 ^ 31)%Z.
 (** The functions that [src/mpfr_calls.rs] gives the elementary functions
     to compute bounds with, each a function of the rounding direction: a
     field [p_f] for each pair of functions [f_rd] and [f_ru] that
-    [mpfr_fn!], [mpfr_fn2!] or [mpfr_fn_si!] defines in
-    [src/mpfr_calls/mpfr.rs], with [f_rd] as [p_f pt RNDD] and [f_ru] as
-    [p_f pt RNDU]. The fields are in the order of the uses of those macros
-    there, which is that of the record [mpfr], and are named after the
-    Rust functions: [p_ln] is [ln_rd] and [ln_ru], which call MPFR's
-    [log], and [p_pown] is [pown_rd] and [pown_ru], which call [pow_si].
+    [kernel_fn!], [kernel_fn2!] or [kernel_fn_si!] defines in
+    [src/mpfr_calls/kernel.rs], and [mpfr_fn!], [mpfr_fn2!] or
+    [mpfr_fn_si!] in [src/mpfr_calls/mpfr.rs], with [f_rd] as
+    [p_f pt RNDD] and [f_ru] as [p_f pt RNDU]. The fields are in the order
+    of the uses of those macros in either file, which is that of the
+    record [mpfr], and are named after the Rust functions: [p_ln] is
+    [ln_rd] and [ln_ru], which call [dyadic::ln] in the kernel backend and
+    MPFR's [log] in the MPFR one, and [p_pown] is [pown_rd] and [pown_ru],
+    which call [dyadic::pown] and MPFR's [pow_si]. In the tests on 64-bit
+    Linux and macOS, the macro [mpfr_in_tests!] of
+    [src/mpfr_calls/kernel.rs] lets a test of [src/mpfr_calls/tests.rs]
+    make the functions of [src/mpfr_calls/kernel.rs] return those of
+    [src/mpfr_calls/mpfr.rs] instead. That macro expands to nothing
+    outside the tests, and is not modelled.
 
     The elementary functions below take such a record as their first
-    argument [pt]. [mpfr_point m] is the one that [src/mpfr_calls/mpfr.rs]
-    makes of the MPFR functions [m]. [Contract.v] states what each field
-    must do at the level of [f64]s; [MpfrPoint.v] shows that
-    [mpfr_point m] does it under [Mpfr.v]'s hypotheses, and
-    [PointTheorems.v] proves [exp_correct] for every record that does. *)
+    argument [pt]. [kernel_point] of [DyPoint.v] models the one that
+    [src/mpfr_calls/kernel.rs] makes, which the library uses, and
+    [mpfr_point m] is the one that [src/mpfr_calls/mpfr.rs], which only
+    the tests compile, makes of the MPFR functions [m]. [Contract.v]
+    states what each field must do at the level of [f64]s; [MpfrPoint.v]
+    shows that [mpfr_point m] does it under [Mpfr.v]'s hypotheses,
+    [DyPoint.v] that [kernel_point] does it, and [PointTheorems.v] proves
+    [exp_correct] for every record that does. *)
 Record point : Type := {
   p_acos : mpfr_rnd -> f64 -> f64;
   p_acosh : mpfr_rnd -> f64 -> f64;
@@ -3096,8 +3122,9 @@ Record point : Type := {
   p_tanh : mpfr_rnd -> f64 -> f64
 }.
 
-(** The record [point] that [src/mpfr_calls/mpfr.rs] makes of the MPFR
-    functions [m]. [mpfr_fn!(acos, acos_rd, acos_ru)] defines [acos_rd]
+(** The record [point] that [src/mpfr_calls/mpfr.rs], the MPFR backend
+    that only the tests compile, makes of the MPFR functions [m].
+    [mpfr_fn!(acos, acos_rd, acos_ru)] defines [acos_rd]
     and [acos_ru] as [mpfr_fn m (mpfr_acos m)] in the directions [RNDD]
     and [RNDU], and the other uses of [mpfr_fn!] the same, those of
     [mpfr_fn2!] with [mpfr_fn2] and that of [mpfr_fn_si!] with
@@ -3127,14 +3154,19 @@ Definition mpfr_point (m : mpfr) : point := {|
 |}.
 
 (** The theorems about the elementary functions, other than those of
-    [PointTheorems.v] and [DyPoint.v], are stated for the MPFR
-    functions [m], and apply the functions below to [mpfr_point m], which
-    this coercion lets them write as [m]. *)
+    [PointTheorems.v], [PointDec.v], [PointValid.v], [DyPoint.v] and
+    [DyPointDec.v] and the constructors [made_kernel_exp],
+    [dmade_kernel_exp] and the others of [Valid.v], are stated for the
+    MPFR functions [m], and apply the functions below to [mpfr_point m],
+    which this coercion lets them write as [m]. *)
 Coercion mpfr_point : mpfr >-> point.
 
-(** The functions that [mpfr_fn!(acos, acos_rd, acos_ru)] and the other
-    uses of [mpfr_fn!], [mpfr_fn2!] and [mpfr_fn_si!] in
-    [src/mpfr_calls/mpfr.rs] define. *)
+(** The functions that [kernel_fn!(acos, acos_rd, acos_ru)] and the other
+    uses of [kernel_fn!], [kernel_fn2!] and [kernel_fn_si!] in
+    [src/mpfr_calls/kernel.rs] define, and in the tests those that
+    [mpfr_fn!(acos, acos_rd, acos_ru)] and the other uses of [mpfr_fn!],
+    [mpfr_fn2!] and [mpfr_fn_si!] in [src/mpfr_calls/mpfr.rs] define, of
+    the record [pt] of their backend. *)
 Definition acos_rd (pt : point) := p_acos pt RNDD.
 Definition acos_ru (pt : point) := p_acos pt RNDU.
 Definition acosh_rd (pt : point) := p_acosh pt RNDD.
@@ -3241,8 +3273,9 @@ Definition quadrants (pt : point) (a b : f64) : f64 * f64 :=
     [shuffle02], [shuffle03], [shuffle13], [swap], [add_rn], [sub_rn],
     [hadd_rn], [add_ru], [sub_ru], [mul_ru], [div_ru], [mul_add_ru],
     [sqrt1_ru] and [sqrt_rd_ru], which are the ones in [Generic] here.
-    The elementary functions also call MPFR, through the functions that
-    are the argument [pt] here (see the record [point] above).
+    The elementary functions also compute bounds with the functions that
+    are the argument [pt] here: those of the dyadic kernel in the library,
+    and in the tests those of MPFR too (see the record [point] above).
     [Interval::max] and [Interval::min] also read the backend's
     [HAS_MAXIMUM], whose value depends on the backend, so it is the
     argument [has_maximum] here.
@@ -3652,7 +3685,8 @@ Definition number_to_f64 (n : Number) (infsup : InfSup) : option F64 :=
     above, each [Nat] is the [Z] that it holds, with the limbs
     [NatLimbs.to_limbs] of that [Z], and each of its operations is the loop
     of [NatLimbs] on those limbs, through its wrapper on [Z]s. [usize] is
-    [u64], as the feature [gmp] is supported only on 64-bit targets. *)
+    [u64], as on 64-bit targets: the model does not cover 32-bit targets,
+    on which it is [u32]. *)
 
 Definition radix10 : radix := Build_radix 10 eq_refl.
 Definition radix16 : radix := Build_radix 16 eq_refl.

@@ -30,13 +30,16 @@
     [p], they make MPFR functions [of_point p] with
     [mpfr_point (of_point p) = p], which satisfy [get_d_ok] at the
     exponent range of [f64] and [f_ok] at that range where [p] satisfies
-    [f_c]. With them, [PointTheorems.v] proves the theorems that its header
-    lists, such as [exp_correct], for every record [p] that does what they
-    need of it, as [exp_correct_point] and the others, and [DyPoint.v]
-    applies them to the dyadic kernel's functions, as [kernel_exp_correct]
-    and the others. The other theorems about the elementary functions are
-    stated for MPFR functions [m], and what they assume of [m] is stated in
-    [Mpfr.v]. *)
+    [f_c]. With them, [PointTheorems.v], [PointDec.v] and [PointValid.v]
+    prove the theorems that their headers list, such as [exp_correct],
+    [dec_exp_correct] and [exp_valid], for every record [p] that does what
+    they need of it, as [exp_correct_point], [dec_exp_correct_point],
+    [exp_valid_point] and the others. [DyPoint.v], [DyPointDec.v] and
+    [Valid.v] apply them to the dyadic kernel's functions, as
+    [kernel_exp_correct], [kernel_dec_exp_correct], the constructors
+    [made_kernel_exp] and [dmade_kernel_exp], and the others. The other
+    theorems about the elementary functions are stated for MPFR functions
+    [m], and what they assume of [m] is stated in [Mpfr.v]. *)
 
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.

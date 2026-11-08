@@ -9,7 +9,7 @@
 // generator takes cases of a family, where both directions have to give the exact result,
 // and arguments next to them, most of which give results that are not `f64`s, where the two
 // directions have to differ. Each case also goes through `check_pow` or `check_pown`, which
-// compare it with MPFR under `gmp`.
+// compare it with MPFR on 64-bit Linux and macOS.
 
 use super::*;
 

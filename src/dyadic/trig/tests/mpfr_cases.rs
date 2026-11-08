@@ -237,9 +237,12 @@ fn mpfr_test_cases() {
 }
 
 // The arguments that tsin.c and ttan.c compute from π as `mpfr_const_pi` rounds it, computed
-// here as the tests compute them, with rug, so only with `gmp`. Each has at most 53 bits, and
-// none has a 53-bit result in these tests.
-#[cfg(feature = "gmp")]
+// here as the tests compute them, with rug, so only where the tests have MPFR. Each has at most
+// 53 bits, and none has a 53-bit result in these tests.
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 #[test]
 fn mpfr_pi_arguments() {
     use rug::{

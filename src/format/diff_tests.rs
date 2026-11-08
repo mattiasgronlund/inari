@@ -14,12 +14,21 @@
 // `bound` keeps the digit. `mpfr_bumps_exact` says which cases these are: there `check` asks
 // that the texts differ, and the comparison of whole intervals skips them.
 //
+// The items that call MPFR are compiled only where the tests have it, on 64-bit Linux and
+// macOS, by the `cfg` on each. `parse_back` and `exact_digit_at_precision_0` need no MPFR, so
+// they also run where the tests have none, such as on wasm32 and i686.
+//
 // The number of random cases per generator can be set with `INARI_FORMAT_N`, and the cases
 // changed with the seed `INARI_FORMAT_SEED`. Run with `--nocapture` to see the numbers of
 // cases.
 
 use super::bound;
-use crate::{mpfr_calls::fmt_bound_mpfr, DecInterval, Decoration, Interval};
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
+use crate::mpfr_calls::mpfr::fmt_bound_mpfr;
+use crate::{DecInterval, Decoration, Interval};
 use std::fmt;
 
 struct Rng(u64);
@@ -274,6 +283,10 @@ fn specials() -> Vec<f64> {
 }
 
 // The precisions that each number is printed with.
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 fn precisions() -> Vec<Option<usize>> {
     let mut ps = vec![None];
     ps.extend((0..=20).map(Some));
@@ -286,6 +299,10 @@ const LARGE: [usize; 4] = [40, 100, 330, 1100];
 
 // Whether MPFR's text of `x` adds 1 to the exact digit: for `%.0RUa` of a positive `x` and
 // `%.0RDa` of a negative one, whose significand has at most 4 significant bits.
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 fn mpfr_bumps_exact(x: f64, prec: Option<usize>, conv: char, up: bool) -> bool {
     if prec != Some(0) || conv != 'a' || x == 0.0 || !x.is_finite() || (x < 0.0) == up {
         return false;
@@ -301,6 +318,10 @@ fn mpfr_bumps_exact(x: f64, prec: Option<usize>, conv: char, up: bool) -> bool {
 
 // Compares `bound` with MPFR for `x`, and where `mpfr_bumps_exact` says that MPFR's digit is
 // off, checks that the texts differ.
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 fn check(x: f64, prec: Option<usize>, conv: char, up: bool, report: &mut Vec<String>) {
     let got = bound(x, prec, conv, up);
     let want = fmt_bound_mpfr(x, prec, conv, up);
@@ -321,6 +342,10 @@ fn check(x: f64, prec: Option<usize>, conv: char, up: bool, report: &mut Vec<Str
 }
 
 // Compares `x` in every style, precision and direction.
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 fn check_all(x: f64, report: &mut Vec<String>) {
     for conv in ['f', 'e', 'a'] {
         for prec in precisions() {
@@ -332,6 +357,10 @@ fn check_all(x: f64, report: &mut Vec<String>) {
 }
 
 // Compares `x` in every style and direction, with the precisions of `LARGE`.
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 fn check_large(x: f64, report: &mut Vec<String>) {
     for conv in ['f', 'e', 'a'] {
         for prec in LARGE {
@@ -343,6 +372,10 @@ fn check_large(x: f64, report: &mut Vec<String>) {
 }
 
 // `check_all`, and `check_large` for one case in 8.
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 fn check_sampled(rng: &mut Rng, x: f64, report: &mut Vec<String>) {
     check_all(x, report);
     if rng.below(8) == 0 {
@@ -398,6 +431,10 @@ fn text(
 // The text of `x`, decorated with `d` if it is `Some`, as `text` should write it: the bounds
 // from MPFR in the layout of `fmt_impl` of `src/format.rs`, or `None` where
 // `mpfr_bumps_exact` holds for a bound. NaI is `Interval::EMPTY` with `Some(Decoration::Ill)`.
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 fn want_text(
     x: Interval,
     d: Option<Decoration>,
@@ -446,6 +483,10 @@ fn bits(x: Interval) -> (u64, u64) {
     (x.inf().to_bits(), x.sup().to_bits())
 }
 
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 #[test]
 fn edges() {
     let mut xs = vec![
@@ -485,6 +526,10 @@ fn edges() {
     );
 }
 
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 #[test]
 fn random_bits() {
     run("random_bits", 1, |rng, report| {
@@ -495,6 +540,10 @@ fn random_bits() {
     });
 }
 
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 #[test]
 fn integers() {
     run("integers", 2, |rng, report| {
@@ -503,6 +552,10 @@ fn integers() {
     });
 }
 
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 #[test]
 fn near_carries() {
     run("near_carries", 3, |rng, report| {
@@ -511,6 +564,10 @@ fn near_carries() {
     });
 }
 
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 #[test]
 fn hex_digits() {
     run("hex_digits", 4, |rng, report| {
@@ -519,6 +576,10 @@ fn hex_digits() {
     });
 }
 
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 #[test]
 fn intervals_against_mpfr() {
     run("intervals_against_mpfr", 5, |rng, report| {
@@ -618,6 +679,10 @@ fn parse_back() {
 
 // Bounds on which `bound` and MPFR differ, as `(x, prec, conv, up)`, each with what it broke
 // and where it was found.
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 fn regressions() -> Vec<(f64, Option<usize>, char, bool)> {
     vec![
         // MPFR's `%.0RUa` of a positive bound, and `%.0RDa` of a negative one, of at most 4
@@ -641,6 +706,10 @@ fn regressions() -> Vec<(f64, Option<usize>, char, bool)> {
     ]
 }
 
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 #[test]
 fn regressions_against_mpfr() {
     let mut report = Vec::new();
@@ -682,6 +751,10 @@ fn exact_digit_at_precision_0() {
 // 65535, the largest precision that `format!` takes in recent Rust (older Rust takes any
 // `usize`): the text of MPFR, of the length that each digit and the exponent take, and the
 // same in both directions, as every `f64` is exact at it.
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
 #[test]
 fn huge_precision() {
     let p = 65535;
