@@ -1,6 +1,6 @@
 # Benchmarks
 
-A comparison of the backends of inari, in nine sittings:
+A comparison of the backends of inari, in ten sittings:
 
 - 2026-09-22: `avx_fma`, then the default for x86-64, which set MXCSR around
   every instruction to make the hardware round, against the portable backend
@@ -25,6 +25,9 @@ A comparison of the backends of inari, in nine sittings:
 - 2026-11-05: `generic` before and after the change that rounds up without a
   branch where there is no FMA, and `fma` against inari 2.0.0 again, on the same
   products.
+- 2026-11-08: multiplication in `generic` without an FMA and on WebAssembly
+  again, after that change, with the composite benchmarks on WebAssembly, and
+  two builds of the same source against each other.
 
 `avx_fma` is the base column of the first three x86-64 sections, so that the
 two explicit backends are measured against what they replaced, and against each
@@ -36,9 +39,13 @@ before its removal. The sixth compares builds of three commits, all with `fma`,
 rather than backends. The seventh, like the sixth, compares builds of commits:
 two, each in five configurations, and the eighth and the ninth two, each in
 four. The ninth also compares the first of its two, the main branch then, with
-inari 2.0.0, both with `fma`'s flags. No backend for x86-64 changes the rounding
-mode any more: `avx512f` uses per-instruction embedded rounding, and the other
-two round by correcting a round-to-nearest result.
+inari 2.0.0, both with `fma`'s flags. The tenth compares two builds of the
+source of `5543a69` with each other, and with builds of `d894347` and
+`0a7c306`, and measures rows of the sections on x86-64, x86-64 without AVX and
+WebAssembly again, the first two against `avx_fma` built from `cc5e384`, as the
+fifth does. No backend for x86-64 changes the rounding mode any more:
+`avx512f` uses per-instruction embedded rounding, and the other two round by
+correcting a round-to-nearest result.
 
 ## Setup
 
@@ -274,6 +281,48 @@ its table. `fma` at `d894347` takes up to 5% longer on `mul`, and up to 3% on
 these multiplications is the same; on `mul`, it is within 1% of that sitting's
 "before" column.
 
+The section on two builds of the same source, and the cells of the sections on
+x86-64, x86-64 without AVX and WebAssembly that their notes name, were measured
+on 2026-11-08 between 00:08 and 01:41. Copies A and B of the source of `5543a69`
+were built in `generic, Nehalem`, `generic, FMA` and `wasm32`, and copy A also
+in `generic, no FMA`, `scalar` and `simd128`, with the flags of "Setup", and the
+WebAssembly builds were compiled and run as in the seventh sitting. These builds
+run the code of `8aef5d1`, the main branch then: of the files in `src/`,
+`bench/` and the manifests, the two commits differ only in `src/dyadic.rs` and
+the files under `src/dyadic/`, which are compiled only for inari's own tests.
+`d894347` was built in `generic, Nehalem` and `generic, FMA`, `0a7c306` in
+`wasm32`, and `avx_fma` from `cc5e384`, as in the fifth sitting, all with the
+`bench/` of `5543a69` and one `Cargo.lock`. Each benchmark took 2 s of warm-up
+and 3 s of measurement. Each comparison ran in rounds of its own, seven for
+`mul` and `mul_ru` on WebAssembly, seven on x86-64, seven for the composite
+benchmarks on WebAssembly, ten for the copies in `generic` and twelve for those
+in `wasm32`, the builds in an order rotated from round to round and reversed
+every other round, and all were kept under the rule of the `mul_add_ru` rows
+above. They ran at a load average of 1.00 to 1.46, with the sibling at least
+99.3% idle and the other cores busy for at most 0.60 cores' worth of time, and
+the rows report their medians, and the spread as the seventh sitting defines
+it, over the cells measured in this sitting. The ratios differ by at most 0.02
+when criterion's own median estimate is used instead, and when the lowest is,
+except in the `generic, Nehalem` cells of the table of x86-64 without AVX, where
+the lowest gives ratios 0.02–0.04 lower on `mul` in every class but `MM`, and
+0.08 lower on `mul_ru/throughput`, which is bimodal there (see the note under
+that table). `scalar` ran both `mul_ru` rows slower in one round of the seven,
+by 18% in throughput and 6% in latency, which is where their spreads come
+from. On the composite
+benchmarks, copy B of `wasm32` takes 0.997–0.998 times as long as copy A, and
+single rounds range from 0.987 to 1.016. The build of copy A in `generic,
+Nehalem` ran in the rounds on x86-64 and in those of the copies, and takes
+1.000–1.015 times as long on `mul/PP`, `mul/PM` and `mul/MM` in the first as in
+the second, each inside the range that copy B takes against copy A there in
+single rounds. `avx_fma` takes within 1.3% of its columns in the sections on
+x86-64 and x86-64 without AVX on every row measured. On `mul`, `d894347` takes
+within 2.4% of the "before" column of the ninth sitting, copy A in the same two
+configurations within 1.7% of that sitting's "after" column, and `0a7c306`
+within 1.1% of the "before" column of the seventh. The probe on DAZ
+and FTZ (see "Observations") ran fifteen rounds of copy A in `generic, FMA`,
+`fma` and `generic, Nehalem`, and twelve were kept: in rounds 2, 4 and 13, the
+sibling was 98.2–98.7% idle during one or two runs.
+
 Composite benchmarks drift between sittings more than the primitives do: the
 `avx_fma` 3×3 determinant is 236 ns in the first section, 211 ns in the `sse42`
 section and 193 ns in the `fma` section, while its `add/PP` is 9.25, 9.24 and
@@ -306,15 +355,15 @@ M: containing zero):
 | sub/PP | 9.26 | 8.64 | 0.93× | 8.86 | 0.96× | 0% |
 | sub/PM | 9.25 | 9.79 | 1.06× | 10.11 | 1.09× | 0% |
 | sub/MM | 9.25 | 9.64 | 1.04× | 11.83 | 1.28× | 0% |
-| mul/PP | 10.42 | 13.10 | 1.26× | 15.82 | 1.52× | 0% |
-| mul/PN | 10.43 | 12.96 | 1.24× | 15.51 | 1.49× | 1% |
-| mul/PM | 10.41 | 12.89 | 1.24× | 15.82 | 1.52× | 0% |
-| mul/NP | 10.41 | 13.15 | 1.26× | 15.73 | 1.51× | 0% |
-| mul/NN | 10.43 | 13.17 | 1.26× | 15.82 | 1.52× | 0% |
-| mul/NM | 10.42 | 12.96 | 1.24× | 15.67 | 1.50× | 2% |
-| mul/MP | 10.41 | 13.00 | 1.25× | 15.51 | 1.49× | 2% |
-| mul/MN | 10.42 | 12.88 | 1.24× | 15.86 | 1.52× | 0% |
-| mul/MM | 18.91 | 22.28 | 1.18× | 30.16 | 1.60× | 3% |
+| mul/PP | 10.42 | 13.10 | 1.26× | 14.53 | 1.38× | 1% |
+| mul/PN | 10.43 | 12.96 | 1.24× | 14.65 | 1.39× | 1% |
+| mul/PM | 10.41 | 12.89 | 1.24× | 14.65 | 1.39× | 1% |
+| mul/NP | 10.41 | 13.15 | 1.26× | 14.61 | 1.39× | 1% |
+| mul/NN | 10.43 | 13.17 | 1.26× | 14.63 | 1.39× | 1% |
+| mul/NM | 10.42 | 12.96 | 1.24× | 14.57 | 1.39× | 2% |
+| mul/MP | 10.41 | 13.00 | 1.25× | 14.61 | 1.39× | 2% |
+| mul/MN | 10.42 | 12.88 | 1.24× | 14.50 | 1.38× | 1% |
+| mul/MM | 18.91 | 22.28 | 1.18× | 32.01 | 1.67× | 3% |
 | div/PP | 10.18 | 26.16 | 2.57× | 25.94 | 2.55× | 0% |
 | div/PN | 10.20 | 18.31 | 1.80× | 26.64 | 2.61× | 0% |
 | div/MP | 10.19 | 26.98 | 2.65× | 25.39 | 2.49× | 0% |
@@ -333,14 +382,21 @@ Primitives (`throughput`: 1024 independent operations; `latency`: a chain of
 |---|--:|--:|--:|--:|--:|--:|
 | add_ru/throughput | 9.28 | 8.15 | 0.88× | 8.37 | 0.90× | 0% |
 | add_ru/latency | 8.76 | 13.01 | 1.49× | 13.07 | 1.49× | 0% |
-| mul_ru/throughput | 9.26 | 9.16 | 0.99× | 11.01 | 1.19× | 1% |
-| mul_ru/latency | 8.75 | 13.11 | 1.50× | 16.24 | 1.86× | 0% |
+| mul_ru/throughput | 9.26 | 9.16 | 0.99× | 11.12 | 1.19× | 1% |
+| mul_ru/latency | 8.75 | 13.11 | 1.50× | 16.09 | 1.82× | 1% |
 | div_ru/throughput | 9.28 | 9.84 | 1.06× | 31.99 | 3.45× | 0% |
 | div_ru/latency | 8.76 | 15.34 | 1.75× | 35.01 | 4.00× | 0% |
 | mul_add_ru/throughput | 9.00 | 19.40 | 2.16× | 37.60 | 4.18× | 1% |
 | mul_add_ru/latency | 8.52 | 11.25 | 1.32× | 23.60 | 2.77× | 0% |
 | sqrt1_ru/throughput | 2.32 | 2.13 | 0.92× | 4.07 | 1.76× | 1% |
 | sqrt1_ru/latency | 7.33 | 7.33 | 1.00× | 7.75 | 1.06× | 0% |
+
+The `generic, no FMA` cells of the `mul` and `mul_ru` rows were measured again
+on 2026-11-08, after `d2a2f0c` changed how `generic` rounds up without an FMA:
+medians over seven rounds (see "Variance"). Their ratios are against `avx_fma`
+built from `cc5e384` and timed in the same rounds, within 1.3% of the `avx_fma`
+column on each of these rows, and their spread is the larger of the two
+measurements'. The other cells of these rows are from the first sitting.
 
 `avx_fma` takes `sqrt1_rd` and `sqrt1_ru` from `generic`, which is why its
 square roots match it. Before that change, with the rounding mode switched
@@ -595,7 +651,12 @@ to the same instructions in both builds but for addresses, takes 1.02 times as
 long there, and 1.01–1.04 times in every round, so these builds cannot tell how
 much of the 1.05 comes from the change. `fma`, whose code for these
 multiplications is the same in both builds, takes 1.00 times as long on every
-row.
+row. Measured again on 2026-11-08, against two builds of the source of
+`5543a69`, which comes after `d2a2f0c`, the ratio of `generic, Nehalem` on
+`mul/MM` is 1.03, more than those two builds differ there, but `generic, FMA`
+takes 1.01 times as long, and up to 1.035 times in single rounds, so these
+builds cannot tell either; see the section on two builds of the same source
+below.
 
 ### `fma` against inari 2.0.0, tiny products with one TwoProduct
 
@@ -618,6 +679,53 @@ rounds; see "Variance" above.
 
 2.0.0 takes 1.00 times as long on `mul_tiny` as on `mul` in each class, as it
 lets the hardware round.
+
+### `generic` and `wasm32`, two builds of the same source
+
+Two copies of the source of `5543a69`, the same byte for byte but at paths of
+different lengths and depths, copy A and copy B, were each built in three
+configurations: `generic, Nehalem` and `generic, FMA` with the flags of "Setup",
+and `wasm32` on `wasm32-wasip1`, compiled and run as in the seventh sitting.
+Their binaries differ in 63–71% of their bytes. In `generic, Nehalem` and
+`generic, FMA`, `generic::mul_ru` compiles to the same instructions in both
+copies but for addresses. They ran in the same rounds as `d894347`, the "before"
+column of the section on rounding up without a branch, and `0a7c306`, the
+"before" column of the section on tiny products in `sse42`, `wasm32` and
+`generic`; see "Variance" above. Times are in ns per interval multiplication,
+medians over ten rounds for `generic` and twelve for `wasm32`.
+
+| Configuration | Class | d894347 (ns) | copy A (ns) | ratio | copy B (ns) | ratio | B/A | spread |
+|---|---|--:|--:|--:|--:|--:|--:|--:|
+| generic, Nehalem | PP | 16.76 | 14.38 | 0.86× | 14.49 | 0.86× | 1.01× | 4% |
+| generic, Nehalem | PM | 16.01 | 14.32 | 0.89× | 14.53 | 0.91× | 1.01× | 5% |
+| generic, Nehalem | MM | 31.13 | 31.91 | 1.03× | 31.92 | 1.03× | 1.00× | 3% |
+| generic, FMA | PP | 13.42 | 13.41 | 1.00× | 13.29 | 0.99× | 0.99× | 3% |
+| generic, FMA | PM | 13.21 | 13.27 | 1.00× | 13.59 | 1.03× | 1.02× | 2% |
+| generic, FMA | MM | 22.85 | 23.12 | 1.01× | 23.20 | 1.02× | 1.00× | 3% |
+
+| Class | 0a7c306 (ns) | copy A (ns) | ratio | copy B (ns) | ratio | B/A | spread |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| PP | 14.77 | 14.98 | 1.01× | 15.00 | 1.02× | 1.00× | 7% |
+| PM | 14.79 | 14.93 | 1.01× | 15.00 | 1.01× | 1.00× | 7% |
+| MM | 25.44 | 25.48 | 1.00× | 25.47 | 1.00× | 1.00× | 9% |
+
+Copy B takes 0.99–1.02 times as long as copy A on every row, and single rounds
+range from 0.958 to 1.038 in `generic, Nehalem` (0.991 to 1.013 on `mul/MM`),
+from 0.973 to 1.038 in `generic, FMA`, and from 0.928 to 1.011 in `wasm32`,
+where copy A ran 6–8% slower in one round of the twelve than in the others.
+That is how far two builds of the same code move here.
+
+Against `d894347`, `generic, Nehalem` takes 0.86–0.91 times as long on `mul/PP`
+and `mul/PM`, where the section on rounding up without a branch has 0.89, and
+1.03 times as long on `mul/MM`, more than its two copies differ there (by at
+most 1.3% in single rounds), and 1.010–1.035 times in single rounds. `generic,
+FMA`, whose `generic::mul_ru` compiles to the same instructions at `d894347`
+and in copy A but for addresses, takes 1.01 times as long on `mul/MM`, and
+0.996–1.035 times in single rounds, so these builds cannot tell how much of the
+1.03 comes from `d2a2f0c` either.
+`wasm32` takes 1.00–1.01 times as long in copy A as at `0a7c306`, inside the
+0.93–1.08 that either of its two copies takes against the other in single
+rounds.
 
 ### x86-64 with AVX and FMA, trigonometric functions
 
@@ -684,7 +792,9 @@ round-toward-+∞ fast paths explicitly and never touches MXCSR. It is compared
 with `avx_fma`, then the default where AVX and FMA are available, and with
 `generic` at the same feature level, which is the alternative on a processor
 without them.
-Medians over twelve rounds; see "Variance" above.
+Medians over twelve rounds, except in the `generic, Nehalem` cells of the `mul`
+and `mul_ru` rows, which were measured again later over seven; see "Variance"
+above.
 
 | Benchmark | avx_fma (ns) | sse42 (ns) | ratio | generic, Nehalem (ns) | ratio | spread |
 |---|--:|--:|--:|--:|--:|--:|
@@ -694,15 +804,15 @@ Medians over twelve rounds; see "Variance" above.
 | sub/PP | 9.25 | 5.14 | 0.56× | 8.85 | 0.96× | 41% |
 | sub/PM | 9.26 | 5.14 | 0.56× | 10.17 | 1.10× | 13% |
 | sub/MM | 9.26 | 5.14 | 0.55× | 11.84 | 1.28× | 4% |
-| mul/PP | 10.40 | 7.71 | 0.74× | 15.87 | 1.53× | 4% |
-| mul/PN | 10.41 | 7.75 | 0.74× | 15.66 | 1.50× | 3% |
-| mul/PM | 10.40 | 7.77 | 0.75× | 15.99 | 1.54× | 3% |
-| mul/NP | 10.42 | 7.79 | 0.75× | 16.27 | 1.56× | 3% |
-| mul/NN | 10.41 | 7.83 | 0.75× | 16.11 | 1.55× | 1% |
-| mul/NM | 10.41 | 7.79 | 0.75× | 15.60 | 1.50× | 3% |
-| mul/MP | 10.40 | 7.80 | 0.75× | 16.04 | 1.54× | 4% |
-| mul/MN | 10.42 | 7.80 | 0.75× | 15.64 | 1.50× | 1% |
-| mul/MM | 18.91 | 13.59 | 0.72× | 30.03 | 1.59× | 3% |
+| mul/PP | 10.40 | 7.71 | 0.74× | 14.52 | 1.38× | 4% |
+| mul/PN | 10.41 | 7.75 | 0.74× | 14.52 | 1.38× | 4% |
+| mul/PM | 10.40 | 7.77 | 0.75× | 14.53 | 1.38× | 5% |
+| mul/NP | 10.42 | 7.79 | 0.75× | 14.46 | 1.38× | 3% |
+| mul/NN | 10.41 | 7.83 | 0.75× | 14.62 | 1.39× | 3% |
+| mul/NM | 10.41 | 7.79 | 0.75× | 14.40 | 1.37× | 3% |
+| mul/MP | 10.40 | 7.80 | 0.75× | 14.54 | 1.38× | 4% |
+| mul/MN | 10.42 | 7.80 | 0.75× | 14.46 | 1.38× | 3% |
+| mul/MM | 18.91 | 13.59 | 0.72× | 31.91 | 1.67× | 3% |
 | div/PP | 10.18 | 9.80 | 0.96× | 23.04 | 2.26× | 6% |
 | div/PN | 10.18 | 9.90 | 0.97× | 24.70 | 2.43× | 4% |
 | div/MP | 10.17 | 9.90 | 0.97× | 21.50 | 2.11× | 7% |
@@ -718,8 +828,8 @@ Medians over twelve rounds; see "Variance" above.
 |---|--:|--:|--:|--:|--:|--:|
 | add_ru/throughput | 9.29 | 5.21 | 0.56× | 8.36 | 0.90× | 51% |
 | add_ru/latency | 8.76 | 9.05 | 1.03× | 13.03 | 1.49× | 0% |
-| mul_ru/throughput | 9.26 | 6.76 | 0.73× | 11.00 | 1.19× | 7% |
-| mul_ru/latency | 8.76 | 10.66 | 1.22× | 16.28 | 1.86× | 0% |
+| mul_ru/throughput | 9.26 | 6.76 | 0.73× | 11.03 | 1.18× | 11% |
+| mul_ru/latency | 8.76 | 10.66 | 1.22× | 16.10 | 1.82× | 1% |
 | div_ru/throughput | 9.27 | 9.21 | 0.99× | 31.61 | 3.41× | 1% |
 | div_ru/latency | 8.76 | 14.66 | 1.67× | 33.15 | 3.78× | 0% |
 | mul_add_ru/throughput | 9.01 | 15.06 | 1.67× | 36.10 | 4.01× | 1% |
@@ -729,6 +839,13 @@ Medians over twelve rounds; see "Variance" above.
 
 `sse42` takes `sqrt1_rd`, `sqrt1_ru` and `sub1_ru` from `generic`, which is why
 its scalar square root matches the `generic, Nehalem` column exactly.
+
+The `generic, Nehalem` cells of the `mul` and `mul_ru` rows were measured again
+on 2026-11-08, after `d2a2f0c`, as in the section on x86-64 above: their ratios
+are against `avx_fma` built from `cc5e384` and timed in the same rounds, and
+their spread is the larger of the two measurements'. In those rounds,
+`generic, Nehalem` ran `mul_ru/throughput` at 10.2–10.3 ns in three and at
+11.0–11.4 ns in the other four.
 
 ### WebAssembly
 
@@ -740,15 +857,15 @@ its scalar square root matches the `generic, Nehalem` column exactly.
 | sub/PP | 10.96 | 11.15 | 1.02× | 8.84 | 0.81× | 1% |
 | sub/PM | 13.91 | 13.95 | 1.00× | 8.83 | 0.63× | 0% |
 | sub/MM | 15.26 | 15.38 | 1.01× | 8.83 | 0.58× | 1% |
-| mul/PP | 30.54 | 31.21 | 1.02× | 14.56 | 0.48× | 0% |
-| mul/PN | 35.31 | 32.76 | 0.93× | 14.61 | 0.41× | 0% |
-| mul/PM | 30.61 | 31.22 | 1.02× | 14.60 | 0.48× | 0% |
-| mul/NP | 33.58 | 31.92 | 0.95× | 14.58 | 0.43× | 0% |
-| mul/NN | 32.07 | 32.35 | 1.01× | 14.63 | 0.46× | 0% |
-| mul/NM | 30.67 | 31.05 | 1.01× | 14.60 | 0.48× | 0% |
-| mul/MP | 30.73 | 30.96 | 1.01× | 14.56 | 0.47× | 0% |
-| mul/MN | 30.30 | 30.50 | 1.01× | 14.64 | 0.48× | 1% |
-| mul/MM | 55.13 | 55.28 | 1.00× | 25.08 | 0.46× | 1% |
+| mul/PP | 20.27 | 21.10 | 1.04× | 14.96 | 0.74× | 1% |
+| mul/PN | 20.47 | 21.23 | 1.04× | 15.00 | 0.73× | 1% |
+| mul/PM | 20.52 | 21.11 | 1.03× | 15.02 | 0.73× | 1% |
+| mul/NP | 20.32 | 20.94 | 1.03× | 15.06 | 0.74× | 2% |
+| mul/NN | 20.60 | 21.06 | 1.02× | 15.00 | 0.73× | 2% |
+| mul/NM | 20.30 | 20.89 | 1.03× | 15.12 | 0.74× | 2% |
+| mul/MP | 20.25 | 20.94 | 1.03× | 14.89 | 0.74× | 2% |
+| mul/MN | 20.58 | 21.06 | 1.02× | 15.13 | 0.73× | 1% |
+| mul/MM | 39.20 | 40.23 | 1.03× | 25.44 | 0.65× | 1% |
 | div/PP | 30.92 | 31.44 | 1.02× | 16.35 | 0.53× | 0% |
 | div/PN | 31.53 | 31.53 | 1.00× | 16.53 | 0.52× | 0% |
 | div/MP | 30.35 | 30.49 | 1.00× | 16.31 | 0.54× | 0% |
@@ -756,22 +873,27 @@ its scalar square root matches the `generic, Nehalem` column exactly.
 | div/PM (= ℝ) | 9.89 | 9.21 | 0.93× | 7.88 | 0.80× | 0% |
 | sqrt/P | 15.84 | 15.19 | 0.96× | 10.20 | 0.64× | 1% |
 | sqrt/M | 13.55 | 14.92 | 1.10× | 13.58 | 1.00× | 0% |
-| Horner, degree 8, P | 310.73 | 309.73 | 1.00× | 160.74 | 0.52× | 2% |
-| Horner, degree 8, M | 465.52 | 461.92 | 0.99× | 240.37 | 0.52× | 1% |
-| 3×3 determinant | 378.60 | 376.21 | 0.99× | 136.88 | 0.36× | 0% |
+| Horner, degree 8, P | 231.57 | 231.38 | 1.00× | 162.94 | 0.70× | 2% |
+| Horner, degree 8, M | 262.78 | 262.85 | 1.00× | 243.21 | 0.93× | 1% |
+| 3×3 determinant | 240.61 | 241.40 | 1.00× | 137.68 | 0.57× | 2% |
 
 | Benchmark | scalar (ns) | simd128 (ns) | ratio | wasm32 (ns) | ratio | spread |
 |---|--:|--:|--:|--:|--:|--:|
 | add_ru/throughput | 10.56 | 11.18 | 1.06× | 7.88 | 0.75× | 0% |
 | add_ru/latency | 10.30 | 15.05 | 1.46× | 9.08 | 0.88× | 0% |
-| mul_ru/throughput | 23.67 | 23.70 | 1.00× | 10.96 | 0.46× | 1% |
-| mul_ru/latency | 17.46 | 24.11 | 1.38× | 11.52 | 0.66× | 0% |
+| mul_ru/throughput | 13.89 | 14.93 | 1.07× | 11.35 | 0.82× | 18% |
+| mul_ru/latency | 14.22 | 17.02 | 1.20× | 11.60 | 0.82× | 6% |
 | div_ru/throughput | 24.89 | 26.75 | 1.07× | 13.57 | 0.55× | 0% |
 | div_ru/latency | 20.66 | 29.50 | 1.43× | 16.02 | 0.78× | 0% |
 | mul_add_ru/throughput | 28.85 | 29.64 | 1.03× | 18.59 | 0.64× | 0% |
 | mul_add_ru/latency | 22.56 | 24.42 | 1.08× | 21.00 | 0.93× | 0% |
 | sqrt1_ru/throughput | 4.55 | 4.54 | 1.00× | 4.54 | 1.00× | 2% |
 | sqrt1_ru/latency | 7.22 | 7.21 | 1.00× | 7.22 | 1.00× | 0% |
+
+The `mul`, `mul_ru`, Horner and determinant rows were measured again, whole, on
+2026-11-08, after `d2a2f0c` changed how `generic` rounds up without an FMA:
+medians over seven rounds (see "Variance"). The other rows are from the first
+sitting.
 
 ## Observations
 
@@ -789,10 +911,12 @@ its scalar square root matches the `generic, Nehalem` column exactly.
 - Without an FMA, multiplication and especially division and `mul_add` get
   slower, as Dekker's TwoProduct replaces a single FMA.
 - On WebAssembly, `+simd128` alone changes almost nothing: the compiler does not
-  usefully auto-vectorize the scalar code, and it makes the latency of the
-  primitives 1.4× worse. Writing the fast paths against `v128` explicitly, as
-  the `wasm32` backend does, is what pays: interval operations take 0.4–0.6× the
-  time, and the 3×3 determinant 0.36×.
+  usefully auto-vectorize the scalar code, and it makes the latency of `add_ru`
+  and `div_ru` 1.43–1.46× worse, and that of `mul_ru` 1.20×. Writing the fast
+  paths against `v128` explicitly, as the `wasm32` backend does, is what pays:
+  most interval operations other than multiplication take 0.52–0.64× the time,
+  multiplication 0.65–0.74×, the 3×3 determinant 0.57×, and Horner of degree 8
+  0.70× on `P` and 0.93× on `M`.
 - `sqrt/P` is where the vectorized square root pays: `avx_fma` takes 0.51× the
   time of `generic` with an FMA, and `wasm32` 0.64× that of the scalar
   configuration. Both do the two endpoints in one vector square root, correcting
@@ -903,17 +1027,25 @@ its scalar square root matches the `generic, Nehalem` column exactly.
   checks whether it may use it, and in the same probe, DAZ and FTZ made
   `generic, Nehalem` 1.5–1.6 times as fast on `mul_tiny`, which removed about
   half of its extra cost. Whether that TwoProduct is what pays there, the rest
-  of that cost, the extra cost of `generic, FMA`, and whether `scalar` pays in
-  the same way have not been traced.
+  of that cost, and whether `scalar` pays in the same way have not been traced.
+  Nor has the extra cost of `generic, FMA`, but DAZ and FTZ do not remove it:
+  in a probe on 2026-11-08, on an idle host, they made `generic, FMA` take
+  1.06–1.12 times as long on `mul_tiny`, and as long on `mul`, while `fma` took
+  as long with them as without on both.
 - Ordinary products do not pay measurably for the change in `sse42`: on `mul`
   it takes 0.99–1.00 times as long as before, within the 0.99–1.02 of the
   `generic` configurations, which run the same code in both builds. `wasm32`
   takes 1.02–1.03 times as long, and more than 1.01 times in every round. That
   is at the edge of what the same code shows, as `scalar` takes more than 1.01
   times as long on `mul/MM` in every round too, so these builds cannot tell
-  whether `wasm32` pays 2–3% on ordinary products or nothing. `76d2bab` reports
-  that the fast path of `wasm32`'s `mul_ru` grew from 155 to 159 WebAssembly
-  instructions, by four `local.tee`s.
+  whether `wasm32` pays 2–3% on ordinary products or nothing. Measured again on
+  2026-11-08, since `0a7c306`, through `76d2bab` and `77a4138` in `wasm32` and
+  `6fa4f83` and `d2a2f0c` in the `generic::mul_ru` that it falls back to,
+  `wasm32` takes 1.00–1.01 times as long on `mul`, inside the range of two
+  builds of the same source, so the 2–3% did not recur, and those builds cannot
+  tell 1% from nothing either; see the section on two builds of the same source.
+  `76d2bab` reports that the fast path of `wasm32`'s `mul_ru` grew from 155
+  to 159 WebAssembly instructions, by four `local.tee`s.
 - Rounding only the product that each lane needs removes most of the extra cost
   of tiny products in `sse42` and `wasm32`: on `mul_tiny`, `sse42` takes
   0.38–0.39 times as long as before and `wasm32` 0.52–0.54. `mul_tiny` now takes
@@ -943,7 +1075,9 @@ its scalar square root matches the `generic, Nehalem` column exactly.
   fast on `mul_tiny` after the change. The columns of `generic` without an FMA
   in the sections on x86-64, x86-64 without AVX and WebAssembly, `generic, no
   FMA`, `generic, Nehalem`, `scalar` and `simd128`, were measured before
-  `d2a2f0c`.
+  `d2a2f0c`, except in the `mul` and `mul_ru` rows, and on WebAssembly in those
+  of the composite benchmarks, which were measured again on 2026-11-08 (see the
+  notes under those tables).
 - Making `sin`, `cos` and `tan` of intervals tightest costs nothing measurable
   on `small` and `narrow`, whose bounds are within about 100 of 0 and not chosen
   near a multiple of π/2: all three take 0.99–1.00 times as long as before
@@ -987,8 +1121,11 @@ as long on the two interval rows that do almost no arithmetic, `div/PM` and
 correction lengthens the chain, and 1.5–4× as long on the rest. `force-generic`
 remains the portable fallback rather than a faster one.
 
-`sse42` is the same method as `fma` without an FMA, and is 1.2–2.1× faster than
-`generic` at the same feature level on everything but subtraction and Horner.
+`sse42` is the same method as `fma` without an FMA, and is 1.4–2.5 times as fast
+as `generic` at the same feature level on every row of the two tables of x86-64
+without AVX but five: 3.4 times on the 3×3 determinant and `div_ru/throughput`,
+and 1.00–1.07 times on `sqrt/M` and both rows of `sqrt1_ru`, which run the
+scalar square root that it takes from `generic`.
 Where it loses to `fma` it loses to the missing FMA — `sqrt`, `mul_add` and the
 remainder in division — not to the method.
 
@@ -1000,8 +1137,9 @@ The comparison with `generic`, which switches nothing either, does not depend on
 this.
 
 On WebAssembly, build with `-Ctarget-feature=+simd128` where the runtime
-supports it: the `wasm32` backend is roughly twice as fast as the portable one
-on interval operations.
+supports it: the `wasm32` backend is 1.6–1.9 times as fast as the portable one
+on most interval operations other than multiplication, and 1.3–1.5 times as
+fast on multiplication.
 
 ## Running the benchmarks
 
