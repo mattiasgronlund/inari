@@ -914,3 +914,34 @@ pub(super) fn check_widened<E: Eval>(f: &E, want: [f64; 2], what: &str) {
         );
     }
 }
+
+// The evaluation `f` of a function of the kernel at an argument at which it gives the point
+// `want`, an `f64`, at every level (`ev_exp2_exact` and the others of
+// `rocq/theories/DyExpPoint.v`, `rocq/theories/DyLogPoint.v` and `rocq/theories/DyAtanExact.v`):
+// `ziv_at` returns `want` in both directions at 1 and at 64 limbs, the first level of `ziv` and
+// its cap, and so does `ziv` from level 1. The bits are compared, so a zero has to have the sign
+// of `want`.
+pub(super) fn check_exact<E: Eval>(f: &E, want: f64, what: &str) {
+    for up in [false, true] {
+        for (n, y) in [(1, ziv_at::<1, _>(f, up)), (64, ziv_at::<64, _>(f, up))] {
+            assert!(
+                y.map(f64::to_bits) == Some(want.to_bits()),
+                "{} at {} limbs, up = {}: {:?} != {:e}",
+                what,
+                n,
+                up,
+                y,
+                want
+            );
+        }
+        let y = ziv(f, up, 1);
+        assert!(
+            y.to_bits() == want.to_bits(),
+            "{}, up = {}: {:e} != {:e}",
+            what,
+            up,
+            y,
+            want
+        );
+    }
+}

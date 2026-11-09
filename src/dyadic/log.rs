@@ -46,8 +46,17 @@
 // finite argument in its domain, where a rule settles the argument or a rounding test of
 // `ziv_near` passes, returns its result rounded to nearest as `near_round` in
 // `rocq/theories/NearF64.v` says, from the same enclosures and bounds and the cells of
-// `rocq/theories/NearCells.v`. That a test passes by the cap of `ziv` or of `ziv_near` is not
-// proved, nor that the evaluations do not panic, nor that no result is a midpoint.
+// `rocq/theories/NearCells.v`. `rocq/theories/DyLogExact.v` proves that each of the six
+// functions returns its result, in both directions, at every finite argument in its domain at
+// which it is an `f64`, asinh and acosh under the hypothesis `exp_not_quadratic` of
+// `rocq/theories/ExpQuadratic.v` that e^r, for a rational r other than 0, is not a root of a
+// nonzero polynomial of degree at most 2 with integer coefficients, so that these are the
+// arguments above: from `ev_ln_one`, `ev_log2_exact` and
+// `ev_acosh_one` in `rocq/theories/DyLogPoint.v` for the exact enclosures, `pow2_rational` and
+// `pow10_rational` in `rocq/theories/PowFactor.v` and `exp_irrational` in
+// `rocq/theories/ExpIrrational.v`. Other than that, it is not proved that a test passes by the
+// cap of `ziv` or of `ziv_near`, nor that the evaluations do not panic, nor that no result is
+// a midpoint.
 
 use super::{
     consts::{ln10, ln2},

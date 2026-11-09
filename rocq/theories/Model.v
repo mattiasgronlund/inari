@@ -1707,7 +1707,10 @@ End DyadicConsts.
     functions [ev_exp x] and the others of a level [n]. [DyExpCore.v],
     [DyExp.v] and [DyHyp.v] prove them, with the rules before the loop
     proved in [DyExpRules.v], [DyHypRules.v], [DySinhTiny.v] and
-    [DyTanhTiny.v], and [DyPoint.v] makes a [point] of them with
+    [DyTanhTiny.v], [DyExpPoint.v] and [DyExpExact.v] show that they
+    return the result at every finite argument at which it is an [f64]
+    (for [sinh] and [cosh], under the hypothesis [exp_not_quadratic] of
+    [ExpQuadratic.v]), and [DyPoint.v] makes a [point] of them with
     [DyDriver.ziv_strict] for [ziv] (the section [Driver] below). *)
 Module DyadicExp.
 
@@ -2108,8 +2111,12 @@ End DyadicExp.
     functions of [src/dyadic/exp.rs] that they use are those of
     [DyadicExp]. [DyLogCore.v], [DyLog.v] and [DyLogHyp.v] prove them,
     with the rules before the loop proved in [DyLogRules.v] and
-    [DyLogTiny.v], and [DyPoint.v] makes a [point] of them with
-    [DyDriver.ziv_strict] for [ziv] (the section [Driver] below). *)
+    [DyLogTiny.v], [DyLogSeries.v], [DyLogPoint.v] and [DyLogExact.v]
+    show that they return the result at every finite argument in the
+    domain at which it is an [f64] (for [asinh] and [acosh], under the
+    hypothesis [exp_not_quadratic] of [ExpQuadratic.v]), and
+    [DyPoint.v] makes a [point] of them with [DyDriver.ziv_strict] for
+    [ziv] (the section [Driver] below). *)
 Module DyadicLog.
 
 (** The [f64] literals of the file, written with [from_bits]: [0.5],
@@ -2388,9 +2395,10 @@ End DyadicLog.
     are those of [DyadicExp], as are the literals [1.0] and
     [f64::NEG_INFINITY], and the literal [0.5] is [DyadicLog.half].
     [DyAtanCore.v], [DyAtan.v] and [DyAsin.v] prove them, with the rules
-    before the loop proved in [DyAtanTiny.v], and [DyPoint.v] makes a
-    [point] of them with [DyDriver.ziv_strict] for [ziv] (the section
-    [Driver] below). *)
+    before the loop proved in [DyAtanTiny.v], [DyAtanExact.v] shows that
+    they return the result at every finite argument in the domain at
+    which it is an [f64], and [DyPoint.v] makes a [point] of them with
+    [DyDriver.ziv_strict] for [ziv] (the section [Driver] below). *)
 Module DyadicAtan.
 
 (** The [f64] literals of the file, written with [from_bits]: [T1] =
@@ -2740,9 +2748,10 @@ End DyadicAtan.
     [with_buf] is not. [DyTrigReduce.v], [DyTrigCore.v] and [DyTrig.v]
     prove them, with the rules before the loop proved in [DyTrigTiny.v]
     and, for [cos_small], [sin_small] and [tan_small], in [DyCosSmall.v],
-    [DySinSmall.v] and [DyTanSmall.v], and [DyPoint.v] makes a [point] of
-    them with [DyDriver.ziv_strict] for [ziv] (the section [Driver]
-    below). *)
+    [DySinSmall.v] and [DyTanSmall.v], [DyTrigExact.v] shows that they
+    return the result at every finite argument at which it is an [f64],
+    and [DyPoint.v] makes a [point] of them with [DyDriver.ziv_strict]
+    for [ziv] (the section [Driver] below). *)
 Module DyadicTrig.
 
 (** [NO_REDUCE] = 0.78515625 = 201/256, written with [from_bits]. *)

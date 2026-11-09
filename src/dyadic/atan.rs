@@ -53,9 +53,15 @@
 // enclosures and bounds and the cells of `rocq/theories/NearCells.v`. It builds on
 // `rocq/theories/DyAtanMidQ.v` for `midpoint_quotient`, which uses
 // `rocq/theories/MidQuot.v` for its quotient, `rocq/theories/MidRound.v` for its rounding
-// toward zero and `rocq/theories/NearAtanMid.v` for atan at the midway quotients. That a test
-// passes by the cap of `ziv` or of `ziv_near` is not proved, nor that the evaluations do not
-// panic.
+// toward zero and `rocq/theories/NearAtanMid.v` for atan at the midway quotients.
+// `rocq/theories/DyAtanExact.v` proves that each of the four functions returns its result, in
+// both directions, at every finite argument in its domain at which it is an `f64`. These are
+// ±0 for atan and asin, y = ±0 with x > 0 for atan2, and 1 for acos: at a result r that is an
+// `f64`, cos 2r is rational, (1 - x^2) / (1 + x^2) for atan x, 1 - 2 x^2 for asin x and
+// (x^2 - y^2) / (x^2 + y^2) for atan2(y, x), and so is cos r = x for acos x, and
+// `cos_irrational` in `rocq/theories/CosIrrational.v` shows that cos r is irrational for every
+// rational r other than 0. Other than that, it is not proved that a test passes by the cap of
+// `ziv` or of `ziv_near`, nor that the evaluations do not panic.
 
 use super::{
     consts::pi,

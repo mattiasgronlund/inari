@@ -12,7 +12,12 @@
 // are `f64`s. Ziv's strategy cannot settle an argument whose result is an `f64` unless an enclosure
 // has that `f64` as its bound in the direction of the rounding, as the exact enclosures of 2^x
 // at an integer x do, since the two bounds of any other enclosure round to different `f64`s.
-// The rules also keep the reductions below in range. `ziv` computes the rest from an `Eval`.
+// The only finite arguments whose results are `f64`s are 0 and, for 2^x and 10^x, the integers
+// whose powers are `f64`s, as e^r and tanh r are irrational for every rational r other than 0,
+// sinh r and cosh r too if e^r is not a quadratic irrational, which follows from the theorem of
+// Hermite and Lindemann, and 2^r and 10^r are rational only for an integer r. The rules settle
+// them all but the integers other than 0 of 2^x, which the exact enclosures settle. The rules
+// also keep the reductions below in range. `ziv` computes the rest from an `Eval`.
 //
 // The functions rounded to nearest have rules of the same kinds, with thresholds of their own:
 // |x| >= 20 for tanh, as tanh 19 is more than half an ulp below 1, and |x| < 2^-27
@@ -27,8 +32,10 @@
 // is an `f64`, below 2^-1075 or at least 2^1024; 10^x at an integer x is an `f64` for
 // 0 <= x <= 22, has the odd part 5^x > 2^54 for x > 23 and is not dyadic for x < 0; 2^x and
 // 10^x at a non-integer x are irrational; and e^x, sinh x, cosh x and tanh x at a nonzero
-// `f64` x are transcendental, by the theorem of Lindemann and Weierstrass. None of this is
-// proved here. `ziv_near` computes the rest from the same `Eval`s.
+// `f64` x are transcendental, by the theorem of Lindemann and Weierstrass. Of this, the proofs
+// show only that 2^r and 10^r are irrational for every rational r that is not an integer and
+// e^r for every rational r other than 0 (see below), and not that no result is a midpoint.
+// `ziv_near` computes the rest from the same `Eval`s.
 //
 // The evaluations reduce e^x to e^-y for y in [0, 2]: e^x = 2^k e^-y for y = k ln 2 - x. Then
 // e^-y = (e^-s)^(2^j) for s = y / 2^j, and the Taylor series of e^-s alternates, so that
@@ -48,8 +55,15 @@
 // each of the six functions rounded to nearest, at a finite argument, where a rule settles the
 // argument or a rounding test of `ziv_near` passes, returns its result rounded to nearest as
 // `near_round` in `rocq/theories/NearF64.v` says, from the same enclosures and bounds and the
-// cells of `rocq/theories/NearCells.v`. That a test passes by the cap of `ziv` or of
-// `ziv_near` is not proved, nor that the evaluations do not panic.
+// cells of `rocq/theories/NearCells.v`. `rocq/theories/DyExpExact.v` proves that each of the
+// six functions returns its result, in both directions, at every finite argument at which it
+// is an `f64`, sinh and cosh under the hypothesis `exp_not_quadratic` of
+// `rocq/theories/ExpQuadratic.v` that e^r, for a rational r other than 0, is not a root of a
+// nonzero polynomial of degree at most 2 with integer coefficients, from `ev_exp2_exact` in
+// `rocq/theories/DyExpPoint.v` for the exact enclosures of 2^x, `pow2_rational` and
+// `pow10_rational` in `rocq/theories/PowFactor.v` and `exp_irrational` in
+// `rocq/theories/ExpIrrational.v`. Other than that, it is not proved that a test passes by the
+// cap of `ziv` or of `ziv_near`, nor that the evaluations do not panic.
 
 use super::{
     consts::{ln10, ln2},

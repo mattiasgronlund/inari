@@ -403,6 +403,16 @@ fn integers() {
     }
 }
 
+// The exact enclosures of 2^n at the integers n other than 0 from -1074 to 1023, which no rule
+// settles: `Exp2` gives the point 2^n there, as (n - x) ln 2 = 0 (`ev_exp2_exact`).
+#[test]
+fn exact_enclosures() {
+    use crate::dyadic::tests::check_exact;
+    for n in (-1074..=1023).filter(|&n| n != 0) {
+        check_exact(&Exp2(f64::from(n)), pow2(n), &format!("exp2({})", n));
+    }
+}
+
 // MPFR's results at 53 bits in its tests of e^x and 2^x, from MPFR 4.2.2's `tests/texp.c` and
 // `tests/texp2.c` (as gmp-mpfr-sys 1.7.1 ships them), as "function x rounding result". `W` is
 // `check_worst_case`, which checks the rounding down and that the rounding up is the next

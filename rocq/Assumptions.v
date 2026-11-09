@@ -25,7 +25,12 @@
     theorems printed here, and their theorems are printed by qualified
     name. None of them quantifies over an MPFR. The files about the cap
     of Ziv's strategy, [KahanMcDonald.v], [DyTrigPos.v], [SideTight.v],
-    [SideTheorems.v] and [DyPointSide.v], are required the same way. *)
+    [SideTheorems.v] and [DyPointSide.v], and those about the exact
+    results of the kernel's functions, from [ExpQuadratic.v] to
+    [DyAtanExact.v], are required the same way. [exp_not_quadratic] of
+    [ExpQuadratic.v] is a definition, a premise of the four theorems for
+    [sinh], [cosh], [asinh] and [acosh] and of their forms with a driver,
+    so the lines below do not print it. *)
 
 From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu AddOdd
   EmulatedFma MulAddRuSlow MulAddRu Integer IntegerDec RoundTiesEven Trunc Round Sign Abs MaxMin
@@ -43,6 +48,8 @@ From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyD
   DyPointDec.
 From Inari Require RootReal RootRound DyIcbrt DyCbrt DyHypotExact DyHypotOdd DyHypot CrRoot.
 From Inari Require KahanMcDonald DyTrigPos SideTight SideTheorems DyPointSide.
+From Inari Require ExpQuadratic PowFactor ExpIrrational CosNiven CosIrrational DyExactDriver
+  DyExactPoint DyTrigExact DyExpPoint DyExpExact DyLogSeries DyLogPoint DyLogExact DyAtanExact.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -350,6 +357,61 @@ Print Assumptions DyPown.pown_dir_side.
 Print Assumptions DyPown.pown_dir_strict.
 Print Assumptions DyPow.pow_dir_exact.
 Print Assumptions DyPown.pown_dir_exact.
+Print Assumptions PowFactor.pow2_rational.
+Print Assumptions PowFactor.pow10_rational.
+Print Assumptions ExpIrrational.exp_irrational.
+Print Assumptions CosIrrational.cos_irrational.
+Print Assumptions DyExactDriver.ziv_at_exact_zero.
+Print Assumptions DyExactDriver.ziv_strict_exact_zero.
+Print Assumptions DyExactDriver.ziv_exact_zero.
+Print Assumptions DyExactDriver.f64_rational.
+Print Assumptions DyExactDriver.f64_pow2.
+Print Assumptions DyExactDriver.f64_pow10.
+Print Assumptions DyExpPoint.ev_exp2_exact.
+Print Assumptions DyLogSeries.atanh_series_zero.
+Print Assumptions DyLogSeries.reduce_pow2.
+Print Assumptions DyLogPoint.ev_ln_one.
+Print Assumptions DyLogPoint.ev_log2_exact.
+Print Assumptions DyLogPoint.ev_acosh_one.
+Print Assumptions DyAtanExact.ev_acos_one.
+Print Assumptions DyExpExact.exp_dir_exact_with.
+Print Assumptions DyExpExact.exp_dir_exact.
+Print Assumptions DyExpExact.exp2_dir_exact_with.
+Print Assumptions DyExpExact.exp2_dir_exact.
+Print Assumptions DyExpExact.exp10_dir_exact_with.
+Print Assumptions DyExpExact.exp10_dir_exact.
+Print Assumptions DyExpExact.sinh_dir_exact_with.
+Print Assumptions DyExpExact.sinh_dir_exact.
+Print Assumptions DyExpExact.cosh_dir_exact_with.
+Print Assumptions DyExpExact.cosh_dir_exact.
+Print Assumptions DyExpExact.tanh_dir_exact_with.
+Print Assumptions DyExpExact.tanh_dir_exact.
+Print Assumptions DyLogExact.ln_dir_exact_with.
+Print Assumptions DyLogExact.ln_dir_exact.
+Print Assumptions DyLogExact.log2_dir_exact_with.
+Print Assumptions DyLogExact.log2_dir_exact.
+Print Assumptions DyLogExact.log10_dir_exact_with.
+Print Assumptions DyLogExact.log10_dir_exact.
+Print Assumptions DyLogExact.asinh_dir_exact_with.
+Print Assumptions DyLogExact.asinh_dir_exact.
+Print Assumptions DyLogExact.acosh_dir_exact_with.
+Print Assumptions DyLogExact.acosh_dir_exact.
+Print Assumptions DyLogExact.atanh_dir_exact_with.
+Print Assumptions DyLogExact.atanh_dir_exact.
+Print Assumptions DyAtanExact.atan_dir_exact_with.
+Print Assumptions DyAtanExact.atan_dir_exact.
+Print Assumptions DyAtanExact.asin_dir_exact_with.
+Print Assumptions DyAtanExact.asin_dir_exact.
+Print Assumptions DyAtanExact.acos_dir_exact_with.
+Print Assumptions DyAtanExact.acos_dir_exact.
+Print Assumptions DyAtanExact.atan2_dir_exact_with.
+Print Assumptions DyAtanExact.atan2_dir_exact.
+Print Assumptions DyTrigExact.sin_dir_exact_with.
+Print Assumptions DyTrigExact.sin_dir_exact.
+Print Assumptions DyTrigExact.cos_dir_exact_with.
+Print Assumptions DyTrigExact.cos_dir_exact.
+Print Assumptions DyTrigExact.tan_dir_exact_with.
+Print Assumptions DyTrigExact.tan_dir_exact.
 Print Assumptions DyPoint.k_exp_c.
 Print Assumptions DyPoint.k_exp2_c.
 Print Assumptions DyPoint.k_exp10_c.

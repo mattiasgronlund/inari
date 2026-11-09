@@ -263,6 +263,13 @@ fn special_and_exact() {
     assert_eq!(acos_near(-1.0), PI);
 }
 
+// The exact enclosure of acos 1, which no rule settles: `Acos` gives the point 0 there, whose
+// `f64` is +0 (`ev_acos_one`).
+#[test]
+fn exact_enclosure() {
+    crate::dyadic::tests::check_exact(&Acos(1.0), 0.0, "acos(1)");
+}
+
 // Each rule and each case of `atan_encl` at its threshold and the 3 `f64`s on each side of it,
 // both signs of them: `TINY_HYP` and `HUGE_ATAN` for atan, `TINY_ASIN` for asin, 1 for asin
 // and acos, where their domains end, `T1`, 1 and `T2` for atan, and `ASIN_SPLIT` for asin and

@@ -16,16 +16,17 @@
 // resolves: cos t is above the `f64` 1 - t^2 / 2 by less than t^4 / 24 there. Ziv's strategy
 // cannot settle an argument whose result is an `f64` unless an enclosure has that `f64` as its
 // bound in the direction of the rounding (the header of `src/dyadic/exp.rs` says why), and no
-// nonzero `f64` has a sin, cos or tan that is one, by the theorem of Lindemann and
-// Weierstrass, as an `f64` is algebraic, which is not proved here. `ziv` computes the rest
-// from an `Eval`. The functions rounded to nearest have the rules of NaN, ±∞ and of the
-// arguments of magnitude below 2^-27 (`TINY_NEAR`), whose results are less than half an ulp
-// from x or 1, and `ziv_near` computes the rest from the same `Eval`s. They have no rules at
+// nonzero `f64` has a sin, cos or tan that is one, as an `f64` is rational and cos r is
+// irrational for every rational r other than 0, and cos 2r is 1 - 2 (sin r)^2 and
+// (1 - (tan r)^2) / (1 + (tan r)^2). `ziv` computes the rest from an `Eval`. The functions
+// rounded to nearest have the rules of NaN, ±∞ and of the arguments of magnitude below 2^-27
+// (`TINY_NEAR`), whose results are less than half an ulp from x or 1, and `ziv_near` computes
+// the rest from the same `Eval`s. They have no rules at
 // small arguments, which only save levels of `ziv`. At some arguments with few bits, sin and
 // tan lie close to the midpoint of two `f64`s, as the results of those rules lie close to an
 // `f64`: t - t^3 / 6 is a midpoint at t = 21 2^-24, and sin t lies above it by about t^5 / 120,
 // and t + t^3 / 3 is one at t = 3 2^-26. `ziv_near` settles them at a later level, as no sin,
-// cos or tan of a nonzero `f64` is a midpoint, by the same theorem.
+// cos or tan of a nonzero `f64` is a midpoint, which is rational too.
 //
 // The evaluations take t = |x|, as sin and tan are odd and cos is even, and reduce it to
 // t = k π/2 + σ ρ for an integer k >= 0, a sign σ and an enclosure of ρ (`reduce`). The
@@ -73,8 +74,14 @@
 // proves that each of the three functions rounded to nearest, at a finite argument, where a
 // rule settles the argument or a rounding test of `ziv_near` passes, returns its result
 // rounded to nearest as `near_round` in `rocq/theories/NearF64.v` says, from the same
-// enclosures and bounds and the cells of `rocq/theories/NearCells.v`. That a test passes by
-// the cap of `ziv` or of `ziv_near` is not proved, nor that the evaluations do not panic.
+// enclosures and bounds and the cells of `rocq/theories/NearCells.v`.
+// `rocq/theories/DyTrigExact.v` proves that each of the three functions returns its result,
+// in both directions, at every finite argument at which it is an `f64`, which is only ±0,
+// where the rules of tiny arguments return it, with `cos_irrational` in
+// `rocq/theories/CosIrrational.v` that cos r is irrational for every rational r other than 0
+// (I. Niven, Irrational Numbers, 1956, ch. 2). That no result is a midpoint is not stated in
+// the proofs. Other than that, it is not proved that a test passes by the cap of `ziv` or of
+// `ziv_near`, nor that the evaluations do not panic.
 
 use super::{
     consts::PI,

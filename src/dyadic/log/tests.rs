@@ -200,6 +200,19 @@ fn special_and_exact() {
     assert_eq!(atanh_near(-1.0), f64::NEG_INFINITY);
 }
 
+// The exact enclosures of log2 2^k, for k from -1074 to 1023, and of ln 1 and acosh 1, which no
+// rule settles: `Log2` gives the point k at 2^k, and `Ln` and `Acosh` the point 0 at 1, whose
+// `f64` is +0 (`ev_log2_exact`, `ev_ln_one` and `ev_acosh_one`).
+#[test]
+fn exact_enclosures() {
+    use crate::dyadic::tests::check_exact;
+    for k in -1074..=1023 {
+        check_exact(&Log2(pow2(k)), f64::from(k), &format!("log2(2^{})", k));
+    }
+    check_exact(&Ln(1.0), 0.0, "ln(1)");
+    check_exact(&Acosh(1.0), 0.0, "acosh(1)");
+}
+
 // Each rule of `log.rs` at its threshold and the 3 `f64`s on each side of it, both signs of
 // them, and the special values. The thresholds are `TINY_HYP`, below which asinh and atanh are
 // within an ulp of x, `TINY_NEAR`, below which `asinh_near` and `atanh_near` give x, 1 for
