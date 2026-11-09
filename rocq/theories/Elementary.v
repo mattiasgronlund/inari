@@ -9,7 +9,8 @@
     forward elementary functions names [pown], [pow], [exp], [exp2],
     [exp10], [log], [log2], [log10], [sin], [cos], [tan], [sinh], [cosh],
     [tanh], [asinh], [acosh], [atanh], [asin], [acos], [atan] and
-    [atan2], each with its domain.
+    [atan2], each with its domain, and two of its table of recommended
+    ones, [rootn] and [hypot], of which [Rcbrt] below is [rootn(x, 3)].
 
     Stdlib has some of them: [powerRZ], which is [pown], [exp], [ln],
     which is [log], [sin], [cos], [tan], [sinh], [cosh], [tanh],
@@ -68,6 +69,13 @@ Definition Rcbrt (r : R) : R :=
   if Rlt_dec 0 r then Rpower r (/ 3)
   else if Rlt_dec r 0 then - Rpower (- r) (/ 3)
   else 0.
+
+(** The point function [hypot(x, y)] of two reals, which the standard
+    recommends, on all of R²: the distance [sqrt (r * r + t * t)] of the
+    point [(r, t)] of the plane from the origin. It is the [hypot] of
+    [src/dyadic/root.rs] and [inari::cr], whose theorems in [DyHypot.v]
+    state it unfolded. *)
+Definition Rhypot (r t : R) : R := sqrt (r * r + t * t).
 
 (** The point function [atan2(y, x)] of two reals, with [y] first, as in
     the standard and in [self.atan2(rhs)], where [self] is [y]: the

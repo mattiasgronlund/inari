@@ -16,7 +16,12 @@
     argument at every argument ([kernel_exp_encloses] and the others).
     For the Rust, that is at every argument at which no call of the
     kernel panics, including those at which no rounding test passes by
-    the cap. The intervals need not be the tightest there. *)
+    the cap. The intervals need not be the tightest there.
+    The fields of [cbrt] and [hypot] are those of [kernel_point]: they
+    do not use Ziv's strategy, return at every argument ([k_cbrt_some],
+    [k_hypot_some]) and are rounded correctly at every finite one
+    ([k_cbrt_c], [k_hypot_c]), so [kernel_cbrt_encloses] and
+    [kernel_hypot_encloses] follow from the theorems of [DyPoint.v]. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -35,11 +40,13 @@ Definition kernel_point_rust : point := {|
   p_atan := kernel_field DyadicAtan.atan_dir atan;
   p_atan2 := kernel_field2 DyadicAtan.atan2_dir Ratan2;
   p_atanh := kernel_field DyadicLog.atanh_dir Ratanh;
+  p_cbrt := k_cbrt;
   p_cos := kernel_field DyadicTrig.cos_dir cos;
   p_cosh := kernel_field DyadicExp.cosh_dir cosh;
   p_exp := kernel_field DyadicExp.exp_dir exp;
   p_exp10 := kernel_field DyadicExp.exp10_dir Rexp10;
   p_exp2 := kernel_field DyadicExp.exp2_dir Rexp2;
+  p_hypot := k_hypot;
   p_ln := kernel_field DyadicLog.ln_dir ln;
   p_log10 := kernel_field DyadicLog.log10_dir Rlog10;
   p_log2 := kernel_field DyadicLog.log2_dir Rlog2;
@@ -622,4 +629,21 @@ Theorem kernel_pown_encloses :
     encloses (image_dom (pown_dom n) (fun r => powerRZ r n) x) y.
 Proof.
   exact (pown_encloses_side kernel_point_rust k_pown_rust_s).
+Qed.
+
+(** [kernel_point_rust] has the fields of [cbrt] and [hypot] of
+    [kernel_point], so the tightest intervals of [DyPoint.v] contain the
+    image. *)
+Theorem kernel_cbrt_encloses :
+  forall x, valid x -> encloses (image_dom real_dom Rcbrt x) (Interval.cbrt kernel_point_rust x).
+Proof.
+intros x Hx. destruct (kernel_cbrt_correct x Hx) as (V & S & _). exact (conj V S).
+Qed.
+
+Theorem kernel_hypot_encloses :
+  forall x y, valid x -> valid y ->
+  exists z, Interval.hypot kernel_point_rust x y = Some z /\ encloses (image2 Rhypot x y) z.
+Proof.
+intros x y Hx Hy. destruct (kernel_hypot_correct x y Hx Hy) as (z & E & V & S & _).
+exists z. exact (conj E (conj V S)).
 Qed.

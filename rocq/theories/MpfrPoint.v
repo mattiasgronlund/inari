@@ -104,6 +104,17 @@ unfold atanh_c, point_correct. split; [|split].
   rewrite (with_val_finite x Fx) by lra. rewrite Ex, H2. apply Hinf.
 Qed.
 
+Theorem mpfr_cbrt_c :
+  forall emin emax m, range_ok emin emax -> get_d_ok emin emax m -> cbrt_ok emin emax m ->
+  cbrt_c (p_cbrt (mpfr_point m)).
+Proof.
+intros emin emax m Hr Hget Hok. cbn [p_cbrt mpfr_point].
+destruct Hok as (Hc & H1 & H2). unfold cbrt_c, point_correct. split; [|split].
+- exact (mpfr_fn_correct emin emax m _ _ _ Hr Hget Hc).
+- exact (mpfr_fn_inf emin emax m _ _ _ _ Hget H1).
+- exact (mpfr_fn_inf emin emax m _ _ _ _ Hget H2).
+Qed.
+
 Theorem mpfr_cos_c :
   forall emin emax m, range_ok emin emax -> get_d_ok emin emax m -> cos_ok emin emax m ->
   cos_c (p_cos (mpfr_point m)).
@@ -160,6 +171,20 @@ unfold exp2_c, point_correct. split; [|split].
 - (* MPFR's zero converts to a zero. *)
   unfold mpfr_fn. cbn [with_val]. rewrite H1. exact (Hzero RNDD s).
 - exact (mpfr_fn_inf emin emax m _ _ _ _ Hget H2).
+Qed.
+
+Theorem mpfr_hypot_c :
+  forall emin emax m, range_ok emin emax -> get_d_ok emin emax m -> hypot_ok emin emax m ->
+  hypot_c (p_hypot (mpfr_point m)).
+Proof.
+intros emin emax m Hr Hget Hok. cbn [p_hypot mpfr_point].
+destruct Hok as (Hc & H1 & H2). pose proof Hget as (_ & _ & Hinf).
+unfold hypot_c, point_correct2. split; [|split].
+- intros rnd x y Fx Fy Hd. unfold mpfr_fn2.
+  exact (mpfr_fn_round emin emax m rnd _ _ Hr Hget (Hc rnd x y Fx Fy Hd)).
+- (* An infinity is MPFR's infinity, of the same sign. *)
+  intros y. unfold mpfr_fn2. cbn [with_val]. rewrite H1. apply Hinf.
+- intros x. unfold mpfr_fn2. cbn [with_val]. rewrite H2. apply Hinf.
 Qed.
 
 Theorem mpfr_ln_c :

@@ -208,6 +208,12 @@ Definition atanh_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_atanh m RNDD (MNum (-1)) = MInf true /\
   mpfr_atanh m RNDU (MNum 1) = MInf false.
 
+(** [cbrt(-inf) = -inf] and [cbrt(+inf) = +inf] *)
+Definition cbrt_ok (emin emax : Z) (m : mpfr) : Prop :=
+  mpfr_correct emin emax real_dom Rcbrt (mpfr_cbrt m) /\
+  mpfr_cbrt m RNDD (MInf true) = MInf true /\
+  mpfr_cbrt m RNDU (MInf false) = MInf false.
+
 (** [Interval::cos], [Interval::sin] and [Interval::tan] call [cos],
     [sin] and [tan] only at finite arguments, so no special value is
     assumed of them. *)
@@ -236,6 +242,14 @@ Definition exp2_ok (emin emax : Z) (m : mpfr) : Prop :=
   mpfr_correct emin emax real_dom Rexp2 (mpfr_exp2 m) /\
   (exists s, mpfr_exp2 m RNDD (MInf true) = MZero s) /\
   mpfr_exp2 m RNDU (MInf false) = MInf false.
+
+(** [hypot(+inf, y) = hypot(x, +inf) = +inf] for every [f64] [x] and [y]:
+    the [mpfr_hypot] entry of the MPFR manual says that it returns +Inf
+    if [x] or [y] is an infinity, even if the other number is NaN. *)
+Definition hypot_ok (emin emax : Z) (m : mpfr) : Prop :=
+  mpfr_correct2 emin emax (fun _ _ => True) Rhypot (mpfr_hypot m) /\
+  (forall y : f64, mpfr_hypot m RNDU (MInf false) (with_val y) = MInf false) /\
+  (forall x : f64, mpfr_hypot m RNDU (with_val x) (MInf false) = MInf false).
 
 (** [log(+0) = log(-0) = -inf] and [log(+inf) = +inf], and the same for
     [log10] and [log2]. *)

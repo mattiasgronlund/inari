@@ -4,10 +4,10 @@ use crate::{
     interval::*,
     mpfr_calls::{
         acos_rd, acos_ru, acosh_rd, acosh_ru, asin_rd, asin_ru, asinh_rd, asinh_ru, atan2_rd,
-        atan2_ru, atan_rd, atan_ru, atanh_rd, atanh_ru, cos_rd, cos_ru, cosh_rd, cosh_ru, exp10_rd,
-        exp10_ru, exp2_rd, exp2_ru, exp_rd, exp_ru, ln_rd, ln_ru, log10_rd, log10_ru, log2_rd,
-        log2_ru, pow_rd, pow_ru, pown_rd, pown_ru, sin_rd, sin_ru, sinh_rd, sinh_ru, tan_rd,
-        tan_ru, tanh_rd, tanh_ru,
+        atan2_ru, atan_rd, atan_ru, atanh_rd, atanh_ru, cbrt_rd, cbrt_ru, cos_rd, cos_ru, cosh_rd,
+        cosh_ru, exp10_rd, exp10_ru, exp2_rd, exp2_ru, exp_rd, exp_ru, hypot_rd, hypot_ru, ln_rd,
+        ln_ru, log10_rd, log10_ru, log2_rd, log2_ru, pow_rd, pow_ru, pown_rd, pown_ru, sin_rd,
+        sin_ru, sinh_rd, sinh_ru, tan_rd, tan_ru, tanh_rd, tanh_ru,
     },
 };
 
@@ -144,8 +144,16 @@ macro_rules! impl_log {
 // With the kernel, the interval versions of these seven functions, such as `Interval::exp`,
 // contain the range at every argument at which no call of the kernel panics, also where one
 // reaches the cap of Ziv's strategy (`kernel_<f>_encloses` in `rocq/theories/DyPointSide.v`).
-// `rocq/theories/Model.v` transcribes the function that this macro defines, so it has to be
-// updated along with it.
+// Proved correct in `rocq/theories/Cbrt.v`, from `rocq/theories/MonoInc.v`, for the portable
+// backend, for `cbrt` and its decorated version (`cbrt_correct` and `dec_cbrt_correct`), with
+// no condition on when `self` is `com`. With the dyadic kernel, this holds with no condition
+// on its calls (`kernel_cbrt_correct` in `rocq/theories/DyPoint.v` and
+// `kernel_dec_cbrt_correct` in `rocq/theories/DyPointDec.v`), as the kernel's `cbrt` does not
+// use Ziv's strategy and returns at every argument (`k_cbrt_some` in
+// `rocq/theories/DyPoint.v`), so the sentence above on the cap is for the seven functions
+// only. It holds with the MPFR backend of the tests, assuming what `rocq/theories/Mpfr.v` says
+// of MPFR. `rocq/theories/Model.v` transcribes the function that this macro defines, so it
+// has to be updated along with it.
 macro_rules! impl_mono_inc {
     ($(#[$meta:meta])* $f:ident, $f_rd:ident, $f_ru:ident) => {
         $(#[$meta])*
@@ -492,6 +500,19 @@ impl Interval {
         (y, d)
     }
 
+    impl_mono_inc!(
+        /// Returns the cube root of `self`.
+        ///
+        /// The domain and the range of the point function are:
+        ///
+        /// | Domain | Range |
+        /// | ------ | ----- |
+        /// | $\R$   | $\R$  |
+        cbrt,
+        cbrt_rd,
+        cbrt_ru
+    );
+
     /// Returns the cosine of `self`.
     ///
     /// The domain and the range of the point function are:
@@ -642,6 +663,40 @@ impl Interval {
         exp2_rd,
         exp2_ru
     );
+
+    /// Returns $\sqrt{\self^2 + \rhs^2}$, the distance of the point $(\self, \rhs)$ from the
+    /// origin in the Euclidean plane.
+    ///
+    /// The domain and the range of the point function are:
+    ///
+    /// | Domain | Range     |
+    /// | ------ | --------- |
+    /// | $\R^2$ | $\[0, ∞)$ |
+    #[must_use]
+    pub fn hypot(self, rhs: Self) -> Self {
+        // Proved correct, with `DecInterval::hypot`, in `rocq/theories/Hypot.v` for the
+        // portable backend (`hypot_correct` and `dec_hypot_correct`), with no condition on
+        // when `self` and `rhs` are `com`. This holds with the dyadic kernel with no condition
+        // on its calls (`kernel_hypot_correct` in `rocq/theories/DyPoint.v` and
+        // `kernel_dec_hypot_correct` in `rocq/theories/DyPointDec.v`), as the kernel's `hypot`
+        // does not use Ziv's strategy and returns at every argument (`k_hypot_some` in
+        // `rocq/theories/DyPoint.v`), and with the MPFR backend of the tests, assuming what
+        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
+        // function and `DecInterval::hypot`, so it has to be updated along with them.
+        //
+        // hypot(x, y) = hypot(|x|, |y|), which increases in each argument on [0, ∞)², so the
+        // bounds are at the ends of `self.abs()` and `rhs.abs()`.
+        let x = self.abs();
+        let y = rhs.abs();
+        if x.is_empty() || y.is_empty() {
+            return Self::EMPTY;
+        }
+
+        Self::with_infsup_raw(
+            hypot_rd(x.inf_raw(), y.inf_raw()),
+            hypot_ru(x.sup_raw(), y.sup_raw()),
+        )
+    }
 
     impl_log!(
         /// Returns the natural logarithm of `self`.
@@ -1029,8 +1084,8 @@ impl Interval {
 // `cos`, `sin` and `tan` each on its own, as the model of `Interval::cos` and the others
 // returns an `option`, for the proofs of the decorated versions of the functions of this
 // file in `rocq/theories/Elem.v`, `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`,
-// `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and
-// `rocq/theories/Tan.v`, so it has to be updated along with it.
+// `rocq/theories/Cbrt.v`, `rocq/theories/Cosh.v`, `rocq/theories/Cos.v`,
+// `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, so it has to be updated along with it.
 macro_rules! impl_dec {
     ($f:ident) => {
         #[doc = concat!("The decorated version of [`Interval::", stringify!($f), "`].")]
@@ -1080,11 +1135,28 @@ impl DecInterval {
     impl_dec!(atan);
     impl_dec2!(atan2, atan2_impl);
     impl_dec!(atanh, atanh_impl);
+    impl_dec!(cbrt);
     impl_dec!(cos);
     impl_dec!(cosh);
     impl_dec!(exp);
     impl_dec!(exp10);
     impl_dec!(exp2);
+
+    /// The decorated version of [`Interval::hypot`].
+    ///
+    /// A NaI is returned if `self` or `rhs` is NaI.
+    #[must_use]
+    pub fn hypot(self, rhs: Self) -> Self {
+        // Proved correct in `rocq/theories/Hypot.v` (`dec_hypot_correct`); see
+        // `Interval::hypot`. `rocq/theories/Model.v` transcribes this function, so it has to
+        // be updated along with it.
+        if self.is_nai() || rhs.is_nai() {
+            return Self::NAI;
+        }
+
+        Self::set_dec(self.x().hypot(rhs.x()), self.d().min(rhs.d()))
+    }
+
     impl_dec!(ln, ln_impl);
     impl_dec!(log10, log10_impl);
     impl_dec!(log2, log2_impl);
@@ -1131,11 +1203,14 @@ mod tests {
         assert!(DI::NAI.atan2(DI::EMPTY).is_nai());
         assert!(DI::EMPTY.atan2(DI::NAI).is_nai());
         assert!(DI::NAI.atanh().is_nai());
+        assert!(DI::NAI.cbrt().is_nai());
         assert!(DI::NAI.cos().is_nai());
         assert!(DI::NAI.cosh().is_nai());
         assert!(DI::NAI.exp().is_nai());
         assert!(DI::NAI.exp10().is_nai());
         assert!(DI::NAI.exp2().is_nai());
+        assert!(DI::NAI.hypot(DI::EMPTY).is_nai());
+        assert!(DI::EMPTY.hypot(DI::NAI).is_nai());
         assert!(DI::NAI.ln().is_nai());
         assert!(DI::NAI.log10().is_nai());
         assert!(DI::NAI.log2().is_nai());
@@ -1146,6 +1221,163 @@ mod tests {
         assert!(DI::NAI.sinh().is_nai());
         assert!(DI::NAI.tan().is_nai());
         assert!(DI::NAI.tanh().is_nai());
+    }
+
+    // `cbrt` is increasing on ℝ, so the tightest interval that contains the image of `[a, b]`
+    // is `[cbrt_rd(a), cbrt_ru(b)]`, which `rocq/theories/Cbrt.v` proves. The arguments have
+    // negative, mixed-sign, subnormal, huge and infinite bounds, and some are points.
+    #[test]
+    fn cbrt_tightest() {
+        let tiny = f64::from_bits(1);
+        for (a, b) in [
+            (-27.0, -8.0),
+            (-8.0, 27.0),
+            (-0.1, 3.0),
+            (-0.0, 0.0),
+            (-tiny, tiny),
+            (tiny, 3.0 * tiny),
+            (-f64::MIN_POSITIVE, -tiny),
+            (1e300, f64::MAX),
+            (f64::MIN, -1e300),
+            (f64::MIN, f64::MAX),
+            (f64::NEG_INFINITY, -1.0),
+            (-2.0, f64::INFINITY),
+            (f64::NEG_INFINITY, f64::INFINITY),
+            (0.0, 0.0),
+            (-3.0, -3.0),
+            (0.1, 0.1),
+            (f64::MAX, f64::MAX),
+        ] {
+            let x = interval!(a, b).unwrap();
+            let y = interval!(cr::cbrt_rd(a), cr::cbrt_ru(b)).unwrap();
+            assert_eq!(x.cbrt(), y, "cbrt([{a:e}, {b:e}])");
+        }
+
+        // Perfect cubes have exact roots, so the bounds are the roots themselves.
+        assert_eq!(
+            interval!(-8.0, 27.0).unwrap().cbrt(),
+            interval!(-2.0, 3.0).unwrap()
+        );
+        assert!(I::EMPTY.cbrt().is_empty());
+    }
+
+    // `cbrt` is defined and continuous on ℝ, so `DecInterval::cbrt` keeps the decoration of
+    // its argument: `com` stays `com`, also at a huge bounded argument, as the result is
+    // bounded too, and an unbounded argument, which is `dac`, gives `dac`.
+    #[test]
+    fn cbrt_dec() {
+        let x = interval!(-8.0, 27.0).unwrap();
+        for d in [
+            Decoration::Com,
+            Decoration::Dac,
+            Decoration::Def,
+            Decoration::Trv,
+        ] {
+            let y = DI::set_dec(x, d).cbrt();
+            assert_eq!(y.interval(), Some(interval!(-2.0, 3.0).unwrap()));
+            assert_eq!(y.decoration(), d);
+        }
+
+        let y = DI::new(interval!(f64::MIN, f64::MAX).unwrap()).cbrt();
+        assert_eq!(y.decoration(), Decoration::Com);
+        let y = DI::new(I::ENTIRE).cbrt();
+        assert_eq!(y.interval(), Some(I::ENTIRE));
+        assert_eq!(y.decoration(), Decoration::Dac);
+        let y = DI::EMPTY.cbrt();
+        assert_eq!(y.interval(), Some(I::EMPTY));
+        assert_eq!(y.decoration(), Decoration::Trv);
+    }
+
+    // `hypot(x, y) = hypot(|x|, |y|)` increases in `|x|` and in `|y|`, so the tightest interval
+    // that contains the image of `x × y` is `[hypot_rd(mig x, mig y), hypot_ru(mag x, mag y)]`,
+    // which `rocq/theories/Hypot.v` proves. The arguments, taken in every pair, contain 0, are
+    // on one side of it, are unbounded, have subnormal or huge bounds, or are points.
+    #[test]
+    fn hypot_tightest() {
+        let tiny = f64::from_bits(1);
+        let xs = [
+            interval!(-1.0, 2.0),
+            interval!(-3.0, 0.5),
+            interval!(-0.0, 0.0),
+            interval!(-3.0, -2.0),
+            interval!(0.5, 4.0),
+            interval!(tiny, 1e-310),
+            interval!(-1e-300, -tiny),
+            interval!(1e300, f64::MAX),
+            interval!(f64::MIN, f64::MIN),
+            interval!(f64::NEG_INFINITY, -1.0),
+            interval!(0.0, f64::INFINITY),
+            interval!(f64::NEG_INFINITY, f64::INFINITY),
+            interval!(3.0, 3.0),
+            interval!(-4.0, -4.0),
+            interval!(0.1, 0.1),
+        ]
+        .map(Result::unwrap);
+        for x in xs {
+            for y in xs {
+                let z = interval!(
+                    cr::hypot_rd(x.mig(), y.mig()),
+                    cr::hypot_ru(x.mag(), y.mag())
+                )
+                .unwrap();
+                assert_eq!(x.hypot(y), z, "hypot({x:?}, {y:?})");
+            }
+        }
+
+        // (3, 4, 5) is a Pythagorean triple, so the result is exact.
+        assert_eq!(
+            interval!(3.0, 3.0)
+                .unwrap()
+                .hypot(interval!(-4.0, -4.0).unwrap()),
+            interval!(5.0, 5.0).unwrap()
+        );
+        let x = interval!(1.0, 2.0).unwrap();
+        assert!(I::EMPTY.hypot(x).is_empty());
+        assert!(x.hypot(I::EMPTY).is_empty());
+        assert!(I::EMPTY.hypot(I::EMPTY).is_empty());
+    }
+
+    // `hypot` is defined and continuous on ℝ², so `DecInterval::hypot` gives the lesser of the
+    // decorations of its arguments, except that, as with `sqr`, a bounded argument can give an
+    // unbounded result, which is then `dac` rather than `com`.
+    #[test]
+    fn hypot_dec() {
+        // hypot(MAX, MAX) = √2 MAX overflows, so the result is [MAX, +∞], and `dac`.
+        let x = DI::new(interval!(f64::MAX, f64::MAX).unwrap());
+        assert_eq!(x.decoration(), Decoration::Com);
+        let y = x.hypot(x);
+        assert_eq!(
+            y.interval(),
+            Some(interval!(f64::MAX, f64::INFINITY).unwrap())
+        );
+        assert_eq!(y.decoration(), Decoration::Dac);
+
+        let x = DI::new(interval!(3.0, 3.0).unwrap());
+        let y = DI::new(interval!(-4.0, -4.0).unwrap());
+        let z = x.hypot(y);
+        assert_eq!(z.interval(), Some(interval!(5.0, 5.0).unwrap()));
+        assert_eq!(z.decoration(), Decoration::Com);
+
+        // The lesser decoration of the arguments, in either order.
+        for d in [Decoration::Dac, Decoration::Def, Decoration::Trv] {
+            let w = DI::set_dec(x.interval().unwrap(), d);
+            assert_eq!(w.hypot(y).decoration(), d);
+            assert_eq!(y.hypot(w).decoration(), d);
+        }
+
+        // An unbounded argument is `dac`.
+        let w = DI::new(interval!(1.0, f64::INFINITY).unwrap());
+        assert_eq!(w.hypot(y).decoration(), Decoration::Dac);
+
+        // An empty argument gives the empty interval, which is `trv`.
+        for z in [
+            DI::EMPTY.hypot(y),
+            y.hypot(DI::EMPTY),
+            DI::EMPTY.hypot(DI::EMPTY),
+        ] {
+            assert_eq!(z.interval(), Some(I::EMPTY));
+            assert_eq!(z.decoration(), Decoration::Trv);
+        }
     }
 
     // Arguments with a bound close to a multiple of π/2 relative to its magnitude, as every

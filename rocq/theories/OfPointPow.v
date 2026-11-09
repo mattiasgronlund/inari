@@ -1,5 +1,5 @@
-(** * MPFR functions made of functions of [f64]s: [atan2], [pow] and
-    [pow_si]
+(** * MPFR functions made of functions of [f64]s: [atan2], [hypot], [pow]
+    and [pow_si]
 
     Each of these MPFR functions of [of_point p] satisfies the hypothesis
     of [Mpfr.v] at the exponent range of [f64] where the field of [p]
@@ -110,6 +110,17 @@ Lemma atan2_val_inf_l :
   atan2_val (B754_infinity s) x = Some (if s then - (PI / 2) else PI / 2).
 Proof. intros s [sx|sx| |sx mx ex Hb] Hx; try discriminate Hx; reflexivity. Qed.
 
+Lemma hypot_val_fin :
+  forall x y, is_finite x = true -> is_finite y = true ->
+  hypot_val x y = Some (Rhypot (B2R x) (B2R y)).
+Proof. intros x y Hx Hy. unfold hypot_val. rewrite Hx, Hy. reflexivity. Qed.
+
+Lemma hypot_val_inf_l : forall s y, hypot_val (B754_infinity s) y = None.
+Proof. intros s y. reflexivity. Qed.
+
+Lemma hypot_val_inf_r : forall x s, hypot_val x (B754_infinity s) = None.
+Proof. intros x s. unfold hypot_val. destruct (is_finite x); reflexivity. Qed.
+
 Lemma pow_val_fin :
   forall x y, is_finite x = true -> is_finite y = true ->
   pow_val x y = Some (Rpow (B2R x) (B2R y)).
@@ -169,6 +180,29 @@ repeat split.
   rewrite (lift2_some _ _ _ _ _ _ _ _ (get_d_inf _ true) (ideal_get_d_with_val _ x)
     (atan2_val_inf_l true x Hx)).
   apply lift_val_correct. exact (H7 rnd x Hx).
+Qed.
+
+Theorem of_point_hypot_ok :
+  forall p, hypot_c (p_hypot p) -> hypot_ok (-1073) 1024 (of_point p).
+Proof.
+intros p (Hc & H1 & H2).
+unfold hypot_ok.
+change (mpfr_hypot (of_point p)) with (lift2 hypot_val (p_hypot p)).
+split; [|split].
+- (* finite arguments: [lift_val] of [Rhypot] *)
+  intros rnd x y Hx Hy HD.
+  rewrite (lift2_some _ _ _ _ _ _ _ _ (ideal_get_d_with_val _ x) (ideal_get_d_with_val _ y)
+    (hypot_val_fin x y Hx Hy)).
+  apply lift_val_correct. exact (Hc rnd x y Hx Hy HD).
+- (* an infinite argument: no real, so the [f64] that [p_hypot p] gives *)
+  intros y.
+  rewrite (lift2_none _ _ _ _ _ _ _ (get_d_inf _ false) (ideal_get_d_with_val _ y)
+    (hypot_val_inf_l false y)), H1.
+  reflexivity.
+- intros x.
+  rewrite (lift2_none _ _ _ _ _ _ _ (ideal_get_d_with_val _ x) (get_d_inf _ false)
+    (hypot_val_inf_r x false)), H2.
+  reflexivity.
 Qed.
 
 Theorem of_point_pow_ok :

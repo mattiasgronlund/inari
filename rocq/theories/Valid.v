@@ -24,9 +24,9 @@
     [sqrt], [trunc], [-x], [x + y], [x - y], [x * y], [mul_add], [recip],
     [x / y], both outputs of [mul_rev_to_pair], [cancel_minus], [cancel_plus],
     [convex_hull], [intersection], and the functions [acos], [acosh],
-    [asin], [asinh], [atan], [atan2], [atanh], [cos], [cosh], [exp],
-    [exp10], [exp2], [ln], [log10], [log2], [pow], [powi], [sin], [sinh],
-    [tan] and [tanh] of [src/elementary.rs].
+    [asin], [asinh], [atan], [atan2], [atanh], [cbrt], [cos], [cosh],
+    [exp], [exp10], [exp2], [hypot], [ln], [log10], [log2], [pow], [powi],
+    [sin], [sinh], [tan] and [tanh] of [src/elementary.rs].
     Those of [dmade] are the constants, [def_com!], [const_dec_interval!],
     [new], [set_dec], [TryFrom<(f64, f64)>], [try_from_be_bytes] and its
     siblings, [From<DecNInterval>], which [FromStr] calls, and the
@@ -38,7 +38,9 @@
     kernel, [kernel_point] of [DyPoint.v]. They take no hypothesis, and
     cover the library's functions where each call of the kernel returns
     by one of its rules or by a passing rounding test of Ziv's strategy,
-    as [kernel_point] is the Rust there (see [DyPoint.v]). The others,
+    as [kernel_point] is the Rust there (see [DyPoint.v]), and those of
+    [cbrt] and [hypot] at every argument ([k_cbrt_some], [k_hypot_some]).
+    The others,
     such as [made_exp], are those of the MPFR backend that only the
     tests compile. They assume an MPFR [m] and an exponent range [emin],
     [emax] that satisfy the hypotheses of [Mpfr.v]: [range_ok], [get_d_ok],
@@ -133,6 +135,9 @@ Inductive made : Interval -> Prop :=
   | made_atanh :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       atanh_ok emin emax m -> made x -> made (Interval.atanh m x)
+  | made_cbrt :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      cbrt_ok emin emax m -> made x -> made (Interval.cbrt m x)
   | made_cos :
       forall emin emax m has_fma first x y, range_ok emin emax ->
       get_d_ok emin emax m -> cos_ok emin emax m -> sin_ok emin emax m -> made x ->
@@ -149,6 +154,10 @@ Inductive made : Interval -> Prop :=
   | made_exp2 :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       exp2_ok emin emax m -> made x -> made (Interval.exp2 m x)
+  | made_hypot :
+      forall emin emax m x y z, range_ok emin emax -> get_d_ok emin emax m ->
+      hypot_ok emin emax m -> made x -> made y ->
+      Interval.hypot m x y = Some z -> made z
   | made_ln :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       ln_ok emin emax m -> made x -> made (Interval.ln m x)
@@ -188,6 +197,7 @@ Inductive made : Interval -> Prop :=
   | made_kernel_atan2 :
       forall y x z, made y -> made x -> Interval.atan2 kernel_point y x = Some z -> made z
   | made_kernel_atanh : forall x, made x -> made (Interval.atanh kernel_point x)
+  | made_kernel_cbrt : forall x, made x -> made (Interval.cbrt kernel_point x)
   | made_kernel_cos :
       forall has_fma first x y, made x ->
       Interval.cos kernel_point has_fma first x = Some y -> made y
@@ -195,6 +205,8 @@ Inductive made : Interval -> Prop :=
   | made_kernel_exp : forall x, made x -> made (Interval.exp kernel_point x)
   | made_kernel_exp10 : forall x, made x -> made (Interval.exp10 kernel_point x)
   | made_kernel_exp2 : forall x, made x -> made (Interval.exp2 kernel_point x)
+  | made_kernel_hypot :
+      forall x y z, made x -> made y -> Interval.hypot kernel_point x y = Some z -> made z
   | made_kernel_ln : forall x, made x -> made (Interval.ln kernel_point x)
   | made_kernel_log10 : forall x, made x -> made (Interval.log10 kernel_point x)
   | made_kernel_log2 : forall x, made x -> made (Interval.log2 kernel_point x)
@@ -305,6 +317,9 @@ with dmade : DecInterval -> Prop :=
   | dmade_atanh :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       atanh_ok emin emax m -> dmade x -> dmade (DecInterval.atanh m x)
+  | dmade_cbrt :
+      forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
+      cbrt_ok emin emax m -> dmade x -> dmade (DecInterval.cbrt m x)
   | dmade_cos :
       forall emin emax m has_fma first x y, range_ok emin emax ->
       get_d_ok emin emax m -> cos_ok emin emax m -> sin_ok emin emax m -> dmade x ->
@@ -321,6 +336,10 @@ with dmade : DecInterval -> Prop :=
   | dmade_exp2 :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       exp2_ok emin emax m -> dmade x -> dmade (DecInterval.exp2 m x)
+  | dmade_hypot :
+      forall emin emax m x y w, range_ok emin emax -> get_d_ok emin emax m ->
+      hypot_ok emin emax m -> dmade x -> dmade y ->
+      DecInterval.hypot m x y = Some w -> dmade w
   | dmade_ln :
       forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m ->
       ln_ok emin emax m -> dmade x -> dmade (DecInterval.ln m x)
@@ -360,6 +379,7 @@ with dmade : DecInterval -> Prop :=
   | dmade_kernel_atan2 :
       forall y x w, dmade y -> dmade x -> DecInterval.atan2 kernel_point y x = Some w -> dmade w
   | dmade_kernel_atanh : forall x, dmade x -> dmade (DecInterval.atanh kernel_point x)
+  | dmade_kernel_cbrt : forall x, dmade x -> dmade (DecInterval.cbrt kernel_point x)
   | dmade_kernel_cos :
       forall has_fma first x y, dmade x ->
       DecInterval.cos kernel_point has_fma first x = Some y -> dmade y
@@ -367,6 +387,8 @@ with dmade : DecInterval -> Prop :=
   | dmade_kernel_exp : forall x, dmade x -> dmade (DecInterval.exp kernel_point x)
   | dmade_kernel_exp10 : forall x, dmade x -> dmade (DecInterval.exp10 kernel_point x)
   | dmade_kernel_exp2 : forall x, dmade x -> dmade (DecInterval.exp2 kernel_point x)
+  | dmade_kernel_hypot :
+      forall x y w, dmade x -> dmade y -> DecInterval.hypot kernel_point x y = Some w -> dmade w
   | dmade_kernel_ln : forall x, dmade x -> dmade (DecInterval.ln kernel_point x)
   | dmade_kernel_log10 : forall x, dmade x -> dmade (DecInterval.log10 kernel_point x)
   | dmade_kernel_log2 : forall x, dmade x -> dmade (DecInterval.log2 kernel_point x)
@@ -440,6 +462,8 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (atan2_valid emin emax m y x z Hr Hg Ho Hy Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (atanh_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (cbrt_valid emin emax m x Hr Hg Ho Hx).
 - intros emin emax m f first x y Hr Hg Ho Ho2 _ Hx E.
   exact (cos_valid emin emax m f first x y Hr Hg Ho Ho2 Hx E).
 - intros emin emax m first x Hr Hg Ho _ Hx.
@@ -450,6 +474,8 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (exp10_valid emin emax m x Hr Hg Ho Hx).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (exp2_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x y z Hr Hg Ho _ Hx _ Hy E.
+  exact (hypot_valid emin emax m x y z Hr Hg Ho Hx Hy E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (ln_valid emin emax m x Hr Hg Ho Hx).
 - intros emin emax m x Hr Hg Ho _ Hx.
@@ -476,12 +502,15 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
 - intros y x z _ Hy _ Hx E.
   exact (atan2_valid_point kernel_point k_atan2_c y x z Hy Hx E).
 - intros x _ Hx. exact (atanh_valid_point kernel_point k_atanh_c x Hx).
+- intros x _ Hx. exact (cbrt_valid_point kernel_point k_cbrt_c x Hx).
 - intros f first x y _ Hx E.
   exact (cos_valid_point kernel_point k_cos_c k_sin_c f first x y Hx E).
 - intros first x _ Hx. exact (cosh_valid_point kernel_point k_cosh_c first x Hx).
 - intros x _ Hx. exact (exp_valid_point kernel_point k_exp_c x Hx).
 - intros x _ Hx. exact (exp10_valid_point kernel_point k_exp10_c x Hx).
 - intros x _ Hx. exact (exp2_valid_point kernel_point k_exp2_c x Hx).
+- intros x y z _ Hx _ Hy E.
+  exact (hypot_valid_point kernel_point k_hypot_c x y z Hx Hy E).
 - intros x _ Hx. exact (ln_valid_point kernel_point k_ln_c x Hx).
 - intros x _ Hx. exact (log10_valid_point kernel_point k_log10_c x Hx).
 - intros x _ Hx. exact (log2_valid_point kernel_point k_log2_c x Hx).
@@ -545,6 +574,8 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (dec_atan2_valid emin emax m y x w Hr Hg Ho Hy Hx E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (dec_atanh_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x Hr Hg Ho _ Hx.
+  exact (dec_cbrt_valid emin emax m x Hr Hg Ho Hx).
 - intros emin emax m f first x y Hr Hg Ho Ho2 _ Hx E.
   exact (dec_cos_valid emin emax m f first x y Hr Hg Ho Ho2 Hx E).
 - intros emin emax m first x Hr Hg Ho _ Hx.
@@ -555,6 +586,8 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
   exact (dec_exp10_valid emin emax m x Hr Hg Ho Hx).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (dec_exp2_valid emin emax m x Hr Hg Ho Hx).
+- intros emin emax m x y w Hr Hg Ho _ Hx _ Hy E.
+  exact (dec_hypot_valid emin emax m x y w Hr Hg Ho Hx Hy E).
 - intros emin emax m x Hr Hg Ho _ Hx.
   exact (dec_ln_valid emin emax m x Hr Hg Ho Hx).
 - intros emin emax m x Hr Hg Ho _ Hx.
@@ -581,12 +614,15 @@ apply (made_dmade_ind (fun x => valid x) (fun d => valid (itv d))).
 - intros y x w _ Hy _ Hx E.
   exact (dec_atan2_valid_point kernel_point k_atan2_c y x w Hy Hx E).
 - intros x _ Hx. exact (dec_atanh_valid_point kernel_point k_atanh_c x Hx).
+- intros x _ Hx. exact (dec_cbrt_valid_point kernel_point k_cbrt_c x Hx).
 - intros f first x y _ Hx E.
   exact (dec_cos_valid_point kernel_point k_cos_c k_sin_c f first x y Hx E).
 - intros first x _ Hx. exact (dec_cosh_valid_point kernel_point k_cosh_c first x Hx).
 - intros x _ Hx. exact (dec_exp_valid_point kernel_point k_exp_c x Hx).
 - intros x _ Hx. exact (dec_exp10_valid_point kernel_point k_exp10_c x Hx).
 - intros x _ Hx. exact (dec_exp2_valid_point kernel_point k_exp2_c x Hx).
+- intros x y w _ Hx _ Hy E.
+  exact (dec_hypot_valid_point kernel_point k_hypot_c x y w Hx Hy E).
 - intros x _ Hx. exact (dec_ln_valid_point kernel_point k_ln_c x Hx).
 - intros x _ Hx. exact (dec_log10_valid_point kernel_point k_log10_c x Hx).
 - intros x _ Hx. exact (dec_log2_valid_point kernel_point k_log2_c x Hx).

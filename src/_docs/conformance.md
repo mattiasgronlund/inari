@@ -122,7 +122,12 @@ Not implemented.
 
 #### Forward-mode elementary functions
 
-Not implemented.
+| Operation       | Implementation                    |
+| --------------- | --------------------------------- |
+| rootn(_x_, 3)   | [`x.cbrt()`](`Interval::cbrt`)    |
+| hypot(_x_, _y_) | [`x.hypot(y)`](`Interval::hypot`) |
+
+rootn(_x_, _q_) is implemented only for _q_ = 3, under the name `cbrt`. The other recommended elementary functions are not implemented.
 
 #### Slope functions
 
@@ -201,6 +206,8 @@ b. Documentation of behavior
    Unless otherwise noted, all operations return the tightest results.
 
    The [forward-mode elementary functions](#forward-mode-elementary-functions) from pown(_x_, _n_) to atanh(_x_) compute their bounds with a multi-precision kernel of inari's own. Where no special rule settles an argument, the kernel rounds by Ziv's strategy: it raises its precision until a rounding test passes, up to a cap of 4,096 bits. These operations return the tightest results unless an argument makes the kernel reach that cap without the test passing, which no known argument does. Failing the test at the cap does not make the kernel panic: it returns the bound of its 4,096-bit enclosure on the side of the rounding, rounded outward. That value is on the correct side of the exact one, and is believed to be within one [`f64`] of its correct rounding, but it is not proved to be that rounding. With the portable backend, the interval that the operation on `Interval` then returns is proved to contain the range of the function over its arguments, wherever the kernel does not panic. [`Interval::sin`], [`Interval::cos`] and [`Interval::tan`] also take the quadrant of an argument from the signs of such values, and are proved to take the right one, as no `f64` lies within 2^-61 of a multiple of π/2 other than 0. The kernel also panics where one of its checks fails, such as that a divisor is not zero. No known argument makes one fail, but that none can is not proved.
+
+   The [recommended](#recommended-operations) rootn(_x_, 3) and hypot(_x_, _y_) compute their bounds with the same kernel, from an exact integer cube or square root, without Ziv's strategy, so the cap does not concern them: they return the tightest results at every argument. With the portable backend, this is proved, with the decorations that the standard asks for, and so is that the kernel returns at every argument of theirs, without panicking.
 
 3. Under what conditions is a constructor unable to determine whether a Level 1 value exists that corresponds to the supplied inputs?
 

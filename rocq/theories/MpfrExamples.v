@@ -25,7 +25,7 @@
 
 From Stdlib Require Import ZArith.
 From Inari Require Import Model Mpfr MpfrIdeal MpfrConsistent MpfrRound ClosedDom Elem
-  Atanh Cosh TrigQuad TrigCount Cos Sin Tan Pow Powi Atan2 ValidMake ValidElem Valid
+  Atanh Cosh TrigQuad TrigCount Cos Sin Tan Pow Powi Atan2 Cbrt Hypot ValidMake ValidElem Valid
   MpfrPoint.
 
 (** [app_head t] is the function of the application [t], or [t] if [t] is
@@ -166,12 +166,18 @@ Example powi_correct_ideal := ltac:(mpfr_example powi_correct).
 Example dec_powi_correct_ideal := ltac:(mpfr_example dec_powi_correct).
 Example atan2_correct_ideal := ltac:(mpfr_example atan2_correct).
 Example dec_atan2_correct_ideal := ltac:(mpfr_example dec_atan2_correct).
+Example cbrt_correct_ideal := ltac:(mpfr_example cbrt_correct).
+Example dec_cbrt_correct_ideal := ltac:(mpfr_example dec_cbrt_correct).
+Example hypot_correct_ideal := ltac:(mpfr_example hypot_correct).
+Example dec_hypot_correct_ideal := ltac:(mpfr_example dec_hypot_correct).
 Example acos_valid_ideal := ltac:(mpfr_example acos_valid).
 Example acosh_valid_ideal := ltac:(mpfr_example acosh_valid).
 Example asin_valid_ideal := ltac:(mpfr_example asin_valid).
 Example asinh_valid_ideal := ltac:(mpfr_example asinh_valid).
 Example atan_valid_ideal := ltac:(mpfr_example atan_valid).
 Example atan2_valid_ideal := ltac:(mpfr_example atan2_valid).
+Example cbrt_valid_ideal := ltac:(mpfr_example cbrt_valid).
+Example hypot_valid_ideal := ltac:(mpfr_example hypot_valid).
 Example atanh_valid_ideal := ltac:(mpfr_example atanh_valid).
 Example cos_valid_ideal := ltac:(mpfr_example cos_valid).
 Example cosh_valid_ideal := ltac:(mpfr_example cosh_valid).
@@ -193,6 +199,8 @@ Example dec_asin_valid_ideal := ltac:(mpfr_example dec_asin_valid).
 Example dec_asinh_valid_ideal := ltac:(mpfr_example dec_asinh_valid).
 Example dec_atan_valid_ideal := ltac:(mpfr_example dec_atan_valid).
 Example dec_atan2_valid_ideal := ltac:(mpfr_example dec_atan2_valid).
+Example dec_cbrt_valid_ideal := ltac:(mpfr_example dec_cbrt_valid).
+Example dec_hypot_valid_ideal := ltac:(mpfr_example dec_hypot_valid).
 Example dec_atanh_valid_ideal := ltac:(mpfr_example dec_atanh_valid).
 Example dec_cos_valid_ideal := ltac:(mpfr_example dec_cos_valid).
 Example dec_cosh_valid_ideal := ltac:(mpfr_example dec_cosh_valid).
@@ -214,6 +222,8 @@ Example mpfr_asin_c_ideal := ltac:(mpfr_example mpfr_asin_c).
 Example mpfr_asinh_c_ideal := ltac:(mpfr_example mpfr_asinh_c).
 Example mpfr_atan_c_ideal := ltac:(mpfr_example mpfr_atan_c).
 Example mpfr_atan2_c_ideal := ltac:(mpfr_example mpfr_atan2_c).
+Example mpfr_cbrt_c_ideal := ltac:(mpfr_example mpfr_cbrt_c).
+Example mpfr_hypot_c_ideal := ltac:(mpfr_example mpfr_hypot_c).
 Example mpfr_atanh_c_ideal := ltac:(mpfr_example mpfr_atanh_c).
 Example mpfr_cos_c_ideal := ltac:(mpfr_example mpfr_cos_c).
 Example mpfr_cosh_c_ideal := ltac:(mpfr_example mpfr_cosh_c).
@@ -238,6 +248,8 @@ Example made_asin_ideal := ltac:(mpfr_example made_asin).
 Example made_asinh_ideal := ltac:(mpfr_example made_asinh).
 Example made_atan_ideal := ltac:(mpfr_example made_atan).
 Example made_atan2_ideal := ltac:(mpfr_example made_atan2).
+Example made_cbrt_ideal := ltac:(mpfr_example made_cbrt).
+Example made_hypot_ideal := ltac:(mpfr_example made_hypot).
 Example made_atanh_ideal := ltac:(mpfr_example made_atanh).
 Example made_cos_ideal := ltac:(mpfr_example made_cos).
 Example made_cosh_ideal := ltac:(mpfr_example made_cosh).
@@ -259,6 +271,8 @@ Example dmade_asin_ideal := ltac:(mpfr_example dmade_asin).
 Example dmade_asinh_ideal := ltac:(mpfr_example dmade_asinh).
 Example dmade_atan_ideal := ltac:(mpfr_example dmade_atan).
 Example dmade_atan2_ideal := ltac:(mpfr_example dmade_atan2).
+Example dmade_cbrt_ideal := ltac:(mpfr_example dmade_cbrt).
+Example dmade_hypot_ideal := ltac:(mpfr_example dmade_hypot).
 Example dmade_atanh_ideal := ltac:(mpfr_example dmade_atanh).
 Example dmade_cos_ideal := ltac:(mpfr_example dmade_cos).
 Example dmade_cosh_ideal := ltac:(mpfr_example dmade_cosh).

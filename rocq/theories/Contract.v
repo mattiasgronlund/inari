@@ -123,6 +123,12 @@ Definition atanh_c (h : mpfr_rnd -> f64 -> f64) : Prop :=
   (forall x : f64, is_finite x = true -> B2R x = -1 -> h RNDD x = B754_infinity true) /\
   (forall x : f64, is_finite x = true -> B2R x = 1 -> h RNDU x = B754_infinity false).
 
+(** [cbrt(-inf) = -inf] and [cbrt(+inf) = +inf] *)
+Definition cbrt_c (h : mpfr_rnd -> f64 -> f64) : Prop :=
+  point_correct real_dom Rcbrt h /\
+  h RNDD (B754_infinity true) = B754_infinity true /\
+  h RNDU (B754_infinity false) = B754_infinity false.
+
 Definition cos_c (h : mpfr_rnd -> f64 -> f64) : Prop :=
   point_correct real_dom cos h.
 
@@ -147,6 +153,13 @@ Definition exp2_c (h : mpfr_rnd -> f64 -> f64) : Prop :=
   point_correct real_dom Rexp2 h /\
   (exists s, h RNDD (B754_infinity true) = B754_zero s) /\
   h RNDU (B754_infinity false) = B754_infinity false.
+
+(** [hypot(+inf, y) = hypot(x, +inf) = +inf], whatever the other
+    argument. *)
+Definition hypot_c (h : mpfr_rnd -> f64 -> f64 -> f64) : Prop :=
+  point_correct2 (fun _ _ => True) Rhypot h /\
+  (forall y : f64, h RNDU (B754_infinity false) y = B754_infinity false) /\
+  (forall x : f64, h RNDU x (B754_infinity false) = B754_infinity false).
 
 (** [log(+0) = log(-0) = -inf] and [log(+inf) = +inf], and the same for
     [log10] and [log2]. *)

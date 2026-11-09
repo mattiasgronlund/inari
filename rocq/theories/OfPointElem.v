@@ -110,6 +110,15 @@ intros p (Hc & Hd & Hu). split; [|split].
   apply lift1_fin_to_inf; [exact Hf|]. exact (Hu _ Hf Hr).
 Qed.
 
+Theorem of_point_cbrt_ok :
+  forall p, cbrt_c (p_cbrt p) -> cbrt_ok (-1073) 1024 (of_point p).
+Proof.
+intros p (Hc & Hd & Hu). split; [|split].
+- exact (lift1_fin_correct _ _ _ Hc).
+- cbn [mpfr_cbrt of_point]. rewrite lift1_fin_inf, Hd. reflexivity.
+- cbn [mpfr_cbrt of_point]. rewrite lift1_fin_inf, Hu. reflexivity.
+Qed.
+
 Theorem of_point_cos_ok :
   forall p, cos_c (p_cos p) -> cos_ok (-1073) 1024 (of_point p).
 Proof. intros p Hc. exact (lift1_fin_correct _ _ _ Hc). Qed.

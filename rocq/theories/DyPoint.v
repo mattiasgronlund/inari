@@ -16,7 +16,10 @@
     or that panic. That a rounding test passes by the cap is not proved.
     [DyPointSide.v] covers the calls that reach the cap too, with
     containment in place of the tightest intervals.
-    [kernel_point] is the record of these twenty-one fields.
+    [kernel_point] is the record of these twenty-one fields, and of the
+    fields [k_cbrt] and [k_hypot] of [DyadicRoot], which use no driver,
+    never return [None] ([k_cbrt_some] and [k_hypot_some]) and are the
+    rounded roots at every finite argument ([k_cbrt_c] and [k_hypot_c]).
     [DyPointDec.v] applies the theorems of [PointDec.v] to it in the same
     way, and [Valid.v] those of [PointValid.v], in the cases of
     [made_valid] for its constructors [made_kernel_exp],
@@ -26,14 +29,15 @@ From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr MpfrRound MpfrIdeal IdealGetD Elem Cosh
   Atanh Contract OfPointCore OfPoint OfPointElem PointTheorems DyDriver DyExp DyHyp DyLog DyLogHyp
-  DyAtan DyAsin DyTrig DyPowRules DyPown DyPow.
+  DyAtan DyAsin DyTrig DyPowRules DyPown DyPow DyCbrt DyHypot Cbrt Hypot.
 
 Open Scope R_scope.
 
 Definition up_of (rnd : mpfr_rnd) : bool := match rnd with RNDD => false | RNDU => true end.
 
 (** The field of the function [dir] of [DyadicExp], [DyadicLog],
-    [DyadicAtan] or [DyadicTrig] for the real function [f]. *)
+    [DyadicAtan], [DyadicTrig] or [DyadicRoot] for the real function
+    [f]. *)
 Definition kernel_field (dir : f64 -> bool -> option f64) (f : R -> R) (rnd : mpfr_rnd) (x : f64)
   : f64 :=
   match dir x (up_of rnd) with Some v => v | None => round_f64 rnd (f (B2R x)) end.
@@ -56,6 +60,7 @@ Definition k_acos := kernel_field (DyadicAtan.acos_dir_with ziv_strict) acos.
 Definition k_sin := kernel_field (DyadicTrig.sin_dir_with ziv_strict) sin.
 Definition k_cos := kernel_field (DyadicTrig.cos_dir_with ziv_strict) cos.
 Definition k_tan := kernel_field (DyadicTrig.tan_dir_with ziv_strict) tan.
+Definition k_cbrt := kernel_field DyadicRoot.cbrt Rcbrt.
 
 (** The same for a function [dir] of two [f64]s and the real function [f]
     of two reals, in the same order. *)
@@ -65,6 +70,7 @@ Definition kernel_field2 (dir : f64 -> f64 -> bool -> option f64) (f : R -> R ->
 
 Definition k_atan2 := kernel_field2 (DyadicAtan.atan2_dir_with ziv_strict) Ratan2.
 Definition k_pow := kernel_field2 (DyadicPow.pow_dir_with ziv_strict) Rpow.
+Definition k_hypot := kernel_field2 DyadicRoot.hypot Rhypot.
 
 (** The same for a function [dir] of an [f64] and an integer. *)
 Definition kernel_field_z (dir : f64 -> Z -> bool -> option f64) (f : R -> Z -> R)
@@ -81,11 +87,13 @@ Definition kernel_point : point := {|
   p_atan := k_atan;
   p_atan2 := k_atan2;
   p_atanh := k_atanh;
+  p_cbrt := k_cbrt;
   p_cos := k_cos;
   p_cosh := k_cosh;
   p_exp := k_exp;
   p_exp10 := k_exp10;
   p_exp2 := k_exp2;
+  p_hypot := k_hypot;
   p_ln := k_ln;
   p_log10 := k_log10;
   p_log2 := k_log2;
@@ -638,4 +646,83 @@ Theorem kernel_pown_correct :
     is_tightest (image_dom (pown_dom n) (fun r => powerRZ r n) x) y.
 Proof.
 intros n x Hn Hx. exact (pown_correct_point kernel_point k_pown_c n x Hn Hx).
+Qed.
+
+(** ** [cbrt] and [hypot]
+
+    [DyadicRoot.cbrt] and [DyadicRoot.hypot] use no driver and return at
+    every argument, so [k_cbrt] and [k_hypot] are what the Rust computes,
+    with no condition on the calls of the kernel. *)
+Theorem k_cbrt_some : forall rnd x, DyadicRoot.cbrt x (up_of rnd) = Some (k_cbrt rnd x).
+Proof.
+intros rnd x. unfold k_cbrt, kernel_field.
+destruct (is_finite x) eqn:Fx.
+- destruct (cbrt_dir_correct x (up_of rnd) Fx) as (v & E & _). rewrite E. reflexivity.
+- rewrite (proj1 (cbrt_special x (up_of rnd) (or_introl Fx))). reflexivity.
+Qed.
+
+(** [DyadicRoot.hypot] returns at every pair: +inf if either argument is
+    infinite, else NaN if either is NaN, else the rounding of
+    [hypot_dir_correct]. *)
+Lemma k_hypot_returns : forall x y up, exists v, DyadicRoot.hypot x y up = Some v.
+Proof.
+intros x y up.
+destruct (is_finite x) eqn:Fx; destruct (is_nan x) eqn:Nx;
+  destruct (is_finite y) eqn:Fy; destruct (is_nan y) eqn:Ny;
+  first
+  [ exists infinity; exact (proj1 (hypot_inf x y up ltac:(tauto)))
+  | exists B754_nan; exact (proj1 (hypot_nan x y up ltac:(tauto) ltac:(tauto) ltac:(tauto)))
+  | destruct (hypot_dir_correct x y up Fx Fy) as (v & E & _); exists v; exact E ].
+Qed.
+
+Theorem k_hypot_some :
+  forall rnd x y, DyadicRoot.hypot x y (up_of rnd) = Some (k_hypot rnd x y).
+Proof.
+intros rnd x y. unfold k_hypot, kernel_field2.
+destruct (k_hypot_returns x y (up_of rnd)) as (v & E). rewrite E. reflexivity.
+Qed.
+
+Theorem k_cbrt_c : cbrt_c k_cbrt.
+Proof.
+split; [| split].
+- apply (kernel_field_correct DyadicRoot.cbrt Rcbrt).
+  intros x up v Fx E.
+  destruct (cbrt_dir_correct x up Fx) as (v' & E' & R).
+  rewrite E in E'. inversion E'; subst. exact R.
+- (* [cbrt] returns a non-finite argument itself. *)
+  unfold k_cbrt, kernel_field. cbn [up_of].
+  rewrite (proj1 (cbrt_special (B754_infinity true) false (or_introl eq_refl))).
+  reflexivity.
+- unfold k_cbrt, kernel_field. cbn [up_of].
+  rewrite (proj1 (cbrt_special (B754_infinity false) true (or_introl eq_refl))).
+  reflexivity.
+Qed.
+
+Theorem k_hypot_c : hypot_c k_hypot.
+Proof.
+assert (Hi : infinity = B754_infinity false) by (vm_compute; reflexivity).
+split; [| split].
+- apply (kernel_field2_correct (fun _ _ => True) DyadicRoot.hypot Rhypot).
+  intros y x up v Fy Fx _ E. unfold Rhypot.
+  destruct (hypot_dir_correct y x up Fy Fx) as (v' & E' & R).
+  rewrite E in E'. inversion E'; subst. exact R.
+- intros y. unfold k_hypot, kernel_field2. cbn [up_of].
+  rewrite (proj1 (hypot_inf (B754_infinity false) y true (or_introl (conj eq_refl eq_refl)))).
+  exact Hi.
+- intros x. unfold k_hypot, kernel_field2. cbn [up_of].
+  rewrite (proj1 (hypot_inf x (B754_infinity false) true (or_intror (conj eq_refl eq_refl)))).
+  exact Hi.
+Qed.
+
+Theorem kernel_cbrt_correct :
+  forall x, valid x -> is_tightest (image_dom real_dom Rcbrt x) (Interval.cbrt kernel_point x).
+Proof.
+intros x Hx. exact (cbrt_correct_point kernel_point k_cbrt_c x Hx).
+Qed.
+
+Theorem kernel_hypot_correct :
+  forall x y, valid x -> valid y ->
+  exists z, Interval.hypot kernel_point x y = Some z /\ is_tightest (image2 Rhypot x y) z.
+Proof.
+intros x y Hx Hy. exact (hypot_correct_point kernel_point k_hypot_c x y Hx Hy).
 Qed.

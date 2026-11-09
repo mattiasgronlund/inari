@@ -3521,7 +3521,7 @@ End Cr.
 
     The model leaves MPFR's functions abstract: an MPFR number is an
     [mpfr_t], and the MPFR functions with which [src/mpfr_calls/mpfr.rs]
-    computes those bounds, [mpfr::get_d] and the 21 that the uses of
+    computes those bounds, [mpfr::get_d] and the 23 that the uses of
     [mpfr_fn!], [mpfr_fn2!] and [mpfr_fn_si!] there call, are the fields
     of a record [mpfr], of which [mpfr_point] makes the record [point]
     of the MPFR backend. [Mpfr.v] states what the MPFR manual says of
@@ -3577,14 +3577,16 @@ Definition with_val (x : f64) : mpfr_t :=
     bounds; the others that it calls are not fields (see the start of this
     section). The fields are each a function of the rounding direction
     and of the argument: [mpfr_get_d], through [get_d], and [mpfr_acos]
-    and the 20 others that the uses of [mpfr_fn!], [mpfr_fn2!] and
+    and the 22 others that the uses of [mpfr_fn!], [mpfr_fn2!] and
     [mpfr_fn_si!] call, of which [mpfr_log] is MPFR's [log].
     [mpfr::f(x.as_raw_mut(), x.as_raw(), rnd)] sets the MPFR number [x] to
     [f rnd x], rounded to the 53 bits of [x], which is both the argument
-    and the result. [mpfr_atan2] and [mpfr_pow] take a second MPFR number,
-    and [mpfr_pow_si] a [c_long], which is an integer here:
-    [mpfr::atan2(x.as_raw_mut(), x.as_raw(), y.as_raw(), rnd)] sets [x] to
-    [mpfr_atan2 rnd x y],
+    and the result. [mpfr_atan2], [mpfr_hypot] and [mpfr_pow] take a
+    second MPFR number, and [mpfr_pow_si] a [c_long], which is an integer
+    here: [mpfr::atan2(x.as_raw_mut(), x.as_raw(), y.as_raw(), rnd)] sets
+    [x] to [mpfr_atan2 rnd x y],
+    [mpfr::hypot(x.as_raw_mut(), x.as_raw(), y.as_raw(), rnd)] to
+    [mpfr_hypot rnd x y],
     [mpfr::pow(x.as_raw_mut(), x.as_raw(), y.as_raw(), rnd)] to
     [mpfr_pow rnd x y], and
     [mpfr::pow_si(x.as_raw_mut(), x.as_raw(), n, rnd)] to
@@ -3605,11 +3607,13 @@ Record mpfr : Type := {
   mpfr_atan : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_atan2 : mpfr_rnd -> mpfr_t -> mpfr_t -> mpfr_t;
   mpfr_atanh : mpfr_rnd -> mpfr_t -> mpfr_t;
+  mpfr_cbrt : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_cos : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_cosh : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_exp : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_exp10 : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_exp2 : mpfr_rnd -> mpfr_t -> mpfr_t;
+  mpfr_hypot : mpfr_rnd -> mpfr_t -> mpfr_t -> mpfr_t;
   mpfr_log : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_log10 : mpfr_rnd -> mpfr_t -> mpfr_t;
   mpfr_log2 : mpfr_rnd -> mpfr_t -> mpfr_t;
@@ -3690,11 +3694,13 @@ Record point : Type := {
   p_atan : mpfr_rnd -> f64 -> f64;
   p_atan2 : mpfr_rnd -> f64 -> f64 -> f64;
   p_atanh : mpfr_rnd -> f64 -> f64;
+  p_cbrt : mpfr_rnd -> f64 -> f64;
   p_cos : mpfr_rnd -> f64 -> f64;
   p_cosh : mpfr_rnd -> f64 -> f64;
   p_exp : mpfr_rnd -> f64 -> f64;
   p_exp10 : mpfr_rnd -> f64 -> f64;
   p_exp2 : mpfr_rnd -> f64 -> f64;
+  p_hypot : mpfr_rnd -> f64 -> f64 -> f64;
   p_ln : mpfr_rnd -> f64 -> f64;
   p_log10 : mpfr_rnd -> f64 -> f64;
   p_log2 : mpfr_rnd -> f64 -> f64;
@@ -3721,11 +3727,13 @@ Definition mpfr_point (m : mpfr) : point := {|
   p_atan := mpfr_fn m (mpfr_atan m);
   p_atan2 := mpfr_fn2 m (mpfr_atan2 m);
   p_atanh := mpfr_fn m (mpfr_atanh m);
+  p_cbrt := mpfr_fn m (mpfr_cbrt m);
   p_cos := mpfr_fn m (mpfr_cos m);
   p_cosh := mpfr_fn m (mpfr_cosh m);
   p_exp := mpfr_fn m (mpfr_exp m);
   p_exp10 := mpfr_fn m (mpfr_exp10 m);
   p_exp2 := mpfr_fn m (mpfr_exp2 m);
+  p_hypot := mpfr_fn2 m (mpfr_hypot m);
   p_ln := mpfr_fn m (mpfr_log m);
   p_log10 := mpfr_fn m (mpfr_log10 m);
   p_log2 := mpfr_fn m (mpfr_log2 m);
@@ -3765,6 +3773,8 @@ Definition atan2_rd (pt : point) := p_atan2 pt RNDD.
 Definition atan2_ru (pt : point) := p_atan2 pt RNDU.
 Definition atanh_rd (pt : point) := p_atanh pt RNDD.
 Definition atanh_ru (pt : point) := p_atanh pt RNDU.
+Definition cbrt_rd (pt : point) := p_cbrt pt RNDD.
+Definition cbrt_ru (pt : point) := p_cbrt pt RNDU.
 Definition cos_rd (pt : point) := p_cos pt RNDD.
 Definition cos_ru (pt : point) := p_cos pt RNDU.
 Definition cosh_rd (pt : point) := p_cosh pt RNDD.
@@ -3775,6 +3785,8 @@ Definition exp10_rd (pt : point) := p_exp10 pt RNDD.
 Definition exp10_ru (pt : point) := p_exp10 pt RNDU.
 Definition exp2_rd (pt : point) := p_exp2 pt RNDD.
 Definition exp2_ru (pt : point) := p_exp2 pt RNDU.
+Definition hypot_rd (pt : point) := p_hypot pt RNDD.
+Definition hypot_ru (pt : point) := p_hypot pt RNDU.
 Definition ln_rd (pt : point) := p_ln pt RNDD.
 Definition ln_ru (pt : point) := p_ln pt RNDU.
 Definition log10_rd (pt : point) := p_log10 pt RNDD.
@@ -5306,6 +5318,10 @@ Definition atanh_impl (pt : point) (self : Interval) : Interval * Decoration :=
     (y, d).
 Definition atanh (pt : point) (self : Interval) : Interval := fst (atanh_impl pt self).
 
+(** [impl_mono_inc!(cbrt, cbrt_rd, cbrt_ru)] *)
+Definition cbrt (pt : point) : Interval -> Interval :=
+  mono_inc (cbrt_rd pt) (cbrt_ru pt).
+
 (** [fn floors_exact(a: f64, b: f64, qa: f64, qb: f64, c: Interval) ->
     bool] in [src/elementary.rs]. Its [/] is [div], so [has_fma] is an
     argument and the result an [option], [f64::floor] is [ffloor], and
@@ -5385,6 +5401,16 @@ Definition exp10 (pt : point) : Interval -> Interval :=
   mono_inc (exp10_rd pt) (exp10_ru pt).
 Definition exp2 (pt : point) : Interval -> Interval :=
   mono_inc (exp2_rd pt) (exp2_ru pt).
+
+(** [pub fn hypot(self, rhs: Self) -> Self], with an [option] as [abs]
+    returns one, and [return] as in [log_impl]. *)
+Definition hypot (pt : point) (self rhs : Interval) : option Interval :=
+  let* x := abs self in
+  let* y := abs rhs in
+  if is_empty x || is_empty y then Some EMPTY
+  else
+    Some (with_infsup_raw (hypot_rd pt (inf_raw x) (inf_raw y))
+            (hypot_ru pt (sup_raw x) (sup_raw y))).
 
 (** [impl_log!(ln, ln_impl, ln_rd, ln_ru)] and those for [log10] and
     [log2] *)
@@ -5940,6 +5966,7 @@ Definition asin (pt : point) := elem_dec_impl (Interval.asin_impl pt).
 Definition asinh (pt : point) := elem_dec (Interval.asinh pt).
 Definition atan (pt : point) := elem_dec (Interval.atan pt).
 Definition atanh (pt : point) := elem_dec_impl (Interval.atanh_impl pt).
+Definition cbrt (pt : point) := elem_dec (Interval.cbrt pt).
 Definition cosh (pt : point) (first : bool) := elem_dec (Interval.cosh pt first).
 
 (** [impl_dec!(cos)], [impl_dec!(sin)] and [impl_dec!(tan, tan_impl)], as
@@ -5962,6 +5989,15 @@ Definition tan (pt : point) (has_fma : bool) (self : DecInterval) :
 Definition exp (pt : point) := elem_dec (Interval.exp pt).
 Definition exp10 (pt : point) := elem_dec (Interval.exp10 pt).
 Definition exp2 (pt : point) := elem_dec (Interval.exp2 pt).
+
+(** [pub fn hypot(self, rhs: Self) -> Self], with an [option] as
+    [Interval.hypot] returns one. *)
+Definition hypot (pt : point) (self rhs : DecInterval) : option DecInterval :=
+  if is_nai self || is_nai rhs then Some NAI
+  else
+    let* z := Interval.hypot pt (itv self) (itv rhs) in
+    Some (set_dec z (dec_min (dec self) (dec rhs))).
+
 Definition ln (pt : point) := elem_dec_impl (Interval.ln_impl pt).
 Definition log10 (pt : point) := elem_dec_impl (Interval.log10_impl pt).
 Definition log2 (pt : point) := elem_dec_impl (Interval.log2_impl pt).

@@ -2,7 +2,8 @@
 
     [dec_exp_correct] and the other theorems about the decorated
     elementary functions ([Elem.v], [Cosh.v], [Atanh.v], [ClosedDom.v],
-    [Atan2.v], [Sin.v], [Cos.v], [Tan.v], [Pow.v] and [Powi.v]) stated
+    [Atan2.v], [Sin.v], [Cos.v], [Tan.v], [Pow.v], [Powi.v], [Cbrt.v] and
+    [Hypot.v]) stated
     for every record [p] whose fields satisfy the parts of [Contract.v]
     that they need, by the recipe of [PointTheorems.v]: apply the theorem
     at [of_point p] and the exponent range of [f64], and rewrite with
@@ -13,7 +14,7 @@
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr ComCommon Elem Cosh Atanh ClosedDom Atan2
-  Contract OfPointCore OfPoint OfPointElem OfPointPow.
+  Cbrt Hypot Contract OfPointCore OfPoint OfPointElem OfPointPow.
 From Inari Require Sin Cos Tan Pow Powi.
 
 Open Scope R_scope.
@@ -318,4 +319,33 @@ Proof.
 intros p Hp n x. rewrite <- (mpfr_point_of_point p).
 exact (Powi.dec_powi_correct (-1073) 1024 (of_point p) n x range_ok_f64 (of_point_get_d_ok p)
   (of_point_pown_ok p Hp)).
+Qed.
+
+Theorem dec_cbrt_correct_point :
+  forall p, cbrt_c (p_cbrt p) ->
+  forall x, valid (itv x) ->
+  let y := DecInterval.cbrt p x in
+  if DecInterval.is_nai x then y = DecInterval.NAI
+  else
+    is_tightest (image_dom real_dom Rcbrt (itv x)) (itv y) /\
+    exists d, strongest_dom real_dom d Rcbrt (itv x) (itv y) /\ dec y = dec_min d (dec x).
+Proof.
+intros p Hp. rewrite <- (mpfr_point_of_point p).
+exact (dec_cbrt_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
+  (of_point_cbrt_ok p Hp)).
+Qed.
+
+Theorem dec_hypot_correct_point :
+  forall p, hypot_c (p_hypot p) ->
+  forall x y, valid (itv x) -> valid (itv y) ->
+  exists z, DecInterval.hypot p x y = Some z /\
+    if DecInterval.is_nai x || DecInterval.is_nai y then z = DecInterval.NAI
+    else
+      is_tightest (image2 Rhypot (itv x) (itv y)) (itv z) /\
+      exists d, strongest2 d Rhypot (itv x) (itv y) (itv z) /\
+        dec z = dec_min d (dec_min (dec x) (dec y)).
+Proof.
+intros p Hp x y. rewrite <- (mpfr_point_of_point p).
+exact (dec_hypot_correct (-1073) 1024 (of_point p) x y range_ok_f64 (of_point_get_d_ok p)
+  (of_point_hypot_ok p Hp)).
 Qed.

@@ -13,7 +13,11 @@
     argument ([quadrant_tight]), by the signs that [sin_s] and [cos_s]
     ask for. [exp_c_s] and the others check that [ContractSide.v] asks
     no more than [Contract.v]: a record that satisfies [exp_c] satisfies
-    [exp_s]. *)
+    [exp_s]. [ContractSide.v] says nothing of the fields of [cbrt] and
+    [hypot], whose functions in the kernel return at every argument and
+    round correctly at every finite one ([k_cbrt_some], [k_hypot_some],
+    [k_cbrt_c] and [k_hypot_c] of [DyPoint.v]), so [side_tight p] keeps
+    [p]'s fields of [cbrt] and [hypot]. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -101,11 +105,13 @@ Definition side_tight (p : point) : point := {|
   p_atan := tight_field real_dom dec_real atan (p_atan p);
   p_atan2 := tight_field2 (fun y x => y <> 0 \/ 0 < x) dec_atan2 Ratan2 (p_atan2 p);
   p_atanh := tight_field atanh_dom dec_atanh Ratanh (p_atanh p);
+  p_cbrt := p_cbrt p;
   p_cos := tight_field real_dom dec_real cos (p_cos p);
   p_cosh := tight_field real_dom dec_real cosh (p_cosh p);
   p_exp := tight_field real_dom dec_real exp (p_exp p);
   p_exp10 := tight_field real_dom dec_real Rexp10 (p_exp10 p);
   p_exp2 := tight_field real_dom dec_real Rexp2 (p_exp2 p);
+  p_hypot := p_hypot p;
   p_ln := tight_field log_dom dec_log ln (p_ln p);
   p_log10 := tight_field log_dom dec_log Rlog10 (p_log10 p);
   p_log2 := tight_field log_dom dec_log Rlog2 (p_log2 p);

@@ -396,3 +396,40 @@ intros p Hp n x y. rewrite <- (mpfr_point_of_point p).
 exact (dec_powi_valid (-1073) 1024 (of_point p) n x y range_ok_f64 (of_point_get_d_ok p)
   (of_point_pown_ok p Hp)).
 Qed.
+
+Theorem cbrt_valid_point :
+  forall p, cbrt_c (p_cbrt p) ->
+  forall x, valid x -> valid (Interval.cbrt p x).
+Proof.
+intros p Hp x. rewrite <- (mpfr_point_of_point p).
+exact (cbrt_valid (-1073) 1024 (of_point p) x range_ok_f64 (of_point_get_d_ok p)
+  (of_point_cbrt_ok p Hp)).
+Qed.
+
+Theorem dec_cbrt_valid_point :
+  forall p, cbrt_c (p_cbrt p) ->
+  forall x, valid (itv x) -> valid (itv (DecInterval.cbrt p x)).
+Proof.
+intros p Hp x. rewrite <- (mpfr_point_of_point p).
+exact (dec_cbrt_valid (-1073) 1024 (of_point p) x range_ok_f64 (of_point_get_d_ok p)
+  (of_point_cbrt_ok p Hp)).
+Qed.
+
+Theorem hypot_valid_point :
+  forall p, hypot_c (p_hypot p) ->
+  forall x y z, valid x -> valid y -> Interval.hypot p x y = Some z -> valid z.
+Proof.
+intros p Hp x y z. rewrite <- (mpfr_point_of_point p).
+exact (hypot_valid (-1073) 1024 (of_point p) x y z range_ok_f64 (of_point_get_d_ok p)
+  (of_point_hypot_ok p Hp)).
+Qed.
+
+Theorem dec_hypot_valid_point :
+  forall p, hypot_c (p_hypot p) ->
+  forall x y w, valid (itv x) -> valid (itv y) -> DecInterval.hypot p x y = Some w ->
+  valid (itv w).
+Proof.
+intros p Hp x y w. rewrite <- (mpfr_point_of_point p).
+exact (dec_hypot_valid (-1073) 1024 (of_point p) x y w range_ok_f64 (of_point_get_d_ok p)
+  (of_point_hypot_ok p Hp)).
+Qed.

@@ -5,7 +5,11 @@
     [DyPoint.v], they cover the calls of the kernel at which a rounding
     test passes or that a rule settles without [ziv], and say nothing
     about the calls that reach the cap of Ziv's strategy without a test
-    passing, or that panic (see [DyPoint.v]). *)
+    passing, or that panic (see [DyPoint.v]). [kernel_dec_cbrt_correct]
+    and [kernel_dec_hypot_correct] hold with no condition on the calls of
+    the kernel, as [DyadicRoot.cbrt] and [DyadicRoot.hypot] use no driver
+    and return at every argument ([k_cbrt_some] and [k_hypot_some] of
+    [DyPoint.v]). *)
 
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -250,4 +254,27 @@ Theorem kernel_dec_pown_correct :
         dec y = dec_min d (dec x).
 Proof.
 exact (dec_pown_correct_point kernel_point k_pown_c).
+Qed.
+
+Theorem kernel_dec_cbrt_correct :
+  forall x, valid (itv x) ->
+  let y := DecInterval.cbrt kernel_point x in
+  if DecInterval.is_nai x then y = DecInterval.NAI
+  else
+    is_tightest (image_dom real_dom Rcbrt (itv x)) (itv y) /\
+    exists d, strongest_dom real_dom d Rcbrt (itv x) (itv y) /\ dec y = dec_min d (dec x).
+Proof.
+exact (dec_cbrt_correct_point kernel_point k_cbrt_c).
+Qed.
+
+Theorem kernel_dec_hypot_correct :
+  forall x y, valid (itv x) -> valid (itv y) ->
+  exists z, DecInterval.hypot kernel_point x y = Some z /\
+    if DecInterval.is_nai x || DecInterval.is_nai y then z = DecInterval.NAI
+    else
+      is_tightest (image2 Rhypot (itv x) (itv y)) (itv z) /\
+      exists d, strongest2 d Rhypot (itv x) (itv y) (itv z) /\
+        dec z = dec_min d (dec_min (dec x) (dec y)).
+Proof.
+exact (dec_hypot_correct_point kernel_point k_hypot_c).
 Qed.

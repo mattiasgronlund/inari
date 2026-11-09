@@ -126,6 +126,8 @@ theories/Atan2Right.v
 theories/Atan2Lower.v
 theories/Atan2Left.v
 theories/Atan2.v
+theories/Cbrt.v
+theories/Hypot.v
 theories/Limbs.v
 theories/KnuthStep.v
 theories/Knuth.v
@@ -160,6 +162,7 @@ theories/IdealGetD.v
 theories/IdealElem.v
 theories/IdealPow.v
 theories/IdealAtan2.v
+theories/IdealHypot.v
 theories/MpfrConsistent.v
 theories/Contract.v
 theories/ContractSide.v

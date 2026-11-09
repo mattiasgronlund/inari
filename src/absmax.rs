@@ -12,7 +12,8 @@ impl Interval {
     pub fn abs(self) -> Self {
         // Proved correct in `rocq/theories/Abs.v` for the portable backend.
         // `rocq/theories/Model.v` transcribes this function, also for the proofs of
-        // `(Dec)Interval::powi`, so it has to be updated along with it.
+        // `(Dec)Interval::hypot` and `(Dec)Interval::powi`, so it has to be updated along with
+        // it.
         use IntervalClass::*;
         match self.classify() {
             E | P0 | P1 | Z => self,

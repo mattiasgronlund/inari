@@ -86,6 +86,7 @@ valid-raw src/elementary.rs: (Self::with_infsup_raw(pow_rd(b, d), pow_ru(a, c)),
 valid-raw src/elementary.rs: (Self::with_infsup_raw(pown_rd(b, rhs), pown_ru(a, rhs)), d)
 valid-raw src/elementary.rs: (Self::with_infsup_raw(tan_rd(a), tan_ru(b)), Decoration::Com)
 valid-raw src/elementary.rs: (Self::with_infsup_raw(z_ad.min(z_bc), z_ac.max(z_bd)), dec)
+valid-raw src/elementary.rs: Self::with_infsup_raw(
 valid-raw src/elementary.rs: Self::with_infsup_raw($f_rd(self.inf_raw()), $f_ru(self.sup_raw()))
 valid-raw src/elementary.rs: Self::with_infsup_raw(-1.0, cos_ru(a).max(cos_ru(b)))
 valid-raw src/elementary.rs: Self::with_infsup_raw(-1.0, sin_ru(a).max(sin_ru(b)))

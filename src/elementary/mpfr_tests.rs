@@ -329,6 +329,14 @@ fn atanh_ok() {
     assert_eq!(value(&mpfr_fn!(atanh(1.0, RNDU))), Inf(false));
 }
 
+// `cbrt_ok`, `mpfr_cbrt m RNDD (MInf true) = MInf true` and
+// `mpfr_cbrt m RNDU (MInf false) = MInf false`.
+#[test]
+fn cbrt_ok() {
+    assert_eq!(value(&mpfr_fn!(cbrt(f64::NEG_INFINITY, RNDD))), Inf(true));
+    assert_eq!(value(&mpfr_fn!(cbrt(f64::INFINITY, RNDU))), Inf(false));
+}
+
 // `cosh_ok`, `forall s, mpfr_cosh m RNDU (MInf s) = MInf false`.
 #[test]
 fn cosh_ok() {
@@ -364,6 +372,38 @@ fn exp_ok() {
     // the MPFR manual gives it.
     assert_eq!(v, Zero(false));
     assert_eq!(value(&mpfr_fn!(exp2(inf, RNDU))), Inf(false));
+}
+
+// `hypot_ok`, `forall y : f64, mpfr_hypot m RNDU (MInf false) (with_val y) = MInf false` and
+// `forall x : f64, mpfr_hypot m RNDU (with_val x) (MInf false) = MInf false`, checked at a NaN,
+// the zeros, ±1, ±`f64::MAX`, the infinities and the least subnormal number of either sign.
+// `mpfr_hypot m rnd x y` is `mpfr_fn2!(hypot(x, y, rnd))`.
+#[test]
+fn hypot_ok() {
+    let inf = f64::INFINITY;
+    let xs = [
+        f64::NAN,
+        0.0,
+        -0.0,
+        1.0,
+        -1.0,
+        f64::MAX,
+        -f64::MAX,
+        inf,
+        -inf,
+        5e-324,
+        -5e-324,
+    ];
+
+    for x in xs {
+        // `mpfr_hypot m RNDU (MInf false) (with_val x) = MInf false`, at a NaN too, as the
+        // `mpfr_hypot` entry of the MPFR manual gives it.
+        let v = value(&mpfr_fn2!(hypot(inf, x, RNDU)));
+        assert_eq!(v, Inf(false), "{x:e}");
+        // `mpfr_hypot m RNDU (with_val x) (MInf false) = MInf false`
+        let v = value(&mpfr_fn2!(hypot(x, inf, RNDU)));
+        assert_eq!(v, Inf(false), "{x:e}");
+    }
 }
 
 // `ln_ok`, `log10_ok` and `log2_ok`, `forall s, mpfr_<f> m RNDD (MZero s) = MInf true` and
@@ -614,12 +654,23 @@ fn exact() {
                 0.0,
             ),
             ("atanh(+0)", mpfr_fn!(atanh(0.0, rnd)), 0.0),
+            ("cbrt(-0)", mpfr_fn!(cbrt(-0.0, rnd)), 0.0),
+            ("cbrt(-8)", mpfr_fn!(cbrt(-8.0, rnd)), -2.0),
+            ("cbrt(5e-324)", mpfr_fn!(cbrt(5e-324, rnd)), 2f64.powi(-358)),
             ("cos(-0)", mpfr_fn!(cos(-0.0, rnd)), 1.0),
             ("cosh(+0)", mpfr_fn!(cosh(0.0, rnd)), 1.0),
             ("exp(-0)", mpfr_fn!(exp(-0.0, rnd)), 1.0),
             ("exp10(2)", mpfr_fn!(exp10(2.0, rnd)), 100.0),
             ("exp2(-1074)", mpfr_fn!(exp2(-1074.0, rnd)), 5e-324),
             ("exp2(1023)", mpfr_fn!(exp2(1023.0, rnd)), 2f64.powi(1023)),
+            ("hypot(3, 4)", mpfr_fn2!(hypot(3.0, 4.0, rnd)), 5.0),
+            ("hypot(-5, 12)", mpfr_fn2!(hypot(-5.0, 12.0, rnd)), 13.0),
+            ("hypot(+0, -0)", mpfr_fn2!(hypot(0.0, -0.0, rnd)), 0.0),
+            (
+                "hypot(-5e-324, +0)",
+                mpfr_fn2!(hypot(-5e-324, 0.0, rnd)),
+                5e-324,
+            ),
             ("log(1)", mpfr_fn!(log(1.0, rnd)), 0.0),
             ("log10(100)", mpfr_fn!(log10(100.0, rnd)), 2.0),
             ("log2(5e-324)", mpfr_fn!(log2(5e-324, rnd)), -1074.0),

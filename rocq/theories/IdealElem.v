@@ -3,7 +3,7 @@
     [ideal_fn_correct]: [ideal_fn] computes [f] on [D], as [mpfr_correct]
     says, if it rounds [f] at the numbers in [D] other than 0, and at the
     zeros if 0 is in [D]. [ideal_<f>_ok]: with it, and the special values
-    that [ideal] gives, the ideal MPFR satisfies [<f>_ok] for the 18
+    that [ideal] gives, the ideal MPFR satisfies [<f>_ok] for the 19
     functions of one argument. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
@@ -86,6 +86,15 @@ intros emin emax Hr. unfold atanh_ok. cbn [ideal mpfr_atanh ideal_fn]. split; [|
 - unfold rnd_atanh. destruct (Req_dec_T (-1) (-1)) as [_|N]; [reflexivity|lra].
 - unfold rnd_atanh. destruct (Req_dec_T 1 (-1)) as [E|_]; [lra|].
   destruct (Req_dec_T 1 1) as [_|N]; [reflexivity|lra].
+Qed.
+
+Theorem ideal_cbrt_ok :
+  forall emin emax, range_ok emin emax -> cbrt_ok emin emax (ideal emin emax).
+Proof.
+intros emin emax Hr. unfold cbrt_ok. cbn [ideal mpfr_cbrt]. split; [|split].
+- ie_correct Hr.
+- reflexivity.
+- reflexivity.
 Qed.
 
 Theorem ideal_cos_ok :

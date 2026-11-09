@@ -2,7 +2,7 @@
 
     [mpfr_ok emin emax m] is the conjunction of every hypothesis on [m]
     that the theorems take, besides [range_ok emin emax]: [get_d_ok] and
-    the 21 [<f>_ok] of the functions of [src/elementary.rs]. No theorem
+    the 23 [<f>_ok] of the functions of [src/elementary.rs]. No theorem
     takes [mpfr_ok] itself: they keep their own
     hypotheses on [m], all of them among these. [MpfrExamples.v] checks
     this in the build for the theorems that [Assumptions.v] prints and the
@@ -19,7 +19,7 @@
 
 From Stdlib Require Import ZArith Reals Lia.
 From Inari Require Import Model Elementary Mpfr MpfrIdeal IdealRound IdealGetD IdealElem
-  IdealPow IdealAtan2.
+  IdealPow IdealAtan2 IdealHypot.
 
 Definition mpfr_ok (emin emax : Z) (m : mpfr) : Prop :=
   get_d_ok emin emax m /\
@@ -30,11 +30,13 @@ Definition mpfr_ok (emin emax : Z) (m : mpfr) : Prop :=
   atan_ok emin emax m /\
   atan2_ok emin emax m /\
   atanh_ok emin emax m /\
+  cbrt_ok emin emax m /\
   cos_ok emin emax m /\
   cosh_ok emin emax m /\
   exp_ok emin emax m /\
   exp10_ok emin emax m /\
   exp2_ok emin emax m /\
+  hypot_ok emin emax m /\
   ln_ok emin emax m /\
   log10_ok emin emax m /\
   log2_ok emin emax m /\
@@ -58,11 +60,13 @@ split; [exact (ideal_asinh_ok emin emax Hr)|].
 split; [exact (ideal_atan_ok emin emax Hr)|].
 split; [exact (ideal_atan2_ok emin emax Hr)|].
 split; [exact (ideal_atanh_ok emin emax Hr)|].
+split; [exact (ideal_cbrt_ok emin emax Hr)|].
 split; [exact (ideal_cos_ok emin emax Hr)|].
 split; [exact (ideal_cosh_ok emin emax Hr)|].
 split; [exact (ideal_exp_ok emin emax Hr)|].
 split; [exact (ideal_exp10_ok emin emax Hr)|].
 split; [exact (ideal_exp2_ok emin emax Hr)|].
+split; [exact (ideal_hypot_ok emin emax Hr)|].
 split; [exact (ideal_ln_ok emin emax Hr)|].
 split; [exact (ideal_log10_ok emin emax Hr)|].
 split; [exact (ideal_log2_ok emin emax Hr)|].

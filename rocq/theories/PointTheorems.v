@@ -4,8 +4,8 @@
     [tanh_correct], [cosh_correct], [ln_correct], [log2_correct],
     [log10_correct], [asinh_correct], [acosh_correct], [atanh_correct],
     [atan_correct], [asin_correct], [acos_correct], [atan2_correct],
-    [sin_correct], [cos_correct], [tan_correct], [pow_correct] and
-    [powi_correct] stated for every
+    [sin_correct], [cos_correct], [tan_correct], [pow_correct],
+    [powi_correct], [cbrt_correct] and [hypot_correct] stated for every
     record [p] whose fields satisfy the parts of [Contract.v] that they
     need, through [of_point p] ([OfPoint.v]). [PointDec.v] and
     [PointValid.v] restate the theorems about the decorated elementary
@@ -20,8 +20,8 @@
 
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
-From Inari Require Import Model Ieee1788 Elementary Mpfr Elem Cosh Atanh ClosedDom Atan2
-  Contract OfPointCore OfPoint OfPointElem OfPointPow.
+From Inari Require Import Model Ieee1788 Elementary Mpfr Elem Cosh Atanh ClosedDom Atan2 Cbrt
+  Hypot Contract OfPointCore OfPoint OfPointElem OfPointPow.
 From Inari Require Sin Cos Tan Pow Powi.
 
 Open Scope R_scope.
@@ -220,4 +220,23 @@ Proof.
 intros p Hp n x Hn Hx. rewrite <- (mpfr_point_of_point p).
 exact (Powi.powi_correct (-1073) 1024 (of_point p) n x range_ok_f64 (of_point_get_d_ok p)
   (of_point_pown_ok p Hp) Hn Hx).
+Qed.
+
+Theorem cbrt_correct_point :
+  forall p, cbrt_c (p_cbrt p) ->
+  forall x, valid x -> is_tightest (image_dom real_dom Rcbrt x) (Interval.cbrt p x).
+Proof.
+intros p Hp x Hx. rewrite <- (mpfr_point_of_point p).
+exact (cbrt_correct (-1073) 1024 (of_point p) range_ok_f64 (of_point_get_d_ok p)
+  (of_point_cbrt_ok p Hp) x Hx).
+Qed.
+
+Theorem hypot_correct_point :
+  forall p, hypot_c (p_hypot p) ->
+  forall x y, valid x -> valid y ->
+  exists z, Interval.hypot p x y = Some z /\ is_tightest (image2 Rhypot x y) z.
+Proof.
+intros p Hp x y Hx Hy. rewrite <- (mpfr_point_of_point p).
+exact (hypot_correct (-1073) 1024 (of_point p) x y range_ok_f64 (of_point_get_d_ok p)
+  (of_point_hypot_ok p Hp) Hx Hy).
 Qed.

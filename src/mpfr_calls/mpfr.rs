@@ -105,9 +105,9 @@ pub(crate) fn round_rational(
 // of an abstract MPFR function in the fields of `mpfr_point`, for the proofs of the
 // functions of `src/elementary.rs` with this backend in `rocq/theories/Elem.v`,
 // `rocq/theories/ClosedDom.v`, `rocq/theories/Atanh.v`, `rocq/theories/Cosh.v`,
-// `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and `rocq/theories/Tan.v`, and of `quadrant`
-// there, which calls `sin_rd` and `cos_ru`, in `rocq/theories/TrigQuad.v`, for `mpfr_acos_c`
-// and the other theorems of `rocq/theories/MpfrPoint.v` about them, and for
+// `rocq/theories/Cbrt.v`, `rocq/theories/Cos.v`, `rocq/theories/Sin.v` and `rocq/theories/Tan.v`,
+// and of `quadrant` there, which calls `sin_rd` and `cos_ru`, in `rocq/theories/TrigQuad.v`, for
+// `mpfr_acos_c` and the other theorems of `rocq/theories/MpfrPoint.v` about them, and for
 // `mpfr_point_of_point` in `rocq/theories/OfPoint.v`, so it has to be updated along with it.
 // `rocq/theories/Mpfr.v` states what those proofs assume of the MPFR functions and of
 // `mpfr::get_d`, and `mpfr_tests` tests the linked MPFR against it.
@@ -148,12 +148,12 @@ pub(crate) use mpfr_fn;
 
 // `rocq/theories/Model.v` transcribes the functions that this macro defines, as `mpfr_fn2`
 // of an abstract MPFR function in the fields of `mpfr_point`, for the proofs of
-// `(Dec)Interval::atan2` in `rocq/theories/Atan2.v` and of `(Dec)Interval::pow` in
-// `rocq/theories/Pow.v`, for `mpfr_atan2_c` and `mpfr_pow_c` in `rocq/theories/MpfrPoint.v`
-// and for `mpfr_point_of_point` in `rocq/theories/OfPoint.v`, so it has to be updated along
-// with it.
-// `rocq/theories/Mpfr.v` states what those proofs assume of `mpfr::atan2`, `mpfr::pow` and
-// `mpfr::get_d`.
+// `(Dec)Interval::atan2` in `rocq/theories/Atan2.v`, of `(Dec)Interval::hypot` in
+// `rocq/theories/Hypot.v` and of `(Dec)Interval::pow` in `rocq/theories/Pow.v`, for
+// `mpfr_atan2_c`, `mpfr_hypot_c` and `mpfr_pow_c` in `rocq/theories/MpfrPoint.v` and for
+// `mpfr_point_of_point` in `rocq/theories/OfPoint.v`, so it has to be updated along with it.
+// `rocq/theories/Mpfr.v` states what those proofs assume of `mpfr::atan2`, `mpfr::hypot`,
+// `mpfr::pow` and `mpfr::get_d`.
 macro_rules! mpfr_fn2 {
     ($mpfr_f:ident, $f_rd:ident, $f_ru:ident) => {
         pub(crate) fn $f_rd(x: f64, y: f64) -> f64 {
@@ -233,11 +233,13 @@ mpfr_fn!(asinh, asinh_rd, asinh_ru);
 mpfr_fn!(atan, atan_rd, atan_ru);
 mpfr_fn2!(atan2, atan2_rd, atan2_ru);
 mpfr_fn!(atanh, atanh_rd, atanh_ru);
+mpfr_fn!(cbrt, cbrt_rd, cbrt_ru);
 mpfr_fn!(cos, cos_rd, cos_ru);
 mpfr_fn!(cosh, cosh_rd, cosh_ru);
 mpfr_fn!(exp, exp_rd, exp_ru);
 mpfr_fn!(exp10, exp10_rd, exp10_ru);
 mpfr_fn!(exp2, exp2_rd, exp2_ru);
+mpfr_fn2!(hypot, hypot_rd, hypot_ru);
 mpfr_fn!(log, ln_rd, ln_ru);
 mpfr_fn!(log10, log10_rd, log10_ru);
 mpfr_fn!(log2, log2_rd, log2_ru);
@@ -313,11 +315,13 @@ mpfr_near!(asinh, asinh_rn);
 mpfr_near!(atan, atan_rn);
 mpfr_near!(atan2, atan2_rn, f64);
 mpfr_near!(atanh, atanh_rn);
+mpfr_near!(cbrt, cbrt_rn);
 mpfr_near!(cos, cos_rn);
 mpfr_near!(cosh, cosh_rn);
 mpfr_near!(exp, exp_rn);
 mpfr_near!(exp10, exp10_rn);
 mpfr_near!(exp2, exp2_rn);
+mpfr_near!(hypot, hypot_rn, f64);
 mpfr_near!(log, ln_rn);
 mpfr_near!(log10, log10_rn);
 mpfr_near!(log2, log2_rn);
@@ -330,21 +334,15 @@ mpfr_near!(tanh, tanh_rn);
 
 // `$mpfr_f` rounded once to an `f64` by `round_once`, to nearest, ties to even (`$f_rn`),
 // toward -∞ (`$f_rd`) and toward +∞ (`$f_ru`), against which `src/cr.rs` tests its functions
-// of the same names, with the arguments of `mpfr_fn!` and `mpfr_fn2!`: `x`, then `y` as an
-// `f64` for the arm with `f64`. Only the tests use the functions that this macro defines, and
-// `rocq/theories/Model.v` transcribes none of them, unlike those of `mpfr_fn!` and
-// `mpfr_fn2!`.
+// of the same names, with the argument of `mpfr_fn!`. It is for `sqrt`, whose directed
+// roundings `mpfr_fn!` does not define, as no elementary function of `src/elementary.rs`
+// calls them. Only the tests use the functions that this macro defines, and
+// `rocq/theories/Model.v` transcribes none of them, unlike those of `mpfr_fn!`.
 macro_rules! mpfr_once {
     ($mpfr_f:ident, $f_rn:ident, $f_rd:ident, $f_ru:ident) => {
         mpfr_once!(@one $mpfr_f, $f_rn, RNDN);
         mpfr_once!(@one $mpfr_f, $f_rd, RNDD);
         mpfr_once!(@one $mpfr_f, $f_ru, RNDU);
-    };
-
-    ($mpfr_f:ident, $f_rn:ident, $f_rd:ident, $f_ru:ident, f64) => {
-        mpfr_once!(@two $mpfr_f, $f_rn, RNDN);
-        mpfr_once!(@two $mpfr_f, $f_rd, RNDD);
-        mpfr_once!(@two $mpfr_f, $f_ru, RNDU);
     };
 
     // The function `$f` of one `f64`, rounded in the direction `$rnd`.
@@ -356,21 +354,8 @@ macro_rules! mpfr_once {
             })
         }
     };
-
-    // The function `$f` of two `f64`s, rounded in the direction `$rnd`.
-    (@two $mpfr_f:ident, $f:ident, $rnd:ident) => {
-        pub(crate) fn $f(x: f64, y: f64) -> f64 {
-            let mut z = Float::with_val(f64::MANTISSA_DIGITS, x);
-            let y = Float::with_val(f64::MANTISSA_DIGITS, y);
-            round_once(&mut z, $rnd, |z| unsafe {
-                mpfr::$mpfr_f(z.as_raw_mut(), z.as_raw(), y.as_raw(), $rnd)
-            })
-        }
-    };
 }
 
-mpfr_once!(cbrt, cbrt_rn, cbrt_rd, cbrt_ru);
-mpfr_once!(hypot, hypot_rn, hypot_rd, hypot_ru, f64);
 mpfr_once!(sqrt, sqrt_rn, sqrt_rd, sqrt_ru);
 
 // The bound `x` of an interval as inari printed it with MPFR before it had digits of its own,

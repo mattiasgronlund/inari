@@ -32,9 +32,9 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu A
   DecBinary DecTernary DecMaxMin Neg AddSub Mul MulAdd Sqrt Sqr Recip Div ComCommon
   MulRevSets MulRev CancelSpec Cancel MpfrRound ElemDec ClosedDom Elem Atanh Cosh
   PiBounds PiIrrational TrigQuad TrigCount TrigCert Cos Sin Tan Dom2 Pow Powi AtanReal
-  PiTight Atan2 ParseScale ParseRound ParseHull ParseExact ParseDec FormatDec FormatHex
+  PiTight Atan2 Cbrt Hypot ParseScale ParseRound ParseHull ParseExact ParseDec FormatDec FormatHex
   ConstTight ConstPi ConstInv ConstLn ConstLog ValidMake ValidSetOp ValidOps ValidDecOps
-  ValidElem Valid MpfrIdeal IdealRound IdealGetD IdealElem IdealPow IdealAtan2
+  ValidElem Valid MpfrIdeal IdealRound IdealGetD IdealElem IdealPow IdealAtan2 IdealHypot
   MpfrConsistent Contract OfPointCore OfPoint OfPointElem OfPointPow MpfrPoint
   PointTheorems PointDec PointValid.
 From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyDriver
@@ -189,6 +189,12 @@ Print Assumptions FRAC_PI_2_up.
 Print Assumptions FRAC_PI_2_dn.
 Print Assumptions atan2_correct.
 Print Assumptions dec_atan2_correct.
+Print Assumptions Rcbrt_continuous.
+Print Assumptions cbrt_correct.
+Print Assumptions dec_cbrt_correct.
+Print Assumptions Rhypot_continuous.
+Print Assumptions hypot_correct.
+Print Assumptions dec_hypot_correct.
 Print Assumptions scale_correct.
 Print Assumptions rational_to_f64_correct.
 Print Assumptions number_to_f64_correct.
@@ -363,6 +369,10 @@ Print Assumptions DyPoint.k_atan2_c.
 Print Assumptions DyPoint.k_sin_c.
 Print Assumptions DyPoint.k_cos_c.
 Print Assumptions DyPoint.k_tan_c.
+Print Assumptions DyPoint.k_cbrt_some.
+Print Assumptions DyPoint.k_hypot_some.
+Print Assumptions DyPoint.k_cbrt_c.
+Print Assumptions DyPoint.k_hypot_c.
 Print Assumptions DyPoint.k_pow_c.
 Print Assumptions DyPoint.k_pown_c.
 Print Assumptions DyPoint.kernel_exp_correct.
@@ -384,6 +394,8 @@ Print Assumptions DyPoint.kernel_atan2_correct.
 Print Assumptions DyPoint.kernel_sin_correct.
 Print Assumptions DyPoint.kernel_cos_correct.
 Print Assumptions DyPoint.kernel_tan_correct.
+Print Assumptions DyPoint.kernel_cbrt_correct.
+Print Assumptions DyPoint.kernel_hypot_correct.
 Print Assumptions DyPoint.kernel_pow_correct.
 Print Assumptions DyPoint.kernel_pown_correct.
 Print Assumptions DyPointDec.kernel_dec_exp_correct.
@@ -402,6 +414,8 @@ Print Assumptions DyPointDec.kernel_dec_atan_correct.
 Print Assumptions DyPointDec.kernel_dec_asin_correct.
 Print Assumptions DyPointDec.kernel_dec_acos_correct.
 Print Assumptions DyPointDec.kernel_dec_atan2_correct.
+Print Assumptions DyPointDec.kernel_dec_cbrt_correct.
+Print Assumptions DyPointDec.kernel_dec_hypot_correct.
 Print Assumptions DyPointDec.kernel_dec_sin_correct.
 Print Assumptions DyPointDec.kernel_dec_cos_correct.
 Print Assumptions DyPointDec.kernel_dec_tan_correct.
@@ -495,6 +509,8 @@ Print Assumptions DyPointSide.kernel_cos_encloses.
 Print Assumptions DyPointSide.kernel_tan_encloses.
 Print Assumptions DyPointSide.kernel_pow_encloses.
 Print Assumptions DyPointSide.kernel_pown_encloses.
+Print Assumptions DyPointSide.kernel_cbrt_encloses.
+Print Assumptions DyPointSide.kernel_hypot_encloses.
 Print Assumptions DyDriverNear.ziv_near_strict_correct.
 Print Assumptions DyDriverNear.ziv_near_cap_round.
 Print Assumptions DyExpNear.exp_near_correct.
@@ -647,11 +663,13 @@ Print Assumptions asinh_valid.
 Print Assumptions atan_valid.
 Print Assumptions atan2_valid.
 Print Assumptions atanh_valid.
+Print Assumptions cbrt_valid.
 Print Assumptions cos_valid.
 Print Assumptions cosh_valid.
 Print Assumptions exp_valid.
 Print Assumptions exp10_valid.
 Print Assumptions exp2_valid.
+Print Assumptions hypot_valid.
 Print Assumptions ln_valid.
 Print Assumptions log10_valid.
 Print Assumptions log2_valid.
@@ -688,11 +706,13 @@ Print Assumptions dec_asinh_valid.
 Print Assumptions dec_atan_valid.
 Print Assumptions dec_atan2_valid.
 Print Assumptions dec_atanh_valid.
+Print Assumptions dec_cbrt_valid.
 Print Assumptions dec_cos_valid.
 Print Assumptions dec_cosh_valid.
 Print Assumptions dec_exp_valid.
 Print Assumptions dec_exp10_valid.
 Print Assumptions dec_exp2_valid.
+Print Assumptions dec_hypot_valid.
 Print Assumptions dec_ln_valid.
 Print Assumptions dec_log10_valid.
 Print Assumptions dec_log2_valid.
@@ -713,6 +733,7 @@ Print Assumptions ideal_asin_ok.
 Print Assumptions ideal_asinh_ok.
 Print Assumptions ideal_atan_ok.
 Print Assumptions ideal_atanh_ok.
+Print Assumptions ideal_cbrt_ok.
 Print Assumptions ideal_cos_ok.
 Print Assumptions ideal_cosh_ok.
 Print Assumptions ideal_exp_ok.
@@ -728,6 +749,7 @@ Print Assumptions ideal_tanh_ok.
 Print Assumptions ideal_pow_ok.
 Print Assumptions ideal_pown_ok.
 Print Assumptions ideal_atan2_ok.
+Print Assumptions ideal_hypot_ok.
 Print Assumptions ideal_mpfr_ok.
 Print Assumptions mpfr_ok_consistent.
 Print Assumptions mpfr_ok_default.
@@ -737,8 +759,8 @@ Print Assumptions mpfr_ok_default.
     exponent range of [f64], it satisfies [get_d_ok] and each [<f>_ok] of
     [Mpfr.v] where the field of [p] satisfies [<f>_c]. [mpfr_point m]
     satisfies each [<f>_c] where [m] satisfies [get_d_ok] and [<f>_ok],
-    at an exponent range with [range_ok]. Last, the twenty-one theorems
-    from [exp_correct_point] to [pown_correct_point], stated for every
+    at an exponent range with [range_ok]. Last, the twenty-three theorems
+    from [exp_correct_point] to [hypot_correct_point], stated for every
     record [point] whose fields satisfy the parts of [Contract.v] that
     they need, in the order of [PointTheorems.v], then those of the
     decorated functions in [PointDec.v], and those of validity in
@@ -766,6 +788,8 @@ Print Assumptions of_point_tanh_ok.
 Print Assumptions of_point_atan2_ok.
 Print Assumptions of_point_pow_ok.
 Print Assumptions of_point_pown_ok.
+Print Assumptions of_point_cbrt_ok.
+Print Assumptions of_point_hypot_ok.
 Print Assumptions mpfr_acos_c.
 Print Assumptions mpfr_acosh_c.
 Print Assumptions mpfr_asin_c.
@@ -773,11 +797,13 @@ Print Assumptions mpfr_asinh_c.
 Print Assumptions mpfr_atan_c.
 Print Assumptions mpfr_atan2_c.
 Print Assumptions mpfr_atanh_c.
+Print Assumptions mpfr_cbrt_c.
 Print Assumptions mpfr_cos_c.
 Print Assumptions mpfr_cosh_c.
 Print Assumptions mpfr_exp_c.
 Print Assumptions mpfr_exp10_c.
 Print Assumptions mpfr_exp2_c.
+Print Assumptions mpfr_hypot_c.
 Print Assumptions mpfr_ln_c.
 Print Assumptions mpfr_log10_c.
 Print Assumptions mpfr_log2_c.
@@ -808,6 +834,8 @@ Print Assumptions cos_correct_point.
 Print Assumptions tan_correct_point.
 Print Assumptions pow_correct_point.
 Print Assumptions pown_correct_point.
+Print Assumptions cbrt_correct_point.
+Print Assumptions hypot_correct_point.
 Print Assumptions dec_exp_correct_point.
 Print Assumptions dec_exp2_correct_point.
 Print Assumptions dec_exp10_correct_point.
@@ -829,6 +857,8 @@ Print Assumptions dec_cos_correct_point.
 Print Assumptions dec_tan_correct_point.
 Print Assumptions dec_pow_correct_point.
 Print Assumptions dec_pown_correct_point.
+Print Assumptions dec_cbrt_correct_point.
+Print Assumptions dec_hypot_correct_point.
 Print Assumptions exp_valid_point.
 Print Assumptions dec_exp_valid_point.
 Print Assumptions exp2_valid_point.
@@ -871,6 +901,10 @@ Print Assumptions pow_valid_point.
 Print Assumptions dec_pow_valid_point.
 Print Assumptions pown_valid_point.
 Print Assumptions dec_pown_valid_point.
+Print Assumptions cbrt_valid_point.
+Print Assumptions dec_cbrt_valid_point.
+Print Assumptions hypot_valid_point.
+Print Assumptions dec_hypot_valid_point.
 
 (** The names whose types quantify over an MPFR anywhere, and those of
     them that [Valid.v] declares, for the check of [MpfrExamples.v] in the

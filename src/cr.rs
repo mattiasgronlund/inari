@@ -265,8 +265,11 @@ mod tests {
     // of the three roundings gives the `f64` that MPFR gives in that rounding, bit for bit, or
     // a NaN where MPFR gives one, at special arguments, at the thresholds of the kernel and the
     // `f64`s next to them, and at a seeded random sample. MPFR's nearest roundings are those of
-    // `mpfr_near!` in `src/mpfr_calls/mpfr.rs`, all three roundings of cbrt, hypot and sqrt are
-    // those of its `mpfr_once!`, and `powi_<r>` is checked against its `pown_<r>`.
+    // `mpfr_near!` in `src/mpfr_calls/mpfr.rs`, its directed roundings those of `mpfr_fn!`,
+    // `mpfr_fn2!` and `mpfr_fn_si!` there, which round twice, to 53 bits and then with `get_d`,
+    // which in a direction gives the same `f64` as rounding once, as every `f64` is an MPFR
+    // number of 53 bits, all three roundings of sqrt are those of its `mpfr_once!`, and
+    // `powi_<r>` is checked against its `pown_<r>`.
     #[cfg(all(
         target_pointer_width = "64",
         any(target_os = "linux", target_os = "macos")

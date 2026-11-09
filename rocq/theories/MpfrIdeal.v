@@ -225,6 +225,17 @@ Definition ideal_pow_si (emin emax : Z) (rnd : mpfr_rnd) (x : mpfr_t) (n : Z) : 
   | MNum y => round_mpfr emin emax rnd (powerRZ y n)
   end.
 
+(** [hypot(x, y)]: +inf at an infinity [x] or [y], whatever the other
+    number, as [hypot_ok] states, at two finite numbers [Rhypot] rounded,
+    and NaN elsewhere. *)
+Definition ideal_hypot (emin emax : Z) (rnd : mpfr_rnd) (x y : mpfr_t) : mpfr_t :=
+  match x, y with
+  | MInf _, _ | _, MInf _ => MInf false
+  | (MZero _ | MNum _), (MZero _ | MNum _) =>
+      round_mpfr emin emax rnd (Rhypot (mval x) (mval y))
+  | _, _ => MNaN
+  end.
+
 (** ** The record *)
 
 Definition ideal (emin emax : Z) : mpfr := {|
@@ -236,11 +247,13 @@ Definition ideal (emin emax : Z) : mpfr := {|
   mpfr_atan := ideal_fn (rnd_fn emin emax atan) (rnd_zero emin emax atan) (atan_inf emin emax);
   mpfr_atan2 := ideal_atan2 emin emax;
   mpfr_atanh := ideal_fn (rnd_atanh emin emax) (rnd_zero emin emax Ratanh) no_inf;
+  mpfr_cbrt := ideal_fn (rnd_fn emin emax Rcbrt) (rnd_zero emin emax Rcbrt) odd_inf;
   mpfr_cos := ideal_fn (rnd_fn emin emax cos) (rnd_zero emin emax cos) no_inf;
   mpfr_cosh := ideal_fn (rnd_fn emin emax cosh) (rnd_zero emin emax cosh) cosh_inf;
   mpfr_exp := ideal_fn (rnd_fn emin emax exp) (rnd_zero emin emax exp) exp_inf;
   mpfr_exp10 := ideal_fn (rnd_fn emin emax Rexp10) (rnd_zero emin emax Rexp10) exp_inf;
   mpfr_exp2 := ideal_fn (rnd_fn emin emax Rexp2) (rnd_zero emin emax Rexp2) exp_inf;
+  mpfr_hypot := ideal_hypot emin emax;
   mpfr_log := ideal_fn (rnd_fn emin emax ln) log_zero log_inf;
   mpfr_log10 := ideal_fn (rnd_fn emin emax Rlog10) log_zero log_inf;
   mpfr_log2 := ideal_fn (rnd_fn emin emax Rlog2) log_zero log_inf;

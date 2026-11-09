@@ -34,8 +34,8 @@ Open Scope R_scope.
     [- (PI / 2)] at [y = -inf] for a finite [x]; and, at [x = -inf], [PI]
     for a finite [y > 0] and [- PI] for a finite [y <= 0]. [atan2_c] and
     [atan2_ok] say nothing at [y = ±0] and an [x] that is -inf or a
-    finite [x <= 0], so any value does there. [pow_val] and [pown_val]
-    give [Rpow] and [powerRZ] at finite [f64]s. *)
+    finite [x <= 0], so any value does there. [hypot_val], [pow_val] and
+    [pown_val] give [Rhypot], [Rpow] and [powerRZ] at finite [f64]s. *)
 Definition atan_val (x : f64) : option R :=
   match x with
   | B754_infinity s => Some (if s then - (PI / 2) else PI / 2)
@@ -50,6 +50,9 @@ Definition atan2_val (y x : f64) : option R :=
       if is_finite y then Some (if Rlt_dec 0 (B2R y) then PI else - PI) else None
   | _, _ => None
   end.
+
+Definition hypot_val (x y : f64) : option R :=
+  if is_finite x && is_finite y then Some (Rhypot (B2R x) (B2R y)) else None.
 
 Definition pow_val (x y : f64) : option R :=
   if is_finite x && is_finite y then Some (Rpow (B2R x) (B2R y)) else None.
@@ -66,11 +69,13 @@ Definition of_point (p : point) : mpfr := {|
   mpfr_atan := lift1 atan_val (p_atan p);
   mpfr_atan2 := lift2 atan2_val (p_atan2 p);
   mpfr_atanh := lift1 (fin Ratanh) (p_atanh p);
+  mpfr_cbrt := lift1 (fin Rcbrt) (p_cbrt p);
   mpfr_cos := lift1 (fin cos) (p_cos p);
   mpfr_cosh := lift1 (fin cosh) (p_cosh p);
   mpfr_exp := lift1 (fin exp) (p_exp p);
   mpfr_exp10 := lift1 (fin Rexp10) (p_exp10 p);
   mpfr_exp2 := lift1 (fin Rexp2) (p_exp2 p);
+  mpfr_hypot := lift2 hypot_val (p_hypot p);
   mpfr_log := lift1 (fin ln) (p_ln p);
   mpfr_log10 := lift1 (fin Rlog10) (p_log10 p);
   mpfr_log2 := lift1 (fin Rlog2) (p_log2 p);
@@ -127,13 +132,13 @@ Qed.
     finish here. *)
 Theorem mpfr_point_of_point : forall p, mpfr_point (of_point p) = p.
 Proof.
-intros [h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15 h16 h17 h18 h19 h20 h21].
+intros [h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15 h16 h17 h18 h19 h20 h21 h22 h23].
 unfold mpfr_point.
 cbn [of_point mpfr_get_d mpfr_acos mpfr_acosh mpfr_asin mpfr_asinh mpfr_atan mpfr_atan2
-  mpfr_atanh mpfr_cos mpfr_cosh mpfr_exp mpfr_exp10 mpfr_exp2 mpfr_log mpfr_log10 mpfr_log2
-  mpfr_pow mpfr_pow_si mpfr_sin mpfr_sinh mpfr_tan mpfr_tanh
-  p_acos p_acosh p_asin p_asinh p_atan p_atan2 p_atanh p_cos p_cosh p_exp p_exp10 p_exp2
-  p_ln p_log10 p_log2 p_pow p_pown p_sin p_sinh p_tan p_tanh].
+  mpfr_atanh mpfr_cbrt mpfr_cos mpfr_cosh mpfr_exp mpfr_exp10 mpfr_exp2 mpfr_hypot mpfr_log
+  mpfr_log10 mpfr_log2 mpfr_pow mpfr_pow_si mpfr_sin mpfr_sinh mpfr_tan mpfr_tanh
+  p_acos p_acosh p_asin p_asinh p_atan p_atan2 p_atanh p_cbrt p_cos p_cosh p_exp p_exp10 p_exp2
+  p_hypot p_ln p_log10 p_log2 p_pow p_pown p_sin p_sinh p_tan p_tanh].
 rewrite !mpfr_fn_lift1, !mpfr_fn2_lift2, mpfr_fn_si_lift_si by reflexivity.
 reflexivity.
 Qed.

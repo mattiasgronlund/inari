@@ -30,7 +30,9 @@ macro_rules! mpfr_in_tests {
 // `dyadic::$f`, in the fields of `kernel_point`, for the theorems about `kernel_point` in
 // `rocq/theories/DyPoint.v` and `rocq/theories/DyPointDec.v` and the constructors
 // `made_kernel_<f>` and `dmade_kernel_<f>` of `rocq/theories/Valid.v`, so it has to be updated
-// along with them.
+// along with them. The exception is `cbrt`, which `src/dyadic/root.rs` computes without `ziv`:
+// `rocq/theories/DyPoint.v` models it as `kernel_field` of `DyadicRoot.cbrt`, which returns at
+// every argument (`k_cbrt_some`), the rounded cube root at every finite one (`k_cbrt_c`).
 macro_rules! kernel_fn {
     ($f:ident, $f_rd:ident, $f_ru:ident) => {
         pub(crate) fn $f_rd(x: f64) -> f64 {
@@ -45,8 +47,10 @@ macro_rules! kernel_fn {
     };
 }
 
-// The same for a function of two `f64`s, in the order of `mpfr_fn2!`: `atan2_rd(y, x)` and
-// `pow_rd(x, y)`. `rocq/theories/DyPoint.v` models them with `kernel_field2`.
+// The same for a function of two `f64`s, in the order of `mpfr_fn2!`: `atan2_rd(y, x)`,
+// `hypot_rd(x, y)` and `pow_rd(x, y)`. `rocq/theories/DyPoint.v` models them with
+// `kernel_field2`; `hypot`, like `cbrt`, as `kernel_field2` of `DyadicRoot.hypot`, without `ziv`
+// and returning at every argument (`k_hypot_some`).
 macro_rules! kernel_fn2 {
     ($f:ident, $f_rd:ident, $f_ru:ident) => {
         pub(crate) fn $f_rd(x: f64, y: f64) -> f64 {
@@ -84,11 +88,13 @@ kernel_fn!(asinh, asinh_rd, asinh_ru);
 kernel_fn!(atan, atan_rd, atan_ru);
 kernel_fn2!(atan2, atan2_rd, atan2_ru);
 kernel_fn!(atanh, atanh_rd, atanh_ru);
+kernel_fn!(cbrt, cbrt_rd, cbrt_ru);
 kernel_fn!(cos, cos_rd, cos_ru);
 kernel_fn!(cosh, cosh_rd, cosh_ru);
 kernel_fn!(exp, exp_rd, exp_ru);
 kernel_fn!(exp10, exp10_rd, exp10_ru);
 kernel_fn!(exp2, exp2_rd, exp2_ru);
+kernel_fn2!(hypot, hypot_rd, hypot_ru);
 kernel_fn!(ln, ln_rd, ln_ru);
 kernel_fn!(log10, log10_rd, log10_ru);
 kernel_fn!(log2, log2_rd, log2_ru);

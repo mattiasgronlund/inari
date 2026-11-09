@@ -3,16 +3,19 @@
 // `src/mpfr_calls/mpfr.rs`, bit for bit, and the elementary functions of `src/elementary.rs`
 // against the bounds that the MPFR backend gives.
 //
-// The `seam_` tests call the 42 functions of both backends directly: on structured arguments
+// The `seam_` tests call the 46 functions of both backends directly: on structured arguments
 // (the zeros, the infinities, NaN, subnormals, integers, halves, the ends of the domains and
 // the thresholds of the rules of the kernel, huge and tiny numbers, and the `f64`s next to
-// each), on pairs of them for `atan2` and `pow`, and with special exponents for `pown`, and on
-// random arguments: any 64 bits, a uniform biased exponent (log-uniform), and arguments in the
-// range where each function is not settled by a rule. The `intervals_` tests compute each of
-// the 21 elementary functions of `Interval` and of `DecInterval` with each backend on random
-// intervals, through the switch `with_mpfr` below, which `mpfr_in_tests!` of
-// `src/mpfr_calls/kernel.rs` reads. `soak`, which is ignored, runs the random `seam_` cases
-// with a seed and a count from the environment.
+// each), on pairs of them for `atan2`, `hypot` and `pow`, and with special exponents for
+// `pown`, and on random arguments: any 64 bits, a uniform biased exponent (log-uniform), and
+// arguments in the range where each function is not settled by a rule, and for `cbrt` and
+// `hypot` exact results and the `f64`s next to them, results midway between two `f64`s, gaps
+// between the exponents of the arguments of `hypot` near the one from which a rule settles
+// it, overflow and subnormals. The `intervals_` tests compute each of the 23 elementary
+// functions of `Interval` and of `DecInterval` with each backend on random intervals, through
+// the switch `with_mpfr` below, which `mpfr_in_tests!` of `src/mpfr_calls/kernel.rs` reads.
+// `soak`, which is ignored, runs the random `seam_` cases with a seed and a count from the
+// environment.
 //
 // Results are compared by their bits, so that the sign of a zero counts, and two NaNs are
 // equal whatever their bits. A panic of either backend is a mismatch too. Each mismatch is a
@@ -26,7 +29,8 @@
 // case without `ziv`, by a rule or as a special case, and how many rounding tests failed before
 // it. A case counts as retried if one did. `pow` and `pown` start Ziv's strategy at 2 limbs for
 // large exponents (`src/dyadic/pow.rs`), so that a case of theirs can reach level 2 without a
-// retry.
+// retry. `cbrt` and `hypot` never call `ziv` (`src/dyadic/root.rs`), so each of their cases is
+// at none.
 // `soak` prints, for each function, how many cases returned at each level and how many of
 // those were retried, and then the cases past level 1: all of them if there are at most `KEPT`
 // (100), and otherwise at most `SHOWN` (20) of those at the two highest levels that they
@@ -37,7 +41,7 @@ use super::{kernel, mpfr};
 use crate::{dyadic, DecInterval, Decoration, Interval};
 use std::{
     cell::Cell,
-    f64::consts::{FRAC_PI_2, FRAC_PI_4, PI},
+    f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, SQRT_2},
     panic::{catch_unwind, AssertUnwindSafe},
     thread,
     time::{Instant, SystemTime, UNIX_EPOCH},
@@ -98,14 +102,15 @@ macro_rules! unary {
     };
 }
 
-// The 18 functions of one `f64` of the seam.
-const UNARY: [(&str, [F1; 2], [F1; 2]); 18] = unary! {
+// The 19 functions of one `f64` of the seam.
+const UNARY: [(&str, [F1; 2], [F1; 2]); 19] = unary! {
     acos, acos_rd, acos_ru;
     acosh, acosh_rd, acosh_ru;
     asin, asin_rd, asin_ru;
     asinh, asinh_rd, asinh_ru;
     atan, atan_rd, atan_ru;
     atanh, atanh_rd, atanh_ru;
+    cbrt, cbrt_rd, cbrt_ru;
     cos, cos_rd, cos_ru;
     cosh, cosh_rd, cosh_ru;
     exp, exp_rd, exp_ru;
@@ -120,11 +125,12 @@ const UNARY: [(&str, [F1; 2], [F1; 2]); 18] = unary! {
     tanh, tanh_rd, tanh_ru;
 };
 
-// The 2 functions of two `f64`s of the seam, with their arguments in the order of the seam:
-// `atan2_rd(y, x)` and `pow_rd(x, y)`.
+// The 3 functions of two `f64`s of the seam, with their arguments in the order of the seam:
+// `atan2_rd(y, x)`, `pow_rd(x, y)` and `hypot_rd(x, y)`.
 const ATAN2: usize = 0;
 const POW: usize = 1;
-const BINARY: [(&str, [F2; 2], [F2; 2]); 2] = [
+const HYPOT: usize = 2;
+const BINARY: [(&str, [F2; 2], [F2; 2]); 3] = [
     (
         "atan2",
         [kernel::atan2_rd, kernel::atan2_ru],
@@ -134,6 +140,11 @@ const BINARY: [(&str, [F2; 2], [F2; 2]); 2] = [
         "pow",
         [kernel::pow_rd, kernel::pow_ru],
         [mpfr::pow_rd, mpfr::pow_ru],
+    ),
+    (
+        "hypot",
+        [kernel::hypot_rd, kernel::hypot_ru],
+        [mpfr::hypot_rd, mpfr::hypot_ru],
     ),
 ];
 
@@ -156,10 +167,11 @@ macro_rules! interval_unary {
     };
 }
 
-// The 18 elementary functions of one interval. The other 3 are `atan2`, `pow` and `powi`.
-const INTERVAL_UNARY: [(&str, I1, D1); 18] = interval_unary! {
-    acos, acosh, asin, asinh, atan, atanh, cos, cosh, exp, exp10, exp2, ln, log10, log2, sin,
-    sinh, tan, tanh,
+// The 19 elementary functions of one interval. The other 4 are `atan2`, `hypot`, `pow` and
+// `powi`.
+const INTERVAL_UNARY: [(&str, I1, D1); 19] = interval_unary! {
+    acos, acosh, asin, asinh, atan, atanh, cbrt, cos, cosh, exp, exp10, exp2, ln, log10, log2,
+    sin, sinh, tan, tanh,
 };
 
 // The exponents of `pown` that the structured cases take, with every argument: the ends of
@@ -367,8 +379,18 @@ impl Rng {
     }
 }
 
+// 2^e, for -1074 <= e <= 1023.
+fn pow2(e: i32) -> f64 {
+    if e >= -1022 {
+        f64::from_bits(((e + 1023) as u64) << 52)
+    } else {
+        f64::from_bits(1 << (e + 1074))
+    }
+}
+
 // An argument of the function `name` of one `f64` in the range where the rules of the kernel do
-// not settle it, or at the ends of its domain.
+// not settle it, or at the ends of its domain, and for `cbrt` one at which its result is exact,
+// or next to one.
 fn focused(rng: &mut Rng, name: &str) -> f64 {
     let k = rng.below(4);
     match name {
@@ -427,6 +449,28 @@ fn focused(rng: &mut Rng, name: &str) -> f64 {
                 rng.signed(t)
             }
         },
+        "cbrt" => {
+            let x = match k {
+                // A perfect cube n^3 2^(3e), whose cube root n 2^e is exact, or an `f64` next to
+                // one. n^3 <= 2^51, and -1074 <= 3e <= 972, so that the cube is an `f64`, from
+                // the subnormals to near `f64::MAX`.
+                0 | 1 => {
+                    let bits = 1 + rng.below(17);
+                    let n = 1 + rng.below(1 << bits);
+                    let e = rng.below(683) as i32 - 358;
+                    let c = (n * n * n) as f64 * pow2(3 * e);
+                    if k == 0 {
+                        c
+                    } else {
+                        rng.near(c)
+                    }
+                }
+                // A subnormal.
+                2 => f64::from_bits(rng.below(1 << 52)),
+                _ => rng.magnitude(-1022, 1024),
+            };
+            rng.signed(x)
+        }
         _ => {
             let t = rng.magnitude(-60, 60);
             rng.signed(t)
@@ -492,6 +536,79 @@ fn pow_args(rng: &mut Rng) -> (f64, f64) {
         }
     };
     (x, y)
+}
+
+// A random pair of arguments of `hypot(x, y)`, each of either sign and in either order: each
+// any bits, log-uniform or structured; a Pythagorean triple, whose result is exact; the
+// exponents of |x| and |y| apart by about 27, the gap from which the kernel takes the larger
+// argument's significand (`hypot_odd` of `src/dyadic/root.rs`), or by about 54; near
+// `f64::MAX`, `f64::MAX / √2` or `f64::MAX / 2`, where hypot overflows or nearly does; or both
+// subnormal.
+fn hypot_args(rng: &mut Rng, structured: &[f64]) -> (f64, f64) {
+    let one = |rng: &mut Rng| match rng.below(3) {
+        0 => rng.bits(),
+        1 => rng.log_uniform(),
+        _ => rng.pick(structured),
+    };
+    let (x, y) = match rng.below(8) {
+        0 | 1 => (one(rng), one(rng)),
+        // A small triple, or one of Euclid's (m^2 - n^2, 2 m n, m^2 + n^2) with
+        // 0 < n < m <= 2^26, so that each number is an integer below 2^53, times 2^e, with
+        // -1074 <= e <= 970, so that the three stay exact and finite.
+        2 => {
+            let (a, b) = match rng.below(2) {
+                0 => rng.pick(&[(3, 4), (5, 12), (8, 15), (20, 21)]),
+                _ => {
+                    let bits = 2 + rng.below(25);
+                    let m = 2 + rng.below((1 << bits) - 1);
+                    let n = 1 + rng.below(m - 1);
+                    (m * m - n * n, 2 * m * n)
+                }
+            };
+            let s = pow2(rng.below(2045) as i32 - 1074);
+            (a as f64 * s, b as f64 * s)
+        }
+        // The triples (2 m + 1, 2 m (m + 1), 2 m (m + 1) + 1) with 2^26 <= m < 2^26.5, whose
+        // result is an odd integer in [2^53, 2^54), so that times 2^e it is midway between two
+        // `f64`s, as hypot(134217729, 9007199388958720) = 9007199388958721 of
+        // `src/dyadic/root.rs` (m = 2^26). The legs are integers below 2^54, the larger one
+        // even, so `f64`s.
+        3 => {
+            let m = (1 << 26) + rng.below(27_797_401);
+            let e = rng.below(1940) as i32 - 970;
+            (
+                (2 * m + 1) as f64 * pow2(e),
+                (2 * m * (m + 1)) as f64 * pow2(e),
+            )
+        }
+        // Exponents apart by g, for g near 27 or 54.
+        4 | 5 => {
+            let g = rng.pick(&[27, 54]) + rng.below(5) as i32 - 2;
+            let e = rng.below(1800) as i32 - 900;
+            (rng.magnitude(e, e + 1), rng.magnitude(e - g, e - g + 1))
+        }
+        // Two of these big numbers, or one of them and an argument from `one`, each moved by up
+        // to 4 `f64`s (`f64::MAX` moved up is +∞).
+        6 => {
+            let big = [f64::MAX, f64::MAX / SQRT_2, f64::MAX / 2.0];
+            let x = rng.pick(&big);
+            let y = match rng.below(3) {
+                0 => one(rng),
+                _ => rng.pick(&big),
+            };
+            (rng.near(x), rng.near(y))
+        }
+        _ => (
+            f64::from_bits(rng.below(1 << 52)),
+            f64::from_bits(rng.below(1 << 52)),
+        ),
+    };
+    let (x, y) = (rng.signed(x), rng.signed(y));
+    if rng.below(2) == 0 {
+        (x, y)
+    } else {
+        (y, x)
+    }
 }
 
 // A random pair of arguments of `pown(x, n)`: x as an argument of `pow`, and n small, one of
@@ -844,7 +961,7 @@ fn random_unary(m: &mut Mismatches, rng: &mut Rng, i: usize, n: u64) {
     }
 }
 
-// `n` random cases of `atan2`, `pow` and `pown`.
+// `n` random cases of `atan2`, `pow`, `pown` and `hypot`.
 fn random_binary(m: &mut Mismatches, rng: &mut Rng, structured: &[f64], n: u64) {
     for _ in 0..n {
         let (y, x) = atan2_args(rng, structured);
@@ -853,6 +970,8 @@ fn random_binary(m: &mut Mismatches, rng: &mut Rng, structured: &[f64], n: u64) 
         m.binary(POW, x, y);
         let (x, n) = pown_args(rng);
         m.pown(x, n);
+        let (x, y) = hypot_args(rng, structured);
+        m.binary(HYPOT, x, y);
     }
 }
 
@@ -1012,12 +1131,37 @@ fn intervals_binary() {
             m.pown(x.inf_raw(), n);
             m.pown(x.sup_raw(), n);
         }
+
+        // hypot(x, y), with x and y sometimes the points of one pair of `hypot_args`, so that
+        // its triples and gaps reach the intervals too.
+        let (x, y) = if rng.below(4) == 0 {
+            let (a, b) = hypot_args(&mut rng, &v);
+            let point = |a: f64| Interval::try_from((a, a)).unwrap_or(Interval::EMPTY);
+            (point(a), point(b))
+        } else {
+            (
+                interval(&mut rng, |rng| hypot_args(rng, &v).0),
+                interval(&mut rng, |rng| hypot_args(rng, &v).1),
+            )
+        };
+        let what = || format!("Interval::hypot({}, {})", x.show(), y.show());
+        let mut same = m.compare(what, || x.hypot(y), || with_mpfr(|| x.hypot(y)));
+        let (dx, dy) = (decorated(&mut rng, x), decorated(&mut rng, y));
+        let what = || format!("DecInterval::hypot({}, {})", dx.show(), dy.show());
+        same &= m.compare(what, || dx.hypot(dy), || with_mpfr(|| dx.hypot(dy)));
+        if !same && !x.is_empty() && !y.is_empty() {
+            // `Interval::hypot` calls `hypot_rd` at the lower bounds of |x| and |y|, and
+            // `hypot_ru` at their upper bounds.
+            let (x, y) = (x.abs(), y.abs());
+            m.binary(HYPOT, x.inf_raw(), y.inf_raw());
+            m.binary(HYPOT, x.sup_raw(), y.sup_raw());
+        }
     }
     assert!(mpfr_count() > before);
     m.assert_none("intervals_binary");
 }
 
-// The switch reaches the MPFR backend for each of the 42 functions while `with_mpfr` runs, and
+// The switch reaches the MPFR backend for each of the 46 functions while `with_mpfr` runs, and
 // only then.
 #[test]
 fn switch_reaches_mpfr() {
@@ -1096,7 +1240,7 @@ fn soak() {
             let start = Instant::now();
             let mut m = Mismatches::new();
             random_binary(&mut m, &mut rng(100), &v, n);
-            ("atan2, pow, pown", start.elapsed(), m)
+            ("atan2, pow, pown, hypot", start.elapsed(), m)
         }));
         threads
             .into_iter()

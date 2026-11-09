@@ -9,7 +9,7 @@
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Ieee1788 Elementary Mpfr ValidMake ValidDecOps
-  Elem Atanh Cosh ClosedDom Cos Sin Tan Pow Powi Atan2.
+  Elem Atanh Cosh ClosedDom Cos Sin Tan Pow Powi Atan2 Cbrt Hypot.
 
 (** [DecInterval::$f] of [impl_dec!($f)] is [set_dec] of [Interval::$f],
     so it is [valid] whenever [Interval::$f] is. *)
@@ -149,6 +149,20 @@ Proof.
 ve_dec ve_elem_dec_impl_valid atanh_valid.
 Qed.
 
+Theorem cbrt_valid :
+  forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m -> cbrt_ok emin emax m ->
+  valid x -> valid (Interval.cbrt m x).
+Proof.
+ve_plain cbrt_correct.
+Qed.
+
+Theorem dec_cbrt_valid :
+  forall emin emax m x, range_ok emin emax -> get_d_ok emin emax m -> cbrt_ok emin emax m ->
+  valid (itv x) -> valid (itv (DecInterval.cbrt m x)).
+Proof.
+ve_dec ve_elem_dec_valid cbrt_valid.
+Qed.
+
 Theorem cosh_valid :
   forall emin emax m first x, range_ok emin emax -> get_d_ok emin emax m -> cosh_ok emin emax m ->
   valid x -> valid (Interval.cosh m first x).
@@ -205,6 +219,31 @@ Theorem dec_exp2_valid :
   valid (itv x) -> valid (itv (DecInterval.exp2 m x)).
 Proof.
 ve_dec ve_elem_dec_valid exp2_valid.
+Qed.
+
+Theorem hypot_valid :
+  forall emin emax m x y z,
+  range_ok emin emax -> get_d_ok emin emax m -> hypot_ok emin emax m ->
+  valid x -> valid y -> Interval.hypot m x y = Some z -> valid z.
+Proof.
+intros emin emax m x y z Hr Hget Hok Hx Hy E.
+destruct (hypot_correct emin emax m x y Hr Hget Hok Hx Hy) as (z' & E' & Ht).
+rewrite E in E'. injection E' as <-. exact (proj1 Ht).
+Qed.
+
+(** [DecInterval::hypot] is NaI if an argument is, and else [set_dec] of
+    [Interval::hypot]. *)
+Theorem dec_hypot_valid :
+  forall emin emax m x y w,
+  range_ok emin emax -> get_d_ok emin emax m -> hypot_ok emin emax m ->
+  valid (itv x) -> valid (itv y) -> DecInterval.hypot m x y = Some w -> valid (itv w).
+Proof.
+intros emin emax m x y w Hr Hget Hok Hx Hy E. unfold DecInterval.hypot in E.
+destruct (DecInterval.is_nai x || DecInterval.is_nai y).
+- injection E as <-. exact (proj1 (proj2 dec_constants_valid)).
+- destruct (Interval.hypot m (itv x) (itv y)) as [z|] eqn:Ez; [|discriminate E].
+  injection E as <-. apply set_dec_valid.
+  exact (hypot_valid emin emax m _ _ _ Hr Hget Hok Hx Hy Ez).
 Qed.
 
 Theorem ln_valid :
