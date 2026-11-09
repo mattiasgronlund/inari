@@ -223,6 +223,14 @@ theories/DyTrigNear.v
 theories/DyPowNearExact.v
 theories/DyPowNear.v
 theories/CrPow.v
+theories/RootReal.v
+theories/RootRound.v
+theories/DyIcbrt.v
+theories/DyCbrt.v
+theories/DyHypotExact.v
+theories/DyHypotOdd.v
+theories/DyHypot.v
+theories/CrRoot.v
 theories/DyPoint.v
 theories/DyPointDec.v
 theories/Valid.v

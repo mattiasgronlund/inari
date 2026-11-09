@@ -3,7 +3,8 @@
 // CORE-MATH (https://gitlab.inria.fr/core-math/core-math). The header of `hard_cases.wc` states
 // the rule that picked the sample and keeps CORE-MATH's MIT notice. `hard_cases` checks the
 // three roundings at each argument as `compare` does, and prints, with `--nocapture`, the
-// levels of Ziv's strategy that the kernel used for each function and rounding. The ignored
+// levels of Ziv's strategy that the kernel used for each function and rounding (none, level 0,
+// for cbrt and hypot, which the kernel computes from exact integer roots). The ignored
 // `full_hard_cases` does the same at every argument of the files of a clone of CORE-MATH,
 // `random_levels` at random arguments, and `sample_hard_cases` writes the sample again from a
 // clone of CORE-MATH.
@@ -19,9 +20,13 @@ use std::{cmp::Ordering, collections::HashSet, fmt::Write as _};
 // anything after a `#` a comment.
 const SAMPLE: &str = include_str!("hard_cases.wc");
 
-// The functions of the sample, those of `UNARY` in its order, then atan2 and pow, each with
-// the name of its directory and file in CORE-MATH's `src/binary64`.
-const FILES: [(&str, &str); 20] = [
+// The functions of the sample, those of `UNARY` in its order but sqrt, which CORE-MATH has no
+// file for, then atan2, pow and hypot, each with the name of its directory and file in
+// CORE-MATH's `src/binary64`. A function of `UNARY` has the same index in both. cbrt.wc is
+// complete up to scaling by powers of 8, as cbrt(8x) = 2 cbrt(x): it has every argument of
+// three adjacent binades at which cbrt has at least 44 identical bits after the round bit, and
+// every one in [1, 8) at which cbrt is exact. hypot.wc, of two arguments, is not complete.
+const FILES: [(&str, &str); 22] = [
     ("exp", "exp"),
     ("exp2", "exp2"),
     ("exp10", "exp10"),
@@ -40,8 +45,10 @@ const FILES: [(&str, &str); 20] = [
     ("asin", "asin"),
     ("acos", "acos"),
     ("atan", "atan"),
+    ("cbrt", "cbrt"),
     ("atan2", "atan2"),
     ("pow", "pow"),
+    ("hypot", "hypot"),
 ];
 
 // The `f64` that `s` names, rounded to nearest, ties to even, as C's `strtod` reads it: a
@@ -241,7 +248,7 @@ fn measured(levels: &mut [Levels; 3], args: &str, g: impl Fn(usize) -> f64) -> [
 
 type F2 = fn(f64, f64) -> f64;
 
-// atan2 and pow in their three roundings, then MPFR's.
+// atan2, pow and hypot in their three roundings, then MPFR's.
 const ATAN2: ([F2; 3], [F2; 3]) = (
     [atan2_rn, atan2_rd, atan2_ru],
     [oracle::atan2_rn, oracle::atan2_rd, oracle::atan2_ru],
@@ -249,6 +256,10 @@ const ATAN2: ([F2; 3], [F2; 3]) = (
 const POW: ([F2; 3], [F2; 3]) = (
     [pow_rn, pow_rd, pow_ru],
     [oracle::pow_rn, oracle::pow_rd, oracle::pow_ru],
+);
+const HYPOT: ([F2; 3], [F2; 3]) = (
+    [hypot_rn, hypot_rd, hypot_ru],
+    [oracle::hypot_rn, oracle::hypot_rd, oracle::hypot_ru],
 );
 
 // The function `FILES[k]` at `xs`, written `text`, against MPFR in the three roundings, as
@@ -263,6 +274,10 @@ fn check(errs: &mut Vec<String>, levels: &mut [Levels; 3], k: usize, xs: &[f64],
         ("pow", &[x, y]) => (
             measured(levels, text, |r| POW.0[r](x, y)),
             POW.1.map(|g| g(x, y)),
+        ),
+        ("hypot", &[x, y]) => (
+            measured(levels, text, |r| HYPOT.0[r](x, y)),
+            HYPOT.1.map(|g| g(x, y)),
         ),
         (_, &[x]) if k < UNARY.len() && UNARY[k].0 == name => {
             let (_, cr, mpfr) = UNARY[k];
@@ -379,8 +394,8 @@ fn full_hard_cases() {
     report(errs);
 }
 
-// The number of random arguments (pairs of arguments for atan2 and pow) of each function in
-// `random_levels`.
+// The number of random arguments (pairs of arguments for atan2, pow and hypot) of each function
+// in `random_levels`.
 const RANDOM: usize = 1_000_000;
 
 // `hard_cases` at `RANDOM` random arguments of each function, x and y from `Rng::arg` except y
@@ -397,7 +412,7 @@ fn random_levels() {
         let entries: Vec<(Vec<f64>, String)> = (0..RANDOM)
             .map(|_| {
                 let xs = match *name {
-                    "atan2" => vec![rng.arg(), rng.arg()],
+                    "atan2" | "hypot" => vec![rng.arg(), rng.arg()],
                     "pow" => vec![rng.arg(), rng.exponent()],
                     _ => vec![rng.arg()],
                 };
@@ -460,8 +475,10 @@ fn hardness(name: &str, xs: &[f64]) -> Hard {
         "asin" => v.asin_round(n),
         "acos" => v.acos_round(n),
         "atan" => v.atan_round(n),
+        "cbrt" => v.cbrt_round(n),
         "atan2" => v.atan2_round(&Float::with_val(53, xs[1]), n),
         "pow" => v.pow_assign_round(&Float::with_val(53, xs[1]), n),
+        "hypot" => v.hypot_round(&Float::with_val(53, xs[1]), n),
         _ => unreachable!("{name}"),
     };
     if !v.is_normal() || v.get_exp().unwrap() > 1024 {
@@ -498,8 +515,8 @@ fn hardness(name: &str, xs: &[f64]) -> Hard {
 // `Hard::Exact` and the first `EXACT_1` at which it is `Hard::Near`, the `HARDEST_1` with the
 // highest h, the one with the highest h in each section (a run of comments and the arguments
 // after it, mostly one search), and the one with the highest h in each of `SLICES` slices of
-// equal size of the hexadecimal arguments sorted by value. Of atan2 and pow, the same without
-// the special values and the slices, with `EXACT_2` and `HARDEST_2`.
+// equal size of the hexadecimal arguments sorted by value. Of atan2, pow and hypot, the same
+// without the special values and the slices, with `EXACT_2` and `HARDEST_2`.
 const EXACT_1: usize = 8;
 const HARDEST_1: usize = 40;
 const SLICES: usize = 16;
@@ -595,7 +612,7 @@ fn sample_hard_cases() {
                 });
             }
         });
-        let unary = name != "atan2" && name != "pow";
+        let unary = !matches!(name, "atan2" | "pow" | "hypot");
         let (n_exact, n_hardest) = if unary {
             (EXACT_1, HARDEST_1)
         } else {
@@ -693,10 +710,10 @@ fn sample_hard_cases() {
 # hexadecimal float (CORE-MATH's special values), the first {EXACT_1} exact ones and the first
 # {EXACT_1} near ones, the {HARDEST_1} with the highest h, the one with the highest h in each
 # section, and the one with the highest h in each of {SLICES} slices of equal size of the
-# hexadecimal arguments sorted by value; of atan2 and pow, the first {EXACT_2} exact ones and
-# the first {EXACT_2} near ones, the {HARDEST_2} with the highest h, and the one with the highest h
-# in each section. The ignored test `sample_hard_cases` in hard_cases.rs writes this file
-# again.
+# hexadecimal arguments sorted by value; of atan2, pow and hypot, the first {EXACT_2} exact ones
+# and the first {EXACT_2} near ones, the {HARDEST_2} with the highest h, and the one with the
+# highest h in each section. The ignored test `sample_hard_cases` in hard_cases.rs writes
+# this file again.
 #
 # The worst-case files of CORE-MATH carry this notice, kept here:
 "

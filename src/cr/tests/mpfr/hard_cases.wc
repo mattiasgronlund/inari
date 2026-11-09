@@ -17,10 +17,10 @@
 # hexadecimal float (CORE-MATH's special values), the first 8 exact ones and the first
 # 8 near ones, the 40 with the highest h, the one with the highest h in each
 # section, and the one with the highest h in each of 16 slices of equal size of the
-# hexadecimal arguments sorted by value; of atan2 and pow, the first 4 exact ones and
-# the first 4 near ones, the 24 with the highest h, and the one with the highest h
-# in each section. The ignored test `sample_hard_cases` in hard_cases.rs writes this file
-# again.
+# hexadecimal arguments sorted by value; of atan2, pow and hypot, the first 4 exact ones
+# and the first 4 near ones, the 24 with the highest h, and the one with the
+# highest h in each section. The ignored test `sample_hard_cases` in hard_cases.rs writes
+# this file again.
 #
 # The worst-case files of CORE-MATH carry this notice, kept here:
 # This file is part of the CORE-MATH project
@@ -1553,6 +1553,83 @@
 -0x1.d02967c31cdb5p+53 # h=110
 # failures found by Eric Hennenhoefer using AI
 -0x1.720e3020a4422p-9 # h=80
+@ cbrt cbrt/cbrt.wc
+# worst cases for cbrt produced with bacsel (revision bf0bec8)
+# with at least 44 identical bits after the round bit:
+# make GMP=$GMP MPFR=$MPFR FPLLL=$FPLLL DEFSAL="-DCBRT -DBASIS=2"
+# ./bacsel -rnd_mode all -prec 128 -n 53 -nn 53 -m 45 -t 19
+# -t0 4503599627370496 -t1 9007199254740992 -d 2 -alpha 2 -nthreads 64 -e_in 0
+# ./bacsel -rnd_mode all -prec 128 -n 53 -nn 53 -m 45 -t 19
+# -t0 4503599627370496 -t1 9007199254740992 -d 2 -alpha 2 -nthreads 64 -e_in 1
+# ./bacsel -rnd_mode all -prec 128 -n 53 -nn 53 -m 45 -t 19
+# -t0 4503599627370496 -t1 9007199254740992 -d 2 -alpha 2 -nthreads 64 -e_in 2
+0x1.01fb4bd640f53p-1 # h=103
+0x1.02e5fc0bb4f11p-1 # h=102
+0x1.0a9bbd11b3a24p-1 # h=102
+0x1.2940e95ef6eedp-1 # h=102
+0x1.32982f1cc5f06p-1 # h=103
+0x1.36d8414b01655p-1 # h=105
+0x1.565de16629b46p-1 # h=102
+0x1.59987a7e76a8ep-1 # h=102
+0x1.64f6d9ecb0fa4p-1 # h=103
+0x1.7ae6cbc0421b2p-1 # h=102
+0x1.7c4039733604fp-1 # h=102
+0x1.a202bfc89ddffp-1 # h=108
+0x1.a6bb8c803147bp-1 # h=103
+0x1.ac8538a031cbdp-1 # h=105
+0x1.b9d24b1085e3dp-1 # h=102
+0x1.cf9023ac66768p-1 # h=102
+0x1.dca912f5ce85ap-1 # h=102
+0x1.df2ce20fa11b9p-1 # h=102
+0x1.e3d8bd45f5f9fp-1 # h=103
+0x1.f4786638ad57fp-1 # h=103
+0x1.ffffffffffff7p-1 # h=102
+0x1.ffffffffffffap-1 # h=103
+0x1.ffffffffffffdp-1 # h=105
+0x1.0000000000003p+0 # h=104
+0x1.0000000000006p+0 # h=102
+0x1.00357fdfa5412p+0 # h=103
+0x1.05b93f3e0caf9p+0 # h=103
+0x1.09168bb487c77p+0 # h=102
+0x1.0a3e4d1f5c0f8p+0 # h=102
+0x1.3a9ccd7f022dbp+0 # h=103
+0x1.7845d2faac6fep+0 # h=103
+0x1.7b1f68fdf7307p+0 # h=103
+0x1.a3a8de5543964p+0 # h=102
+0x1.c22b300602884p+0 # h=103
+0x1.d1ef81cbbbe71p+0 # h=103
+0x1.e24ad800f33a2p+0 # h=103
+0x1.f1e46556eeffep+0 # h=102
+0x1.1e5d9d5d66afp+1 # h=101
+0x1.577a288016fdap+1 # h=103
+0x1.7c60cdf772f0fp+1 # h=102
+0x1.9b78223aa307cp+1 # h=108
+0x1.b7abfd282ff33p+1 # h=103
+0x1.d3954d3f1546ep+1 # h=104
+0x1.fe18a044a5501p+1 # h=108
+# exact cases in [1,8)
+0x1p+0 # exact
+0x1.bp+1 # exact
+0x1.f4p+0 # exact
+0x1.57p+2 # exact
+0x1.6c8p+0 # exact
+0x1.4ccp+1 # exact
+0x1.12ap+2 # exact
+0x1.a5ep+2 # exact
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # special
+-0 # special
++0x.fffffffffffffp-1022 # h=57
+-1 # exact
++0x1.fffffffffffffp+1023 # h=54
+# the following input is wrongly rounded by LLVM libc 19.1.7
+0x1.fffffffffffffp-1 # h=55
 @ atan2 atan2/atan2.wc
 # special values
 +0x1p-1074,+0x1p-1022 # h=105
@@ -1764,3 +1841,82 @@
 0x0.0000000000006p-1022,-0x1.f0200000000d5p-136 # h=125
 # the following inputs raise spurious underflow
 -0x1.10a688680a753p-93,0x1.6p+3 # h=54
+@ hypot hypot/hypot.wc
+# the following should not raise "Missing underflow exception"
+# since sqrt(x^2+y^2) > 2^-1022-2^-1075
+0x0.e779e1bd4ad3fp-1022,0x0.6d568c1f6fbabp-1022 # h=55
+# exact cases
+0x1.000001cc784cbp+52,0x1.fdd67bceb35fp+52 # exact
+# worst cases
+0x1.6p-45,0x1.2c2fc595456a7p-71 # h=108
+# from https://hal-ens-lyon.archives-ouvertes.fr/ensl-01527202/document:
+0x1.87de29ce10f34p-14,0x1.0000002d413cdp+0 # h=77
+# from
+# gitlab.inria.fr/zimmerma/math_accuracy/blob/master/binary64/check_sample2.c
+0x1.9c6d80093ebf8p+446,0x1.add8969f3a07ep+421 # h=106
+# the following tests intermediate underflow
+0x1p-1074,0x1p-1074 # h=4
+# the following mixes overflow/underflow
+0x1.fffffffffffffp+1023,0x1p-1074 # near
+# issue reported by Vedran Novaković on core-math@inria.fr (24 Jan 2023):
+0x0.2c2671b3c16b3p-1022,0x0.bb9f8fecba9adp-1022 # h=57
+# special and extremal values
++0,+0x1p-1074 # exact
++0,+0x.fffffffffffffp-1022 # exact
++0,+0x1p-1022 # exact
++0x1p-1074,+0x.fffffffffffffp-1022 # h=104
++0x1p-1074,+1 # near
++0x1p-1074,+0x1.fffffffffffffp+1023 # near
++0x1p-1074,-1 # near
+# worst cases with exp(y) = exp(x) - m with 1 <= m <= 27
+# we have generated up to 1000 such cases for each value of m
+0x1.4bd175ce381dap-1,0x1.9c2da2a22186dp-27 # h=116
+# values contributed by Erik E. <evonatarius@gmail.com>
+0x1.ac51cd8927bf5p-1004,0x1p-1074 # h=142
+0x1p-1074,0x1.ac51cd8927bf5p-1004 # h=142
+-0x1p-1074,0x1.ac51cd8927bf5p-1004 # h=142
+0x1.ac51cd8927bf5p-1004,-0x1p-1074 # h=142
+-0x1.ac51cd8927bf5p-1004,-0x1p-1074 # h=142
+-0x1p-1074,-0x1.ac51cd8927bf5p-1004 # h=142
+0x1.e891f4820dee5p-1002,0x1p-1074 # h=146
+0x1p-1074,0x1.e891f4820dee5p-1002 # h=146
+-0x1p-1074,0x1.e891f4820dee5p-1002 # h=146
+0x1.e891f4820dee5p-1002,-0x1p-1074 # h=146
+-0x1.e891f4820dee5p-1002,-0x1p-1074 # h=146
+-0x1p-1074,-0x1.e891f4820dee5p-1002 # h=146
+0x1p-1074,-0x1.e891f4820dee5p-1002 # h=146
+-0x1.e891f4820dee5p-1002,0x1p-1074 # h=146
+0x1.ffffffffffff2p+793,0x1.ffffffffffffdp+769 # h=151
+0x1.ffffffffffffdp+769,0x1.ffffffffffff2p+793 # h=151
+-0x1.ffffffffffffdp+769,0x1.ffffffffffff2p+793 # h=151
+0x1.ffffffffffff2p+793,-0x1.ffffffffffffdp+769 # h=151
+-0x1.ffffffffffff2p+793,-0x1.ffffffffffffdp+769 # h=151
+-0x1.ffffffffffffdp+769,-0x1.ffffffffffff2p+793 # h=151
+0x1.ffffffffffffdp+769,-0x1.ffffffffffff2p+793 # h=151
+-0x1.ffffffffffff2p+793,0x1.ffffffffffffdp+769 # h=151
+# corner-cases in the subnormal range
+# the following x,y pair is such that x is the largest subnormal number,
+# and y is the largest number such that sqrt(x^2+y^2) < 2^-1022
+0x1.fffffffffffffp-1023,0x1.ffffff8p-1049 # h=78
+# the following x,y pair is such that x is the largest subnormal number,
+# and y is the smallest number such that sqrt(x^2+y^2) >= 2^-1022
+0x1.fffffffffffffp-1023,0x1p-1048 # h=107
+# the following x,y pair is such that x is the largest subnormal number,
+# and y is the largest number such that sqrt(x^2+y^2) < 2^-1022*(1-2^-54)
+# thus we should get an underflow for rounding to nearest, although the
+# result is 2^-1022
+0x1.fffffffffffffp-1023,0x1.6a09e6p-1049 # h=54
+# the following x,y pair is such that x is the largest subnormal number,
+# and y is the smallest number such that sqrt(x^2+y^2) >= 2^-1022*(1-2^-54)
+0x1.fffffffffffffp-1023,0x1.6a09e68p-1049 # h=54
+# further similar corner cases for random subnormal x
+0x1.7f39c14a0738p-1024,0x1.dacb0bc6a0168p-1023 # h=60
+# worst-case for RNDN with 104 identical bits after the round bit
+0x1.e3ffffffffffdp+78,0x1.5ffffffffffffp+52 # h=158
+# worst-case for RNDZ with 104 identical bits after the round bit
+0x1.2000000000001p+78,0x1.8000000000001p+52 # h=157
+# input from Algorithm 1014: An Improved Algorithm for hypot(x,y)
+# by Carlos F. Borges
+0x1.a308e1455f447p+0,0x1.9d931a83ef879p+0 # h=107
+# other failures found by Eric Hennenhoefer using AI
+0x1.cc26a5e15d271p+0,0x1.c10583b5afc0bp-1 # h=106

@@ -17,7 +17,9 @@
     [DyTrig.v], those about its powers, [DyPown.v] and [DyPow.v], those
     about its functions rounded to nearest, from [DyDriverNear.v] to
     [DyPowNear.v], the one about the signs of [pow] in [src/cr.rs],
-    [CrPow.v], and [DyPoint.v] and [DyPointDec.v], are required
+    [CrPow.v], those about its roots and the square roots of
+    [src/cr.rs], from [RootReal.v] to [CrRoot.v], and [DyPoint.v] and
+    [DyPointDec.v], are required
     without being imported, as
     some of their names, such as [add_correct], are those of other
     theorems printed here, and their theorems are printed by qualified
@@ -37,6 +39,7 @@ From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyD
   DyConst DyExp DyHyp DyLog DyLogHyp DyConstPi DyAtan DyAsin DyTrig DyPown DyPow DyDriverNear
   DyExpNear DyLogNear DyAtanNear DyTrigNear DyPowNearExact DyPowNear CrPow DyPoint
   DyPointDec.
+From Inari Require RootReal RootRound DyIcbrt DyCbrt DyHypotExact DyHypotOdd DyHypot CrRoot.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -453,6 +456,30 @@ Print Assumptions CrPow.cr_pow_dir_strict.
 Print Assumptions CrPow.cr_pow_near_neg.
 Print Assumptions CrPow.cr_pow_near_dom.
 Print Assumptions CrPow.cr_pow_near_strict.
+Print Assumptions RootReal.Rcbrt_cube.
+Print Assumptions RootReal.Rcbrt_unique.
+Print Assumptions RootReal.Rcbrt_lt.
+Print Assumptions RootReal.Rcbrt_opp.
+Print Assumptions RootReal.hypot_cut.
+Print Assumptions RootRound.odd_correct.
+Print Assumptions RootRound.odd_window_dir.
+Print Assumptions RootRound.odd_window_near.
+Print Assumptions DyIcbrt.icbrt_correct.
+Print Assumptions DyCbrt.cbrt_dir_correct.
+Print Assumptions DyCbrt.cbrt_near_correct.
+Print Assumptions DyCbrt.cbrt_special.
+Print Assumptions DyHypotExact.hypot_exact_branch.
+Print Assumptions DyHypotOdd.hypot_odd_correct.
+Print Assumptions DyHypot.hypot_dir_correct.
+Print Assumptions DyHypot.hypot_near_correct.
+Print Assumptions DyHypot.hypot_inf.
+Print Assumptions DyHypot.hypot_nan.
+Print Assumptions DyHypot.hypot_zeros.
+Print Assumptions CrRoot.cr_sqrt_dir_correct.
+Print Assumptions CrRoot.cr_sqrt_rn_correct.
+Print Assumptions CrRoot.cr_sqrt_zero.
+Print Assumptions CrRoot.cr_sqrt_inf.
+Print Assumptions CrRoot.cr_sqrt_nan.
 Print Assumptions E_tightest.
 Print Assumptions FRAC_1_PI_tightest.
 Print Assumptions FRAC_1_SQRT_2_tightest.

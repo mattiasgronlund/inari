@@ -1,25 +1,33 @@
 //! Correctly rounded `f64` functions.
 //!
-//! The elementary functions of an `f64` (of two for `atan2` and `pow`, and of an `f64` and an
-//! `i32` for `powi`), each in three roundings: to nearest with ties to even (`_rn`), toward -∞
-//! (`_rd`) and toward +∞ (`_ru`). At the zeros, the infinities and outside the domains, they
-//! give the values of MPFR. A NaN argument gives a NaN, whose bits are not specified, but for
-//! pow(1, y), pow(x, ±0) and powi(x, 0), which are 1 at every x and y, NaNs among them, as in
-//! MPFR. `pow` takes MPFR's values at a finite x < 0 and at x = -∞, as C99 does:
-//! (-1)^y |x|^y at an integer y, |x|^y at y = ±∞ and, for x = -∞, at any other y, and NaN at
-//! any other y for a finite x, with pow(-1, ±∞) = 1.
+//! The elementary functions of an `f64` (of two for `atan2`, `hypot` and `pow`, and of an `f64`
+//! and an `i32` for `powi`), each in three roundings: to nearest with ties to even (`_rn`),
+//! toward -∞ (`_rd`) and toward +∞ (`_ru`). At the zeros, the infinities and outside the
+//! domains, they give the values of MPFR. A NaN argument gives a NaN, whose bits are not
+//! specified, but for pow(1, y), pow(x, ±0) and powi(x, 0), which are 1 at every x and y, NaNs
+//! among them, and hypot(±∞, y) and hypot(x, ±∞), which are +∞, as in MPFR. `pow` takes
+//! MPFR's values at a finite x < 0 and at x = -∞, as C99 does: (-1)^y |x|^y at an integer y,
+//! |x|^y at y = ±∞ and, for x = -∞, at any other y, and NaN at any other y for a finite x, with
+//! pow(-1, ±∞) = 1.
 //!
-//! Each function settles some arguments by rules, and at the others computes enclosures of
-//! its result of increasing precision, up to 4,096 bits, until both bounds of one round to the
-//! same `f64`, which is then the correctly rounded result (Ziv's strategy). If none does by
-//! that cap, it returns the rounding of a bound of the last enclosure, which is on the correct
-//! side of the result for `_rd` and `_ru` but is not known to be correctly rounded. No known
-//! input reaches the cap: none of the 9,949,560 hard-to-round arguments that CORE-MATH lists
-//! for them does, nor any of a million random arguments of each function but `powi`, in each
-//! of the three roundings. The tests on
-//! 64-bit Linux and macOS compare the functions with MPFR in all three roundings, and the Rocq
-//! proofs in the repository's `rocq/` directory show the results at finite arguments in the
-//! domains correctly rounded wherever a rule or a rounding test settles them.
+//! Each function but `cbrt`, `hypot` and `sqrt` settles some arguments by rules, and at the
+//! others computes enclosures of its result of increasing precision, up to 4,096 bits, until
+//! both bounds of one round to the same `f64`, which is then the correctly rounded result
+//! (Ziv's strategy). If none does by that cap, it returns the rounding of a bound of the last
+//! enclosure, which is on the correct side of the result for `_rd` and `_ru` but is not known
+//! to be correctly rounded. No known input reaches the cap: none of the 9,949,560
+//! hard-to-round arguments that CORE-MATH lists for them does, nor any of a million random
+//! arguments of each function but `powi`, in each of the three roundings. `cbrt` and `hypot`
+//! do not use Ziv's strategy and have no cap: they compute the integer part of their result
+//! scaled by a power of two, and whether the scaled result is above it, from an exact integer
+//! cube or square root. `sqrt_rn` is `f64::sqrt`, and `sqrt_rd` and `sqrt_ru` are the square
+//! roots toward -∞ and +∞ of the backend of the interval arithmetic. The tests on 64-bit Linux
+//! and macOS compare the functions with MPFR in all three roundings, and the Rocq proofs in the
+//! repository's `rocq/` directory show the results at finite arguments in the domains
+//! correctly rounded wherever a rule or a rounding test settles them, and those of `cbrt`,
+//! `hypot` and `sqrt` at every finite argument, x >= 0 for `sqrt`, with no such condition (for
+//! `sqrt_rd` and `sqrt_ru`, as the portable backend computes them, which the backends of x86-64
+//! without AVX-512F and of wasm32 call too).
 //!
 //! ```
 //! use inari::cr;
@@ -71,6 +79,7 @@ cr_fn!(tan, tan_near, tan_rn, tan_rd, tan_ru, "tan x");
 cr_fn!(asin, asin_near, asin_rn, asin_rd, asin_ru, "asin x");
 cr_fn!(acos, acos_near, acos_rn, acos_rd, acos_ru, "acos x");
 cr_fn!(atan, atan_near, atan_rn, atan_rd, atan_ru, "atan x");
+cr_fn!(cbrt, cbrt_near, cbrt_rn, cbrt_rd, cbrt_ru, "∛x");
 
 /// `atan2_rn(y, x) = atan2(y, x)` rounded to nearest, ties to even.
 pub fn atan2_rn(y: f64, x: f64) -> f64 {
@@ -85,6 +94,36 @@ pub fn atan2_rd(y: f64, x: f64) -> f64 {
 /// `atan2_ru(y, x) = atan2(y, x)` rounded toward +∞.
 pub fn atan2_ru(y: f64, x: f64) -> f64 {
     dyadic::atan2(y, x, true)
+}
+
+/// `hypot_rn(x, y) = √(x^2 + y^2)` rounded to nearest, ties to even.
+pub fn hypot_rn(x: f64, y: f64) -> f64 {
+    dyadic::hypot_near(x, y)
+}
+
+/// `hypot_rd(x, y) = √(x^2 + y^2)` rounded toward -∞.
+pub fn hypot_rd(x: f64, y: f64) -> f64 {
+    dyadic::hypot(x, y, false)
+}
+
+/// `hypot_ru(x, y) = √(x^2 + y^2)` rounded toward +∞.
+pub fn hypot_ru(x: f64, y: f64) -> f64 {
+    dyadic::hypot(x, y, true)
+}
+
+/// `sqrt_rn(x) = √x` rounded to nearest, ties to even.
+pub fn sqrt_rn(x: f64) -> f64 {
+    x.sqrt()
+}
+
+/// `sqrt_rd(x) = √x` rounded toward -∞.
+pub fn sqrt_rd(x: f64) -> f64 {
+    crate::simd::sqrt1_rd(x)
+}
+
+/// `sqrt_ru(x) = √x` rounded toward +∞.
+pub fn sqrt_ru(x: f64) -> f64 {
+    crate::simd::sqrt1_ru(x)
 }
 
 /// `pow_rn(x, y) = x^y` rounded to nearest, ties to even.
@@ -127,7 +166,9 @@ pub fn powi_ru(x: f64, n: i32) -> f64 {
 // function of the kernel that they call, at x < 0 and an integer y (`cr_pow_dir_neg` and
 // `cr_pow_near_neg`) and in the domain of `dyadic::pow` (`cr_pow_dir_dom` and
 // `cr_pow_near_dom`), where a rule or a rounding test settles them. The other functions of
-// this file call a function of the kernel and nothing else, whose proofs they inherit.
+// this file call a function of the kernel and nothing else, whose proofs they inherit, but for
+// `sqrt_rn`, `sqrt_rd` and `sqrt_ru`, which call `f64::sqrt` and the backend's `sqrt1_rd` and
+// `sqrt1_ru`, and which `rocq/theories/CrRoot.v` proves for the portable backend.
 fn pow_dir(x: f64, y: f64, up: bool) -> f64 {
     if x < 0.0 && !y.is_nan() {
         if dyadic::is_odd_integer(y) {
@@ -224,7 +265,8 @@ mod tests {
     // of the three roundings gives the `f64` that MPFR gives in that rounding, bit for bit, or
     // a NaN where MPFR gives one, at special arguments, at the thresholds of the kernel and the
     // `f64`s next to them, and at a seeded random sample. MPFR's nearest roundings are those of
-    // `mpfr_near!` in `src/mpfr_calls/mpfr.rs`, and `powi_<r>` is checked against its `pown_<r>`.
+    // `mpfr_near!` in `src/mpfr_calls/mpfr.rs`, all three roundings of cbrt, hypot and sqrt are
+    // those of its `mpfr_once!`, and `powi_<r>` is checked against its `pown_<r>`.
     #[cfg(all(
         target_pointer_width = "64",
         any(target_os = "linux", target_os = "macos")
@@ -239,7 +281,7 @@ mod tests {
         type F = fn(f64) -> f64;
 
         // Each function of one `f64` by name, in its three roundings, then MPFR's.
-        const UNARY: [(&str, [F; 3], [F; 3]); 18] = [
+        const UNARY: [(&str, [F; 3], [F; 3]); 20] = [
             (
                 "exp",
                 [exp_rn, exp_rd, exp_ru],
@@ -330,10 +372,20 @@ mod tests {
                 [atan_rn, atan_rd, atan_ru],
                 [oracle::atan_rn, oracle::atan_rd, oracle::atan_ru],
             ),
+            (
+                "cbrt",
+                [cbrt_rn, cbrt_rd, cbrt_ru],
+                [oracle::cbrt_rn, oracle::cbrt_rd, oracle::cbrt_ru],
+            ),
+            (
+                "sqrt",
+                [sqrt_rn, sqrt_rd, sqrt_ru],
+                [oracle::sqrt_rn, oracle::sqrt_rd, oracle::sqrt_ru],
+            ),
         ];
 
-        // The number of random arguments (pairs of arguments for atan2, pow and powi) for each
-        // function.
+        // The number of random arguments (pairs of arguments for atan2, hypot, pow and powi)
+        // for each function.
         const SAMPLES: usize = 10000;
 
         // SplitMix64, as `Rng` in `src/dyadic/tests.rs`.
@@ -401,6 +453,55 @@ mod tests {
                     self.below(601) as i32 - 300
                 }
             }
+
+            // `v` or -`v`, each as likely.
+            fn signed(&mut self, v: f64) -> f64 {
+                if self.below(2) == 0 {
+                    v
+                } else {
+                    -v
+                }
+            }
+
+            // `x` and `y` with random signs, in a random order.
+            fn pair(&mut self, x: f64, y: f64) -> (f64, f64) {
+                let (x, y) = (self.signed(x), self.signed(y));
+                if self.below(2) == 0 {
+                    (x, y)
+                } else {
+                    (y, x)
+                }
+            }
+
+            // A subnormal `f64` or a zero, of either sign, with fewer significant bits at
+            // random, so that its exponent is spread over those of the subnormals.
+            fn subnormal(&mut self) -> f64 {
+                let v = f64::from_bits(self.next() >> (12 + self.below(52)));
+                self.signed(v)
+            }
+        }
+
+        // 2^k as an `f64`, from its bits, for -1074 <= k <= 1023.
+        fn pow2(k: i64) -> f64 {
+            if k >= -1022 {
+                f64::from_bits(((1023 + k) as u64) << 52)
+            } else {
+                f64::from_bits(1 << (k + 1074))
+            }
+        }
+
+        // The finite `f64`s whose bits are within `k` of those of `v`: for a finite v > 0, `v`
+        // and the `k` `f64`s on each side of it that are not below 0 or above MAX.
+        fn within(v: f64, k: u64) -> impl Iterator<Item = f64> {
+            let b = v.to_bits();
+            (b.saturating_sub(k)..=b + k)
+                .map(f64::from_bits)
+                .filter(|w| w.is_finite())
+        }
+
+        // The index of the function `name` in `UNARY`.
+        fn index(name: &str) -> usize {
+            UNARY.iter().position(|&(n, _, _)| n == name).unwrap()
         }
 
         // Whether `a` and `b` are the same `f64`, bit for bit, or both NaNs.
@@ -452,6 +553,20 @@ mod tests {
                     oracle::atan2_rn(y, x),
                     oracle::atan2_rd(y, x),
                     oracle::atan2_ru(y, x),
+                ],
+            );
+        }
+
+        fn check_hypot(errs: &mut Vec<String>, x: f64, y: f64) {
+            compare(
+                errs,
+                "hypot",
+                &format!("{x:e}, {y:e}"),
+                [hypot_rn(x, y), hypot_rd(x, y), hypot_ru(x, y)],
+                [
+                    oracle::hypot_rn(x, y),
+                    oracle::hypot_rd(x, y),
+                    oracle::hypot_ru(x, y),
                 ],
             );
         }
@@ -744,6 +859,291 @@ mod tests {
             for _ in 0..SAMPLES {
                 let (x, n) = (rng.arg(), rng.int_exponent());
                 check_powi(&mut errs, x, n);
+            }
+            report(errs);
+        }
+
+        // cbrt at the cubes x = y^3 of the `f64`s y = r 2^a with r odd and r^3 < 2^51, of both
+        // signs, where cbrt x = y is exact, and at the two `f64`s on each side of them, and at
+        // random subnormals. The special arguments and random ones are in `unary_special` and
+        // `unary_random`.
+        #[test]
+        fn cbrt_cubes_and_subnormals() {
+            let mut errs = vec![];
+            let i = index("cbrt");
+            let mut rng = Rng(6);
+            for _ in 0..SAMPLES / 10 {
+                // r < 2^17 and -1074 <= 3 a <= 972, so that y and x are `f64`s.
+                let r = rng.next() >> (63 - rng.below(17)) | 1;
+                let a = rng.below(683) as i64 - 358;
+                let (y, x) = (r as f64 * pow2(a), (r * r * r) as f64 * pow2(3 * a));
+                for (y, x) in [(y, x), (-y, -x)] {
+                    let got = [cbrt_rn(x), cbrt_rd(x), cbrt_ru(x)];
+                    assert_eq!(got.map(f64::to_bits), [y.to_bits(); 3], "cbrt({x:e})");
+                }
+                for w in within(x, 2) {
+                    check_unary(&mut errs, i, w);
+                    check_unary(&mut errs, i, -w);
+                }
+            }
+            for _ in 0..SAMPLES {
+                let x = rng.subnormal();
+                check_unary(&mut errs, i, x);
+            }
+            report(errs);
+        }
+
+        // sqrt where MPFR gives a zero or a NaN: √-0 = -0, as for `sqrt_rd`, and √x = NaN at
+        // x < 0, as for `sqrt_ru`, in each rounding; at the squares x = y^2 of the `f64`s
+        // y = r 2^a with r odd and r < 2^26, where √x = y is exact, and at the `f64`s next to
+        // them; and at random subnormals.
+        #[test]
+        fn sqrt_special_squares_and_subnormals() {
+            let i = index("sqrt");
+            let (_, cr, mpfr) = UNARY[i];
+            for (r, (f, g)) in ["rn", "rd", "ru"].iter().zip(cr.iter().zip(mpfr)) {
+                let z = (-0.0f64).to_bits();
+                assert_eq!(
+                    (f(-0.0).to_bits(), g(-0.0).to_bits()),
+                    (z, z),
+                    "sqrt_{r}(-0)"
+                );
+                for x in [-f64::from_bits(1), -1.0, -f64::MAX, f64::NEG_INFINITY] {
+                    assert!(f(x).is_nan() && g(x).is_nan(), "sqrt_{r}({x:e})");
+                }
+            }
+            let mut errs = vec![];
+            let mut rng = Rng(7);
+            for _ in 0..SAMPLES / 10 {
+                // r < 2^26 and -1074 <= 2 a <= 970, so that y and x are `f64`s.
+                let r = rng.next() >> (63 - rng.below(26)) | 1;
+                let a = rng.below(1023) as i64 - 537;
+                let (y, x) = (r as f64 * pow2(a), (r * r) as f64 * pow2(2 * a));
+                let got = [sqrt_rn(x), sqrt_rd(x), sqrt_ru(x)];
+                assert_eq!(got.map(f64::to_bits), [y.to_bits(); 3], "sqrt({x:e})");
+                for w in around(x) {
+                    check_unary(&mut errs, i, w);
+                }
+            }
+            for _ in 0..SAMPLES {
+                let x = rng.subnormal();
+                check_unary(&mut errs, i, x);
+            }
+            report(errs);
+        }
+
+        // hypot at every pair of special arguments, and its values where MPFR gives +∞ at a
+        // NaN: hypot(±∞, NaN) = hypot(NaN, ±∞) = +∞ in each rounding.
+        #[test]
+        fn hypot_special() {
+            for (x, y) in [
+                (f64::INFINITY, f64::NAN),
+                (f64::NEG_INFINITY, f64::NAN),
+                (f64::NAN, f64::NEG_INFINITY),
+            ] {
+                let got = [hypot_rn(x, y), hypot_rd(x, y), hypot_ru(x, y)];
+                let want = [
+                    oracle::hypot_rn(x, y),
+                    oracle::hypot_rd(x, y),
+                    oracle::hypot_ru(x, y),
+                ];
+                assert_eq!((got, want), ([f64::INFINITY; 3], [f64::INFINITY; 3]));
+            }
+            let mut errs = vec![];
+            let args = special_args();
+            for &x in &args {
+                for &y in &args {
+                    check_hypot(&mut errs, x, y);
+                }
+            }
+            report(errs);
+        }
+
+        // hypot at random pairs, with random signs and in a random order: log-uniform, uniform
+        // in [0, 1), random arguments of the functions of one `f64`, a random gap g in [0, 60]
+        // between the exponents of x and y, and y = x 2^-g and the `f64`s next to it for g in
+        // [25, 29], around the gap 27 from which `hypot_odd` in `src/dyadic/root.rs` takes the
+        // result from x alone.
+        #[test]
+        fn hypot_random() {
+            let mut errs = vec![];
+            let mut rng = Rng(8);
+            for _ in 0..SAMPLES {
+                let (x, y) = match rng.below(5) {
+                    0 => (rng.scaled(-1022, 1023), rng.scaled(-1022, 1023)),
+                    1 => (rng.unit(), rng.unit()),
+                    2 => (rng.arg(), rng.arg()),
+                    3 => {
+                        let g = rng.below(61) as i64;
+                        let e = rng.below(1986) as i64 - 962;
+                        (rng.scaled(e, e), rng.scaled(e - g, e - g))
+                    }
+                    _ => {
+                        let x = rng.scaled(-990, 1023);
+                        let y = x * pow2(-25 - rng.below(5) as i64);
+                        (x, f64::from_bits(y.to_bits() + rng.below(3) - 1))
+                    }
+                };
+                let (x, y) = rng.pair(x, y);
+                check_hypot(&mut errs, x, y);
+            }
+            report(errs);
+        }
+
+        // hypot at the cut of `hypot_odd` in `src/dyadic/root.rs`, a gap of 27 between the
+        // exponents of |x| >= |y|: x at the ends of a binade 2^e and y at the ends of the binade
+        // 2^(e - g), for g in [25, 29], each with the `f64`s next to them, so that the gaps 23
+        // to 31 occur, with subnormal y for e = -1000.
+        #[test]
+        fn hypot_cut() {
+            let mut errs = vec![];
+            for e in [-1000, -60, -1, 0, 1, 52, 500, 1000] {
+                for g in 25..=29 {
+                    for x in [pow2(e), pow2(e + 1)].into_iter().flat_map(around) {
+                        for y in [pow2(e - g), pow2(e - g + 1)].into_iter().flat_map(around) {
+                            check_hypot(&mut errs, x, y);
+                            check_hypot(&mut errs, -y, x);
+                        }
+                    }
+                }
+            }
+            report(errs);
+        }
+
+        // A Pythagorean triple (a, b, c), a^2 + b^2 = c^2, with c odd in [2^53, 2^54) and the
+        // legs a and b `f64`s, so that hypot(a, b) = c is midway between the `f64`s c - 1 and
+        // c + 1: a = d (m^2 - n^2), b = 2 d m n and c = d (m^2 + n^2) for m > n > 0 of
+        // opposite parity and d = 1 or 3. a is odd, so it is an `f64` only below 2^53, and b is
+        // even and below 2^54. m^2 + n^2 is 1 modulo 4, so the tie goes to nearest to c - 1,
+        // whose significand (c - 1) / 2 is even, at d = 1, and to c + 1 at d = 3. A third of
+        // them have d = 1 and m = n + e with e odd and small, which gives gaps up to 26 between
+        // the exponents of a and b.
+        fn triple(rng: &mut Rng) -> (u64, u64, u64) {
+            loop {
+                let (m, n, d) = match rng.below(3) {
+                    0 => {
+                        let m = (1 << 26) + rng.below(1 << 26);
+                        (m, 1 + rng.below(m - 1), 1)
+                    }
+                    1 => {
+                        let n = (1 << 26) + rng.below(1 << 25);
+                        let bits = rng.below(20);
+                        let e = rng.below(1 << bits);
+                        (n + 2 * e + 1, n, 1)
+                    }
+                    _ => {
+                        // d = 3 needs 2^53 / 3 <= m^2 + n^2 < 2^54 / 3, so m near 2^26.
+                        let m = (3 << 24) + rng.below(1 << 25);
+                        (m, 1 + rng.below(m - 1), 3)
+                    }
+                };
+                let (a, b, c) = (d * (m * m - n * n), d * 2 * m * n, d * (m * m + n * n));
+                if (m + n) % 2 == 1 && (1 << 53..1 << 54).contains(&c) && a < 1 << 53 {
+                    return (a, b, c);
+                }
+            }
+        }
+
+        // hypot at the midpoints of `triple`, scaled by 2^k for k in [-1074, 970], where the
+        // shorter leg can be subnormal at k = -1074 (the longer one is at least 2^52.5 2^k),
+        // and at the `f64`s next to a and b, with random signs and in a random order. At the
+        // triple itself, `hypot_rd` and `hypot_ru` give the `f64`s (c - 1) 2^k and (c + 1) 2^k
+        // on each side of it, and `hypot_rn` the one of them with an even significand, as for
+        // hypot(134217729, 9007199388958720) = 2^53 + 2^27 + 1, whose tie goes down, and
+        // hypot(4222124449333245, 10133099463573504) = 10977524293042179, which is 3 (m^2 + n^2)
+        // for m = 3 2^24 and n = 2^25 + 1 and whose tie goes up.
+        #[test]
+        fn hypot_midpoints() {
+            let (a, b) = (134217729.0, 9007199388958720.0);
+            let got = [hypot_rn(a, b), hypot_rd(a, b), hypot_ru(a, b)];
+            assert_eq!(got, [b, b, 9007199388958722.0]);
+            let (a, b) = (4222124449333245.0, 10133099463573504.0);
+            let (lo, hi) = (10977524293042178.0, 10977524293042180.0);
+            let got = [hypot_rn(a, b), hypot_rd(a, b), hypot_ru(a, b)];
+            assert_eq!(got, [hi, lo, hi]);
+            let mut errs = vec![];
+            let mut ups = 0;
+            let mut rng = Rng(9);
+            for i in 0..SAMPLES / 10 {
+                let (a, b, c) = triple(&mut rng);
+                let k = match i % 4 {
+                    0 => -1074,
+                    1 => 970,
+                    _ => rng.below(2045) as i64 - 1074,
+                };
+                let s = pow2(k);
+                let (a, b) = (a as f64 * s, b as f64 * s);
+                let (lo, hi) = ((c - 1) as f64 * s, (c + 1) as f64 * s);
+                let even = if (c - 1) % 4 == 0 {
+                    lo
+                } else {
+                    ups += 1;
+                    hi
+                };
+                let got = [hypot_rn(a, b), hypot_rd(a, b), hypot_ru(a, b)];
+                assert_eq!(got, [even, lo, hi], "hypot({a:e}, {b:e})");
+                for x in around(a) {
+                    for y in around(b) {
+                        let (x, y) = rng.pair(x, y);
+                        check_hypot(&mut errs, x, y);
+                    }
+                }
+            }
+            assert!(ups > SAMPLES / 100, "{ups} ties up");
+            report(errs);
+        }
+
+        // hypot at pairs of subnormals or zeros, and at a subnormal and a small normal `f64`;
+        // hypot(2^-1074, 2^-1074) = 2^-1074 √2 rounds to 2^-1074 toward -∞ and to nearest,
+        // and to 2^-1073 toward +∞.
+        #[test]
+        fn hypot_subnormal() {
+            let t = f64::from_bits(1);
+            let got = [hypot_rn(t, -t), hypot_rd(-t, t), hypot_ru(t, t)];
+            assert_eq!(got, [t, t, 2.0 * t]);
+            let mut errs = vec![];
+            let mut rng = Rng(10);
+            for _ in 0..SAMPLES {
+                let x = rng.subnormal();
+                let y = if rng.below(2) == 0 {
+                    rng.subnormal()
+                } else {
+                    rng.scaled(-1022, -990)
+                };
+                check_hypot(&mut errs, x, y);
+            }
+            report(errs);
+        }
+
+        // hypot near overflow: at ±MAX twice, where the result is above 2^1024; at MAX and 1,
+        // where it is above MAX by less than an ulp, so that `hypot_ru` gives +∞; at MAX and y
+        // near 2^997.5, where the result crosses 2^1024 - 2^970, above which it rounds to +∞
+        // to nearest; at x and y near MAX / √2, where it is near MAX; and at random pairs of
+        // large `f64`s.
+        #[test]
+        fn hypot_max() {
+            use std::f64::consts::{FRAC_1_SQRT_2, SQRT_2};
+            let max = f64::MAX;
+            let got = [hypot_rn(max, 1.0), hypot_rd(max, 1.0), hypot_ru(max, 1.0)];
+            assert_eq!(got, [max, max, f64::INFINITY]);
+            let mut errs = vec![];
+            for (x, y) in [(max, max), (-max, max), (max, 1.0)] {
+                check_hypot(&mut errs, x, y);
+            }
+            for y in within(SQRT_2 * pow2(997), 16) {
+                check_hypot(&mut errs, max, y);
+                check_hypot(&mut errs, -y, -max);
+            }
+            for x in within(max * FRAC_1_SQRT_2, 4) {
+                for y in within(max * FRAC_1_SQRT_2, 4) {
+                    check_hypot(&mut errs, x, -y);
+                }
+            }
+            let mut rng = Rng(11);
+            for _ in 0..SAMPLES {
+                let (x, y) = (rng.scaled(1015, 1023), rng.scaled(900, 1023));
+                let (x, y) = rng.pair(x, y);
+                check_hypot(&mut errs, x, y);
             }
             report(errs);
         }

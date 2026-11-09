@@ -58,6 +58,8 @@ assert_eq!(cr::pow_rn(-2.0, 3.0), -8.0);
 
 They are correctly rounded wherever a rule or Ziv's strategy, with enclosures of up to 4,096 bits, settles the argument. At an argument that reaches that cap, they return the rounding of a bound of the last enclosure, which is not known to be correctly rounded, but none of the hard-to-round arguments that CORE-MATH lists for these functions reaches it. The documentation of the module gives their values at the zeros, at the infinities and outside the domains, which are MPFR's, and those of `pow` at x < 0. Tests on 64-bit Linux and macOS compare them with MPFR in all three roundings.
 
+The module also has `cbrt`, `hypot` (of two `f64`s) and `sqrt` in the same three roundings. `cbrt` and `hypot` compute an exact integer cube or square root, without Ziv's strategy and so with no cap, `sqrt_rn` is `f64::sqrt`, and `sqrt_rd` and `sqrt_ru` are those of the backend of the interval arithmetic. The Rocq proofs show these correctly rounded at every finite argument (x >= 0 for `sqrt`), `sqrt_rd` and `sqrt_ru` as the portable backend computes them, and tests compare them with MPFR too.
+
 ## Cargo Features
 
 - `gmp` - Deprecated, and does nothing; to be removed in the next major release. It used to be enabled by default, and to enable interval literals, formatting and the elementary functions, which need neither GMP nor MPFR now (see above). The features `gmp-mpfr-sys`, `nom` and `rug`, which Cargo used to derive from the optional dependencies of `gmp`, are deprecated and do nothing too.

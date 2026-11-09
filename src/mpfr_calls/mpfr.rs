@@ -248,22 +248,24 @@ mpfr_fn!(sinh, sinh_rd, sinh_ru);
 mpfr_fn!(tan, tan_rd, tan_ru);
 mpfr_fn!(tanh, tanh_rd, tanh_ru);
 
-// `z` set by `call` to an MPFR function of it rounded to nearest, ties to even, then rounded
-// to the numbers that an `f64` holds, as an `f64`. `call` returns the ternary value of the
-// MPFR function. Rounding to nearest at 53 bits in MPFR's default exponent range and then with
+// `z` set by `call` to an MPFR function of it rounded in the direction `rnd` (`RNDN`, `RNDD`
+// or `RNDU`), then rounded in that direction to the numbers that an `f64` holds, as an `f64`.
+// `call` rounds in the direction `rnd` too, and returns the ternary value of the MPFR
+// function. Rounding to nearest at 53 bits in MPFR's default exponent range and then with
 // `get_d` would round twice below `f64::MIN_POSITIVE`, where an `f64` has fewer than 53 bits,
 // and a value just off a midpoint of those numbers could round to the midpoint first and
 // then to the even neighbour on the wrong side. So `call` rounds once at the range that
 // `with_parse_range` sets, where MPFR's overflow and underflow are those of an `f64`, then
-// `mpfr::subnormalize` rounds `z` to the bits that an `f64` has at its exponent from that
-// ternary value, as `round_rational` does (§5.13 "Exception Related Functions" of the MPFR
-// manual shows this use for the IEEE 754 binary64 format), and `get_d` converts it exactly.
-// Every `f64` argument is in that range, as the manual asks of the inputs.
-fn round_near(z: &mut Float, call: impl FnOnce(&mut Float) -> c_int) -> f64 {
+// `mpfr::subnormalize` rounds `z` in the direction `rnd` to the bits that an `f64` has at its
+// exponent from that ternary value, as `round_rational` does (§5.13 "Exception Related
+// Functions" of the MPFR manual shows this use for the IEEE 754 binary64 format), and `get_d`
+// converts it exactly. Every `f64` argument is in that range, as the manual asks of the
+// inputs.
+fn round_once(z: &mut Float, rnd: mpfr::rnd_t, call: impl FnOnce(&mut Float) -> c_int) -> f64 {
     with_parse_range(|| {
         let t = call(z);
-        unsafe { mpfr::subnormalize(z.as_raw_mut(), t, RNDN) };
-        get_d(z, RNDN)
+        unsafe { mpfr::subnormalize(z.as_raw_mut(), t, rnd) };
+        get_d(z, rnd)
     })
 }
 
@@ -277,7 +279,7 @@ macro_rules! mpfr_near {
     ($mpfr_f:ident, $f_rn:ident) => {
         pub(crate) fn $f_rn(x: f64) -> f64 {
             let mut z = Float::with_val(f64::MANTISSA_DIGITS, x);
-            round_near(&mut z, |z| unsafe {
+            round_once(&mut z, RNDN, |z| unsafe {
                 mpfr::$mpfr_f(z.as_raw_mut(), z.as_raw(), RNDN)
             })
         }
@@ -287,7 +289,7 @@ macro_rules! mpfr_near {
         pub(crate) fn $f_rn(x: f64, y: f64) -> f64 {
             let mut z = Float::with_val(f64::MANTISSA_DIGITS, x);
             let y = Float::with_val(f64::MANTISSA_DIGITS, y);
-            round_near(&mut z, |z| unsafe {
+            round_once(&mut z, RNDN, |z| unsafe {
                 mpfr::$mpfr_f(z.as_raw_mut(), z.as_raw(), y.as_raw(), RNDN)
             })
         }
@@ -297,7 +299,7 @@ macro_rules! mpfr_near {
     ($mpfr_f:ident, $f_rn:ident, i32) => {
         pub(crate) fn $f_rn(x: f64, y: i32) -> f64 {
             let mut z = Float::with_val(f64::MANTISSA_DIGITS, x);
-            round_near(&mut z, |z| unsafe {
+            round_once(&mut z, RNDN, |z| unsafe {
                 mpfr::$mpfr_f(z.as_raw_mut(), z.as_raw(), y.into(), RNDN)
             })
         }
@@ -325,6 +327,51 @@ mpfr_near!(sin, sin_rn);
 mpfr_near!(sinh, sinh_rn);
 mpfr_near!(tan, tan_rn);
 mpfr_near!(tanh, tanh_rn);
+
+// `$mpfr_f` rounded once to an `f64` by `round_once`, to nearest, ties to even (`$f_rn`),
+// toward -∞ (`$f_rd`) and toward +∞ (`$f_ru`), against which `src/cr.rs` tests its functions
+// of the same names, with the arguments of `mpfr_fn!` and `mpfr_fn2!`: `x`, then `y` as an
+// `f64` for the arm with `f64`. Only the tests use the functions that this macro defines, and
+// `rocq/theories/Model.v` transcribes none of them, unlike those of `mpfr_fn!` and
+// `mpfr_fn2!`.
+macro_rules! mpfr_once {
+    ($mpfr_f:ident, $f_rn:ident, $f_rd:ident, $f_ru:ident) => {
+        mpfr_once!(@one $mpfr_f, $f_rn, RNDN);
+        mpfr_once!(@one $mpfr_f, $f_rd, RNDD);
+        mpfr_once!(@one $mpfr_f, $f_ru, RNDU);
+    };
+
+    ($mpfr_f:ident, $f_rn:ident, $f_rd:ident, $f_ru:ident, f64) => {
+        mpfr_once!(@two $mpfr_f, $f_rn, RNDN);
+        mpfr_once!(@two $mpfr_f, $f_rd, RNDD);
+        mpfr_once!(@two $mpfr_f, $f_ru, RNDU);
+    };
+
+    // The function `$f` of one `f64`, rounded in the direction `$rnd`.
+    (@one $mpfr_f:ident, $f:ident, $rnd:ident) => {
+        pub(crate) fn $f(x: f64) -> f64 {
+            let mut z = Float::with_val(f64::MANTISSA_DIGITS, x);
+            round_once(&mut z, $rnd, |z| unsafe {
+                mpfr::$mpfr_f(z.as_raw_mut(), z.as_raw(), $rnd)
+            })
+        }
+    };
+
+    // The function `$f` of two `f64`s, rounded in the direction `$rnd`.
+    (@two $mpfr_f:ident, $f:ident, $rnd:ident) => {
+        pub(crate) fn $f(x: f64, y: f64) -> f64 {
+            let mut z = Float::with_val(f64::MANTISSA_DIGITS, x);
+            let y = Float::with_val(f64::MANTISSA_DIGITS, y);
+            round_once(&mut z, $rnd, |z| unsafe {
+                mpfr::$mpfr_f(z.as_raw_mut(), z.as_raw(), y.as_raw(), $rnd)
+            })
+        }
+    };
+}
+
+mpfr_once!(cbrt, cbrt_rn, cbrt_rd, cbrt_ru);
+mpfr_once!(hypot, hypot_rn, hypot_rd, hypot_ru, f64);
+mpfr_once!(sqrt, sqrt_rn, sqrt_rd, sqrt_ru);
 
 // The bound `x` of an interval as inari printed it with MPFR before it had digits of its own,
 // against which `src/format/diff_tests.rs` checks `bound` of `src/format.rs`: rounded toward

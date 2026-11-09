@@ -48,8 +48,9 @@
 // The constants ln 2, ln 10 and π are in `src/dyadic/consts.rs`, the exponentials and the
 // hyperbolic functions computed with the kernel in `src/dyadic/exp.rs`, the logarithms and the
 // inverse hyperbolic functions in `src/dyadic/log.rs`, the inverse trigonometric functions in
-// `src/dyadic/atan.rs`, the trigonometric functions in `src/dyadic/trig.rs`, and the powers
-// x^y and x^n in `src/dyadic/pow.rs`, which have their own headers.
+// `src/dyadic/atan.rs`, the trigonometric functions in `src/dyadic/trig.rs`, the powers
+// x^y and x^n in `src/dyadic/pow.rs`, and the cube root and `hypot` in `src/dyadic/root.rs`,
+// which have their own headers.
 
 use crate::{limbs, simd::round_up_exact};
 use std::cmp::Ordering;
@@ -59,6 +60,7 @@ mod consts;
 mod exp;
 mod log;
 mod pow;
+mod root;
 #[cfg(test)]
 mod tests;
 mod trig;
@@ -75,6 +77,7 @@ pub(crate) use self::{
         log2, log2_near,
     },
     pow::{is_odd_integer, pow, pow_near, pown, pown_near},
+    root::{cbrt, cbrt_near, hypot, hypot_near},
     trig::{cos, cos_near, sin, sin_near, tan, tan_near},
 };
 

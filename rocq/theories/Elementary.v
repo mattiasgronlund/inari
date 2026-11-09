@@ -59,6 +59,16 @@ Definition tan_dom (r : R) : Prop := forall k : Z, r <> (IZR k + / 2) * PI.
 Definition Rpow (r t : R) : R := if Rle_dec r 0 then 0 else Rpower r t.
 Definition pow_dom (r t : R) : Prop := 0 < r \/ (r = 0 /\ 0 < t).
 
+(** The cube root, which the standard recommends as [rootn(x, 3)], on all
+    of R: [Rpower r (/ 3)], i.e. [exp (ln r / 3)], for [r > 0], 0 at 0,
+    and [- Rpower (- r) (/ 3)] for [r < 0]. [RootReal.v] proves that its
+    cube is [r] and that it is the only real whose cube is [r]. It is the
+    [cbrt] of [src/dyadic/root.rs] and [inari::cr]. *)
+Definition Rcbrt (r : R) : R :=
+  if Rlt_dec 0 r then Rpower r (/ 3)
+  else if Rlt_dec r 0 then - Rpower (- r) (/ 3)
+  else 0.
+
 (** The point function [atan2(y, x)] of two reals, with [y] first, as in
     the standard and in [self.atan2(rhs)], where [self] is [y]: the
     principal value of the argument (polar angle) of the point [(x, y)] of

@@ -3325,6 +3325,136 @@ Definition pown_near := pown_near_with Dyadic.ziv_near.
 
 End DyadicPow.
 
+(** ** The roots of the dyadic kernel
+
+    The functions of [src/dyadic/root.rs]: [cbrt x up], [cbrt_near x],
+    [hypot x y up] and [hypot_near x y] are [cbrt(x, up)],
+    [cbrt_near(x)], [hypot(x, y, up)] and [hypot_near(x, y)], with [None]
+    where the Rust function panics. They do not use Ziv's strategy. A
+    [u128] product of two [u64]s, which cannot overflow, is a product in
+    [Z], and [w as u64] and [(w >> 64) as u64] of such a [w] are
+    [w mod 2 ^ 64] and [w / 2 ^ 64]. [x.is_infinite()] is
+    [eq x infinity || eq x DyadicExp.neg_infinity], [x.abs()] is
+    [fabs x], and [f64::INFINITY] and [f64::NAN] are [infinity] and
+    [B754_nan]. [RootRound.v] proves [odd], [DyIcbrt.v] [icbrt],
+    [DyCbrt.v] [cbrt_odd], [cbrt] and [cbrt_near], [DyHypotOdd.v]
+    [hypot_odd], with [DyHypotExact.v] for its branch below the cut, and
+    [DyHypot.v] [hypot] and [hypot_near]. *)
+Module DyadicRoot.
+
+(** [fn odd<N>(neg: bool, s: &[u64], e: i64, inexact: bool) -> Dyadic<N>]
+    for [n = N], where [w[0] |= u64::from(inexact)] updates limb 0, and
+    [e - 1] is computed without a check, as it cannot overflow. *)
+Definition odd (n : nat) (neg : bool) (s : list Z) (e : Z) (inexact : bool)
+  : option Dyadic.dyadic :=
+  let w := Limbs.shl_into n s 1 in
+  Dyadic.round n neg (Limbs.update w 0 (Z.lor (Limbs.limb w 0) (Z.b2z inexact) :: nil))
+    (e - 1) false false.
+
+(** The [loop] of [fn icbrt(x: &[u64]) -> (u64, bool)], with fuel
+    ([DyIcbrt.v] proves that the fuel of [icbrt] is enough), where the
+    [u64] sum [2 * s + q[0]] is checked as one, which also checks
+    [2 * s], and [o == Ordering::Less] is [o = Lt]. *)
+Fixpoint icbrt_loop (fuel : nat) (x : list Z) (s : Z) : option (Z * bool) :=
+  match fuel with
+  | O => None
+  | S f =>
+      let sq := s * s in
+      let* (q, _) := Limbs.div_rem x (sq mod 2 ^ 64 :: sq / 2 ^ 64 :: nil) in
+      let* t := checked_u 64 (2 * s + Limbs.limb q 0) in
+      let y := t / 3 in
+      let yy := y * y in
+      let* cube := Limbs.mul_into 3 (y :: nil) (yy mod 2 ^ 64 :: yy / 2 ^ 64 :: nil) in
+      match Limbs.cmp cube x with
+      | Gt => icbrt_loop f x y
+      | o => Some (y, match o with Lt => true | _ => false end)
+      end
+  end.
+
+(** [fn icbrt(x: &[u64]) -> (u64, bool)], where [t[0] as f64] is
+    [of_u64], [t.to_bits() / 3 + 0x2a9f_7893_782d_a1ce], which cannot
+    overflow, is computed without a check, the [for] loop is
+    [Nat.iter 3], [c * c * c] is [mul (mul c c) c], [3.0 * c * c] is
+    [mul (mul three c) c] for the [f64] [three] = 3.0, [8_589_934_592.0]
+    is the [f64] [two33] = 2^33, [as u64] is [DyadicPow.to_u64], and
+    [a.clamp(lo, hi)] is [Z.max lo (Z.min hi a)]. *)
+Definition icbrt (x : list Z) : option (Z * bool) :=
+  let t := of_u64 (Limbs.limb (Limbs.shr_into 1 x 99) 0) in
+  let three := from_bits 0x4008000000000000 in
+  let two33 := from_bits 0x4200000000000000 in
+  let c0 := from_bits (to_bits t / 3 + 0x2a9f7893782da1ce) in
+  let c := Nat.iter 3 (fun c => sub c (div (sub (mul (mul c c) c) t) (mul (mul three c) c))) c0 in
+  let s := Z.max (2 ^ 53) (Z.min (2 ^ 54) (DyadicPow.to_u64 (mul c two33))) in
+  icbrt_loop (Z.to_nat (Limbs.val x) + 2) x s.
+
+(** [fn cbrt_odd(x: f64) -> Dyadic<1>], where
+    [(a.exp - 96).rem_euclid(3)] is [(dy_exp a - 96) mod 3], [k as u64]
+    is [k], as [k] is in [96, 98], [(a.exp - k) / 3], which rounds toward
+    zero, is [Z.quot], and the [i64] operations, which cannot overflow,
+    are computed without a check. *)
+Definition cbrt_odd (x : f64) : option Dyadic.dyadic :=
+  let* a := Dyadic.from_f64 1 x in
+  let k := 96 + (Dyadic.dy_exp a - 96) mod 3 in
+  let* (s, inexact) := icbrt (Limbs.shl_into 3 (Dyadic.dy_m a) k) in
+  odd 1 (Dyadic.dy_neg a) (s :: nil) (Z.quot (Dyadic.dy_exp a - k) 3) inexact.
+
+(** [pub(crate) fn cbrt(x: f64, up: bool) -> f64] *)
+Definition cbrt (x : f64) (up : bool) : option f64 :=
+  if eq x zero || negb (is_finite x) then Some x
+  else let* d := cbrt_odd x in Dyadic.to_f64 1 d up.
+
+(** [pub(crate) fn cbrt_near(x: f64) -> f64] *)
+Definition cbrt_near (x : f64) : option f64 :=
+  if eq x zero || negb (is_finite x) then Some x
+  else let* d := cbrt_odd x in Dyadic.to_f64_near 1 d.
+
+(** [fn hypot_odd(x: f64, y: f64) -> Dyadic<3>], where [a.m[0] >> 10] is
+    [Z.shiftr], [g as u64] is [g mod 2 ^ 64], the [u64] subtraction
+    [257 - limbs::bit_len(&sum)] is checked, [2 * h], which cannot
+    overflow, is computed without a check, [h as i64] is [h], as
+    [h < 2 ^ 63], the carry that [limbs::add_assign] returns is dropped,
+    and the [i64] operations, which cannot overflow, are computed without
+    a check. *)
+Definition hypot_odd (x y : f64) : option Dyadic.dyadic :=
+  let '(big, small) := if ge (fabs x) (fabs y) then (fabs x, fabs y) else (fabs y, fabs x) in
+  let* a := Dyadic.from_f64 1 big in
+  let* b := Dyadic.from_f64 1 small in
+  let g := Dyadic.dy_exp a - Dyadic.dy_exp b in
+  if 27 <=? g then
+    odd 3 false (Z.shiftr (Limbs.limb (Dyadic.dy_m a) 0) 10 :: nil) (Dyadic.dy_exp a + 10) true
+  else
+    let wide := Limbs.shl_into 2 (Dyadic.dy_m a) (g mod 2 ^ 64) in
+    let* sum := Limbs.mul_into 4 wide wide in
+    let mb := Limbs.limb (Dyadic.dy_m b) 0 in
+    let mm := mb * mb in
+    let sum := fst (Limbs.add_assign sum (mm mod 2 ^ 64 :: mm / 2 ^ 64 :: nil)) in
+    let* t := checked_u 64 (257 - Limbs.bit_len sum) in
+    let h := t / 2 in
+    let xx := Limbs.shl_into 5 sum (2 * h) in
+    let* s := Dyadic.isqrt 2 xx in
+    let* sq := Limbs.mul_into 6 s s in
+    odd 3 false s (Dyadic.dy_exp b - h) (match Limbs.cmp sq xx with Eq => false | _ => true end).
+
+(** [pub(crate) fn hypot(x: f64, y: f64, up: bool) -> f64] *)
+Definition hypot (x y : f64) (up : bool) : option f64 :=
+  if (eq x infinity || eq x DyadicExp.neg_infinity)
+     || (eq y infinity || eq y DyadicExp.neg_infinity) then Some infinity
+  else if is_nan x || is_nan y then Some B754_nan
+  else if eq y zero then Some (fabs x)
+  else if eq x zero then Some (fabs y)
+  else let* d := hypot_odd x y in Dyadic.to_f64 3 d up.
+
+(** [pub(crate) fn hypot_near(x: f64, y: f64) -> f64] *)
+Definition hypot_near (x y : f64) : option f64 :=
+  if (eq x infinity || eq x DyadicExp.neg_infinity)
+     || (eq y infinity || eq y DyadicExp.neg_infinity) then Some infinity
+  else if is_nan x || is_nan y then Some B754_nan
+  else if eq y zero then Some (fabs x)
+  else if eq x zero then Some (fabs y)
+  else let* d := hypot_odd x y in Dyadic.to_f64_near 3 d.
+
+End DyadicRoot.
+
 (** ** The signs of [pow] in [src/cr.rs]
 
     [fn pow_dir(x: f64, y: f64, up: bool) -> f64] and [fn
@@ -3333,7 +3463,11 @@ End DyadicPow.
     [dyadic::is_odd_integer], [dyadic::pow] and [dyadic::pow_near] are
     those of [DyadicPow], with [ziv] and [ziv_near] parameters as there.
     The other functions of [src/cr.rs] call a function of the kernel and
-    nothing else. [CrPow.v] proves these two. *)
+    nothing else, except [sqrt_rn], [sqrt_rd] and [sqrt_ru], which call
+    [x.sqrt()], i.e. [fsqrt], and the backend's [sqrt1_rd] and
+    [sqrt1_ru], [Generic.sqrt1_rd] and [Generic.sqrt1_ru] for the
+    portable one. [CrPow.v] proves these two, and [CrRoot.v] the three
+    square roots. *)
 Module Cr.
 
 Section Driver.
