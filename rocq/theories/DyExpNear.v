@@ -13,7 +13,7 @@ From Stdlib Require Import ZArith Reals Lra Lia List QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary ExpReal DyRound DyConv DyOps DyDriver
   DyGrow DyConst DyExpCore DyExpRules DyHypRules DySinhTiny DyTanhTiny DyExp DyHyp
-  NearF64 NearCells DyDriverNear ExpSeries.
+  NearF64 NearCells DyDriverNear ExpSeries FastExp.
 From Inari Require ConstTight.
 
 Open Scope Z_scope.
@@ -25,6 +25,8 @@ Open Scope Z_scope.
 Local Ltac near_strict :=
   repeat match goal with
   | |- (if ?c then _ else _) = Some _ -> _ => destruct c; [exact (fun h => h)|]
+  | |- match ?c with Some _ => _ | None => _ end = Some _ -> _ =>
+      destruct c; [exact (fun h => h)|]
   end;
   apply ziv_near_strict_ziv.
 
@@ -527,6 +529,8 @@ destruct (le x (from_bits 0xc087500000000000)) eqn:G2; cbv iota in H.
 { injection H as <-. exact (exp_zero_near x Fx G2). }
 destruct (lt (fabs x) DyadicExp.tiny_exp) eqn:G3; cbv iota in H.
 { injection H as <-. exact (exp_one_near x Fx G3). }
+destruct (DyadicExp.fast_exp_near false x) eqn:F; cbv iota in H.
+{ injection H as <-. exact (fast_exp_near_correct false x _ Fx F). }
 exact (ziv_near_strict_correct _ _ _ _ (fun n a Hn Ha => ev_exp_correct x n a Hn Ha) H).
 Qed.
 
@@ -543,6 +547,8 @@ destruct (lt x (from_bits 0xc090cc0000000000)) eqn:G2; cbv iota in H.
 { injection H as <-. exact (exp2_zero_near x Fx G2). }
 destruct (lt (fabs x) DyadicExp.tiny_exp) eqn:G3; cbv iota in H.
 { injection H as <-. exact (exp2_one_near x Fx G3). }
+destruct (DyadicExp.fast_exp2_near false x) eqn:F; cbv iota in H.
+{ injection H as <-. exact (fast_exp2_near_correct false x _ Fx (tiny_exp_false x Fx G3) F). }
 exact (ziv_near_strict_correct _ _ _ _ (fun n a Hn Ha => ev_exp2_correct x n a Hn Ha) H).
 Qed.
 
@@ -564,6 +570,8 @@ destruct (le DyadicExp.one x && le x (from_bits 0x4036000000000000) && eq x (ffl
 { injection H as <-. exact (exp10_int_near x Fx G4). }
 destruct (eq x (from_bits 0x4037000000000000)) eqn:G5; cbv iota in H.
 { injection H as <-. exact (exp10_23_near x Fx G5). }
+destruct (DyadicExp.fast_exp10_near false x) eqn:F; cbv iota in H.
+{ injection H as <-. exact (fast_exp10_near_correct false x _ Fx (tiny_exp10_false x Fx G3) F). }
 exact (ziv_near_strict_correct _ _ _ _ (fun n a Hn Ha => ev_exp10_correct x n a Hn Ha) H).
 Qed.
 

@@ -47,6 +47,7 @@ From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyD
   DyExpNear DyLogNear DyAtanNear DyTrigNear DyPowNearExact DyPowNear CrPow DyPoint
   DyPointDec.
 From Inari Require RootReal RootRound DyIcbrt DyCbrt DyHypotExact DyHypotOdd DyHypot CrRoot.
+From Inari Require FastRound FastExpTables FastExpReduce FastExpCore FastExp.
 From Inari Require KahanMcDonald DyTrigPos SideTight SideTheorems DyPointSide.
 From Inari Require ExpQuadratic PowFactor ExpIrrational CosNiven CosIrrational DyExactDriver
   DyExactPoint DyTrigExact DyExpPoint DyExpExact DyLogSeries DyLogPoint DyLogExact DyAtanExact.
@@ -292,6 +293,33 @@ Print Assumptions DyDriver.ziv_at_passes.
 Print Assumptions DyConst.ln2_correct.
 Print Assumptions DyConst.ln10_correct.
 Print Assumptions DyConstPi.pi_correct.
+Print Assumptions FastRound.two_prod_err_fma_eq.
+Print Assumptions FastRound.round_dir_correct.
+Print Assumptions FastRound.round_near_correct.
+Print Assumptions FastExpTables.t1_correct.
+Print Assumptions FastExpTables.t2_correct.
+Print Assumptions FastExpTables.c1_exact.
+Print Assumptions FastExpTables.c12_correct.
+Print Assumptions FastExpTables.inv_correct.
+Print Assumptions FastExpTables.p3_correct.
+Print Assumptions FastExpTables.p4_correct.
+Print Assumptions FastExpTables.ln2_dd_correct.
+Print Assumptions FastExpTables.ln10_dd_correct.
+Print Assumptions FastExpReduce.fast_exp_reduce.
+Print Assumptions FastExpCore.fast_exp_correct.
+Print Assumptions FastExpCore.fast_exp_fma.
+Print Assumptions FastExp.fast_exp_dir_correct.
+Print Assumptions FastExp.fast_exp_near_correct.
+Print Assumptions FastExp.fast_exp_dir_fma.
+Print Assumptions FastExp.fast_exp_near_fma.
+Print Assumptions FastExp.fast_exp2_dir_correct.
+Print Assumptions FastExp.fast_exp2_near_correct.
+Print Assumptions FastExp.fast_exp2_dir_fma.
+Print Assumptions FastExp.fast_exp2_near_fma.
+Print Assumptions FastExp.fast_exp10_dir_correct.
+Print Assumptions FastExp.fast_exp10_near_correct.
+Print Assumptions FastExp.fast_exp10_dir_fma.
+Print Assumptions FastExp.fast_exp10_near_fma.
 Print Assumptions DyExp.exp_dir_correct.
 Print Assumptions DyExp.exp_dir_side.
 Print Assumptions DyExp.exp_dir_strict.

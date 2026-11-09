@@ -17,11 +17,13 @@
     and [Dyadic] do the same for the loops on limbs of [src/limbs.rs], for
     the operations of [Nat] in [src/nat.rs] that those functions of
     [src/parse.rs] and [src/format/digits.rs] call, and for the dyadic
-    kernel of [src/dyadic.rs]. The sections [DyadicConsts], [DyadicExp],
-    [DyadicLog], [DyadicAtan] and [DyadicTrig] do the same for the tables
-    and functions of [src/dyadic/consts.rs] that give the kernel ln 2,
-    ln 10 and π, and for the kernel's exponential and hyperbolic functions
-    in [src/dyadic/exp.rs], logarithms and inverse hyperbolic functions in
+    kernel of [src/dyadic.rs]. The sections [DyadicConsts], [Fast],
+    [DyadicExp], [DyadicLog], [DyadicAtan] and [DyadicTrig] do the same for
+    the tables and functions of [src/dyadic/consts.rs] that give the
+    kernel ln 2, ln 10 and π, for the rounding tests of the fast paths in
+    [src/dyadic/fast.rs], and for the kernel's exponential and hyperbolic
+    functions in [src/dyadic/exp.rs], with the tables of its fast path in
+    [src/dyadic/exp/tables.rs], logarithms and inverse hyperbolic functions in
     [src/dyadic/log.rs], inverse trigonometric functions in
     [src/dyadic/atan.rs] and trigonometric functions in
     [src/dyadic/trig.rs]. This file has to be checked against the Rust
@@ -1698,6 +1700,50 @@ Definition pi (n : nat) : option Dyadic.encl :=
 
 End DyadicConsts.
 
+(** ** The rounding tests of the fast paths
+
+    The functions of [src/dyadic/fast.rs] except its tests and the
+    test-only switch and counter ([set_fast_path], [fast_counts]), which
+    only the tests compile and which change no result. The functions
+    never panic, so their [option] is Rust's [Option]. [FastRound.v]
+    proves [round_dir] and [round_near]. *)
+Module Fast.
+
+(** [ERR], [NEAR1] and [NEAR0]: 2^-68, 2^-53 - 2^-68 and 2^-54 - 2^-68,
+    and the literal [1.0]. *)
+Definition err : f64 := from_bits 0x3bb0000000000000.
+Definition near1 : f64 := from_bits 0x3c9fffc000000000.
+Definition near0 : f64 := from_bits 0x3c8fff8000000000.
+Definition one : f64 := from_bits 0x3ff0000000000000.
+
+(** [pub(crate) fn fast_two_sum(a: f64, b: f64) -> (f64, f64)] *)
+Definition fast_two_sum (a b : f64) : f64 * f64 :=
+  let s := add a b in
+  (s, add b (sub a s)).
+
+(** [fn scale(r: f64, e: i64) -> f64], where [(e + 1023) as u64] is
+    [(e + 1023) mod 2^64], and [<< 52] drops the bits above 64. *)
+Definition scale (r : f64) (e : Z) : f64 :=
+  mul r (from_bits (Z.shiftl ((e + 1023) mod 2^64) 52 mod 2^64)).
+
+(** [pub(crate) fn round_dir(h: f64, l: f64, e: i64, up: bool) ->
+    Option<f64>], where [h.to_bits() + 1] and [h.to_bits() - 1] are
+    [to_bits h + 1] and [to_bits h - 1]: they stay within [u64] for the
+    [h] between 1/2 and 2 that the fast paths pass, which
+    [FastRound.round_dir_correct] assumes. *)
+Definition round_dir (h l : f64) (e : Z) (up : bool) : option f64 :=
+  if gt l err then Some (scale (if up then from_bits (to_bits h + 1) else h) e)
+  else if lt l (opp err) then Some (scale (if up then h else from_bits (to_bits h - 1)) e)
+  else None.
+
+(** [pub(crate) fn round_near(h: f64, l: f64, e: i64) -> Option<f64>] *)
+Definition round_near (h l : f64) (e : Z) : option f64 :=
+  let above := if ge h one then near1 else near0 in
+  let below := if gt h one then near1 else near0 in
+  if lt l above && gt l (opp below) then Some (scale h e) else None.
+
+End Fast.
+
 (** ** The exponential and hyperbolic functions of the dyadic kernel
 
     The functions of [src/dyadic/exp.rs]: [exp_dir x up] is [exp(x, up)],
@@ -1949,10 +1995,222 @@ Definition away (x : f64) (up : bool) : f64 :=
 Definition toward_zero (x : f64) (up : bool) : f64 :=
   if eq x zero || Bool.eqb (gt x zero) up then x else from_bits (to_bits x - 1).
 
+(** ** The fast path
+
+    The constants of [fn fast_exp], as the bits of [f64]s: [C1], [C2],
+    [INV], [P3], [P4], [LN2] and [LN10], with [c[0]] and [c[1]] of a
+    [[u64; 2]] its [fst] and [snd], and [SHIFTER], 1.5 * 2^52. *)
+Import ListNotations.
+
+Definition C1 : Z := 0x3f262e42fec00000.
+Definition C2 : Z := 0x3d3d1cf79abc9e3b.
+Definition INV : Z := 0x40b71547652b82fe.
+Definition P3 : Z := 0x3fc5555555555555.
+Definition P4 : Z := 0x3fa5555555555555.
+Definition LN2 : Z * Z := (0x3fe62e42fefa39ef, 0x3c7abc9e3b39803f).
+Definition LN10 : Z * Z := (0x40026bb1bbb55516, 0xbcaf48ad494ea3e9).
+Definition shifter : f64 := from_bits 0x4338000000000000.
+
+(** [T1] and [T2] of [src/dyadic/exp/tables.rs], 2^(i/4096) and 2^(j/64)
+    in double-double, and [T[i]] read with [f64::from_bits], for [i] in
+    [0, 63], where the index cannot be out of bounds. *)
+Definition T1 : list (Z * Z) := [
+  (0x3ff0000000000000, 0x0000000000000000);
+  (0x3ff000b175effdc7, 0x3c9ae8e38c59c72a);
+  (0x3ff00162f3904052, 0xbc57b5d0d58ea8f4);
+  (0x3ff0021478e11ce6, 0x3c94115cb6b16a8e);
+  (0x3ff002c605e2e8cf, 0xbc8d7c96f201bb2f);
+  (0x3ff003779a95f959, 0x3c984711d4c35e9f);
+  (0x3ff0042936faa3d8, 0xbc80484245243777);
+  (0x3ff004dadb113da0, 0xbc94b237da2025f9);
+  (0x3ff0058c86da1c0a, 0xbc75e00e62d6b30d);
+  (0x3ff0063e3a559473, 0x3c9a1d6cedbb9481);
+  (0x3ff006eff583fc3d, 0xbc94acf197a00142);
+  (0x3ff007a1b865a8ca, 0xbc6eaf2ea42391a5);
+  (0x3ff0085382faef83, 0x3c7da93f90835f75);
+  (0x3ff00905554425d4, 0xbc86a79084ab093c);
+  (0x3ff009b72f41a12b, 0x3c986364f8fbe8f8);
+  (0x3ff00a6910f3b6fd, 0xbc882e8e14e3110e);
+  (0x3ff00b1afa5abcbf, 0xbc84f6b2a7609f71);
+  (0x3ff00bcceb7707ec, 0xbc7e1a258ea8f71b);
+  (0x3ff00c7ee448ee02, 0x3c74362ca5bc26f1);
+  (0x3ff00d30e4d0c483, 0x3c9095a56c919d02);
+  (0x3ff00de2ed0ee0f5, 0xbc6406ac4e81a645);
+  (0x3ff00e94fd0398e0, 0x3c9b5a6902767e09);
+  (0x3ff00f4714af41d3, 0xbc991b2060859321);
+  (0x3ff00ff93412315c, 0x3c8427068ab22306);
+  (0x3ff010ab5b2cbd11, 0x3c9c1d0660524e08);
+  (0x3ff0115d89ff3a8b, 0xbc9e7bdfb3204be8);
+  (0x3ff0120fc089ff63, 0x3c8843aa8b9cbbc6);
+  (0x3ff012c1fecd613b, 0xbc734104ee7edae9);
+  (0x3ff0137444c9b5b5, 0xbc72b6aeb6176892);
+  (0x3ff01426927f5278, 0x3c7a8cd33b8a1bb3);
+  (0x3ff014d8e7ee8d2f, 0x3c72edc08e5da99a);
+  (0x3ff0158b4517bb88, 0x3c857ba2dc7e0c73);
+  (0x3ff0163da9fb3335, 0x3c9b61299ab8cdb7);
+  (0x3ff016f0169949ed, 0xbc990565902c5f44);
+  (0x3ff017a28af25567, 0x3c870fc41c5c2d53);
+  (0x3ff018550706ab62, 0x3c94b9a6e145d76c);
+  (0x3ff019078ad6a19f, 0xbc7008eff5142bf9);
+  (0x3ff019ba16628de2, 0xbc977669f033c7de);
+  (0x3ff01a6ca9aac5f3, 0xbc909bb78eeead0a);
+  (0x3ff01b1f44af9f9e, 0x3c9371231477ece5);
+  (0x3ff01bd1e77170b4, 0x3c75e7626621eb5b);
+  (0x3ff01c8491f08f08, 0xbc9bc72b100828a5);
+  (0x3ff01d37442d5070, 0xbc6ce39cbbab8bbe);
+  (0x3ff01de9fe280ac8, 0x3c816996709da2e2);
+  (0x3ff01e9cbfe113ef, 0xbc8c11f5239bf535);
+  (0x3ff01f4f8958c1c6, 0x3c8e1d4eb5edc6b3);
+  (0x3ff020025a8f6a35, 0xbc9afb99946ee3f0);
+  (0x3ff020b533856324, 0xbc98f06d8a148a32);
+  (0x3ff02168143b0281, 0xbc82bf310fc54eb6);
+  (0x3ff0221afcb09e3e, 0xbc9c95a035eb4175);
+  (0x3ff022cdece68c4f, 0xbc9491793e46834d);
+  (0x3ff02380e4dd22ad, 0xbc73e8d0d9c49091);
+  (0x3ff02433e494b755, 0xbc9314aa16278aa3);
+  (0x3ff024e6ec0da046, 0x3c848daf888e9651);
+  (0x3ff02599fb483385, 0x3c856dc8046821f4);
+  (0x3ff0264d1244c719, 0x3c945b42356b9d47);
+  (0x3ff027003103b10e, 0xbc7082ef51b61d7e);
+  (0x3ff027b357854772, 0x3c72106ed0920a34);
+  (0x3ff0286685c9e059, 0xbc9fd4cf26ea5d0f);
+  (0x3ff02919bbd1d1d8, 0xbc909f8775e78084);
+  (0x3ff029ccf99d720a, 0x3c564cbba902ca27);
+  (0x3ff02a803f2d170d, 0x3c94383ef231d207);
+  (0x3ff02b338c811703, 0x3c94a47a505b3a47);
+  (0x3ff02be6e199c811, 0x3c9e47120223467f)].
+
+Definition T2 : list (Z * Z) := [
+  (0x3ff0000000000000, 0x0000000000000000);
+  (0x3ff02c9a3e778061, 0xbc719083535b085d);
+  (0x3ff059b0d3158574, 0x3c8d73e2a475b465);
+  (0x3ff0874518759bc8, 0x3c6186be4bb284ff);
+  (0x3ff0b5586cf9890f, 0x3c98a62e4adc610b);
+  (0x3ff0e3ec32d3d1a2, 0x3c403a1727c57b53);
+  (0x3ff11301d0125b51, 0xbc96c51039449b3a);
+  (0x3ff1429aaea92de0, 0xbc932fbf9af1369e);
+  (0x3ff172b83c7d517b, 0xbc819041b9d78a76);
+  (0x3ff1a35beb6fcb75, 0x3c8e5b4c7b4968e4);
+  (0x3ff1d4873168b9aa, 0x3c9e016e00a2643c);
+  (0x3ff2063b88628cd6, 0x3c8dc775814a8495);
+  (0x3ff2387a6e756238, 0x3c99b07eb6c70573);
+  (0x3ff26b4565e27cdd, 0x3c82bd339940e9d9);
+  (0x3ff29e9df51fdee1, 0x3c8612e8afad1255);
+  (0x3ff2d285a6e4030b, 0x3c90024754db41d5);
+  (0x3ff306fe0a31b715, 0x3c86f46ad23182e4);
+  (0x3ff33c08b26416ff, 0x3c932721843659a6);
+  (0x3ff371a7373aa9cb, 0xbc963aeabf42eae2);
+  (0x3ff3a7db34e59ff7, 0xbc75e436d661f5e3);
+  (0x3ff3dea64c123422, 0x3c8ada0911f09ebc);
+  (0x3ff4160a21f72e2a, 0xbc5ef3691c309278);
+  (0x3ff44e086061892d, 0x3c489b7a04ef80d0);
+  (0x3ff486a2b5c13cd0, 0x3c73c1a3b69062f0);
+  (0x3ff4bfdad5362a27, 0x3c7d4397afec42e2);
+  (0x3ff4f9b2769d2ca7, 0xbc94b309d25957e3);
+  (0x3ff5342b569d4f82, 0xbc807abe1db13cad);
+  (0x3ff56f4736b527da, 0x3c99bb2c011d93ad);
+  (0x3ff5ab07dd485429, 0x3c96324c054647ad);
+  (0x3ff5e76f15ad2148, 0x3c9ba6f93080e65e);
+  (0x3ff6247eb03a5585, 0xbc9383c17e40b497);
+  (0x3ff6623882552225, 0xbc9bb60987591c34);
+  (0x3ff6a09e667f3bcd, 0xbc9bdd3413b26456);
+  (0x3ff6dfb23c651a2f, 0xbc6bbe3a683c88ab);
+  (0x3ff71f75e8ec5f74, 0xbc816e4786887a99);
+  (0x3ff75feb564267c9, 0xbc90245957316dd3);
+  (0x3ff7a11473eb0187, 0xbc841577ee04992f);
+  (0x3ff7e2f336cf4e62, 0x3c705d02ba15797e);
+  (0x3ff82589994cce13, 0xbc9d4c1dd41532d8);
+  (0x3ff868d99b4492ed, 0xbc9fc6f89bd4f6ba);
+  (0x3ff8ace5422aa0db, 0x3c96e9f156864b27);
+  (0x3ff8f1ae99157736, 0x3c85cc13a2e3976c);
+  (0x3ff93737b0cdc5e5, 0xbc675fc781b57ebc);
+  (0x3ff97d829fde4e50, 0xbc9d185b7c1b85d1);
+  (0x3ff9c49182a3f090, 0x3c7c7c46b071f2be);
+  (0x3ffa0c667b5de565, 0xbc9359495d1cd533);
+  (0x3ffa5503b23e255d, 0xbc9d2f6edb8d41e1);
+  (0x3ffa9e6b5579fdbf, 0x3c90fac90ef7fd31);
+  (0x3ffae89f995ad3ad, 0x3c97a1cd345dcc81);
+  (0x3ffb33a2b84f15fb, 0xbc62805e3084d708);
+  (0x3ffb7f76f2fb5e47, 0xbc75584f7e54ac3b);
+  (0x3ffbcc1e904bc1d2, 0x3c823dd07a2d9e84);
+  (0x3ffc199bdd85529c, 0x3c811065895048dd);
+  (0x3ffc67f12e57d14b, 0x3c92884dff483cad);
+  (0x3ffcb720dcef9069, 0x3c7503cbd1e949db);
+  (0x3ffd072d4a07897c, 0xbc9cbc3743797a9c);
+  (0x3ffd5818dcfba487, 0x3c82ed02d75b3707);
+  (0x3ffda9e603db3285, 0x3c9c2300696db532);
+  (0x3ffdfc97337b9b5f, 0xbc91a5cd4f184b5c);
+  (0x3ffe502ee78b3ff6, 0x3c839e8980a9cc8f);
+  (0x3ffea4afa2a490da, 0xbc9e9c23179c2893);
+  (0x3ffefa1bee615a27, 0x3c9dc7f486a4b6b0);
+  (0x3fff50765b6e4540, 0x3c99d3e12dd8a18b);
+  (0x3fffa7c1819e90d8, 0x3c874853f3a5931e)].
+
+Definition tbl (t : list (Z * Z)) (i : Z) : f64 * f64 :=
+  let '(h, l) := nth (Z.to_nat i) t (0, 0) in (from_bits h, from_bits l).
+
+(** [fn fast_exp(zh: f64, zl: f64) -> Option<(f64, f64, i64)>], where
+    [(-707.0..=709.0).contains(&zh)] is [-707.0 <= zh && zh <= 709.0], [kf
+    as i64] is [to_i64 kf], [k & 63] and [(k >> 6) & 63] are [Z.land] and
+    [Z.shiftr] of the integer [k], [k >> 12] is [Z.shiftr k 12], and [fma]
+    is [HAS_FMA] (see the section [Driver]). It never panics, so its
+    [option] is Rust's [Option]. [FastExpReduce.v] and [FastExpCore.v]
+    prove it. *)
+Definition fast_exp (fma : bool) (zh zl : f64) : option (f64 * f64 * Z) :=
+  if negb (le (from_bits 0xc086180000000000) (* -707.0 *) zh
+           && le zh (from_bits 0x4086280000000000) (* 709.0 *)) then None
+  else
+    let '(c1, c2) := (from_bits C1, from_bits C2) in
+    let kf := sub (add (mul zh (from_bits INV)) shifter) shifter in
+    let k := to_i64 kf in
+    let rh := sub zh (mul kf c1) in
+    let rl := sub zl (mul kf c2) in
+    let rr := add rh rl in
+    let q := mul (mul rr rr) (add half (mul rr (add (from_bits P3) (mul rr (from_bits P4))))) in
+    let '(s, t) := Fast.fast_two_sum one rh in
+    let pl := add (add t rl) q in
+    let '(a1h, a1l) := tbl T1 (Z.land k 63) in
+    let '(a2h, a2l) := tbl T2 (Z.land (Z.shiftr k 6) 63) in
+    let th := mul a1h a2h in
+    let tl := add (Generic.two_prod_err fma a1h a2h th) (add (mul a1h a2l) (mul a1l a2h)) in
+    let ph := mul s th in
+    let low := add (Generic.two_prod_err fma s th ph) (add (mul s tl) (mul pl th)) in
+    let '(h, l) := Fast.fast_two_sum ph low in
+    Some (h, l, Z.shiftr k 12).
+
+(** [fn fast_exp_by(x: f64, c: [u64; 2]) -> Option<(f64, f64, i64)>] *)
+Definition fast_exp_by (fma : bool) (x : f64) (c : Z * Z) : option (f64 * f64 * Z) :=
+  let '(ch, cl) := (from_bits (fst c), from_bits (snd c)) in
+  let zh := mul x ch in
+  let zl := add (Generic.two_prod_err fma x ch zh) (mul x cl) in
+  fast_exp fma zh zl.
+
+(** [fn fast_exp_dir(x: f64, up: bool) -> Option<f64>], the same for
+    [exp2] and [exp10], and [fn fast_exp_near(x: f64) -> Option<f64>] and
+    the others, where [?] is a [match]. [FastExp.v] proves them. *)
+Definition fast_exp_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_exp fma x zero with Some (h, l, e) => Fast.round_dir h l e up | None => None end.
+Definition fast_exp2_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_exp_by fma x LN2 with Some (h, l, e) => Fast.round_dir h l e up | None => None end.
+Definition fast_exp10_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_exp_by fma x LN10 with Some (h, l, e) => Fast.round_dir h l e up | None => None end.
+Definition fast_exp_near (fma : bool) (x : f64) : option f64 :=
+  match fast_exp fma x zero with Some (h, l, e) => Fast.round_near h l e | None => None end.
+Definition fast_exp2_near (fma : bool) (x : f64) : option f64 :=
+  match fast_exp_by fma x LN2 with Some (h, l, e) => Fast.round_near h l e | None => None end.
+Definition fast_exp10_near (fma : bool) (x : f64) : option f64 :=
+  match fast_exp_by fma x LN10 with Some (h, l, e) => Fast.round_near h l e | None => None end.
+
 (** The functions of the file with [ziv] a parameter: [exp_dir_with ziv] is
     [exp] with [ziv] for [Dyadic.ziv], and [exp_dir] after the section is
     [exp_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
-    returns only where a rounding test passes ([DyDriver.ziv_strict]). *)
+    returns only where a rounding test passes ([DyDriver.ziv_strict]).
+
+    [exp], [exp2] and [exp10] try the fast path before [ziv], and their
+    forms rounded to nearest before [ziv_near]. [HAS_FMA] depends on the
+    target. The fast path takes it as an argument, and the functions
+    below pass [false]: [FastExp.fast_exp_dir_fma] and the others show
+    that [true] gives the same result at every argument that reaches it. *)
 Section Driver.
 Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
 
@@ -1963,7 +2221,7 @@ Definition exp_dir_with (x : f64) (up : bool) : option f64 :=
   else if ge x (from_bits 0x4086300000000000) (* 710.0 *) then Some (overflow up)
   else if le x (from_bits 0xc087500000000000) (* -746.0 *) then Some (underflow up)
   else if lt (fabs x) tiny_exp then Some (near_one x up)
-  else ziv (ev_exp x) up 1.
+  else match fast_exp_dir false x up with Some r => Some r | None => ziv (ev_exp x) up 1 end.
 
 (** [pub(crate) fn exp2(x: f64, up: bool) -> f64] *)
 Definition exp2_dir_with (x : f64) (up : bool) : option f64 :=
@@ -1972,7 +2230,7 @@ Definition exp2_dir_with (x : f64) (up : bool) : option f64 :=
   else if ge x (from_bits 0x4090000000000000) (* 1024.0 *) then Some (overflow up)
   else if lt x (from_bits 0xc090cc0000000000) (* -1075.0 *) then Some (underflow up)
   else if lt (fabs x) tiny_exp then Some (near_one x up)
-  else ziv (ev_exp2 x) up 1.
+  else match fast_exp2_dir false x up with Some r => Some r | None => ziv (ev_exp2 x) up 1 end.
 
 (** [pub(crate) fn exp10(x: f64, up: bool) -> f64], where
     [(1.0..=22.0).contains(&x)] is [1.0 <= x && x <= 22.0], and [x as
@@ -1985,7 +2243,7 @@ Definition exp10_dir_with (x : f64) (up : bool) : option f64 :=
   else if lt (fabs x) tiny_exp10 then Some (near_one x up)
   else if le one x && le x (from_bits 0x4036000000000000) (* 22.0 *) && eq x (ffloor x) then
     Some (pow10 (to_i64 x))
-  else ziv (ev_exp10 x) up 1.
+  else match fast_exp10_dir false x up with Some r => Some r | None => ziv (ev_exp10 x) up 1 end.
 
 (** [pub(crate) fn sinh(x: f64, up: bool) -> f64], where [x.is_infinite()]
     is [x == f64::INFINITY || x == f64::NEG_INFINITY]. *)
@@ -2041,7 +2299,7 @@ Definition exp_near_with (x : f64) : option f64 :=
   else if ge x (from_bits 0x4086300000000000) (* 710.0 *) then Some infinity
   else if le x (from_bits 0xc087500000000000) (* -746.0 *) then Some zero
   else if lt (fabs x) tiny_exp then Some one
-  else ziv_near (ev_exp x) 1.
+  else match fast_exp_near false x with Some r => Some r | None => ziv_near (ev_exp x) 1 end.
 
 (** [pub(crate) fn exp2_near(x: f64) -> f64] *)
 Definition exp2_near_with (x : f64) : option f64 :=
@@ -2050,7 +2308,7 @@ Definition exp2_near_with (x : f64) : option f64 :=
   else if ge x (from_bits 0x4090000000000000) (* 1024.0 *) then Some infinity
   else if lt x (from_bits 0xc090cc0000000000) (* -1075.0 *) then Some zero
   else if lt (fabs x) tiny_exp then Some one
-  else ziv_near (ev_exp2 x) 1.
+  else match fast_exp2_near false x with Some r => Some r | None => ziv_near (ev_exp2 x) 1 end.
 
 (** [pub(crate) fn exp10_near(x: f64) -> f64], as [exp10_dir_with], where
     the literal [1e23] is [from_bits 0x44b52d02c7e14af6]. *)
@@ -2064,7 +2322,7 @@ Definition exp10_near_with (x : f64) : option f64 :=
     Some (pow10 (to_i64 x))
   else if eq x (from_bits 0x4037000000000000) (* 23.0 *) then
     Some (from_bits 0x44b52d02c7e14af6)
-  else ziv_near (ev_exp10 x) 1.
+  else match fast_exp10_near false x with Some r => Some r | None => ziv_near (ev_exp10 x) 1 end.
 
 (** [pub(crate) fn sinh_near(x: f64) -> f64], as [sinh_dir_with]. *)
 Definition sinh_near_with (x : f64) : option f64 :=

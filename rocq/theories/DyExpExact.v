@@ -27,7 +27,7 @@ From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary ExpReal DyRound DyConv DyOps DyDriver
   DyGrow DyExpCore DyExpRules DyHypRules DyExp DyHyp DyPown DyExactDriver PowFactor
-  ExpIrrational ExpQuadratic DyTrigExact DyExpPoint.
+  ExpIrrational ExpQuadratic DyTrigExact DyExpPoint FastExp.
 
 Open Scope R_scope.
 
@@ -114,6 +114,22 @@ Proof.
 intros x v up. apply exp_dir_exact_with.
 Qed.
 
+(** Where the fast path of [exp2] returns at an [x] whose [2^x] is an
+    [f64] [v], it returns [v]. *)
+Lemma fast_exp2_exact :
+  forall x up (v r : f64),
+  is_finite x = true -> is_finite v = true -> Rexp2 (B2R x) = B2R v ->
+  bpow radix2 (-54) <= Rabs (B2R x) -> DyadicExp.fast_exp2_dir false x up = Some r -> r = v.
+Proof.
+intros x up v r Fx Fv H Hx F.
+pose proof (fast_exp2_dir_correct false x up r Fx Hx F) as R. unfold rounds in R. rewrite H in R.
+pose proof (rnd_exact v (if up then RNDU else RNDD) (B2R v) Fv eq_refl) as R'.
+destruct (OfPointCore.round_f64_unique _ _ _ _ R R') as [E | (s & s' & _ & Ev)]; [exact E|].
+(* Both zeros: impossible, as [2^x > 0]. *)
+exfalso. subst v. cbn [B2R] in H. unfold Rexp2, Rpower in H.
+pose proof (exp_pos (B2R x * ln 2)). lra.
+Qed.
+
 Theorem exp2_dir_exact_with :
   forall z, driver_exact z ->
   forall x (v : f64) (up : bool),
@@ -162,6 +178,8 @@ assert (G3 : lt (fabs x) DyadicExp.tiny_exp = false).
   assert (L1 : bpow radix2 (-54) < 1) by (cbn [bpow radix_val radix2]; lra).
   rewrite Xm in G. lra. }
 rewrite G1, G2, G3.
+destruct (DyadicExp.fast_exp2_dir false x up) eqn:F; cbv iota.
+{ f_equal. exact (fast_exp2_exact x up v _ Fx Fv H (tiny_exp_false x Fx G3) F). }
 apply Hz; [exact Fv | rewrite Vm; apply powerRZ_NOR; lra | lia |].
 intros n Hn. rewrite Vm. exact (ev_exp2_exact x m n Fx Xm Nm Hr Hn).
 Qed.

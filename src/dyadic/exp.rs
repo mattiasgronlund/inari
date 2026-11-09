@@ -47,30 +47,48 @@
 // to be updated along with them. `rocq/theories/DyExp.v` and `rocq/theories/DyHyp.v` prove
 // that each of the six functions, at a finite argument and where it does not panic, returns a
 // value on the side of its result that the rounding is on, and, where a rule settles the
-// argument or a rounding test of `ziv` passes, its result rounded as `mpfr_round` in
-// `rocq/theories/Mpfr.v` says. They build on `rocq/theories/DyConst.v` for the constants,
-// `rocq/theories/DyExpCore.v` for `series`, `exp_neg` and `expm1_neg`, and
+// argument, the fast path below returns or a rounding test of `ziv` passes, its result rounded
+// as `mpfr_round` in `rocq/theories/Mpfr.v` says. They build on `rocq/theories/DyConst.v` for
+// the constants, `rocq/theories/DyExpCore.v` for `series`, `exp_neg` and `expm1_neg`, and
 // `rocq/theories/DyExpRules.v`, `rocq/theories/DyHypRules.v`, `rocq/theories/DySinhTiny.v`
 // and `rocq/theories/DyTanhTiny.v` for the rules. `rocq/theories/DyExpNear.v` proves that
 // each of the six functions rounded to nearest, at a finite argument, where a rule settles the
-// argument or a rounding test of `ziv_near` passes, returns its result rounded to nearest as
-// `near_round` in `rocq/theories/NearF64.v` says, from the same enclosures and bounds and the
-// cells of `rocq/theories/NearCells.v`. `rocq/theories/DyExpExact.v` proves that each of the
-// six functions returns its result, in both directions, at every finite argument at which it
-// is an `f64`, sinh and cosh under the hypothesis `exp_not_quadratic` of
+// argument, the fast path returns or a rounding test of `ziv_near` passes, returns its result
+// rounded to nearest as `near_round` in `rocq/theories/NearF64.v` says, from the same
+// enclosures and bounds and the cells of `rocq/theories/NearCells.v`.
+// `rocq/theories/DyExpExact.v` proves that each of the six functions returns its result, in
+// both directions, at every finite argument at which it is an `f64`, sinh and cosh under the
+// hypothesis `exp_not_quadratic` of
 // `rocq/theories/ExpQuadratic.v` that e^r, for a rational r other than 0, is not a root of a
 // nonzero polynomial of degree at most 2 with integer coefficients, from `ev_exp2_exact` in
 // `rocq/theories/DyExpPoint.v` for the exact enclosures of 2^x, `pow2_rational` and
 // `pow10_rational` in `rocq/theories/PowFactor.v` and `exp_irrational` in
 // `rocq/theories/ExpIrrational.v`. Other than that, it is not proved that a test passes by the
 // cap of `ziv` or of `ziv_near`, nor that the evaluations do not panic.
+//
+// e^x, 2^x and 10^x try a fast path in double-double after their rules and before `ziv` and
+// `ziv_near` (`fast_exp`), whose rounding tests are in `src/dyadic/fast.rs`. Where a test
+// fails, the function calls `ziv` or `ziv_near` as before. At an integer x in its range, where
+// 2^x is an `f64`, the directed test fails, as it passes only where the result lies strictly
+// between two adjacent `f64`s, so that the exact enclosures settle x as above, and the test
+// rounded to nearest passes and returns 2^x. `rocq/theories/FastExpCore.v` bounds the
+// error of `fast_exp`, from `rocq/theories/FastExpReduce.v` for its reduction,
+// `rocq/theories/FastExpTables.v` for its tables and constants, and
+// `rocq/theories/FastExpPoly.v`, `rocq/theories/FastExpTbl.v` and
+// `rocq/theories/FastExpProd.v` for its steps, `rocq/theories/FastRound.v` proves the rounding
+// tests, and `rocq/theories/FastExp.v` proves that the fast path returns e^x, 2^x and 10^x
+// rounded, with and without an FMA.
 
 use super::{
     consts::{ln10, ln2},
+    fast::{fast_two_sum, round_dir, round_near},
     ziv, ziv_near, Dyadic, Encl, Eval,
 };
+use crate::simd::{two_prod_err, HAS_FMA};
 use std::f64::consts::{LOG2_10, LOG2_E};
+use tables::{T1, T2};
 
+mod tables;
 #[cfg(test)]
 mod tests;
 
@@ -366,6 +384,113 @@ pub(super) fn toward_zero(x: f64, up: bool) -> f64 {
     }
 }
 
+// The constants of `fast_exp`, as the bits of `f64`s, since `f64::from_bits` is not `const`
+// before Rust 1.83. c = ln 2 / 4096; `C1` is c with its significand cut to 31 bits, so that
+// k C1 is exact for |k| < 2^22, and `C2` = RN(c - C1), with |c - C1 - C2| < 2^-98. `INV` =
+// RN(1 / c), `P3` = RN(1/6) and `P4` = RN(1/24). `LN2` and `LN10` are ln 2 and ln 10 in
+// double-double, [RN(v), RN(v - RN(v))], within 2^-106 and 2^-105 of them.
+const C1: u64 = 0x3f262e42fec00000;
+const C2: u64 = 0x3d3d1cf79abc9e3b;
+const INV: u64 = 0x40b71547652b82fe;
+const P3: u64 = 0x3fc5555555555555;
+const P4: u64 = 0x3fa5555555555555;
+const LN2: [u64; 2] = [0x3fe62e42fefa39ef, 0x3c7abc9e3b39803f];
+const LN10: [u64; 2] = [0x40026bb1bbb55516, 0xbcaf48ad494ea3e9];
+
+// 1.5 * 2^52: for |t| < 2^51, (t + SHIFTER) - SHIFTER is t rounded to an integer.
+const SHIFTER: f64 = 6_755_399_441_055_744.0;
+
+// e^z for z = zh + zl, as (h, l, e) with e^z 2^-e within 2^-68 - 2^-72 of h + l, h = RN(h + l),
+// 1/2 < h < 2 and e in [-1021, 1022], for zh in [-707, 709] and |zl| <= 2^-40, and `None` for
+// any other zh, NaN included. The reduction and the tables are those of CORE-MATH's `exp`
+// [CORE-MATH] (and of pxfm's): z = k ln 2 / 4096 + r with k = 4096 e + 64 j + i and
+// |r| < 2^-13, so that e^z = 2^e 2^(j/64) 2^(i/4096) e^r. The polynomial is the Taylor
+// polynomial of degree 4 rather than a minimax one, and every product is either exact or
+// rounded on its own: `f64::mul_add` is used only in `two_prod_err`, where it is exact, so that
+// h and l are the same `f64`s on every target. `rocq/theories/FastExpCore.v` proves the bound
+// (`fast_exp_correct`), from the bounds of `rocq/theories/FastExpTables.v` on the tables and
+// constants.
+//
+// [CORE-MATH] P. Zimmermann et al., the CORE-MATH project, `src/binary64/exp/exp.c` (MIT
+// license); no constant or table is copied from it.
+fn fast_exp(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
+    if !(-707.0..=709.0).contains(&zh) {
+        return None;
+    }
+    let (c1, c2) = (f64::from_bits(C1), f64::from_bits(C2));
+    // k is zh / c rounded to an integer up to the roundings of `INV` and of the product, and
+    // |k| < 2^22: |zh INV| < 2^51, so adding and subtracting `SHIFTER` rounds RN(zh INV) to an
+    // integer, within 1/2 of it.
+    let kf = (zh * f64::from_bits(INV) + SHIFTER) - SHIFTER;
+    let k = kf as i64;
+    // r = z - k c = rh + rl up to the rounding of rl and |k| |c - C1 - C2|. kf C1 is exact, and
+    // so is rh: zh and kf C1 are multiples of 2^-66 where k != 0, and |rh| < 2^-13.
+    let rh = zh - kf * c1;
+    let rl = zl - kf * c2;
+    // q = e^r - 1 - r, from rr = RN(rh + rl), by Horner's scheme on the Taylor polynomial.
+    let rr = rh + rl;
+    let q = rr * rr * (0.5 + rr * (f64::from_bits(P3) + rr * f64::from_bits(P4)));
+    // e^r = s + pl up to the truncation of the series and the roundings of rr, q and pl, with
+    // s + t = 1 + rh exactly. [Dekker]
+    let (s, t) = fast_two_sum(1.0, rh);
+    let pl = (t + rl) + q;
+    // 2^(j/64) 2^(i/4096) = th + tl, from the exact product of the high parts, [Dekker], and
+    // the cross products. The product of the low parts is below 2^-104 and left out.
+    let [a1h, a1l] = T1[(k & 63) as usize];
+    let [a2h, a2l] = T2[((k >> 6) & 63) as usize];
+    let (a1h, a1l) = (f64::from_bits(a1h), f64::from_bits(a1l));
+    let (a2h, a2l) = (f64::from_bits(a2h), f64::from_bits(a2l));
+    let th = a1h * a2h;
+    let tl = two_prod_err::<HAS_FMA>(a1h, a2h, th) + (a1h * a2l + a1l * a2h);
+    // (s + pl) (th + tl), with s th exact and pl tl, below 2^-70, left out.
+    let ph = s * th;
+    let low = two_prod_err::<HAS_FMA>(s, th, ph) + (s * tl + pl * th);
+    let (h, l) = fast_two_sum(ph, low);
+    Some((h, l, k >> 12))
+}
+
+// e^(x c) for c = ch + cl, given as the bits [ch, cl], from `fast_exp`: z = x ch + x cl, with
+// x ch in double-double. The product is exact for 2^-56 <= |x| <= 1075, which the rules of
+// `exp2` and `exp10` leave.
+fn fast_exp_by(x: f64, c: [u64; 2]) -> Option<(f64, f64, i64)> {
+    let (ch, cl) = (f64::from_bits(c[0]), f64::from_bits(c[1]));
+    let zh = x * ch;
+    let zl = two_prod_err::<HAS_FMA>(x, ch, zh) + x * cl;
+    fast_exp(zh, zl)
+}
+
+// e^x, 2^x and 10^x rounded toward +∞ if `up` and toward -∞ otherwise, and to nearest, by the
+// fast path, or `None` where its rounding test fails or x is out of its range.
+fn fast_exp_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l, e) = fast_exp(x, 0.0)?;
+    round_dir(h, l, e, up)
+}
+
+fn fast_exp2_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l, e) = fast_exp_by(x, LN2)?;
+    round_dir(h, l, e, up)
+}
+
+fn fast_exp10_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l, e) = fast_exp_by(x, LN10)?;
+    round_dir(h, l, e, up)
+}
+
+fn fast_exp_near(x: f64) -> Option<f64> {
+    let (h, l, e) = fast_exp(x, 0.0)?;
+    round_near(h, l, e)
+}
+
+fn fast_exp2_near(x: f64) -> Option<f64> {
+    let (h, l, e) = fast_exp_by(x, LN2)?;
+    round_near(h, l, e)
+}
+
+fn fast_exp10_near(x: f64) -> Option<f64> {
+    let (h, l, e) = fast_exp_by(x, LN10)?;
+    round_near(h, l, e)
+}
+
 /// e^x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn exp(x: f64, up: bool) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
@@ -381,6 +506,8 @@ pub(crate) fn exp(x: f64, up: bool) -> f64 {
     } else if x.abs() < TINY_EXP {
         // 1 + x <= e^x <= 1 / (1 - x) for x < 1.
         near_one(x, up)
+    } else if let Some(r) = fast_exp_dir(x, up) {
+        r
     } else {
         ziv(&Exp(x), up, 1)
     }
@@ -400,6 +527,8 @@ pub(crate) fn exp_near(x: f64) -> f64 {
     } else if x.abs() < TINY_EXP {
         // 1 - 2^-54 < 1 + x <= e^x <= 1 / (1 - x) < 1 + 2^-53.
         1.0
+    } else if let Some(r) = fast_exp_near(x) {
+        r
     } else {
         ziv_near(&Exp(x), 1)
     }
@@ -418,6 +547,8 @@ pub(crate) fn exp2(x: f64, up: bool) -> f64 {
     } else if x.abs() < TINY_EXP {
         // 2^x = e^(x ln 2), and |x ln 2| < |x|.
         near_one(x, up)
+    } else if let Some(r) = fast_exp2_dir(x, up) {
+        r
     } else {
         ziv(&Exp2(x), up, 1)
     }
@@ -437,6 +568,8 @@ pub(crate) fn exp2_near(x: f64) -> f64 {
     } else if x.abs() < TINY_EXP {
         // 2^x = e^(x ln 2), and |x ln 2| < |x|.
         1.0
+    } else if let Some(r) = fast_exp2_near(x) {
+        r
     } else {
         ziv_near(&Exp2(x), 1)
     }
@@ -459,6 +592,8 @@ pub(crate) fn exp10(x: f64, up: bool) -> f64 {
         near_one(x, up)
     } else if (1.0..=22.0).contains(&x) && x == x.floor() {
         POW10[x as usize]
+    } else if let Some(r) = fast_exp10_dir(x, up) {
+        r
     } else {
         ziv(&Exp10(x), up, 1)
     }
@@ -485,6 +620,8 @@ pub(crate) fn exp10_near(x: f64) -> f64 {
         // adjacent `f64`s, which an enclosure settles only if it is one of its bounds. `1e23`
         // is its rounding, ties to even.
         1e23
+    } else if let Some(r) = fast_exp10_near(x) {
+        r
     } else {
         ziv_near(&Exp10(x), 1)
     }

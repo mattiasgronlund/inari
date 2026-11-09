@@ -50,7 +50,8 @@
 // inverse hyperbolic functions in `src/dyadic/log.rs`, the inverse trigonometric functions in
 // `src/dyadic/atan.rs`, the trigonometric functions in `src/dyadic/trig.rs`, the powers
 // x^y and x^n in `src/dyadic/pow.rs`, and the cube root and `hypot` in `src/dyadic/root.rs`,
-// which have their own headers.
+// which have their own headers. The rounding tests of the fast paths in double-double that
+// some of them try before `ziv` and `ziv_near` are in `src/dyadic/fast.rs`.
 
 use crate::{limbs, simd::round_up_exact};
 use std::cmp::Ordering;
@@ -58,6 +59,7 @@ use std::cmp::Ordering;
 mod atan;
 mod consts;
 mod exp;
+mod fast;
 mod log;
 mod pow;
 mod root;
@@ -80,6 +82,14 @@ pub(crate) use self::{
     root::{cbrt, cbrt_near, hypot, hypot_near},
     trig::{cos, cos_near, sin, sin_near, tan, tan_near},
 };
+
+// The switch and the counter of the fast paths, for `src/cr/tests/mpfr/hard_cases.rs`.
+#[cfg(all(
+    test,
+    target_pointer_width = "64",
+    any(target_os = "linux", target_os = "macos")
+))]
+pub(crate) use self::fast::{fast_counts, reset_fast_counts, set_fast_path};
 
 /// `(-1)^neg * m * 2^exp`, normalized as the header says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

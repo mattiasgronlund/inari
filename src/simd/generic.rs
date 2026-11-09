@@ -46,7 +46,10 @@ pub(crate) type F64X2 = [f64; 2];
 cfg_if::cfg_if! {
     // Whether `f64::mul_add` compiles to a single hardware instruction.
     // On other targets it is a (correct but slow) software routine, and
-    // Dekker's algorithm is used instead.
+    // Dekker's algorithm is used instead. `rocq/theories/Model.v` takes it as an argument, and
+    // `rocq/theories/FastExp.v` proves that the fast path of `src/dyadic/exp.rs` returns the
+    // same with either value at every argument that reaches it (`fast_exp_dir_fma` and the
+    // others).
     if #[cfg(any(
         all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "fma"),
         target_arch = "aarch64",
@@ -54,9 +57,9 @@ cfg_if::cfg_if! {
         target_arch = "powerpc64",
         target_arch = "s390x",
     ))] {
-        const HAS_FMA: bool = true;
+        pub(crate) const HAS_FMA: bool = true;
     } else {
-        const HAS_FMA: bool = false;
+        pub(crate) const HAS_FMA: bool = false;
     }
 }
 
@@ -735,7 +738,12 @@ fn split(x: f64) -> (f64, f64) {
 /// condition holds if |p| >= 2^-968. Dekker's variant additionally requires
 /// |x|, |y| < 2^996 (for `split`) and |p| < 2^1023 (so that x_hi * y_hi, which
 /// may exceed |x * y| by a factor of 1 + 2^-25, does not overflow).
-fn two_prod_err<const FMA: bool>(x: f64, y: f64, p: f64) -> f64 {
+///
+/// The fast path of `src/dyadic/exp.rs` calls it too, with `HAS_FMA`. `rocq/theories/Model.v`
+/// transcribes it as `Generic.two_prod_err` for the proofs of that fast path in
+/// `rocq/theories/FastExpCore.v` and `rocq/theories/FastExp.v`, among others, so it has to be
+/// updated along with it.
+pub(crate) fn two_prod_err<const FMA: bool>(x: f64, y: f64, p: f64) -> f64 {
     if FMA {
         x.mul_add(y, -p)
     } else {

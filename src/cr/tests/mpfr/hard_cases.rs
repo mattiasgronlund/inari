@@ -3,14 +3,18 @@
 // CORE-MATH (https://gitlab.inria.fr/core-math/core-math). The header of `hard_cases.wc` states
 // the rule that picked the sample and keeps CORE-MATH's MIT notice. `hard_cases` checks the
 // three roundings at each argument as `compare` does, and prints, with `--nocapture`, the
-// levels of Ziv's strategy that the kernel used for each function and rounding (none, level 0,
-// for cbrt and hypot, which the kernel computes from exact integer roots). The ignored
-// `full_hard_cases` does the same at every argument of the files of a clone of CORE-MATH,
-// `random_levels` at random arguments, and `sample_hard_cases` writes the sample again from a
-// clone of CORE-MATH.
+// levels of Ziv's strategy that the kernel used for each function and rounding, and how many
+// rounding tests of the fast paths (those of exp, exp2 and exp10) passed and failed. Level 0
+// means that the kernel returned without Ziv's strategy: a rule gave the result, a fast path
+// passed its rounding test, or the function is cbrt or hypot, which the kernel computes from
+// exact integer roots. The ignored `full_hard_cases` does the same at every argument of the
+// files of a clone of CORE-MATH, `random_levels` at random arguments, and `sample_hard_cases`
+// writes the sample again from a clone of CORE-MATH. Where a fast path passed, `hard_cases`
+// (alone) checks the argument again with the fast paths disabled, so that Ziv's strategy is
+// checked there too.
 
 use super::*;
-use crate::dyadic::{reset_ziv_level, ziv_level};
+use crate::dyadic::{fast_counts, reset_fast_counts, reset_ziv_level, set_fast_path, ziv_level};
 use rug::{float::Round, ops::PowAssignRound};
 use std::{cmp::Ordering, collections::HashSet, fmt::Write as _};
 
@@ -145,20 +149,25 @@ fn args(line: &str) -> Option<Vec<f64>> {
 // The levels of Ziv's strategy that the kernel used for a function in one rounding, over the
 // arguments of the sample: the number of arguments at each level, 0, 1, 2, 4, ..., 64 limbs as
 // `ziv_level` gives them, the first argument at the highest level, the number of failed
-// rounding tests, and the arguments at the cap, 64 limbs.
+// rounding tests, and the arguments at the cap, 64 limbs. `fast` counts the rounding tests of
+// the fast paths that passed and failed, as `fast_counts` gives them.
 #[derive(Default)]
 struct Levels {
     count: [usize; 8],
     first_at_max: String,
     failed: usize,
     capped: Vec<String>,
+    fast: [usize; 2],
 }
 
 const LEVELS: [usize; 8] = [0, 1, 2, 4, 8, 16, 32, 64];
 
 impl Levels {
-    // Records `ziv_level()` at `args`.
+    // Records `ziv_level()` and `fast_counts()` at `args`.
     fn record(&mut self, args: &str) {
+        let (passed, failed) = fast_counts();
+        self.fast[0] += passed;
+        self.fast[1] += failed;
         let (level, failed) = ziv_level();
         let i = LEVELS.iter().position(|&l| l == level).unwrap();
         if self.count[i..].iter().all(|&n| n == 0) {
@@ -191,16 +200,21 @@ impl Levels {
         }
         self.failed += other.failed;
         self.capped.extend(other.capped);
+        for (n, m) in self.fast.iter_mut().zip(other.fast) {
+            *n += m;
+        }
     }
 }
 
 // Prints, for each function of `FILES` and each rounding, the highest level in `levels` (in
-// the order of `FILES`), the first argument at it, the number of arguments at each level and
-// the number of failed rounding tests, then the arguments at the cap. `of` names the
+// the order of `FILES`), the first argument at it, the number of arguments at each level, the
+// number of failed rounding tests and, for a function that took a fast path, the numbers of
+// its rounding tests that passed and failed, then the arguments at the cap. `of` names the
 // arguments.
 fn print_levels(of: &str, levels: &[[Levels; 3]]) {
     println!("The highest level of Ziv's strategy, in limbs, over {of}");
-    println!("(and the first argument at it; arguments per level; failed rounding tests):");
+    println!("(and the first argument at it; arguments per level; failed rounding tests;");
+    println!("rounding tests of the fast path passed/failed, if it was taken):");
     for ((name, _), lv) in FILES.iter().zip(levels) {
         for (r, l) in ["rn", "rd", "ru"].iter().zip(lv) {
             let mut per_level = String::new();
@@ -209,8 +223,12 @@ fn print_levels(of: &str, levels: &[[Levels; 3]]) {
                     write!(per_level, " {level}:{count}").unwrap();
                 }
             }
+            let mut fast = String::new();
+            if l.fast != [0, 0] {
+                write!(fast, "; fast {}/{}", l.fast[0], l.fast[1]).unwrap();
+            }
             println!(
-                "{name}_{r}: {} ({}; {}; {})",
+                "{name}_{r}: {} ({}; {}; {}{fast})",
                 l.max(),
                 l.first_at_max,
                 per_level.trim_start(),
@@ -235,11 +253,12 @@ fn print_levels(of: &str, levels: &[[Levels; 3]]) {
 }
 
 // `[g(0), g(1), g(2)]`, the three roundings of a function at `args`, with the levels that
-// `ziv` used for `g(r)` recorded in `levels[r]`.
+// `ziv` used for `g(r)`, and the rounding tests of the fast paths, recorded in `levels[r]`.
 fn measured(levels: &mut [Levels; 3], args: &str, g: impl Fn(usize) -> f64) -> [f64; 3] {
     let mut got = [0.0; 3];
     for (r, (v, l)) in got.iter_mut().zip(levels).enumerate() {
         reset_ziv_level();
+        reset_fast_counts();
         *v = g(r);
         l.record(args);
     }
@@ -328,13 +347,16 @@ fn check_all(k: usize, entries: &[(Vec<f64>, String)]) -> ([Levels; 3], Vec<Stri
 }
 
 // The functions at the arguments of the sample against MPFR, bit for bit, or a NaN where MPFR
-// gives one, in the three roundings. Prints the levels that the kernel used.
+// gives one, in the three roundings, and again with the fast paths disabled where one passed.
+// Prints the levels that the kernel used.
 #[test]
 fn hard_cases() {
     let mut errs = vec![];
     let mut levels: Vec<[Levels; 3]> = FILES.iter().map(|_| Default::default()).collect();
     let mut f = None;
     let mut total = 0;
+    let mut again = 0;
+    let fast_passed = |lv: &[Levels; 3]| lv.iter().map(|l| l.fast[0]).sum::<usize>();
     for line in SAMPLE.lines() {
         if let Some(rest) = line.strip_prefix("@ ") {
             let name = rest.split(' ').next().unwrap();
@@ -344,11 +366,26 @@ fn hard_cases() {
         let Some(xs) = args(line) else { continue };
         let k = f.expect("an argument before the first `@` line");
         let text = line.split('#').next().unwrap().trim();
+        let before = fast_passed(&levels[k]);
         check(&mut errs, &mut levels[k], k, &xs, text);
         total += 1;
+        // Where a fast path gave a result, Ziv's strategy did not run: check it there too.
+        // `set_fast_path` acts on this thread, the one that `check` computes on.
+        if fast_passed(&levels[k]) > before {
+            let mut off = vec![];
+            let mut scratch: [Levels; 3] = Default::default();
+            set_fast_path(false);
+            check(&mut off, &mut scratch, k, &xs, text);
+            set_fast_path(true);
+            // A disabled fast path counts as neither passed nor failed.
+            assert!(scratch.iter().all(|l| l.fast == [0, 0]));
+            errs.extend(off.into_iter().map(|e| e + " (fast paths disabled)"));
+            again += 1;
+        }
     }
     assert!(total > 0, "the sample is empty");
     print_levels(&format!("the {total} arguments of the sample"), &levels);
+    println!("Checked again with the fast paths disabled: {again} arguments");
     report(errs);
 }
 

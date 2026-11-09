@@ -187,6 +187,15 @@ theories/DyExpRules.v
 theories/DyHypRules.v
 theories/DySinhTiny.v
 theories/DyTanhTiny.v
+theories/FastRound.v
+theories/FastExpTables.v
+theories/FastExpReduce.v
+theories/FastExpErr.v
+theories/FastExpPoly.v
+theories/FastExpTbl.v
+theories/FastExpProd.v
+theories/FastExpCore.v
+theories/FastExp.v
 theories/DyExp.v
 theories/DyHyp.v
 theories/DyLogRules.v
