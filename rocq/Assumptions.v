@@ -23,7 +23,9 @@
     without being imported, as
     some of their names, such as [add_correct], are those of other
     theorems printed here, and their theorems are printed by qualified
-    name. None of them quantifies over an MPFR. *)
+    name. None of them quantifies over an MPFR. The files about the cap
+    of Ziv's strategy, [KahanMcDonald.v], [DyTrigPos.v], [SideTight.v],
+    [SideTheorems.v] and [DyPointSide.v], are required the same way. *)
 
 From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu AddOdd
   EmulatedFma MulAddRuSlow MulAddRu Integer IntegerDec RoundTiesEven Trunc Round Sign Abs MaxMin
@@ -40,6 +42,7 @@ From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyD
   DyExpNear DyLogNear DyAtanNear DyTrigNear DyPowNearExact DyPowNear CrPow DyPoint
   DyPointDec.
 From Inari Require RootReal RootRound DyIcbrt DyCbrt DyHypotExact DyHypotOdd DyHypot CrRoot.
+From Inari Require KahanMcDonald DyTrigPos SideTight SideTheorems DyPointSide.
 
 Print Assumptions add1_ru_fast_correct.
 Print Assumptions add_ru_correct.
@@ -404,6 +407,94 @@ Print Assumptions DyPointDec.kernel_dec_cos_correct.
 Print Assumptions DyPointDec.kernel_dec_tan_correct.
 Print Assumptions DyPointDec.kernel_dec_pow_correct.
 Print Assumptions DyPointDec.kernel_dec_pown_correct.
+Print Assumptions KahanMcDonald.km_distance.
+Print Assumptions DyTrigPos.sin_dir_sign.
+Print Assumptions DyTrigPos.cos_dir_sign.
+Print Assumptions DyTrigPos.tan_div_pos.
+Print Assumptions SideTight.acos_c_s.
+Print Assumptions SideTight.acosh_c_s.
+Print Assumptions SideTight.asin_c_s.
+Print Assumptions SideTight.asinh_c_s.
+Print Assumptions SideTight.atan_c_s.
+Print Assumptions SideTight.atan2_c_s.
+Print Assumptions SideTight.atanh_c_s.
+Print Assumptions SideTight.cos_c_s.
+Print Assumptions SideTight.cosh_c_s.
+Print Assumptions SideTight.exp_c_s.
+Print Assumptions SideTight.exp10_c_s.
+Print Assumptions SideTight.exp2_c_s.
+Print Assumptions SideTight.ln_c_s.
+Print Assumptions SideTight.log10_c_s.
+Print Assumptions SideTight.log2_c_s.
+Print Assumptions SideTight.pow_c_s.
+Print Assumptions SideTight.pown_c_s.
+Print Assumptions SideTight.sin_c_s.
+Print Assumptions SideTight.sinh_c_s.
+Print Assumptions SideTight.tan_c_s.
+Print Assumptions SideTight.tanh_c_s.
+Print Assumptions SideTheorems.exp_encloses_side.
+Print Assumptions SideTheorems.exp2_encloses_side.
+Print Assumptions SideTheorems.exp10_encloses_side.
+Print Assumptions SideTheorems.sinh_encloses_side.
+Print Assumptions SideTheorems.tanh_encloses_side.
+Print Assumptions SideTheorems.ln_encloses_side.
+Print Assumptions SideTheorems.log2_encloses_side.
+Print Assumptions SideTheorems.log10_encloses_side.
+Print Assumptions SideTheorems.asinh_encloses_side.
+Print Assumptions SideTheorems.acosh_encloses_side.
+Print Assumptions SideTheorems.atanh_encloses_side.
+Print Assumptions SideTheorems.atan_encloses_side.
+Print Assumptions SideTheorems.asin_encloses_side.
+Print Assumptions SideTheorems.acos_encloses_side.
+Print Assumptions SideTheorems.cosh_encloses_side.
+Print Assumptions SideTheorems.atan2_encloses_side.
+Print Assumptions SideTheorems.sin_encloses_side.
+Print Assumptions SideTheorems.cos_encloses_side.
+Print Assumptions SideTheorems.tan_encloses_side.
+Print Assumptions SideTheorems.pow_encloses_side.
+Print Assumptions SideTheorems.pown_encloses_side.
+Print Assumptions DyPointSide.k_exp_rust_s.
+Print Assumptions DyPointSide.k_exp2_rust_s.
+Print Assumptions DyPointSide.k_exp10_rust_s.
+Print Assumptions DyPointSide.k_sinh_rust_s.
+Print Assumptions DyPointSide.k_cosh_rust_s.
+Print Assumptions DyPointSide.k_tanh_rust_s.
+Print Assumptions DyPointSide.k_ln_rust_s.
+Print Assumptions DyPointSide.k_log2_rust_s.
+Print Assumptions DyPointSide.k_log10_rust_s.
+Print Assumptions DyPointSide.k_asinh_rust_s.
+Print Assumptions DyPointSide.k_acosh_rust_s.
+Print Assumptions DyPointSide.k_atanh_rust_s.
+Print Assumptions DyPointSide.k_atan_rust_s.
+Print Assumptions DyPointSide.k_asin_rust_s.
+Print Assumptions DyPointSide.k_acos_rust_s.
+Print Assumptions DyPointSide.k_atan2_rust_s.
+Print Assumptions DyPointSide.k_pow_rust_s.
+Print Assumptions DyPointSide.k_pown_rust_s.
+Print Assumptions DyPointSide.k_sin_rust_s.
+Print Assumptions DyPointSide.k_cos_rust_s.
+Print Assumptions DyPointSide.k_tan_rust_s.
+Print Assumptions DyPointSide.kernel_exp_encloses.
+Print Assumptions DyPointSide.kernel_exp2_encloses.
+Print Assumptions DyPointSide.kernel_exp10_encloses.
+Print Assumptions DyPointSide.kernel_sinh_encloses.
+Print Assumptions DyPointSide.kernel_tanh_encloses.
+Print Assumptions DyPointSide.kernel_ln_encloses.
+Print Assumptions DyPointSide.kernel_log2_encloses.
+Print Assumptions DyPointSide.kernel_log10_encloses.
+Print Assumptions DyPointSide.kernel_asinh_encloses.
+Print Assumptions DyPointSide.kernel_acosh_encloses.
+Print Assumptions DyPointSide.kernel_atanh_encloses.
+Print Assumptions DyPointSide.kernel_atan_encloses.
+Print Assumptions DyPointSide.kernel_asin_encloses.
+Print Assumptions DyPointSide.kernel_acos_encloses.
+Print Assumptions DyPointSide.kernel_cosh_encloses.
+Print Assumptions DyPointSide.kernel_atan2_encloses.
+Print Assumptions DyPointSide.kernel_sin_encloses.
+Print Assumptions DyPointSide.kernel_cos_encloses.
+Print Assumptions DyPointSide.kernel_tan_encloses.
+Print Assumptions DyPointSide.kernel_pow_encloses.
+Print Assumptions DyPointSide.kernel_pown_encloses.
 Print Assumptions DyDriverNear.ziv_near_strict_correct.
 Print Assumptions DyDriverNear.ziv_near_cap_round.
 Print Assumptions DyExpNear.exp_near_correct.

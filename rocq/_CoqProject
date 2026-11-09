@@ -162,12 +162,18 @@ theories/IdealPow.v
 theories/IdealAtan2.v
 theories/MpfrConsistent.v
 theories/Contract.v
+theories/ContractSide.v
+theories/SideDefs.v
 theories/OfPointCore.v
 theories/OfPoint.v
 theories/OfPointElem.v
 theories/OfPointPow.v
 theories/MpfrPoint.v
 theories/PointTheorems.v
+theories/SideMono.v
+theories/SideMonoB.v
+theories/SideTight.v
+theories/SideTheorems.v
 theories/PointDec.v
 theories/PointValid.v
 theories/DyGrow.v
@@ -188,6 +194,7 @@ theories/DyLogHyp.v
 theories/AtanSeries.v
 theories/AtanIdent.v
 theories/DyConstPi.v
+theories/KahanMcDonald.v
 theories/DyAtanTiny.v
 theories/DyAtanCore.v
 theories/DyAtan.v
@@ -200,7 +207,11 @@ theories/DySinSmall.v
 theories/DyTanSmall.v
 theories/DyTrigReduce.v
 theories/DyTrigCore.v
+theories/DyTrigSign.v
 theories/DyTrig.v
+theories/DyTrigSeriesPos.v
+theories/DyTrigZivSign.v
+theories/DyTrigPos.v
 theories/DyPowArith.v
 theories/DyPowRules.v
 theories/DyPowExact.v
@@ -232,6 +243,7 @@ theories/DyHypotOdd.v
 theories/DyHypot.v
 theories/CrRoot.v
 theories/DyPoint.v
+theories/DyPointSide.v
 theories/DyPointDec.v
 theories/Valid.v
 theories/MpfrExamples.v

@@ -39,7 +39,11 @@
     [kernel_exp_correct], [kernel_dec_exp_correct], the constructors
     [made_kernel_exp] and [dmade_kernel_exp], and the others. The other
     theorems about the elementary functions are stated for MPFR functions
-    [m], and what they assume of [m] is stated in [Mpfr.v]. *)
+    [m], and what they assume of [m] is stated in [Mpfr.v].
+    [ContractSide.v] states the weaker contract of a record whose fields
+    return values on the correct side, with which [SideTheorems.v] and
+    [DyPointSide.v] prove that the elementary functions contain the
+    image of their argument. *)
 
 From Stdlib Require Import ZArith Reals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.

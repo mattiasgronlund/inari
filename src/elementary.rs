@@ -38,11 +38,15 @@ fn rem_euclid_2(x: f64) -> f64 {
 // multiple of π/2. As π is irrational, no float is a multiple of π/2 other than 0, so
 // `sin(x)` and `cos(x)` are never 0 where the quadrant would then be wrong. Where no rounding
 // test passes, up to the one at the cap of 4,096 bits, the kernel returns the bound of its
-// enclosure on the side of the rounding, rounded outward. That keeps the sign of a
-// `sin(x) < 0` and of a `cos(x) > 0`, but gives the right sign for a `sin(x) > 0` or a
-// `cos(x) < 0` only where the enclosure holds no number of the other sign. A bound below
-// `|sin(x)|` and `|cos(x)|` on the width of the enclosures at 4,096 bits would show that, and
-// is not proved, though no known argument reaches the cap.
+// enclosure on the side of the rounding, rounded outward. That keeps the signs too:
+// `sin_dir_sign` and `cos_dir_sign` in `rocq/theories/DyTrigPos.v` show that the kernel's
+// `sin_rd(x)` is below 0 exactly where `sin(x)` is, and its `cos_ru(x)` above 0 exactly
+// where `cos(x)` is, at every finite `x` at which it does not panic, as its enclosures of
+// `sin(x)` and `cos(x)` exclude 0 at every level, by the distance from an `f64` to a multiple
+// of π/2 of `km_distance` in `rocq/theories/KahanMcDonald.v`. `quadrant_tight` in
+// `rocq/theories/SideTight.v` shows that `quadrant` returns the same with any `sin_rd` and
+// `cos_ru` on the side of the rounding that have these signs as with ones that round
+// correctly.
 fn quadrant(x: f64) -> f64 {
     let sin_neg = sin_rd(x) < 0.0;
     let cos_pos = cos_ru(x) > 0.0;
@@ -92,7 +96,10 @@ fn floors_exact(a: f64, b: f64, qa: f64, qb: f64, c: Interval) -> bool {
 // dyadic kernel where each call of it that they make returns by one of its rules or by a
 // passing rounding test of Ziv's strategy (`kernel_<f>_correct` in `rocq/theories/DyPoint.v`
 // and `kernel_dec_<f>_correct` in `rocq/theories/DyPointDec.v`), and with the MPFR backend of
-// the tests, assuming what `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v`
+// the tests, assuming what `rocq/theories/Mpfr.v` says of MPFR. With the kernel,
+// `Interval::ln`, `Interval::log10` and `Interval::log2` contain the range at every argument
+// at which no call of the kernel panics, also where one reaches the cap of Ziv's strategy
+// (`kernel_<f>_encloses` in `rocq/theories/DyPointSide.v`). `rocq/theories/Model.v`
 // transcribes the functions that this macro defines, so it has to be updated along with it.
 macro_rules! impl_log {
     ($(#[$meta:meta])* $f:ident, $f_impl:ident, $f_rd:ident, $f_ru:ident) => {
@@ -134,6 +141,9 @@ macro_rules! impl_log {
 // rules or by a passing rounding test of Ziv's strategy (`kernel_<f>_correct` in
 // `rocq/theories/DyPoint.v` and `kernel_dec_<f>_correct` in `rocq/theories/DyPointDec.v`),
 // and with the MPFR backend of the tests, assuming what `rocq/theories/Mpfr.v` says of MPFR.
+// With the kernel, the interval versions of these seven functions, such as `Interval::exp`,
+// contain the range at every argument at which no call of the kernel panics, also where one
+// reaches the cap of Ziv's strategy (`kernel_<f>_encloses` in `rocq/theories/DyPointSide.v`).
 // `rocq/theories/Model.v` transcribes the function that this macro defines, so it has to be
 // updated along with it.
 macro_rules! impl_mono_inc {
@@ -170,8 +180,11 @@ impl Interval {
         // passing rounding test of Ziv's strategy (`kernel_acos_correct` in
         // `rocq/theories/DyPoint.v` and `kernel_dec_acos_correct` in
         // `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming what
-        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
-        // function and `Interval::acos`, so it has to be updated along with them.
+        // `rocq/theories/Mpfr.v` says of MPFR. With the kernel, `Interval::acos` contains the
+        // range at every argument at which no call of the kernel panics, also where one
+        // reaches the cap of Ziv's strategy (`kernel_acos_encloses` in
+        // `rocq/theories/DyPointSide.v`). `rocq/theories/Model.v` transcribes this function
+        // and `Interval::acos`, so it has to be updated along with them.
         const DOM: Interval = const_interval!(-1.0, 1.0);
         let x = self.intersection(DOM);
 
@@ -207,8 +220,11 @@ impl Interval {
         // one of its rules or by a passing rounding test of Ziv's strategy
         // (`kernel_acosh_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_acosh_correct`
         // in `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming
-        // what `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
-        // function and `Interval::acosh`, so it has to be updated along with them.
+        // what `rocq/theories/Mpfr.v` says of MPFR. With the kernel, `Interval::acosh` contains
+        // the range at every argument at which no call of the kernel panics, also where one
+        // reaches the cap of Ziv's strategy (`kernel_acosh_encloses` in
+        // `rocq/theories/DyPointSide.v`). `rocq/theories/Model.v` transcribes this function
+        // and `Interval::acosh`, so it has to be updated along with them.
         const DOM: Interval = const_interval!(1.0, f64::INFINITY);
         let x = self.intersection(DOM);
 
@@ -244,8 +260,11 @@ impl Interval {
         // one of its rules or by a passing rounding test of Ziv's strategy
         // (`kernel_asin_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_asin_correct` in
         // `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming what
-        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
-        // function and `Interval::asin`, so it has to be updated along with them.
+        // `rocq/theories/Mpfr.v` says of MPFR. With the kernel, `Interval::asin` contains the
+        // range at every argument at which no call of the kernel panics, also where one
+        // reaches the cap of Ziv's strategy (`kernel_asin_encloses` in
+        // `rocq/theories/DyPointSide.v`). `rocq/theories/Model.v` transcribes this function
+        // and `Interval::asin`, so it has to be updated along with them.
         const DOM: Interval = const_interval!(-1.0, 1.0);
         let x = self.intersection(DOM);
 
@@ -310,8 +329,11 @@ impl Interval {
         // one of its rules or by a passing rounding test of Ziv's strategy
         // (`kernel_atan2_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_atan2_correct`
         // in `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming
-        // what `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
-        // function and `Interval::atan2`, so it has to be updated along with them.
+        // what `rocq/theories/Mpfr.v` says of MPFR. With the kernel, `Interval::atan2` contains
+        // the range at every argument at which no call of the kernel panics, also where one
+        // reaches the cap of Ziv's strategy (`kernel_atan2_encloses` in
+        // `rocq/theories/DyPointSide.v`). `rocq/theories/Model.v` transcribes this function
+        // and `Interval::atan2`, so it has to be updated along with them.
         let (x, y) = (rhs, self);
         let a = x.inf_raw();
         let b = x.sup_raw();
@@ -441,7 +463,10 @@ impl Interval {
         // where each call of it that they make returns by one of its rules or by a passing
         // rounding test of Ziv's strategy (`kernel_atanh_correct` in `rocq/theories/DyPoint.v`
         // and `kernel_dec_atanh_correct` in `rocq/theories/DyPointDec.v`), and with the MPFR
-        // backend of the tests, assuming what `rocq/theories/Mpfr.v` says of MPFR.
+        // backend of the tests, assuming what `rocq/theories/Mpfr.v` says of MPFR. With the
+        // kernel, `Interval::atanh` contains the range at every argument at which no call of
+        // the kernel panics, also where one reaches the cap of Ziv's strategy
+        // (`kernel_atanh_encloses` in `rocq/theories/DyPointSide.v`).
         // `rocq/theories/Model.v` transcribes this function and `Interval::atanh`, so it has
         // to be updated along with them.
         //
@@ -486,7 +511,10 @@ impl Interval {
         // passing rounding test of Ziv's strategy (`kernel_cos_correct` in
         // `rocq/theories/DyPoint.v` and `kernel_dec_cos_correct` in
         // `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming what
-        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/TrigQuad.v`,
+        // `rocq/theories/Mpfr.v` says of MPFR. With the kernel, `Interval::cos` contains the
+        // range at every argument at which no call of the kernel panics, also where one
+        // reaches the cap of Ziv's strategy (`kernel_cos_encloses` in
+        // `rocq/theories/DyPointSide.v`). `rocq/theories/TrigQuad.v`,
         // `rocq/theories/TrigCount.v` and `rocq/theories/TrigCert.v` prove what `quadrant`,
         // `quadrants` and `floors_exact` return. `rocq/theories/Model.v` transcribes this
         // function, so it has to be updated along with it. `max` and `min` may return either
@@ -556,7 +584,10 @@ impl Interval {
         // make returns by one of its rules or by a passing rounding test of Ziv's strategy
         // (`kernel_cosh_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_cosh_correct`
         // in `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming
-        // what `rocq/theories/Mpfr.v` says of MPFR.
+        // what `rocq/theories/Mpfr.v` says of MPFR. With the kernel, `Interval::cosh` contains
+        // the range at every argument at which no call of the kernel panics, also where one
+        // reaches the cap of Ziv's strategy (`kernel_cosh_encloses` in
+        // `rocq/theories/DyPointSide.v`).
         // `rocq/theories/Model.v` transcribes this function, so it has to be updated along
         // with it. `(-a).max(b)` may return either zero if `-a` and `b` are zeros, so the
         // model takes which one it returns as an argument.
@@ -683,7 +714,10 @@ impl Interval {
         // one of its rules or by a passing rounding test of Ziv's strategy
         // (`kernel_pow_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_pow_correct` in
         // `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming what
-        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/Model.v` transcribes this
+        // `rocq/theories/Mpfr.v` says of MPFR. With the kernel, `Interval::pow` contains the
+        // range at every argument at which no call of the kernel panics, also where one
+        // reaches the cap of Ziv's strategy (`kernel_pow_encloses` in
+        // `rocq/theories/DyPointSide.v`). `rocq/theories/Model.v` transcribes this
         // function and `Interval::pow`, so it has to be updated along with them. `min` and
         // `max` may return either zero if both arguments are zeros, so the model takes which
         // ones they return as arguments.
@@ -785,7 +819,10 @@ impl Interval {
         // make returns by one of its rules or by a passing rounding test of Ziv's strategy
         // (`kernel_pown_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_pown_correct`
         // in `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming
-        // what `rocq/theories/Mpfr.v` says of MPFR.
+        // what `rocq/theories/Mpfr.v` says of MPFR. With the kernel, `Interval::powi` contains
+        // the range at every argument at which no call of the kernel panics, also where one
+        // reaches the cap of Ziv's strategy (`kernel_pown_encloses` in
+        // `rocq/theories/DyPointSide.v`).
         // `rocq/theories/Model.v` transcribes this function and `Interval::powi`, so it has
         // to be updated along with them.
         if self.is_empty() {
@@ -861,7 +898,10 @@ impl Interval {
         // passing rounding test of Ziv's strategy (`kernel_sin_correct` in
         // `rocq/theories/DyPoint.v` and `kernel_dec_sin_correct` in
         // `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming what
-        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/TrigQuad.v`,
+        // `rocq/theories/Mpfr.v` says of MPFR. With the kernel, `Interval::sin` contains the
+        // range at every argument at which no call of the kernel panics, also where one
+        // reaches the cap of Ziv's strategy (`kernel_sin_encloses` in
+        // `rocq/theories/DyPointSide.v`). `rocq/theories/TrigQuad.v`,
         // `rocq/theories/TrigCount.v` and `rocq/theories/TrigCert.v` prove what `quadrant`,
         // `quadrants` and `floors_exact` return. `rocq/theories/Model.v` transcribes this
         // function, so it has to be updated along with it. `max` and `min` may return either
@@ -936,7 +976,10 @@ impl Interval {
         // returns by one of its rules or by a passing rounding test of Ziv's strategy
         // (`kernel_tan_correct` in `rocq/theories/DyPoint.v` and `kernel_dec_tan_correct` in
         // `rocq/theories/DyPointDec.v`), and with the MPFR backend of the tests, assuming what
-        // `rocq/theories/Mpfr.v` says of MPFR. `rocq/theories/TrigQuad.v`,
+        // `rocq/theories/Mpfr.v` says of MPFR. With the kernel, `Interval::tan` contains the
+        // range at every argument at which no call of the kernel panics, also where one
+        // reaches the cap of Ziv's strategy (`kernel_tan_encloses` in
+        // `rocq/theories/DyPointSide.v`). `rocq/theories/TrigQuad.v`,
         // `rocq/theories/TrigCount.v` and `rocq/theories/TrigCert.v` prove what `quadrant`,
         // `quadrants` and `floors_exact` return. `rocq/theories/Model.v` transcribes this
         // function and `Interval::tan`, so it has to be updated along with them.

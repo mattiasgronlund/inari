@@ -7,11 +7,13 @@
 // and `ziv_near_at` either fails or gives its rounding to nearest, on every platform. From 2
 // limbs on, each of them passes. `ziv_cap` and `ziv_near_cap`, the steps of `ziv` and
 // `ziv_near` at their cap of 64 limbs, also give the roundings at each argument, in both
-// directions and to nearest. On 64-bit Linux and macOS, where the tests have MPFR, the rounding
-// to nearest is MPFR's, each enclosure also holds the value of the function that MPFR computes,
-// and each doubling of the precision at least halves its width.
+// directions and to nearest, and so does `ziv` where its enclosures are widened so that no
+// rounding test passes (`check_widened`). On 64-bit Linux and macOS, where the tests have
+// MPFR, the rounding to nearest is MPFR's, each enclosure also holds the value of the function
+// that MPFR computes, and each doubling of the precision at least halves its width.
 
 use super::*;
+use crate::dyadic::tests::check_widened;
 use crate::dyadic::{ziv_at, ziv_cap, ziv_near_at, ziv_near_cap};
 
 // The array of `$f::<N, _> $args` for each N from 1 to 64, in that order.
@@ -127,6 +129,8 @@ fn forced<E: Eval>(f: &E, i: usize, x: f64) {
             want[usize::from(up)]
         );
     }
+    // Where no rounding test passes, `ziv` returns the bound on the side of the rounding.
+    check_widened(f, want, &format!("{}({:e})", FUNCTIONS[i].0, x));
     // And `ziv_near_cap`, the step of `ziv_near` at its cap, gives the rounding to nearest.
     let y = ziv_near_cap(f);
     assert!(

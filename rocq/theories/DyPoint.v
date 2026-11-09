@@ -14,6 +14,8 @@
     which no test passes up to the cap of Ziv's strategy, where the Rust
     returns a value on the correct side ([exp_dir_side] and the others),
     or that panic. That a rounding test passes by the cap is not proved.
+    [DyPointSide.v] covers the calls that reach the cap too, with
+    containment in place of the tightest intervals.
     [kernel_point] is the record of these twenty-one fields.
     [DyPointDec.v] applies the theorems of [PointDec.v] to it in the same
     way, and [Valid.v] those of [PointValid.v], in the cases of

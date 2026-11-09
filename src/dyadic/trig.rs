@@ -38,8 +38,8 @@
 // multiples of π/2, where it cancels, up to the 66 limbs of `PI`. The least distance from an
 // `f64` to a multiple of π/2 other than 0 is about 2^-61, at 6381956970095103 2^797 (the case
 // of Kahan and McDonald; J.-M. Muller, Elementary Functions, 3rd ed., the chapter on range
-// reduction), which is not proved here. The search of every binade for the hard cases of the
-// tests found none closer.
+// reduction). `km_distance` in `rocq/theories/KahanMcDonald.v` proves that it is at least
+// 2^-61, and the search of every binade for the hard cases of the tests found none closer.
 //
 // sin(k π/2 + σ ρ) is ±sin ρ or ±cos ρ by k mod 4 and σ (`sin_k`), and cos t = sin(t + π/2).
 // The series sin ρ = Σ_{i >= 0} (-1)^i ρ^(2i + 1) / (2i + 1)! and
@@ -52,7 +52,12 @@
 // the enclosure of ρ is, and `Encl::div` panics where it contains 0, which for an odd k needs
 // the distance from t to k π/2 to be below the width of the reduction: below 2^-(64 N + 63)
 // at `N` limbs, or 2^-3199 where the 66 limbs of `PI` cap it. No `f64` is that close by the
-// bound above.
+// bound above. `tan_div_pos` in `rocq/theories/DyTrigPos.v` proves, from that bound, that the
+// enclosure of the divisor is above 0 at every level for either parity of k, and
+// `sin_dir_sign` and `cos_dir_sign` there that `sin(x, false)` is below 0 exactly where
+// sin x is, and `cos(x, true)` above 0 exactly where cos x is, wherever they return, whether
+// a rounding test of `ziv` passes or not, as the enclosures of sin and cos exclude 0 at every
+// level.
 //
 // `rocq/theories/Model.v` transcribes each function of this file except the tests and the
 // scratch buffer of `reduce`, so it has to be updated along with them.

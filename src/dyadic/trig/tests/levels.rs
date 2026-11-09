@@ -14,8 +14,12 @@
 // precision at least halves its width, and at each level at which `reduce` is under its cap of
 // the 66 limbs of `PI`, the width at `N` limbs is at most 2^(8 - 64 N) times the magnitude of
 // the value.
+//
+// Where its enclosures are widened so that no rounding test passes, `ziv` also gives the
+// directed roundings, at its cap (`check_widened` of `src/dyadic/tests.rs`).
 
 use super::*;
+use crate::dyadic::tests::check_widened;
 use crate::dyadic::{ziv_at, ziv_cap, ziv_near_at, ziv_near_cap};
 
 // The array of `$f::<N, _> $args` for each N from 1 to 64, in that order.
@@ -160,6 +164,8 @@ fn forced<E: Eval>(f: &E, i: usize, x: f64) {
             want[usize::from(up)]
         );
     }
+    // Where no rounding test passes, `ziv` returns the bound on the side of the rounding.
+    check_widened(f, want, &format!("{}({:e})", FUNCTIONS[i].0, x));
     // The same to nearest. `NEAR[i]` leaves each of these arguments to `ziv_near`, as they are
     // at least `TINY_NEAR`, and cos takes |x| there as `f` does.
     let near = NEAR[i](x);

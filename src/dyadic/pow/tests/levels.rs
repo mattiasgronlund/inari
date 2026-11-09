@@ -13,8 +13,12 @@
 // value of the power that MPFR computes, each doubling of the precision at least halves its
 // width, and the rounding to nearest has the bits of MPFR's, `pow_rn` or `pown_rn` of
 // `src/mpfr_calls/mpfr.rs`.
+//
+// Where its enclosures are widened so that no rounding test passes, `ziv` also gives the
+// directed roundings, at its cap (`check_widened` of `src/dyadic/tests.rs`).
 
 use super::*;
+use crate::dyadic::tests::check_widened;
 use crate::dyadic::{ziv_at, ziv_cap, ziv_near_at, ziv_near_cap};
 
 // The array of `$f::<N, _> $args` for each N from 1 to 64, in that order.
@@ -188,6 +192,8 @@ fn forced<E: Eval>(f: &E, c: Case) {
             want[usize::from(up)]
         );
     }
+    // Where no rounding test passes, `ziv` returns the bound on the side of the rounding.
+    check_widened(f, want, &format!("{:?}", c));
     let y = ziv_near_cap(f);
     assert!(
         y.to_bits() == near.to_bits(),

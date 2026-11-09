@@ -864,3 +864,53 @@ fn ziv_rounds_outward_at_the_cap() {
         );
     }
 }
+
+// `Widened(f, around)` is `f` with each enclosure widened to hold `around[0]` and `around[1]`,
+// two `f64`s with `around[0] < around[1]`.
+pub(super) struct Widened<'a, E>(pub(super) &'a E, pub(super) [f64; 2]);
+
+impl<E: Eval> Eval for Widened<'_, E> {
+    fn eval<const N: usize>(&self) -> Encl<N> {
+        let x = self.0.eval::<N>();
+        Encl {
+            lo: x.lo.min(Dyadic::from_f64(self.1[0])),
+            hi: x.hi.max(Dyadic::from_f64(self.1[1])),
+        }
+    }
+}
+
+// The step of `ziv` at its cap where no rounding test passes, on a function of the kernel: `f`
+// encloses a number that is not an `f64`, whose roundings toward -∞ and +∞ are `want[0]` and
+// `want[1]`. The enclosures of `Widened(f, want)` hold both, so their lower bounds round to at
+// most `want[0]` and their upper bounds to at least `want[1]`, in either direction, and no
+// rounding test passes, at any level. `ziv` then returns the bound of the enclosure at 64 limbs
+// on the side of the rounding, rounded outward, which is the rounding where the enclosure of
+// `f` at 64 limbs lies between `want[0]` and `want[1]`, as at the arguments of the `levels.rs`
+// tests, where `ziv_cap` passes.
+pub(super) fn check_widened<E: Eval>(f: &E, want: [f64; 2], what: &str) {
+    assert!(
+        want[0] < want[1],
+        "{}: {:e} and {:e}",
+        what,
+        want[0],
+        want[1]
+    );
+    let w = Widened(f, want);
+    for up in [false, true] {
+        assert!(
+            ziv_at::<64, _>(&w, up).is_none(),
+            "{} widened, up = {}",
+            what,
+            up
+        );
+        let y = ziv(&w, up, 1);
+        assert!(
+            y.to_bits() == want[usize::from(up)].to_bits(),
+            "{} widened, up = {}: {:e} != {:e}",
+            what,
+            up,
+            y,
+            want[usize::from(up)]
+        );
+    }
+}
