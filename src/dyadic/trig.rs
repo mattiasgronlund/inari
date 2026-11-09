@@ -1,8 +1,10 @@
 // The trigonometric functions sin, cos and tan with the dyadic kernel, each rounded to an `f64`
-// toward +∞ if `up` and toward -∞ otherwise, as MPFR rounds them (`src/dyadic.rs` says what
-// `ziv` returns at its cap). `src/mpfr_calls/kernel.rs` makes them the `sin_rd`, `sin_ru` and
-// the others that `src/elementary.rs` calls, and the tests on 64-bit Linux and macOS compare
-// them with those of the MPFR backend, `src/mpfr_calls/mpfr.rs`.
+// toward +∞ if `up` and toward -∞ otherwise, and, as `sin_near` and the others, to nearest,
+// ties to even, as MPFR rounds them (`src/dyadic.rs` says what `ziv` and `ziv_near` return at
+// their caps). `src/mpfr_calls/kernel.rs` makes the first the `sin_rd`, `sin_ru` and the
+// others that `src/elementary.rs` calls, `src/cr.rs` makes both the `sin_rn`, `sin_rd`,
+// `sin_ru` and the others of `inari::cr`, and the tests on 64-bit Linux and macOS compare them
+// with those of MPFR, `src/mpfr_calls/mpfr.rs`.
 //
 // Each function first settles some arguments by rules: NaN and ±∞, at which it is NaN, the
 // arguments of magnitude below 2^-26, whose results are within an ulp of x for sin and tan and
@@ -16,7 +18,14 @@
 // bound in the direction of the rounding (the header of `src/dyadic/exp.rs` says why), and no
 // nonzero `f64` has a sin, cos or tan that is one, by the theorem of Lindemann and
 // Weierstrass, as an `f64` is algebraic, which is not proved here. `ziv` computes the rest
-// from an `Eval`.
+// from an `Eval`. The functions rounded to nearest have the rules of NaN, ±∞ and of the
+// arguments of magnitude below 2^-27 (`TINY_NEAR`), whose results are less than half an ulp
+// from x or 1, and `ziv_near` computes the rest from the same `Eval`s. They have no rules at
+// small arguments, which only save levels of `ziv`. At some arguments with few bits, sin and
+// tan lie close to the midpoint of two `f64`s, as the results of those rules lie close to an
+// `f64`: t - t^3 / 6 is a midpoint at t = 21 2^-24, and sin t lies above it by about t^5 / 120,
+// and t + t^3 / 3 is one at t = 3 2^-26. `ziv_near` settles them at a later level, as no sin,
+// cos or tan of a nonzero `f64` is a midpoint, by the same theorem.
 //
 // The evaluations take t = |x|, as sin and tan are odd and cos is even, and reduce it to
 // t = k π/2 + σ ρ for an integer k >= 0, a sign σ and an enclosure of ρ (`reduce`). The
@@ -55,13 +64,17 @@
 // `sin_k`, `rocq/theories/TrigSeries.v` for the bounds of the series and the identities that
 // the evaluations use, `rocq/theories/DyTrigTiny.v` for the rules at tiny arguments, and
 // `rocq/theories/DyTrigSmall.v`, `rocq/theories/DyCosSmall.v`, `rocq/theories/DySinSmall.v`
-// and `rocq/theories/DyTanSmall.v` for those at small arguments. That a test passes by
-// the cap of `ziv` is not proved, nor that the evaluations do not panic.
+// and `rocq/theories/DyTanSmall.v` for those at small arguments. `rocq/theories/DyTrigNear.v`
+// proves that each of the three functions rounded to nearest, at a finite argument, where a
+// rule settles the argument or a rounding test of `ziv_near` passes, returns its result
+// rounded to nearest as `near_round` in `rocq/theories/NearF64.v` says, from the same
+// enclosures and bounds and the cells of `rocq/theories/NearCells.v`. That a test passes by
+// the cap of `ziv` or of `ziv_near` is not proved, nor that the evaluations do not panic.
 
 use super::{
     consts::PI,
-    exp::{away, near_one, toward_zero, TINY_HYP},
-    round, ziv, Dyadic, Encl, Eval,
+    exp::{away, near_one, toward_zero, TINY_HYP, TINY_NEAR},
+    round, ziv, ziv_near, Dyadic, Encl, Eval,
 };
 use crate::limbs;
 use std::cmp::Ordering;
@@ -368,6 +381,20 @@ pub(crate) fn sin(x: f64, up: bool) -> f64 {
     }
 }
 
+/// sin x rounded to nearest, ties to even.
+pub(crate) fn sin_near(x: f64) -> f64 {
+    if !x.is_finite() {
+        f64::NAN
+    } else if x.abs() < TINY_NEAR {
+        // x - x^3 / 6 <= sin x < x for x in (0, 1], and sin is odd.
+        x
+    } else {
+        // No rule as `sin_small`, which only saves levels (the header says why `ziv_near`
+        // does without one).
+        ziv_near(&Sin(x), 1)
+    }
+}
+
 /// cos x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn cos(x: f64, up: bool) -> f64 {
     let t = x.abs();
@@ -382,6 +409,19 @@ pub(crate) fn cos(x: f64, up: bool) -> f64 {
     }
 }
 
+/// cos x rounded to nearest, ties to even.
+pub(crate) fn cos_near(x: f64) -> f64 {
+    let t = x.abs();
+    if !t.is_finite() {
+        f64::NAN
+    } else if t < TINY_NEAR {
+        // 1 - 2^-55 < 1 - t^2 / 2 <= cos t <= 1.
+        1.0
+    } else {
+        ziv_near(&Cos(t), 1)
+    }
+}
+
 /// tan x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn tan(x: f64, up: bool) -> f64 {
     if !x.is_finite() {
@@ -391,5 +431,17 @@ pub(crate) fn tan(x: f64, up: bool) -> f64 {
         away(x, up)
     } else {
         tan_small(x, up).unwrap_or_else(|| ziv(&Tan(x), up, 1))
+    }
+}
+
+/// tan x rounded to nearest, ties to even.
+pub(crate) fn tan_near(x: f64) -> f64 {
+    if !x.is_finite() {
+        f64::NAN
+    } else if x.abs() < TINY_NEAR {
+        // x < tan x < x + x^3 / 2 for x in (0, 2^-26), and tan is odd.
+        x
+    } else {
+        ziv_near(&Tan(x), 1)
     }
 }

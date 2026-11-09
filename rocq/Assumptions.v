@@ -14,8 +14,11 @@
     [DyHyp.v], those about its logarithms, [DyLog.v] and [DyLogHyp.v],
     those about π and its inverse trigonometric functions, [DyConstPi.v],
     [DyAtan.v] and [DyAsin.v], the one about its trigonometric functions,
-    [DyTrig.v], those about its powers, [DyPown.v] and [DyPow.v], and
-    [DyPoint.v] and [DyPointDec.v], are required without being imported, as
+    [DyTrig.v], those about its powers, [DyPown.v] and [DyPow.v], those
+    about its functions rounded to nearest, from [DyDriverNear.v] to
+    [DyPowNear.v], the one about the signs of [pow] in [src/cr.rs],
+    [CrPow.v], and [DyPoint.v] and [DyPointDec.v], are required
+    without being imported, as
     some of their names, such as [add_correct], are those of other
     theorems printed here, and their theorems are printed by qualified
     name. None of them quantifies over an MPFR. *)
@@ -31,7 +34,8 @@ From Inari Require Import Encoding AddRu SubRu TwoProduct MulRu DivRu SqrtRdRu A
   MpfrConsistent Contract OfPointCore OfPoint OfPointElem OfPointPow MpfrPoint
   PointTheorems PointDec PointValid.
 From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyDriver
-  DyConst DyExp DyHyp DyLog DyLogHyp DyConstPi DyAtan DyAsin DyTrig DyPown DyPow DyPoint
+  DyConst DyExp DyHyp DyLog DyLogHyp DyConstPi DyAtan DyAsin DyTrig DyPown DyPow DyDriverNear
+  DyExpNear DyLogNear DyAtanNear DyTrigNear DyPowNearExact DyPowNear CrPow DyPoint
   DyPointDec.
 
 Print Assumptions add1_ru_fast_correct.
@@ -397,6 +401,58 @@ Print Assumptions DyPointDec.kernel_dec_cos_correct.
 Print Assumptions DyPointDec.kernel_dec_tan_correct.
 Print Assumptions DyPointDec.kernel_dec_pow_correct.
 Print Assumptions DyPointDec.kernel_dec_pown_correct.
+Print Assumptions DyDriverNear.ziv_near_strict_correct.
+Print Assumptions DyDriverNear.ziv_near_cap_round.
+Print Assumptions DyExpNear.exp_near_correct.
+Print Assumptions DyExpNear.exp_near_strict.
+Print Assumptions DyExpNear.exp2_near_correct.
+Print Assumptions DyExpNear.exp2_near_strict.
+Print Assumptions DyExpNear.exp10_near_correct.
+Print Assumptions DyExpNear.exp10_near_strict.
+Print Assumptions DyExpNear.sinh_near_correct.
+Print Assumptions DyExpNear.sinh_near_strict.
+Print Assumptions DyExpNear.cosh_near_correct.
+Print Assumptions DyExpNear.cosh_near_strict.
+Print Assumptions DyExpNear.tanh_near_correct.
+Print Assumptions DyExpNear.tanh_near_strict.
+Print Assumptions DyLogNear.ln_near_correct.
+Print Assumptions DyLogNear.ln_near_strict.
+Print Assumptions DyLogNear.log2_near_correct.
+Print Assumptions DyLogNear.log2_near_strict.
+Print Assumptions DyLogNear.log10_near_correct.
+Print Assumptions DyLogNear.log10_near_strict.
+Print Assumptions DyLogNear.asinh_near_correct.
+Print Assumptions DyLogNear.asinh_near_strict.
+Print Assumptions DyLogNear.acosh_near_correct.
+Print Assumptions DyLogNear.acosh_near_strict.
+Print Assumptions DyLogNear.atanh_near_correct.
+Print Assumptions DyLogNear.atanh_near_strict.
+Print Assumptions DyAtanNear.atan_near_correct.
+Print Assumptions DyAtanNear.atan_near_strict.
+Print Assumptions DyAtanNear.asin_near_correct.
+Print Assumptions DyAtanNear.asin_near_strict.
+Print Assumptions DyAtanNear.acos_near_correct.
+Print Assumptions DyAtanNear.acos_near_strict.
+Print Assumptions DyAtanNear.atan2_near_correct.
+Print Assumptions DyAtanNear.atan2_near_strict.
+Print Assumptions DyTrigNear.sin_near_correct.
+Print Assumptions DyTrigNear.sin_near_strict.
+Print Assumptions DyTrigNear.cos_near_correct.
+Print Assumptions DyTrigNear.cos_near_strict.
+Print Assumptions DyTrigNear.tan_near_correct.
+Print Assumptions DyTrigNear.tan_near_strict.
+Print Assumptions DyPowNear.pow_near_correct.
+Print Assumptions DyPowNear.pow_near_strict.
+Print Assumptions DyPowNear.pown_near_correct.
+Print Assumptions DyPowNear.pown_near_strict.
+Print Assumptions DyPowNearExact.exact_near_complete.
+Print Assumptions DyPowNear.pow_near_midpoint.
+Print Assumptions CrPow.cr_pow_dir_neg.
+Print Assumptions CrPow.cr_pow_dir_dom.
+Print Assumptions CrPow.cr_pow_dir_strict.
+Print Assumptions CrPow.cr_pow_near_neg.
+Print Assumptions CrPow.cr_pow_near_dom.
+Print Assumptions CrPow.cr_pow_near_strict.
 Print Assumptions E_tightest.
 Print Assumptions FRAC_1_PI_tightest.
 Print Assumptions FRAC_1_SQRT_2_tightest.

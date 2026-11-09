@@ -1,0 +1,1766 @@
+# A sample of the worst cases of CORE-MATH, for the test `hard_cases` in hard_cases.rs:
+# of its files src/binary64/<f>/<f>.wc at https://gitlab.inria.fr/core-math/core-math,
+# commit 660067dfd3e751c8f07acc31c899ff410aa7206e.
+# A line `@ <name> <file>` starts the arguments of the function <name> of `inari::cr`, from
+# CORE-MATH's <file>. The other lines are CORE-MATH's: arguments, one per line, or two
+# separated by a comma, each after the comments of the section of its file that it comes
+# from (a run of comments and the arguments after it, mostly one search). After each argument,
+# a comment says how hard f(x) is to round, by MPFR at 256 bits: `h=<h>` where
+# 2^(-h-1) <= d/|f(x)| < 2^-h with h < 160, d the distance from f(x) to the nearest f64 or
+# midpoint of two adjacent f64s, subnormals included (for a normal f(x), h is 53 or 54 plus
+# the number of identical bits after the round bit); `near` where h >= 160 (mostly tiny
+# arguments, where f(x) is about 1, x or a constant); `exact` where f(x) is one of those
+# numbers; and `special` where f(x) is a NaN, an infinity, 0 or at least 2^1024.
+#
+# The rule that picked them from each file, after repeated arguments are removed, with ties
+# going to the first in the file: of a function of one f64, every argument that is not a
+# hexadecimal float (CORE-MATH's special values), the first 8 exact ones and the first
+# 8 near ones, the 40 with the highest h, the one with the highest h in each
+# section, and the one with the highest h in each of 16 slices of equal size of the
+# hexadecimal arguments sorted by value; of atan2 and pow, the first 4 exact ones and
+# the first 4 near ones, the 24 with the highest h, and the one with the highest h
+# in each section. The ignored test `sample_hard_cases` in hard_cases.rs writes this file
+# again.
+#
+# The worst-case files of CORE-MATH carry this notice, kept here:
+# This file is part of the CORE-MATH project
+# (https://core-math.gitlabpages.inria.fr/).
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+@ exp exp/exp.wc
+# the following inputs exercise underflow or overflow
+0x1.62e42fefa39efp+9 # h=56
+# hard-to-round cases for exp in binary64
+# for most inputs x, exp(x) has at least 41 identical bits
+# after the round bit (-m 42 with BaCSeL)
+-0x1.0000000000001p-51 # h=154
+-0x1.0000000000002p-50 # h=151
+-0x1.0000000000004p-49 # h=148
+-0x1.0000000000008p-48 # h=145
+-0x1.000000000001p-47 # h=142
+-0x1.000000000002p-46 # h=139
+-0x1.000000000004p-45 # h=136
+-0x1.12d31a20fb38bp+5 # h=111
+0x1.1ffffffffffafp-45 # h=136
+-0x1.2000000000051p-45 # h=136
+-0x1.3c1fe3cd7fd68p-12 # h=104
+0x1.3ffffffffff9cp-45 # h=135
+0x1.3ffffffffffcep-46 # h=138
+0x1.3ffffffffffe7p-47 # h=141
+-0x1.4000000000019p-47 # h=141
+-0x1.4000000000032p-46 # h=138
+-0x1.4000000000064p-45 # h=135
+-0x1.5f85eebfcd4f9p-12 # h=104
+0x1.5fffffffffc38p-42 # h=126
+0x1.5ffffffffff87p-45 # h=135
+-0x1.6000000000079p-45 # h=135
+-0x1.630f2305b0347p+9 # h=96
+-0x1.76f37101c28abp-12 # h=103
+0x1.7ffffffffff7p-45 # h=134
+0x1.7ffffffffffb8p-46 # h=137
+0x1.7ffffffffffdcp-47 # h=140
+0x1.7ffffffffffeep-48 # h=143
+0x1.7fffffffffff7p-49 # h=146
+-0x1.8000000000009p-49 # h=146
+-0x1.8000000000012p-48 # h=143
+-0x1.8000000000024p-47 # h=140
+-0x1.8000000000048p-46 # h=137
+-0x1.800000000009p-45 # h=134
+0x1.83d4bcdebb3f4p+2 # h=111
+-0x1.8e4aaad97ed04p-8 # h=109
+0x1.9ffffffffff57p-45 # h=134
+-0x1.a2772020006d1p-12 # h=108
+-0x1.a2fefefd580dfp-13 # h=111
+-0x1.ac007d81ea65cp-12 # h=103
+0x1.ba07d73250de7p-14 # h=108
+0x1.bffffffffff9ep-46 # h=137
+0x1.bffffffffffcfp-47 # h=140
+-0x1.c000000000031p-47 # h=140
+-0x1.c000000000062p-46 # h=137
+-0x1.ceff32831e2c2p-12 # h=107
+0x1.fffffffffff8p-46 # h=136
+0x1.fffffffffffcp-47 # h=139
+0x1.fffffffffffep-48 # h=142
+0x1.ffffffffffffp-49 # h=145
+0x1.ffffffffffff8p-50 # h=148
+0x1.ffffffffffffcp-51 # h=151
+0x1.ffffffffffffep-52 # h=154
+0x1.fffffffffffffp-53 # h=157
+-0x1.ed318efb627eap-27 # h=113
+# the following values are such that exp(x) ~ 2^-1075
+-0x1.74910d52d3053p+9 # h=42
+# some tests for output in the subnormal range
+-0x1.6232c09d15037p+9 # h=57
+# check sign of 0
+-0x1.49f33ad2c1c58p+9 # h=59
+# non-regression tests
+-0x1.6340dd13130b1p+9 # h=68
+# additional worst cases in the subnormal range with at least 33 identical
+# bits after the round bit (-m 34 with bacsel)
+-0x1.62bc5fd2365a2p+9 # h=95
+# additional worst cases in [-2^-11, -2^-12) computed with bacsel (-m 44)
+-0x1.fea8c0be6c8d6p-12 # h=97
+# additional worst cases in [-2^-11,-2^-11)
+-0x1.97b8be87ffb04p-12 # h=96
+# additional worst cases computed with bacsel (-m 42)
+-0x1.fcb4c7f9b1cb3p+1 # h=97
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # exact
+-0 # exact
++0x1p-1074 # near
+-0x1p-1074 # near
++0x.fffffffffffffp-1022 # near
+-0x.fffffffffffffp-1022 # near
++0x1p-1022 # near
+-0x1p-1022 # near
++1 # h=54
+-1 # h=54
+# exercise underflow:
+-1000.0 # h=-1
+# test cases from https://ipsj.ixsq.nii.ac.jp/records/231099 (section 6.3)
+# (all already included above)
+# hard-to-round cases so that 2^-1022 <= exp(x) < 2^-1021 with
+# at least 24 identical bits after the round bit (-m 25 with BaCSeL)
+# that make vexp fail (https://github.com/Vectorized-CR/vectorized-exp.git)
+# (revision df6b361) and not included above
+-0x1.622be838b427bp+9 # h=93
+# the following inputs improve coverage (AI generated)
+# every exact public key in the embedded database
+# additional hard-to-round cases in the subnormal range
+-0x1.71cb44f2f3bdep+9 # h=51
+# the following input failed with rndz and no FMA contraction
+0x1.5a3a157335f3bp+9 # h=70
+@ exp2 exp2/exp2.wc
+# the following inputs exercise overflow or underflow
+0x1.fffffffffffffp+9 # h=55
+-0x1.0ccp+10 # exact
+# the following are hard-to-round cases
+0x1p+9 # exact
+0x1.008p+9 # exact
+0x1.01p+9 # exact
+0x1.018p+9 # exact
+0x1.02p+9 # exact
+0x1.028p+9 # exact
+0x1.03p+9 # exact
+0x1.d13cbd3e943e8p+5 # h=104
+0x1.bfbbde44edfc5p-25 # h=112
+0x1.12b14a318f904p-27 # h=111
+0x1.7dc8ab2445844p-27 # h=108
+-0x1.06922ce606443p-25 # h=109
+0x1.1380388fd8942p-33 # h=109
+-0x1.ffd868582d783p+8 # h=104
+-0x1.be613ca4dc46ep-29 # h=108
+-0x1.a306a55b8606ap-29 # h=110
+-0x1.9d8cebd8f5fbep-28 # h=108
+-0x1.e242801b45d0dp-2 # h=108
+-0x1.fe89353e31cbfp-3 # h=108
+-0x1.d4854d9f87fcap-3 # h=108
+-0x1.526ce079b05a5p-5 # h=109
+-0x1.35dd739305031p-6 # h=108
+-0x1.ba84c6ebfb038p-9 # h=108
+-0x1.899e0474ba2d5p-9 # h=110
+-0x1.8177265c6649bp-10 # h=109
+-0x1.3ec814d260d02p-10 # h=109
+-0x1.120d3bdfb6ed8p-10 # h=108
+-0x1.2863abaeaf7b2p-15 # h=111
+-0x1.0a4529bfcfbedp-18 # h=108
+-0x1.f89a9ba93f61ep-19 # h=109
+-0x1.416f6c6445acfp-20 # h=111
+-0x1.f03b65b302afcp-26 # h=108
+-0x1.a4e9ef417b2eep-31 # h=109
+-0x1.055601c8ab3f1p-32 # h=111
+-0x1.185b8db6d581dp-33 # h=111
+-0x1.bc7a709d1a2adp-36 # h=110
+-0x1.7a5e8b8819813p-38 # h=109
+-0x1.87f65352ea0d5p-42 # h=110
+-0x1.6b8f24796d658p-43 # h=110
+-0x1.0803609521b02p-44 # h=110
+-0x1.8869bdb7e3b3bp-48 # h=109
+-0x1.14ff58be0a23fp-52 # h=109
+0x1.93f4616a79669p-44 # h=109
+0x1.6877fb998c6dp-16 # h=108
+0x1.e4596526bf94dp-10 # h=112
+0x1.e76049073067fp-10 # h=110
+0x1.f99afefa30d65p-8 # h=110
+0x1.8fea81fb7512ep-6 # h=110
+0x1.25dd9eedac79ap+0 # h=106
+0x1.12eecf76d63cdp+1 # h=106
+0x1.568e8cec4f66cp-29 # h=110
+0x1.93998f2295764p-21 # h=109
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # exact
+-0 # exact
++0x1p-1074 # near
+-0x1p-1074 # near
++0x.fffffffffffffp-1022 # near
+-0x.fffffffffffffp-1022 # near
++0x1p-1022 # near
+-0x1p-1022 # near
+# threshold values
+-0x1.ff00000000001p+9 # h=55
+# non-regression test (reported by Erik E.)
+# inputs contributed by Erik E.
+-0x1.ffffffd554p+8 # h=63
+# failures found by Eric Hennenhoefer using AI
+-0x1.fc0ddfffabb51p+6 # h=72
+# the following inputs improve coverage (AI generated)
+0x1.612c9618fca04p+0 # h=73
+@ exp10 exp10/exp10.wc
+# worst cases from https://www.vinc17.net/research/testlibm/testlibm-data.xz
+# (update from 2020-11-27), from -0.30 to 302, with 45 to 60 identical bits
+# after the round bit
+0x1.2d5494eb1dd13p+2 # h=108
+0x1.406d8aaf97bd4p-41 # h=107
+0x1.58c1635f834d6p+7 # h=108
+0x1.7c3ddd23ac8cap-10 # h=111
+0x1.7e32342e07d7ep-38 # h=107
+0x1.a83b1cf77989p-26 # h=113
+0x1.aa6e0810a7c29p-2 # h=111
+0x1.ca3d76530c29bp-17 # h=109
+0x1.df760b2cdeed3p-49 # h=111
+-0x1.0892e5bab3afbp-29 # h=109
+-0x1.6faf3fb34f511p-43 # h=108
+-0x1.9ef920bed31b3p-8 # h=109
+-0x1.d8832c6795363p-52 # h=109
+-0x1.f38d3497c750ap-23 # h=111
+-0x1.fdebe98f7bd2bp-19 # h=108
+# additional worst cases computed with BaCSeL
+# with at least 44 identical bits after the round bit (-m 45 with BaCSeL)
+# Denormal output: -0x1.434e6420f4373p+8 <= x < -0x1.33a7146f72a41p+8
+# Normal output: 2^-55 <= x < 0x1.34413509f79ffp+8
+#                -0x1.439b746e36b52p+8 <= x < 2^-55
+0x1.821e0f2afb97p-11 # h=109
+0x1.c8d5d475181c2p-11 # h=109
+0x1.78d2f9978e8bep-9 # h=108
+0x1.e7b525705edefp-5 # h=109
+0x1.d7d271ab4eeb4p-2 # h=118
+0x1p+0 # exact
+0x1.75f49c6ad3badp+0 # h=118
+0x1p+1 # exact
+0x1.8p+1 # exact
+0x1.ee9674267e65fp+1 # h=108
+0x1p+2 # exact
+0x1.4p+2 # exact
+0x1.8p+2 # exact
+0x1.cp+2 # exact
+0x1p+3 # exact
+-0x1.bcb7b1526e50fp-54 # h=108
+-0x1.5219272f4b3e6p-44 # h=111
+-0x1.a3952f84ce6abp-42 # h=108
+-0x1.69a1afa574f2cp-41 # h=110
+-0x1.c58f3c4a001abp-39 # h=109
+-0x1.5e6d9af8e17fcp-39 # h=109
+-0x1.c25a6b3f3e7c4p-38 # h=108
+-0x1.063c5f572cb2dp-38 # h=108
+-0x1.a495da897dd42p-37 # h=110
+-0x1.f28e0e25574a5p-32 # h=113
+-0x1.ebb11d32c9493p-10 # h=110
+-0x1.1416c72a588a6p-1 # h=118
+-0x1.6c48d3bacc30cp+7 # h=109
+0x1.5949ce32f78a3p-21 # h=109
+-0x1.97bce2179d452p-23 # h=108
+-0x1.a2ac790f54b99p-21 # h=110
+-0x1.728b9b48e9e9ap-19 # h=111
+-0x1.3df9f699e416p-18 # h=109
+-0x1.45ddb10382e3fp-15 # h=108
+-0x1.21c4325902ac5p-13 # h=110
+# non-regression tests
+-0x1.33a716d246992p+8 # h=54
+# special values or values near thresholds in the code
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # exact
+-0 # exact
++0x1p-1074 # near
+-0x1p-1074 # near
++0x.fffffffffffffp-1022 # near
+-0x.fffffffffffffp-1022 # near
++0x1p-1022 # near
+-0x1p-1022 # near
+-1 # h=55
+# threshold 0x1.34413509f79ffp+8
+0x1.34413509f79fep+8 # h=56
+# threshold -0x1.439b746e36b53p+8
+-0x1.439b746e36b52p+8 # h=44
+# threshold -0x1.434e6420f4374p+8
+-0x1.434e6420f4374p+8 # h=46
+# threshold 0x1.bcb7b1526e50ep-56 (for |x|)
+-0x1.bcb7b1526e50ep-56 # h=108
+# denormal threshold
+-0x1.33a7146f72a43p+8 # h=57
+# failures found by Eric Hennenhoefer using AI
+-0x1.47c4596b2aa7ap+4 # h=76
+@ ln log/log.wc
+# worst cases from
+# https://www.vinc17.net/research/testlibm/hrcases/hrcases-explog.xz:
+0x1.ac50b409c8aeep+8 # h=114
+0x1.b890ca8637ae2p+40 # h=112
+0x1.d3da559aa99f5p+63 # h=112
+0x1.91ec4412c344fp+86 # h=115
+0x1.62e4dc3bbf53fp+136 # h=112
+0x1.7a8f65ad009bdp+128 # h=113
+0x1.5996e62e5753fp+186 # h=112
+0x1.1f19ae6db054ep+193 # h=112
+0x1.c90810d354618p+245 # h=117
+0x1.b7f71a488641ap+340 # h=114
+0x1.bbdf7dd7ac127p+331 # h=112
+0x1.123add2cfe736p+359 # h=112
+0x1.db9797d3d32e8p+415 # h=112
+0x1.d6a413a59c7eap+502 # h=113
+0x1.9a86785b5ef3ep+491 # h=112
+0x1.ad9cb1932cb03p+480 # h=113
+0x1.6ab13075e3f2dp+457 # h=112
+0x1.f2382637c71c2p+460 # h=112
+0x1.27d6fe867d6f6p+435 # h=113
+0x1.758247d0be2e1p+534 # h=112
+0x1.f5da7fe652978p+597 # h=112
+0x1.6b3d29c0f9e6ep+543 # h=113
+0x1.193d3ba630343p+615 # h=112
+0x1.62a88613629b6p+678 # h=118
+0x1.8670de0b68cadp+656 # h=115
+0x1.fd15daa6ce332p+732 # h=115
+0x1.2b67eff65dce8p+709 # h=114
+0x1.be87838f1a47cp+774 # h=113
+0x1.7b1d97c902985p+772 # h=114
+0x1.fbe20477df4a7p+850 # h=113
+0x1.9ea7540a3d1f9p+953 # h=113
+0x1.613955dc802f8p-35 # h=113
+0x1.26e9c4d32796p-232 # h=114
+0x1.8c0d4140c77b7p-295 # h=112
+0x1.9476e304cd7c7p-384 # h=113
+0x1.ea71d85cee02p-509 # h=113
+0x1.c573e7d6a51cap-512 # h=113
+0x1.e9d2ef9b57262p-701 # h=113
+0x1.dde003300019p-699 # h=113
+0x1.452c8337ad7d3p-664 # h=113
+0x1.91f8729a9282bp-574 # h=113
+0x1.a8346abf875c7p-815 # h=112
+0x1.6fb77644d2449p-969 # h=112
+# extra worst cases with 47 identical bits or more after the round bit
+# we should have all worst cases with 47 identical bits or more in this file
+0x1.eb7b7d4cf0a1dp-900 # h=109
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # special
+-0 # special
++0x1p-1074 # h=55
+-1 # special
+# errno tests
+# the following inputs improve coverage (AI generated)
+0x1.fffffffffffe0p-1 # h=97
+@ log2 log2/log2.wc
+# partial list of hard-to-round cases for log2 with at least 43 identical bits
+# after the round bit. To obtain a full list, you need to scale these numbers
+# by powers of 2. For example x=0x1.ff556650693a6p+1023 is a hard-to-round
+# case, but x/2, x/4, ..., x/2^511 are also hard-to-round cases, since
+# log2(x/2), .., log2(x/2^511) are in the same binade and differ by an integer
+# The check_special.c program checks scaled values for all x in that file.
+0x1p-1058 # exact
+0x1p-1057 # exact
+0x1p-1056 # exact
+0x1p-1055 # exact
+0x1p-1054 # exact
+0x1p-1053 # exact
+0x1p-1052 # exact
+0x1p-1051 # exact
+0x1.b4ebe40c95a01p+0 # h=107
+0x1.61555f75885b4p-1024 # h=109
+0x1.61555f75885b4p-1023 # h=109
+0x1.61555f75885b4p-513 # h=108
+0x1.61555f75885b4p-512 # h=108
+0x1.d30a43773dd1bp-512 # h=107
+0x1.61555f75885b4p-257 # h=107
+0x1.d30a43773dd1bp-257 # h=106
+0x1.61555f75885b4p-256 # h=107
+0x1.d30a43773dd1bp-256 # h=106
+0x1.d68d81e6978dfp-256 # h=105
+0x1.61555f75885b4p-129 # h=106
+0x1.d30a43773dd1bp-129 # h=105
+0x1.15a2bc270db74p-128 # h=105
+0x1.61555f75885b4p-128 # h=106
+0x1.8bd769c45c87ap-128 # h=105
+0x1.d30a43773dd1bp-128 # h=105
+0x1.61555f75885b4p-65 # h=105
+0x1.61555f75885b4p-64 # h=105
+0x1.2cda79edf96b9p-32 # h=105
+0x1.956b6f341f5dp-32 # h=106
+0x1.af4e9039f2511p-32 # h=105
+0x1.956b6f341f5dp-17 # h=105
+0x1.956b6f341f5dp-16 # h=105
+0x1.1ba39ff28e3eap-8 # h=108
+0x1.1ba39ff28e3eap-5 # h=108
+0x1.1ba39ff28e3eap-4 # h=107
+0x1.89d948a94fe17p-4 # h=106
+0x1.1ba39ff28e3eap-3 # h=107
+0x1.1ba39ff28e3eap-2 # h=106
+0x1.1ba39ff28e3eap-1 # h=105
+0x1.1ba39ff28e3eap+3 # h=107
+0x1.89d948a94fe17p+3 # h=106
+0x1.1ba39ff28e3eap+7 # h=108
+0x1.956b6f341f5dp+31 # h=106
+0x1.61555f75885b4p+127 # h=106
+0x1.61555f75885b4p+255 # h=107
+0x1.d30a43773dd1bp+255 # h=106
+0x1.61555f75885b4p+511 # h=108
+0x1.d30a43773dd1bp+511 # h=107
+0x1.61555f75885b4p+1023 # h=109
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # special
+-0 # special
++1 # special
+-1 # special
++0x1.fffffffffffffp+1023 # h=62
+# non-regression tests
+# errno tests
+# failures found by Eric Hennenhoefer using AI
+0x1.0012a678fa37ap+0 # h=78
+# the following inputs improve coverage (AI generated)
+0x1.ffffcf3070433p-1 # h=55
+@ log10 log10/log10.wc
+# the following is a list of hard-to-round cases with at least 48
+# identical bits after the round bit
+0x1.b0e12d8b3e4bp-964 # h=112
+0x1.0e8cbc7706eeep-960 # h=112
+0x1.68bec0e40830cp-879 # h=113
+0x1.c2ee711d0a3cfp-876 # h=113
+0x1.365116686b078p-765 # h=115
+0x1.83e55c0285c96p-762 # h=115
+0x1.900b0d01e2f71p-728 # h=113
+0x1.a6cff8dc3ec69p-691 # h=113
+0x1.489edcc24dfc5p-670 # h=113
+0x1.4b8635c0572b8p-635 # h=112
+0x1.9e67c3306cf66p-632 # h=112
+0x1.a8639e89f5e46p-625 # h=115
+0x1.2f4058e763e2fp-525 # h=112
+0x1.0a267404067fbp-394 # h=112
+0x1.dde70b954e85fp-356 # h=112
+0x1.c865c511f259ap-352 # h=112
+0x1.b5605895c33bcp-249 # h=113
+0x1.ba1f963d6e5c6p-178 # h=113
+0x1.8c8b39cbd7772p-170 # h=113
+0x1.3b1b5689138a6p-88 # h=112
+0x1.f4p+9 # exact
+0x1.4p+3 # exact
+0x1.ce41d8fa665fap+4 # h=120
+0x1.9p+6 # exact
+0x1.c8ed39b9d8a37p+12 # h=112
+0x1.388p+13 # exact
+0x1.86ap+16 # exact
+0x1.e848p+19 # exact
+0x1.312dp+23 # exact
+0x1.7d784p+26 # exact
+0x1.ed8c87c3bf5cfp-49 # h=115
+0x1.46f55e411643ep+72 # h=113
+0x1.c295d530e7d8fp+184 # h=115
+0x1.27d838f22d0ap-2 # h=118
+0x1.758976044bfd1p+157 # h=115
+0x1.71ce472eb84c8p+1 # h=118
+0x1.b5f92b2a65f97p+247 # h=113
+0x1.24b2c846f6cb4p+272 # h=115
+0x1.6ddf7a58b47e1p+275 # h=115
+0x1.e12d66744ff81p+429 # h=121
+0x1.f1db8c56d5e76p+342 # h=114
+0x1.f5b55de961a8ep+541 # h=113
+0x1.b2981b787b622p+580 # h=114
+0x1.60e26f5a804abp+568 # h=113
+0x1.bd35ae5d5fe52p+952 # h=113
+0x1.d01b2ef68a124p+763 # h=115
+0x1.86361271301e9p+988 # h=113
+0x1.4f11ef1eb8b3fp+816 # h=113
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # special
+-0 # special
++0x.fffffffffffffp-1022 # h=56
+-1 # special
+# errno tests
+# the following inputs improve coverage (AI generated)
+0x1.080000000001bp+0 # h=65
+@ sinh sinh/sinh.wc
+# worst cases from https://www.vinc17.net/research/testlibm/testlibm-data.xz
+# (update from update on 2020-11-27, downloaded on March 1st, 2023)
+# (these worst cases are only for rounding to nearest)
+0x1.00a0a44cc45bp-3 # h=106
+0x1.0805c7b507885p-2 # h=107
+0x1.0dc68d5e8f959p-3 # h=108
+0x1.19e03c96f0997p-6 # h=106
+0x1.1bd15d167005p-11 # h=106
+0x1.1c11f1687d68fp+7 # h=106
+0x1.2c1e030b5decdp+9 # h=107
+0x1.3b7b291d8e166p-3 # h=106
+0x1.74b9a44ea1d38p-9 # h=106
+0x1.77cbb21c1fb1dp-16 # h=106
+0x1.7f0046225d651p+1 # h=107
+0x1.897374d74de2ap-13 # h=110
+0x1.8c154465149ep-8 # h=107
+0x1.9147ff03dfb3p-1 # h=108
+0x1.92a2ee78ed49cp-23 # h=107
+0x1.9b88da8cd4e51p-3 # h=107
+0x1.a9036addb8ab3p-12 # h=106
+0x1.b666fb2ba235p-15 # h=107
+0x1.bcee70ebe7ec9p-25 # h=109
+0x1.c7a8b9cdc1ba9p-11 # h=107
+0x1.cacafd15210aap-9 # h=106
+0x1.d0347c2d144ccp-12 # h=106
+0x1.e72460254649ap-19 # h=108
+# non-regression test
+0x1.21a0d7b7f3335p-1010 # near
+# other worst cases not included above (computed with BaCSeL,
+# from 4503599627370496/2^79 to 6249411755243648/2^43, with option
+# -m 44 from bacsel, i.e., all worst-cases with at least 43 identical
+# bits after the round bit).
+# We didn't search for x < 4503599627370496/2^79 ~ 7.45e-9, since for
+# x <= 0x1.7137449123ef7p-26 ~ 2.15e-8, x^3/6 < ulp(x)/2 thus sinh(x)
+# rounds to x
+0x1.b4d706debff0bp-23 # h=107
+0x1.dfffffffffe3ep-20 # h=126
+0x1.dfffffffff8f8p-19 # h=120
+0x1.dffffffffe3ep-18 # h=114
+0x1.67fffffffd08ap-17 # h=110
+0x1.dffffffff8f8p-17 # h=108
+0x1.e350511573cabp-17 # h=107
+0x1.70adff9f27684p-14 # h=108
+0x1.135e31fdd05d3p-5 # h=107
+0x1.03777b07dd0f8p-2 # h=97
+0x1.08ec3455c25fep-2 # h=99
+0x1.0a29986b31eedp-2 # h=98
+0x1.616cc75d49226p-2 # h=108
+0x1.d68039861ab53p-2 # h=107
+0x1.4185b1937c385p+2 # h=98
+0x1.c089fcf166171p+4 # h=108
+0x1.e07e71bfcf06fp+5 # h=109
+0x1.c7206c1b753e4p+8 # h=107
+0x1.d6479eba7c971p+8 # h=109
+0x1.54cd1fea7663ap+7 # h=109
+0x1.6474c604cc0d7p+6 # h=107
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # special
+-0 # special
++0x1p-1074 # near
+-0x1p-1074 # near
++0x.fffffffffffffp-1022 # near
+-0x.fffffffffffffp-1022 # near
++0x1p-1022 # near
+-0x1p-1022 # near
++1 # h=55
+-1 # h=55
+# glibc tests values
+# threshold values
+0x1.633ce8fb9f87cp+9 # h=56
+# failures found by Adhemerval Zanella
+# https://gitlab.inria.fr/core-math/core-math/-/issues/44
+0x1.41d21d963b094p+2 # h=75
+# new non-regression tests
+0x1.424c1f5e342d8p+2 # h=83
+0x1.405923791d6b9p+2 # h=84
+# some test cases giving large errors
+0x1.7140d9b911ad3p-26 # h=65
+# failures found with revision d764c73:
+0x1.024965afaa3f6p-2 # h=82
+0x1.02a18f40b139ep-2 # h=83
+0x1.050e96d95418dp-2 # h=81
+0x1.050ed80b4b6c3p-2 # h=81
+0x1.050f768719a8cp-2 # h=81
+0x1.088652e119baep-2 # h=81
+0x1.088790c8ccfaep-2 # h=81
+# the following yields a large error with GNU libc 2.44
+0x1.26a89f348627ap+5 # h=64
+@ cosh cosh/cosh.wc
+# Remark: since WORST_SYMMETRIC is defined in function_under_test.h,
+# only positive worst cases need to be included here
+#
+# worst cases from https://www.vinc17.net/research/testlibm/testlibm-data.xz
+# (update from update on 2020-11-27, downloaded on March 1st, 2023):
+0x1.03923f2b47c07p-1 # h=107
+0x1.0cf01d3f9f5e4p-11 # h=107
+0x1.743d5609348acp+4 # h=108
+0x1.90b8278768adcp-21 # h=107
+0x1.9a3b9a61b3839p-9 # h=107
+0x1.a7880e4eee076p-13 # h=108
+0x1.b44dba31c9521p-10 # h=107
+0x1.da5df035e5e8dp-22 # h=109
+0x1.dea0b0c844078p-11 # h=108
+0x1.ea5f2f2e4b0c5p+1 # h=110
+# non-regression tests
+0x1.3c44d4133d14dp-8 # h=76
+0x1.ba0790df30f6ep-818 # near
+0x1.3e0a7fcad17d1p-532 # near
+0x1.86ff555a5d6c1p-263 # near
+0x1.9ac9e3ea867dap-382 # near
+0x1.260615f80852p-500 # near
+0x1.2da6b35409173p-107 # near
+0x1.ab38a22d397a7p-269 # near
+0x1.ac6e62ce015ffp-184 # near
+# other worst cases generated with bacsel (not already above)
+# with at least 43 identical bits after the round bit
+# in the range [1/2^26, 6249411755243648/2^43)
+# for x < 1/2^26, cosh(x) rounds to 1 or 1 + 2^-52
+# for x >= 6249411755243648/2^43. we get overflow
+0x1.7fffffffffff7p-23 # h=142
+0x1.7ffffffffff7p-21 # h=130
+0x1.1ffffffffff0dp-20 # h=126
+0x1.7fffffffffdcp-20 # h=124
+0x1.dfffffffffb9bp-20 # h=122
+0x1.1fffffffffc34p-19 # h=120
+0x1.7fffffffff7p-19 # h=118
+0x1.dffffffffee6cp-19 # h=116
+0x1.1fffffffff0dp-18 # h=114
+0x1.4ffffffffe7e2p-18 # h=113
+0x1.7ffffffffdcp-18 # h=112
+0x1.affffffffccbep-18 # h=111
+0x1.dffffffffb9bp-18 # h=110
+0x1.07fffffffd135p-17 # h=109
+0x1.1ffffffffc34p-17 # h=108
+0x1.37f9ba95b4dc6p-13 # h=107
+0x1.bf0305e2c6c37p-3 # h=107
+0x1.465655f122ff5p-24 # h=114
+0x1.9ec474a261261p-24 # h=108
+0x1.17d8a9f206217p-6 # h=107
+0x1.104b648f113a1p+0 # h=109
+0x1p-26 # h=108
+0x1.54cd1fea7663ap+7 # h=109
+0x1.a6031cd5f93bap-1 # h=107
+0x1.7ffffffffffdcp-22 # h=136
+0x1.c7206c1b753e4p+8 # h=107
+0x1.37fffffffb2c3p-17 # h=108
+0x1.d6479eba7c971p+8 # h=109
+0x1.e07e71bfcf06fp+5 # h=109
+0x1.67eae89ff2bd2p-15 # h=107
+0x1.6bf1fa1a60ea7p-16 # h=108
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # exact
+-0 # exact
++1 # h=54
+-1 # h=54
+# glibc tests values
+# threshold values
+0x1.633ce8fb9f87cp+9 # h=56
+# failures found by Adhemerval Zanella
+# https://gitlab.inria.fr/core-math/core-math/-/issues/43
+-0x1.41eafc1cc27e8p+2 # h=69
+@ tanh tanh/tanh.wc
+# this file need only contain positive worst cases since WORST_SYMMETRIC
+# is defined in function_under_test.h
+#
+# worst cases from https://www.vinc17.net/research/testlibm/testlibm-data.xz
+# (update from update on 2020-11-27, downloaded on March 1st, 2023)
+0x1.0a90d36059a04p-6 # h=107
+0x1.1375c272d441cp+1 # h=110
+0x1.291c601a05276p-2 # h=107
+0x1.30842605350a2p-21 # h=109
+0x1.66f2616067472p-17 # h=106
+0x1.68000000017bbp-19 # h=116
+0x1.84fbe3f9dada3p+1 # h=106
+0x1.880072ccb1051p-11 # h=107
+0x1.9a907c24108e9p-25 # h=105
+0x1.9ac41947f5c08p-8 # h=107
+0x1.ac343b179fec4p-3 # h=113
+0x1.b62826fcb7337p-11 # h=106
+0x1.c3e1f9778db14p-14 # h=107
+0x1.c3f025670d6a7p-22 # h=109
+0x1.c8d1452eec914p-5 # h=106
+0x1.d37c75e733e5fp-13 # h=107
+0x1.d88d7550b2826p-2 # h=105
+0x1.e0000000000e1p-22 # h=132
+0x1.f4cc7bcaebf8dp-13 # h=106
+# worst cases (not included above) computed with bacsel with -m 44,
+# i.e., with at least 43 identical bits after the round bit,
+# in the range 0x1.d12ed0af1a27fp-27 <= x < 0x1.30fc1931f09cap+4
+0x1.d12ed0af1a27fp-27 # h=107
+0x1.250bfe1b082f5p-26 # h=106
+0x1.7137449123ef8p-25 # h=106
+0x1.5f999ff1d21fdp-19 # h=108
+0x1.6800000005eecp-18 # h=110
+0x1.b4c183fd4c492p-15 # h=106
+0x1.c142400d24a85p-15 # h=108
+0x1.5ad069d649057p-12 # h=108
+0x1.19b958329c119p-9 # h=107
+0x1.03289aa1045dbp+3 # h=110
+0x1.81c5052d64a7ep-22 # h=106
+0x1.e000000000384p-21 # h=126
+0x1.e000000000e1p-20 # h=120
+0x1.e00000000384p-19 # h=114
+0x1.6554bfe4a4e78p-12 # h=107
+0x1.8c2c81185023dp-12 # h=106
+0x1.b8aca02fd218bp-8 # h=107
+0x1.e7b151e50ace8p-8 # h=107
+0x1.16a973d843b7bp-3 # h=107
+0x1.e00000000e1p-18 # h=108
+0x1.5f999ff1e6d9bp-17 # h=107
+0x1.dee41bec740edp-17 # h=107
+0x1.ab5c10840becdp-16 # h=107
+# special cases
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # exact
+-inf # exact
++0 # special
+-0 # special
++0x1p-1074 # near
+-0x1p-1074 # near
++0x.fffffffffffffp-1022 # near
+-0x.fffffffffffffp-1022 # near
++0x1p-1022 # near
+-0x1p-1022 # near
++1 # h=55
+-1 # h=55
++0x1.fffffffffffffp+1023 # near
+-0x1.fffffffffffffp+1023 # near
+# the following is the largest value such that tanh(x) does not round to 1
+# for rounding to nearest
+0x1.30fc1931f09c9p+4 # h=101
+# the following is the smallest value such that tanh(x) rounds to 1
+# for rounding to nearest
+0x1.30fc1931f09cap+4 # h=102
+# non-regression tests
+0x1.0000003fdf17ep-3 # h=65
+# the following value defeats the logic of the rounding test for rndz
+# with e = x3*0x1.abp-52
+0x1.01e4ac271031cp-5 # h=57
+# the following values fail with a reduced error bound
+0x11.e44c76af19d67p+1 # h=102
+@ asinh asinh/asinh.wc
+# worst cases of asinh computed with BaCSeL with at least 43 identical bits
+# after the round bit (-m 44) in [0x1.7137449123ef6p-26, 0x1p+1024)
+0x1.e000000003f48p-19 # h=120
+0x1.e00000000fd2p-18 # h=114
+0x1.27d6fe867d6f6p+434 # h=113
+0x1.193d3ba630343p+614 # h=112
+0x1.2b67eff65dce8p+708 # h=114
+0x1.0ccdc52c38712p+920 # h=112
+0x1.e000000000fd2p-20 # h=126
+0x1.62e4dc3bbf53fp+135 # h=112
+0x1.04517520386e5p+136 # h=111
+0x1.edce031790119p+914 # h=112
+0x1.8670de0b68cadp+655 # h=115
+0x1.685463d30fb69p+720 # h=112
+0x1.be87838f1a47cp+773 # h=113
+0x1.9ea7540a3d1f9p+952 # h=113
+0x1.7b1d97c902985p+771 # h=114
+0x1.c90810d354618p+244 # h=117
+0x1.5996e62e5753fp+185 # h=112
+0x1.91ec4412c344fp+85 # h=115
+0x1.352a874aff884p+839 # h=112
+0x1.ad9cb1932cb03p+479 # h=113
+0x1.f5da7fe652978p+596 # h=112
+0x1.db9797d3d32e8p+414 # h=112
+0x1.c561b55246db6p+717 # h=112
+0x1.d6a413a59c7eap+501 # h=113
+0x1.6ab13075e3f2dp+456 # h=112
+0x1.fd2634ca3c97cp+1 # h=111
+0x1.5c452e0e37569p+39 # h=112
+0x1.fd15daa6ce332p+731 # h=115
+0x1.bbdf7dd7ac127p+330 # h=112
+0x1.1f19ae6db054ep+192 # h=112
+0x1.f2382637c71c2p+459 # h=112
+0x1.758247d0be2e1p+533 # h=112
+0x1.d3da559aa99f5p+62 # h=112
+0x1.62a88613629b6p+677 # h=118
+0x1.b7f71a488641ap+339 # h=114
+0x1.9a86785b5ef3ep+490 # h=112
+0x1.6b3d29c0f9e6ep+542 # h=113
+0x1.31143c7c0b1e6p+961 # h=112
+0x1.fbe20477df4a7p+849 # h=113
+0x1.7a8f65ad009bdp+127 # h=113
+0x1.123add2cfe736p+358 # h=112
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # special
+-0 # special
++0x1p-1074 # near
+-0x1p-1074 # near
++0x.fffffffffffffp-1022 # near
+-0x.fffffffffffffp-1022 # near
++0x1p-1022 # near
+-0x1p-1022 # near
++1 # h=55
+-1 # h=55
+# failures found by Vincenzo Innocente in the range 0x1.3p-6 <= x < 0x1.bp-4
+0x1.05f37b50d406ep-4 # h=78
+# extra hard-to-round cases with 38-42 identical bits after the
+# round bit needed to complete the proof of the accurate path
+# for |x| >= 0.25
+0x1.007d21a7c9d54p+8 # h=96
+@ acosh acosh/acosh.wc
+# worst cases of asinh computed with BaCSeL with at least 43 identical bits
+# after the round bit (-m 44)
+0x1.27d6fe867d6f6p+434 # h=113
+0x1.193d3ba630343p+614 # h=112
+0x1.2b67eff65dce8p+708 # h=114
+0x1.0ccdc52c38712p+920 # h=112
+0x1.297de35d02e9p+13 # h=114
+0x1.62e4dc3bbf53fp+135 # h=112
+0x1.04517520386e5p+136 # h=111
+0x1.edce031790119p+914 # h=112
+0x1.b4870d2098262p+476 # h=111
+0x1.8670de0b68cadp+655 # h=115
+0x1.12e24c5146e47p+171 # h=111
+0x1.da4255c59658ep+359 # h=111
+0x1.685463d30fb69p+720 # h=112
+0x1.be87838f1a47cp+773 # h=113
+0x1.d3da559aa99f5p+62 # h=112
+0x1.9ea7540a3d1f9p+952 # h=113
+0x1.7b1d97c902985p+771 # h=114
+0x1.62a88613629b6p+677 # h=118
+0x1.5996e62e5753fp+185 # h=112
+0x1.c90810d354618p+244 # h=117
+0x1.91ec4412c344fp+85 # h=115
+0x1.352a874aff884p+839 # h=112
+0x1.ad9cb1932cb03p+479 # h=113
+0x1.f5da7fe652978p+596 # h=112
+0x1.db9797d3d32e8p+414 # h=112
+0x1.c561b55246db6p+717 # h=112
+0x1.d6a413a59c7eap+501 # h=113
+0x1.6ab13075e3f2dp+456 # h=112
+0x1.fd15daa6ce332p+731 # h=115
+0x1.bbdf7dd7ac127p+330 # h=112
+0x1.1f19ae6db054ep+192 # h=112
+0x1.f2382637c71c2p+459 # h=112
+0x1.758247d0be2e1p+533 # h=112
+0x1.b7f71a488641ap+339 # h=114
+0x1.9a86785b5ef3ep+490 # h=112
+0x1.6b3d29c0f9e6ep+542 # h=113
+0x1.31143c7c0b1e6p+961 # h=112
+0x1.fbe20477df4a7p+849 # h=113
+0x1.7a8f65ad009bdp+127 # h=113
+0x1.123add2cfe736p+358 # h=112
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # special
+-0 # special
+-1 # special
++0x1.fffffffffffffp+1023 # h=54
+# non-regression tests
+0x1.1b06262ef398p+0 # h=66
+# failures found by Adhemerval Zanella during GNU libc integration
+0x1.1ae784d2357bep+0 # h=65
+# new failure after commit dbd2a63
+0x1.08aa2c959b935p+0 # h=64
+# new failures found by exhaustive search in [0x1.04p+0,0x1.2p+0)
+0x1.00b30708fdd66p+0 # h=74
+# the following inputs fail with a reduced error bound
+0x1.00ad7471e296dp+0 # h=77
+# inputs that trigger the maximal values of |dx| in the code
+# for 2^16 <= x < 2^32
+0x1.1e28c09cdf3dp+26 # h=69
+# these inputs yield v >= 2 in the accurate path
+0x1.03ffa8a9e7d15p+2 # h=58
+# hard-to-round inputs in [x0,275) with less identical bits after the round bit
+# where x0=0x1.1e83e425aee63p+0:
+# [12,275): 42 identical bits after the round bit
+# [2.6,12): 41-42 identical bits after the round bit
+# [1.5,2.6): 40-42 identical bits after the round bit
+# [x0,1.5): 39-42 identical bits after the round bit
+0x1.01960d94670bbp+7 # h=96
+# test case for issue reported by anun333 <anun333@posteo.net>
+0x1.c2678203578e2p+0 # h=71
+@ atanh atanh/atanh.wc
+# This file contains worst cases for atanh with at least 43 identical bits
+# after the round bit (computed with BaCSeL with -m 44).
+# Important notes:
+# (1) since atanh(-x) = -atanh(x), if x is a worst case, then -x is too.
+#     To save space, only positive numbers are included here.
+# (2) for |x| < 0x1.d12ed0af1a27fp-27, atanh(x) rounds to x (to nearest)
+#     thus only worst cases for x >= 0x1.d12ed0af1a27fp-27 are included
+#     Proof: (a) for |x| < 2^-27, since the Taylor expansion of atanh(x) is
+#     x + x^3/3 + O(x^5), the 2nd term satisfies (for x > 0):
+#     x^3/3 < 2^-54 x/3 <= ulp(x)/6 since 2^-53 x < ulp(x).
+#     (b) for 2^-27 <= x < 2^-26, write x = t*2^-26 with 1/2 <= t <= 1,
+#     then x^3/3 = t^3/3*2^-78 and ulp(x)/2 = 2^-80, thus whenever
+#     t^3/3 < 1/4 we have x^3/3 < ulp(x)/2. This is t < (3/4)^(1/3).
+# (3) since atanh(x) is not defined for |x| > 1, all inputs have |x| <= 1
+# (4) the largest number of identical bits after the round bit is 72,
+#     attained for x=0x1.dfffffffffabap-21
+0x1.d12ed0af1a27fp-27 # h=106
+0x1.a6a58d55e307bp-26 # h=108
+0x1.7137449123ef4p-25 # h=106
+0x1.c74847a112b61p-25 # h=107
+0x1.fd51bf2069fep-25 # h=108
+0x1.b3f61bc925b8bp-11 # h=107
+0x1.e392d38a11f37p-11 # h=107
+0x1.7ad077887ee33p-10 # h=106
+0x1.a7034f6d208c5p-10 # h=106
+0x1.cc7092205cfafp-10 # h=107
+0x1.db29311cba9cep-10 # h=106
+0x1.19b93bc3fb424p-9 # h=107
+0x1.a5435a83ae91fp-9 # h=106
+0x1.6cbca5af62bbp-8 # h=106
+0x1.b8aaecee6ef11p-8 # h=107
+0x1.e7af03ed72a95p-8 # h=107
+0x1.fc894c4eeec42p-8 # h=106
+0x1.eaf0c61c35bfap-6 # h=105
+0x1.14f4723e2559p-3 # h=107
+0x1.63f31db22e65cp-3 # h=106
+0x1.062f67c92b1f8p-2 # h=106
+0x1.31a97379b3e3bp-2 # h=104
+0x1.659410f767c82p-2 # h=99
+0x1.c493dc899e4a5p-2 # h=104
+0x1.4d676e9728b8ap-22 # h=106
+0x1.81c5052d6495ap-22 # h=106
+0x1.dfffffffffabap-21 # h=126
+0x1.dffffffffeae8p-20 # h=120
+0x1.5f999ff1ceab8p-19 # h=108
+0x1.dffffffffabap-19 # h=114
+0x1.67fffffff719ep-18 # h=110
+0x1.dfffffffeae8p-18 # h=108
+0x1.5f999ff1af94bp-17 # h=107
+0x1.97b02aa62508bp-17 # h=107
+0x1.dee41bebe867cp-17 # h=107
+0x1.e21b638bce25cp-17 # h=107
+0x1.ab5c10827eef7p-16 # h=107
+0x1.01ed608da294dp-12 # h=107
+0x1.447027c857b99p-12 # h=109
+0x1.5ad069021cdcap-12 # h=108
+0x1.6554befc9411bp-12 # h=107
+0x1.9148fad71d8cdp-12 # h=107
+0x1.76f432525a96bp-15 # h=107
+0x1.c1424005efdc5p-15 # h=108
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # special
+-0 # special
++0x1p-1074 # near
+-0x1p-1074 # near
++0x.fffffffffffffp-1022 # near
+-0x.fffffffffffffp-1022 # near
++0x1p-1022 # near
+-0x1p-1022 # near
++1 # special
+-1 # special
+# some corner cases:
+# non-regression tests
+0x1.658fec430a2d2p-2 # h=93
+@ sin sin/sin.wc
+# worst cases from https://www.vinc17.net/research/testlibm/testlibm-data.xz
+# (update from 2020-11-27), from 0 to pi, with 46 to 59 identical bits after
+# the round bit
+0x1.598bae9e632f6p-7 # h=112
+# worst cases computed with bacsel in [2^1021,2^1022) (incomplete set)
+0x1.61a3db8c8d129p+1021 # h=115
+# full set of worst cases computed with bacsel in [2^1023,2^1024)
+# with at least 43 identical bits after the round bit
+0x1.021b4c18f7825p+1023 # h=108
+# the following inputs are worst cases for the argument reduction
+# for each binade [2^(e-1), 2^e), they exhibit the smallest value
+# of |x/(2pi) cmod 1| where cmod is the centered modulo
+# the value in comment at the end of each line is the corresponding binade:
+# 2^(e-1) <= x < 2^e
+0x1.3cd06d91bde34p+983 # h=63
+# the following inputs are worst cases for the argument reduction
+# for each binade [2^(e-1), 2^e), they exhibit the smallest value
+# of |x/pi cmod 1| where cmod is the centered modulo
+# the value in comment at the end of each line is the corresponding binade:
+# 2^(e-1) <= x < 2^e
+0x1.3cd06d91bde34p+980 # h=63
+# other worst cases computed with bacsel (with at least 43 identical bits
+# after the round bit) for 0 < x < 2^11
+# Those in [2^0,2^10) were double-checked with the program used for the
+# article "Computing hard-to-round Cases of sin, cos, tan in Double Precision"
+# presented at Arith 2026, and no difference was found (after the three
+# missing hard-to-round cases reported by Toru Koizumi were added)
+0x1.e0000000001c2p-20 # h=126
+0x1.e000000000708p-19 # h=120
+0x1.e000000001c2p-18 # h=114
+# the following entry fails with llvm-libc db0b0e2
+# (fixed in https://github.com/llvm/llvm-project/pull/221012)
+0x1.fe767739d0f6dp-2 # h=119
+0x1.6c6cbc45dc8dep+5 # h=121
+# floating-point numbers in [2^(e-1),2^e) which are closest to an even/odd
+# multiple of pi/2 (generated by wc() in sin.sage) not included above
+0x1.782b7a20df6d4p+67 # h=115
+0x1.66bd5424e5655p+90 # h=115
+0x1.504cac51f1eafp+131 # h=118
+0x1.5ad5a62cb1cc9p+143 # h=114
+0x1.0539b48d14c55p+182 # h=114
+0x1.e7e44a78ac18cp+197 # h=117
+0x1.69eab0985179bp+246 # h=116
+0x1.b2196364d750bp+253 # h=116
+0x1.c45cd11154dfdp+295 # h=116
+0x1.e3ca9b6c655cbp+408 # h=114
+0x1.b88cbb4e32576p+487 # h=114
+0x1.8b28676cdcc5bp+555 # h=115
+0x1.4c96c11134d36p+577 # h=117
+0x1.83009e2e9e2ebp+614 # h=116
+0x1.db41f3cb71d7bp+680 # h=117
+0x1.dfa8d18f2b3eep+689 # h=114
+0x1.6e8d778c94d66p+794 # h=114
+0x1.6ac5b262ca1ffp+849 # h=122
+0x1.cfe482285f8edp+860 # h=117
+0x1.4117573397d42p+939 # h=115
+0x1.e1987122b7e06p+951 # h=114
+0x1.e009c53148be1p+991 # h=118
+# special cases
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # special
+-0 # special
++0x1p-1074 # near
+-0x1p-1074 # near
++0x.fffffffffffffp-1022 # near
+-0x.fffffffffffffp-1022 # near
++0x1p-1022 # near
+-0x1p-1022 # near
++1 # h=58
+-1 # h=58
+# non-regression tests
+0x1.62d237048d83p+940 # h=59
+# hard-to-round cases with at least 43 identical bits after the round bit
+# for x >= 2^10 (computed with Tue Ly), and not included above
+0x1.f2e22199cf3d1p+578 # h=114
+0x1.0f7e6eb1548f6p+551 # h=114
+# 0x1.2e28b9339bd65p+448
+0x1.7787c8ca380e5p+447 # h=114
+0x1.c2d3844aa10aap+362 # h=114
+0x1.ab63fa3669245p+348 # h=114
+0x1.49521aeb456b6p+335 # h=114
+0x1.f99c1c8c4d14p+309 # h=114
+0x1.e1d53a2a2c231p+161 # h=116
+0x1.230280c47f5c1p+136 # h=116
+# 0x1.f19e5d71b26bap+85
+0x1.b951f1572eba5p+23 # h=119
+0x1.b811e18ffb9cp+12 # h=110
+0x1.45323b135fd7p+719 # h=116
+0x1.f54d28f6878cdp+763 # h=116
+# 0x1.52f4fe34c0ep+800
+0x1.6ba9517e4358dp+811 # h=110
+# 0x1.6ac5b262ca1ffp+849
+0x1.0f645b3f4a562p+854 # h=113
+# missing hard-to-round cases reported by Toru Koizumi
+# this was due to using BaCSeL on subranges [x0,x1]
+# with sin(x0) and sin(x1) of different signs
+# (although sin(x) was monotonic on the subrange)
+0x1.2d58d2e060d7dp+3 45 # h=99
+# additional hard-to-round cases generated by looking for convergents
+# of 2^(e-53)/(pi/2) for 1025 <= e <= 1024+53, not already above
+0x1.2423323f8b98p+1021 # h=96
+# the following entries are inputs such that the precondition of the
+# sh = fasttwosum (sh, ch, &t) call in sin_accurate_moderate() might
+# not be fulfilled
+0x1.6c6cbc45dc8dep-6 # h=62
+# additional hard-to-round cases in [0x1.7137449123ef6p-26,2^31)
+# with at least 39 identical bits after the round bit
+# those in [0x1.7137449123ef6p-26,1] were generated by BaCSeL,
+# those in [1,2^31) by the algorithm used in
+# https://www.arith2026.org/papers/Computing%20hard-to-round%20cases%20of%20sin_2C%20cos_2C%20tan%20in%20double%20precisio.pdf
+0x1.800000000001p-24 # h=96
+# missing hard-to-round inputs with at least 42 identical bits after the
+# round bit in [2^-26,2^-16), generated with bacsel e372414
+# make DEFSAL="-DSIN -DBASIS=2 -DAUTOMATIC -DMONOTONIC"
+# ./bacsel -rnd_mode all -prec 128 -n 53 -nn 53 -m 43 -t 34 -t0 4503599627370496 -t1 9007199254740992 -d 2 -alpha 2 -nthreads 48 -e_in $e
+# for e in -25..-16
+0x1.7137449123ef4p-26 # h=103
+# additional inputs in [2,2^1024) with |R| < 2^-26.999 in Algorithm
+# ReduceAccLarge and sin(x) at distance less than 2^-106 from a rounding
+# boundary.
+0x1.1f54474c5258cp+439 # h=90
+@ cos cos/cos.wc
+# worst cases from https://www.vinc17.net/research/testlibm/testlibm-data.xz
+# (update from 2020-11-27), from 0 to pi, with 46 to 54 identical bits after
+# the round bit
+0x1.16e534ee3658p-4 # h=107
+# other worst cases computed with bacsel (with at least 43 identical bits
+# after the round bit, -m 44 with BaCSeL) for 2^-27 <= x < 0x1p+11
+0x1.8000000000009p-23 # h=142
+0x1.8000000000024p-22 # h=136
+0x1.800000000009p-21 # h=130
+0x1.20000000000f3p-20 # h=126
+0x1.800000000024p-20 # h=124
+0x1.e000000000465p-20 # h=122
+0x1.20000000003ccp-19 # h=120
+0x1.80000000009p-19 # h=118
+0x1.e000000001194p-19 # h=116
+0x1.2000000000f3p-18 # h=114
+0x1.500000000181ep-18 # h=113
+# the following entry fails with llvm-libc db0b0e2
+# (fixed in https://github.com/llvm/llvm-project/pull/221012)
+0x1.6c6cbc45dc8dep+6 # h=119
+0x1.6c6cbc45dc8dep+7 # h=117
+0x1.6c6cbc45dc8dep+8 # h=115
+0x1.6c6cbc45dc8dep+9 # h=113
+# floating-point numbers in [2^(e-1),2^e) which are closest to an even/odd
+# multiple of pi/2 (generated by wc() in sin.sage)
+0x1.782b7a20df6d4p+68 # h=113
+0x1.504cac51f1eafp+132 # h=116
+0x1.504cac51f1eafp+133 # h=114
+0x1.e7e44a78ac18cp+198 # h=115
+0x1.69eab0985179bp+247 # h=114
+0x1.b2196364d750bp+254 # h=114
+0x1.c45cd11154dfdp+296 # h=114
+0x1.e3ca9b6c655cbp+409 # h=112
+0x1.4c96c11134d36p+578 # h=115
+0x1.83009e2e9e2ebp+615 # h=114
+0x1.db41f3cb71d7bp+681 # h=115
+0x1.6ac5b262ca1ffp+850 # h=120
+0x1.6ac5b262ca1ffp+851 # h=118
+0x1.6ac5b262ca1ffp+852 # h=116
+0x1.6ac5b262ca1ffp+853 # h=114
+0x1.cfe482285f8edp+861 # h=115
+0x1.e009c53148be1p+992 # h=116
+0x1.e009c53148be1p+993 # h=114
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # exact
+-0 # exact
++0x1p-1074 # near
+-0x1p-1074 # near
++0x.fffffffffffffp-1022 # near
+-0x.fffffffffffffp-1022 # near
++0x1p-1022 # near
+-0x1p-1022 # near
++1 # h=55
+-1 # h=55
+# non-regression tests
+0x1.3f06778c3c6a1p+104 # h=61
+# hard-to-round cases with at least 43 identical bits after the round bit
+# for x >= 2^10 (computed with Tue Ly)
+0x1.5afb7107105d9p+1006 # h=116
+0x1.b7fe89bf86037p+917 # h=115
+0x1.9707857c82f0ep+825 # h=113
+0x1.1b3921c006e9p+754 # h=115
+0x1.b52e731d4adb1p+525 # h=114
+0x1.23f9a69901b59p+441 # h=114
+0x1.027b0aad3bcadp+363 # h=113
+0x1.1fa76750679fcp+285 # h=116
+0x1.b951f1572eba5p+24 # h=117
+0x1.b951f1572eba5p+25 # h=115
+# additional hard-to-round cases generated by looking for convergents
+# of 2^(e-53)/(pi/2) for 1025 <= e <= 1024+53, not already above
+0x1.c52d571df3ccp+1020 # h=95
+# additional inputs in [1,2^1024) with |R| < 2^-26.999 in Algorithm
+# ReduceAccLarge and cos(x) at distance less than 2^-106 from a rounding
+# boundary.
+0x1.a3ba9b4265de6p+35 # h=90
+@ tan tan/tan.wc
+# worst cases from https://www.vinc17.net/research/testlibm/testlibm-data.xz
+# (update from 2020-11-27), from 0 to pi, with 43 to 78 identical bits after
+# the round bit
+0x1.50486b2f87014p-5 # h=111
+0x1.67fffffffe845p-19 # h=116
+0x1.dffffffffff1fp-22 # h=132
+# additional worst cases computed with bacsel with -m 44,
+# i.e., with at least 43 identical bits after the round bit,
+# in the range 0x1.d12ed0af1a27ep-27 <= x < 0x1.07e4cef4cbd98p+5 (10.5*pi)
+0x1.dfffffffffc7cp-21 # h=126
+0x1.dfffffffff1fp-20 # h=120
+0x1.dffffffffc7cp-19 # h=114
+# the following value was missed by BaCSeL
+0x1.f671de534c343p+4 # h=98
+# non-regression tests
+0x1.12f3cd60b4bcdp+307 # h=61
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # special
+-0 # special
++0x1p-1074 # near
+-0x1p-1074 # near
++0x.fffffffffffffp-1022 # near
+-0x.fffffffffffffp-1022 # near
++0x1p-1022 # near
+-0x1p-1022 # near
++1 # h=54
+-1 # h=54
+# hard-to-round cases with at least 43 identical bits after the round bit
+# for x >= 2^10 (computed with Tue Ly)
+0x1.20e3e80d2b617p+990 # h=115
+0x1.94bb90326441ap+953 # h=114
+0x1.52042b55571c6p+952 # h=114
+0x1.70d4c809def57p+932 # h=112
+0x1.2d4004650c73bp+881 # h=111
+0x1.61d0830721f5cp+872 # h=111
+0x1.011349b815bbbp+879 # h=112
+0x1.e5c92f7c869f5p+820 # h=111
+0x1.2e8518592c6f6p+800 # h=111
+0x1.c298ee5abb279p+779 # h=112
+0x1.fca56d5d44999p+756 # h=111
+0x1.ef8d45d34cb67p+726 # h=111
+0x1.140ef1a628f36p+717 # h=111
+0x1.609c7b695dd2ap+700 # h=111
+0x1.a80601ce631c2p+693 # h=112
+0x1.fe6e530194af6p+681 # h=115
+0x1.5e27c8c38bc47p+608 # h=111
+0x1.8b4c4b528e351p+578 # h=114
+0x1.b7cde914b040fp+552 # h=112
+0x1.ce809bc6c07b4p+547 # h=111
+0x1.263cdbb5a6ddcp+501 # h=112
+0x1.317788a942bep+487 # h=111
+0x1.1cb782ea460b8p+458 # h=112
+0x1.e234649971845p+393 # h=111
+0x1.b2d247aef4189p+392 # h=112
+0x1.a43b5417f91e9p+376 # h=113
+0x1.5c463c8968659p+364 # h=112
+0x1.d1f9022828c25p+359 # h=111
+0x1.57237795e9208p+324 # h=114
+0x1.683af9ab3e77bp+313 # h=113
+0x1.2574b609cb4c4p+259 # h=111
+0x1.f4a42ff233dc2p+234 # h=113
+0x1.0a05e3897cc69p+145 # h=113
+0x1.fe1c7b798546p+54 # h=113
+0x1.d9c2fb335f2b1p+43 # h=112
+# the following inputs improve coverage (AI generated)
+0x1.921fb54442d16p+2 # h=55
+# the following are inputs in [1,2^1024) such that
+# |tan(x)| >= 2^48 or |tan(x)| < 2^-48. It implies that x is at distance
+# less than 2^-48 of an integer multiple of pi/2.
+# The maximal value of |tan(x)| is 0x1.d9ba9a7975636p+60 (rounded to nearest),
+# attained for x0=0x1.6ac5b262ca1ffp+849. The minimal value of |tan(x)| is
+# 0x1.14ae72e6ba22fp-60 (rounded to nearest), attained for 2*x0.
+0x1.9f1a461bd4a9cp+861 # h=67
+@ asin asin/asin.wc
+# corner cases
+0x1.fffffffffffffp-7 # h=55
+0x1.ffffffffffffep-1023 # near
+# this is the union of the "asn" inputs from the file testlibm-data from
+# https://www.vinc17.net/research/testlibm/ (update from 2020-11-27), and
+# all inputs with at least 43 identical bits after the round bit
+# for 2^-26 <= x <= 1 (computed with BaCSeL with -m 44)
+# (at least 42 identical bits for 2^-6 <= x < 2^-4)
+0x1.7137449123ef6p-26 # h=107
+0x1.d12ed0af1a27ep-26 # h=108
+0x1.250bfe1b082f4p-25 # h=106
+0x1.a0b1709cc13cbp-24 # h=106
+0x1.c74847a112b58p-24 # h=106
+0x1.dfffffffff02ep-20 # h=126
+0x1.522bffce02485p-19 # h=107
+0x1.ab4d373bb9c21p-19 # h=106
+0x1.dffffffffc0b8p-19 # h=120
+0x1.7388a06060094p-18 # h=106
+0x1.dffffffff02ep-18 # h=114
+0x1.67ffffffe54dap-17 # h=110
+0x1.9a15c667f5cb6p-17 # h=106
+0x1.dfffffffc0b8p-17 # h=108
+0x1.2bffffffc233bp-16 # h=106
+0x1.860db11c8df3bp-16 # h=106
+0x1.ff0f3022b2e9dp-16 # h=106
+0x1.2231aea708e6ep-14 # h=106
+0x1.3217783d70d1dp-14 # h=106
+0x1.7bd96b98a63b4p-14 # h=106
+0x1.c373ff4aad79bp-14 # h=111
+0x1.ddf6e4e4450aep-14 # h=106
+0x1.5363d5cd68131p-13 # h=107
+0x1.af2a09dd5382fp-11 # h=106
+0x1.bac756f163452p-11 # h=106
+0x1.f04242b4136e5p-11 # h=106
+0x1.b3f28593cad2fp-9 # h=107
+0x1.f317ce4e1019dp-7 # h=107
+0x1.41d60a76a82edp-6 # h=107
+0x1.69768dc89bbp-5 # h=108
+0x1.9259e3708bd3ap-5 # h=108
+0x1.9d34dd7faad08p-5 # h=106
+0x1.a4816b2066707p-5 # h=108
+0x1.d77b117f230d6p-5 # h=109
+0x1.1db2604d18b44p-4 # h=98
+0x1.1c6609fee0372p-4 # h=97
+0x1.2147c702305d4p-4 # h=104
+0x1.a1490c8c06ba7p-4 # h=106
+0x1.9697cb602c582p-3 # h=106
+0x1.da4e0e6c717a5p-2 # h=107
+0x1.e9950730c4696p-2 # h=118
+0x1.51c4b960778f5p-23 # h=107
+0x1.3cfc2a006a414p-22 # h=109
+0x1.1d49d0313dadbp-4 # h=96
+0x1.1cc238a814658p-4 # h=96
+0x1.1ce53ebe4c849p-4 # h=96
+# corner cases for the value of 'indx' in case 2^-6 <= |x| < 1
+0x1.a9bc7f517d2fap-2 # h=63
+# corner cases for the value of j
+0x1.52a7fa9d2f8e9p-3 # h=64
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # special
+-0 # special
++0x1p-1074 # near
+-0x1p-1074 # near
+-0x.fffffffffffffp-1022 # near
++0x1p-1022 # near
+-0x1p-1022 # near
+-1 # h=54
+# non-regression tests
+0x1.fc7a07b2549abp-5 # h=62
+# the following inputs exercice t=0 in branch |x| < 0.5
+0x1p-1 # h=57
+# the following inputs are such that asin(x) is close to pi/64
+0x1.91f65f10dd82cp-5 # h=56
+# the following inputs fail with a reduced error bound
+0x1.1c87d9506993cp-4 # h=81
+0x1.1d0aa6a8c8b8fp-4 # h=83
+0x1.1d6dc33a74706p-4 # h=83
+0x1.1dcd7b9d78a51p-4 # h=80
+0x1.1e0ff76115ccap-4 # h=81
+0x1.1e3059a091756p-4 # h=80
+0x1.1e85e30fb9b5bp-4 # h=80
+# failures found by Eric Hennenhoefer using AI
+0x1.fda1c6771c71ep-2 # h=74
+# the following inputs improve coverage (AI generated)
+0x1.ffe03e7c2036bp-1 # h=72
+# failures with a reduced error bound
+0x1.0e0f0002315a9p-2 # h=74
+@ acos acos/acos.wc
+0x1.ffffffffffdcp-1 # h=93
+# worst cases from the GLIBC test suite
+0x1.fffffffffffffp-1 # h=56
+# worst cases from https://www.vinc17.net/research/testlibm/testlibm-data.xz
+0x1.11b3c109f983bp-1 # h=106
+0x1.4182199998587p-1 # h=107
+0x1.425a5aef1cfdfp-2 # h=106
+0x1.53ea6c7255e88p-4 # h=111
+0x1.59d20f7f204a5p-5 # h=107
+0x1.778b3973d7abap-5 # h=106
+0x1.dbd7b9e27ed71p-6 # h=107
+# worst cases from
+# https://www.vinc17.net/research/testlibm/hrcases/hrcases-trig.xz
+# (some might be duplicates with the above)
+0x1.390e6939cd1a6p-5 # h=109
+0x1.9a88d89f8e3f2p-8 # h=108
+0x1.60cb9769d9218p-8 # h=111
+0x1.1cdcd1ea2ad3bp-9 # h=110
+0x1.fd737be914578p-11 # h=115
+0x1.0c953e91a6263p-26 # h=110
+0x1.ed4b6451a6262p-26 # h=108
+0x1.cf37d41c69889p-24 # h=108
+0x1.e6ec5d3a34c03p-23 # h=107
+0x1.fb6732c7454c6p-20 # h=107
+0x1.7283d529a146ep-19 # h=112
+0x1.7151512be14bep-19 # h=107
+0x1.2c759e3848cc8p-13 # h=108
+0x1.ae48c77beb466p-13 # h=107
+0x1.28cc312928295p-9 # h=108
+# the following were extracted using
+# readres -x 53 -f hr -s dwim results.ac[ms].*
+# (tomate:/localdisk/zimmerma/archres)
+# the following were extracted using
+# readres -y 53 -f hr -s dwim results.cos.*
+# (tomate:/localdisk/zimmerma/archres)
+# worst cases found by Alexei Sibidanov
+0x1.7ec7ca9af5183p-1 # h=63
+# worst cases computed with bacsel
+0x1.1a62633145c07p-54 # h=109
+0x1.8d313198a2e03p-53 # h=106
+0x1.78d313198a2ep-49 # h=103
+0x1.7a8d313198a2ep-45 # h=103
+# non-regression tests (first one reported by Andreas Jung)
+-0x1.e4b9d7600a28p-2 # h=67
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # special
+-inf # special
++0 # h=54
+-0 # h=54
+-1 # h=54
+# errno tests
+-2 # special
+# the following are inputs that failed the glibc testsuite
+# (due to WORST_SYMMETRIC, we only put positive values)
+0x8p-972 # h=54
+# worst cases for -1 <= x <= -0x1.cb3b399d747f2p-55 computed with BaCSeL
+# with at least 42 identical bits after the round bit (-m 43 with BaCSeL)
+-0x1.cb3b399d747f2p-55 # h=109
+-0x1.cb3b399d747f1p-55 # h=107
+-0x1.b130262e59d9cp-26 # h=107
+-0x1.980faecce592dp-22 # h=107
+-0x1.336bdf57f4b42p-17 # h=107
+-0x1.8472585f0686fp-16 # h=108
+-0x1.4349920965a8ep-16 # h=107
+-0x1.b6ed837fb6c4dp-8 # h=108
+-0x1.ea05176fe09dap-7 # h=108
+-0x1.1e26a517cd019p-7 # h=108
+-0x1.efdc1acd5970dp-6 # h=109
+-0x1.b08dae7296566p-6 # h=107
+-0x1.124411a0ec32ep-5 # h=109
+-0x1.95ad2c9877f0dp-4 # h=107
+-0x1.7cf43560e8d5fp-3 # h=109
+-0x1.52f06359672cdp-2 # h=110
+# corner cases
+-0x1.cb3b399d747f3p-55 # h=108
+# the following tests fail with a reduced value of eps in the fast path
+-0x1.f7f24362ed006p-2 # h=77
+# the following inputs defeat the rounding test condition
+# with a reduced error bound for |x| < 2^-4
+0x1.744ad48948d7p-11 # h=63
+@ atan atan/atan.wc
+# the following is a set of worst cases with at least 43 identical bits
+# after the round bit
+0x1.184191aa31a6fp-8 # h=108
+0x1.22e8d75e2bc7fp-11 # h=112
+0x1.3e450e3933b22p+7 # h=110
+0x1.4ea898d0fc7c8p-12 # h=107
+0x1.6298b5896ed3cp+1 # h=116
+0x1.6800000008e62p-18 # h=110
+0x1.724a8c0967cf5p+2 # h=108
+0x1.7c1b13a563ffbp+1 # h=109
+0x1.81c5052d64a35p-23 # h=108
+0x1.951aea9307f55p+6 # h=109
+0x1.a933fe176b375p-3 # h=109
+0x1.e000000000546p-21 # h=126
+0x1.e000000001518p-20 # h=120
+0x1.e00000000546p-19 # h=114
+0x1.ccda26ad0cd1cp+47 # h=111
+0x1.962e0f25fdccdp+35 # h=109
+0x1.440a26da37ab5p+34 # h=109
+0x1.eb19a7b5c3292p+29 # h=113
+0x1.2f42b6404aa19p+26 # h=109
+0x1.0ffdecae7b75cp+9 # h=109
+# the following are +/-2^e for -1074 <= e < 1024
+0x1p-1074 # near
+0x1p-1073 # near
+0x1p-1072 # near
+0x1p-1071 # near
+0x1p-1070 # near
+0x1p-1069 # near
+0x1p-1068 # near
+0x1p-1067 # near
+0x1p-79 # h=159
+0x1p-78 # h=157
+0x1p-77 # h=155
+0x1p-76 # h=153
+0x1p-75 # h=151
+0x1p-74 # h=149
+0x1p-73 # h=147
+0x1p-72 # h=145
+0x1p-71 # h=143
+0x1p-70 # h=141
+0x1p-69 # h=139
+0x1p-68 # h=137
+0x1p-67 # h=135
+0x1p-66 # h=133
+0x1p-65 # h=131
+0x1p-64 # h=129
+0x1p-63 # h=127
+0x1p-62 # h=125
+0x1p-61 # h=123
+0x1p-60 # h=121
+0x1p-59 # h=119
+0x1p-58 # h=117
+0x1p-57 # h=115
+0x1p-56 # h=113
+0x1p-55 # h=111
+# non-regression tests
+0x1.b880844f10722p+7 # h=69
+# special values
++snan # special
+-snan # special
++nan # special
+-nan # special
++inf # h=54
+-inf # h=54
++0 # special
+-0 # special
+-1 # h=54
+# values contributed by Erik E. <evonatarius@gmail.com>
+# 0x1p+1024 # not representable
+# -0x1p+1024 # not representable
+0x1.ef21eb6c163e3p+55 # h=54
+# arguments which produce results closest to +-pi()/2 represantable in the double precision format
+0x1.d02967c31cdb5p+53 # h=110
+-0x1.d02967c31cdb5p+53 # h=110
+# failures found by Eric Hennenhoefer using AI
+-0x1.720e3020a4422p-9 # h=80
+@ atan2 atan2/atan2.wc
+# special values
++0x1p-1074,+0x1p-1022 # h=105
++0x1p-1074,+1 # near
++0x.fffffffffffffp-1022,+1 # near
++0x1p-1022,+1 # near
+-0x1p-1074,+1 # near
+# worst cases
+0xf.f9812f485efap+52,0x1.ede6c97e6b6bbp+52 # h=146
+0xe.7bf1b85b42e28p+76,0x1.d9cb0949f0082p+52 # h=146
+0x2.9b6419a51ea6p+88,0xc.718cc1bad579p+48 # h=147
+0x1.5047c4426721bp+76,0x1.9ada1a85962dfp+52 # h=147
+0x2.2cafe15e6ef14p+68,0x1.8f8024031d4c1p+52 # h=147
+0x6.f72e9f041057p+72,0x1.e58dc28ff472fp+52 # h=147
+0x7.f7f847d86467p+72,0x1.53feb7b3de47bp+52 # h=151
+0x4.b4f6692e6bbe8p+68,0xa.29a219008ee2p+48 # h=150
+0x2.13a39195516e4p+60,0x9.60c8ca5e7f3fp+48 # h=147
+0x3.18918fd3eb376p+68,0x2.98eeebee4151ap+52 # h=150
+0x1.07a11ffd843abp+53,0x1.f9982dddc9cccp+52 # h=154
+0x1.ea018dddc111dp+71,0x1.88f9e3de5d6d3p+53 # h=148
+0x1.7513a865ac11p+84,0x1.d5718fb5d0558p+49 # h=148
+0x1.799cebc8aa43bp+52,0x1.3443e4b2c6568p+53 # h=147
+0x1.d59cb844295d8p+51,0x1.02ea6ade2d50fp+52 # h=148
+0x1.b0e17f386e497p+67,0x1.04d41fb5cef22p+53 # h=148
+0x1.67bb337d216b9p+53,0x1.f8d20e4ccf641p+52 # h=147
+0x1.af7e4cc85653dp+76,0x1.c4c43bce2aaddp+52 # h=147
+0x1.d27014b15e818p+52,0x1.442a2d93b12dbp+52 # h=147
+0x1.2981ce8381491p+52,0x1.4efd17defb8d1p+52 # h=150
+0x1.e44506f62a766p+52,0x1.737109482a097p+52 # h=147
+0x1.4e015ccaa709ap+52,0x1.cafc4eba977aep+51 # h=147
+0x1.bb8fea8f7fdc9p+52,0x1.ce74e40c96844p+52 # h=148
+0x1.5c3be607b9cd5p+52,0x1.b905e46dccb87p+52 # h=148
+# non-regression cases
+-0x1.a79b84682c158p+1016,0x1.c49b7d1db9b1cp+1023 # h=65
+# inputs contributed by Erik Enikeev <evonatarius@gmail.com>
+-0x1.0000000000001p-119,0x1p+939 # h=52
+# values contributed by Erik Enikeev <evonatarius@gmail.com>
+0x1.ffffffffffffep-940, 0x1.fffffffffffffp+82 # h=105
+# test inputs from the GNU libc
+0x1p+0,0x1.23456789p-1000 # h=54
+# inputs yielding an error > 0.5 ulp with LLVM 20.1.8 and rndn
+-0x1.9e973a2069033p-125,0x1.c78bd6e23ee71p-117 # h=71
+# the following inputs improve coverage (AI generated)
+0x1.9c69e50266c75p+1008,0x1.6b3ffcc790076p+1023 # h=55
+@ pow pow/pow.wc
+#
+# This file contains some of "worst cases" for pow(x, y)
+# each entry is of the form x,y
+#
+0x1.ffffffffffffcp-1,-0x1.ffffffffffffdp-2 # h=157
+0x1.ffffffffffffp-1,-0x1.ffffffffffff6p-3 # near
+0x1.ffffffffffff8p-1,-0x1.ffffffffffffbp-3 # near
+#
+# Subnormal worst cases
+#
+0x4.f8a7262ada89p-328, 0x1.921fb54442d18p+1 # h=104
+#
+#
+0x2.a49d75d28612ep+0, 0x1.ep-2 # h=122
+#
+# Results in the S set
+#
+0x2.6389b3f81fca6p+48, 0x1.1p+2 # h=115
+# the following yields a very tiny result
+0x1p-109, 0x1.3p+4 # h=-1
+# the following yield exact or hard-to-round cases in the subnormal range
+0x1p-358,0x1.8p+1 # exact
+0x1.be5a1bcf1f434p+0,0x1.ep+0 # h=117
+# the following are two midpoint cases in the subnormal range
+0x1.8p-214,0x1.4p+2 # exact
+0x1.4p-213,0x1.4p+2 # exact
+# check cases where x<0 and y is an integer
+-0x1.1p0,0x1p0 # exact
+-0x1.af1a07473707ap-36,0x1.dp+4 # h=108
+# check cases where x is near 1 and x^y is near underflow/overflow
+0x1.0000000000001p+0,0x1.fffffffffffffp+60 # h=61
+# the following exercises a large value of |ll/lh| in log_1 thus a large ratio
+# |rh/rl|, with the maximum value of y avoiding overflow
+0x1.0d1bea0198607p-1,0x1.1358a69672c92p+10 # h=61
+# extra worst cases generated with bacsel
+0x1.494e4b63d3ddfp+0,0x1.2p+0 # h=110
+# the following cases yield x^y very close to 1
+0x1.fffffffffffffp-1,0x1p-300 # near
+0x1.fffffffffffffp-1,0x1p-1074 # near
+# the following are potential bugs in crlibm
+0x1.0a007db1f6298p-482,0x1.885cbe6afa8e6p-63 # h=119
+# additional worst cases
+0x1.db8bb0a3a28bap+52,0x1.5p-1 # h=111
+# non-regression tests
+0x1.9a1p-564,0x1.ep+0 # h=20
+# worst case for x^458 from "Computing Correctly Rounded Integer
+# Powers in Floating-Point Arithmetic" by Kornerup et al, 2010
+# https://perso.ens-lyon.fr/jean-michel.muller/p1-Kornerup.pdf
+0x1.0f38cfaacb71ap+0,0x1.cap+8 # h=114
+# additional worst cases from slide 32 of
+# https://tamadiwiki.ens-lyon.fr/tamadiwiki/images/2/22/Hardest.pdf
+0x1.5c69202d46821p+0,0x1.dcp+9 # h=117
+# worst cases for x^n (pxxx), x^(-n) (qxxx), x^(1/n) (rxxx) or x^(-1/n) (sxxx)
+# from https://www.vinc17.net/research/testlibm/hrcases/hrcases-powint.xz
+# which are not already above
+# for x^(1/n) and x^(-1/n) we only use cases where n is a power of two,
+# so that 1/n is exactly representable
+0x1.3c3e2d376135dp-1,-0x1p-2 # h=114
+# additions worst cases from Vincent Lefèvre for x^n
+# (file readres.out). Original inputs from readres.out have x in [1,2)
+# and no check for x^y in the binary64 range is done. For each input x^n,
+# we also include (x/2)^n here.
+0x1.5c69202d46821p-1,0x1.dcp+9 # h=117
+# bug of libmcr 0.9 (reported Mar 18, 2005)
+0x1.0000007c78dp-1,0x1.6af7b92bacbe8p-1 # h=54
+# libmcr 0.9 does not terminate on the following inputs
+0x1.470574d68e0afp+1,0x1.02e0706205c0ep+1 # h=55
+# tests for x<0 with underflow
+-0x1p-359,0x1.8p+1 # h=-1
+# inputs suggested by Bernhard Samtleben
+0x1.4p+3,0x1.a4p+7 # h=62
+# special values (might be duplicate from above)
++0x.fffffffffffffp-1022,-1 # h=103
+# worst-cases contributed by Erik E.
+# we comment ERANGE for the following entries since DBL_MAX < x^y < 2^1024
+# with x^y closer to 2^1024 (overflow for RNDN but no overflow for RNDZ)
+0x1.03cbc43cb2092p-588, -0x1.bdd6d7ce04e7ap+0 # h=63
+# we comment ERANGE for the following entries since DBL_MAX < x^y < 2^1024
+# with x^y closer to DBL_MAX than to 2^1024 (no overflow for RNDN)
+0x1.8800000000001p-705, -0x1.7428f301e951dp+0 # h=60
+# corner cases where x^y rounds to 2^-1022 for RNDU but there is underflow
+# (we also include nextbelow(y))
+0x1.8d86a518c3d16p-1,0x1.5de8bf7f83ac9p+11 # h=63
+# corner cases where x^y rounds to 2^-1022 for RNDN but there is underflow
+# (we also include nextbelow(y))
+0x1.2d9f069d3cddfp-1,0x1.4eaf2e053e189p+10 # h=64
+#
+# the following was contributed by Bernt Gombala
+# (file wc_targeted_search_result_cases.txt)
+#
+# Hard-to-round cases for binary64 pow(x,y) found by doing an
+# optimized search that was done as follows:
+#  * Pick a target value Z that is located exactly at a binary64 midpoint-value.
+#  * Then, for each possible value of Y that can result in pow(x,y)=Z ending
+#    up in the binary64 normal-number range, compute (or estimate by
+#    interpolation) a value of X = pow(Z,1/Y), and check whether X is
+#    very close to a representable binary64 number. If it is, round X to
+#    binary64, then check how many identical bits after the round-bit the
+#    resulting value of pow(x,y) has.
+# The cases below were obtained by spending approx 1 CPU-year on a 3GHz
+# intel core2 processor doing such a search for various values of Z
+# close to 1. This identified 13317 near-midpoint cases where pow(x,y)
+# has at least 100 identical bits after the round-bit - the worst such
+# cases found have 117 identical bits.
+#
+0x1.8379295d8ff69p-921,-0x1.0da751772e1aep-58 # h=159
+0x1.352de39f066d3p+860,0x1.12c35ff9a26a1p-60 # h=159
+0x1.193277906bf9dp-539,0x1.b6a58d5c97089p-61 # h=159
+0x1.64ca12183dc15p+493,-0x1.defd4699985f9p-61 # h=159
+0x1.7da8d2e64ebe7p+982,0x1.98f4e1785f9c2p-59 # h=159
+0x1.9ff59fb5c8a2dp-780,0x1.e54cb3e7caec8p-64 # h=159
+0x1.056cc1064c316p-871,-0x1.cd5c442a461b9p-59 # h=159
+0x1.02fd1588df234p-834,0x1.70739eff5da66p-60 # h=159
+0x1.524ded4a6a145p-516,0x1.40e89e4a28cb2p-60 # h=159
+0x1.36c12133a1619p+925,-0x1.feeb16c30ca3ap-62 # h=159
+0x1.6a78eb1f87f35p-395,0x1.df55d24d09cp-63 # h=159
+0x1.8caf60649b38ap+468,-0x1.f862b67990c86p-61 # h=159
+0x1.8e65cf05698bdp+913,0x1.1c95ec521ab7ap-59 # h=159
+0x1.cfed4a9969622p-653,0x1.21f6734ba3c6dp-63 # h=159
+0x1.1f1612342bcf3p+560,-0x1.d029d72cb3641p-60 # h=159
+0x1.9a3336329edbp-611,-0x1.834a67bca205p-60 # h=159
+0x1.294291ac6ad53p+452,-0x1.a228161c0f0edp-63 # h=159
+0x1.35a9c20f92588p+972,0x1.e6391a8cf3945p-61 # h=159
+0x1.bf5122e21e151p+982,-0x1.80cf840349a77p-64 # h=159
+0x1.352844c77eb6ap-957,-0x1.ee1fc8345b05dp-61 # h=159
+0x1.3e75d8405bcf7p+897,-0x1.3c1ac6d841c96p-62 # h=159
+0x1.bc2877f4f84bep-933,0x1.62fc6140a069ep-61 # h=159
+0x1.cdd1b24ba0523p-497,-0x1.4d7cff13277ffp-59 # h=159
+0x1.f95ac5ea12342p+406,-0x1.d0a214741ffacp-63 # h=159
+#
+# the following was contributed by Bernt Gombala
+# (file wc_near_rational_cases.txt)
+#
+# Hard-to-round cases for binary64 pow(X,Y) identified by taking
+# X as a number equal to 1.0 plus/minus up to 256 ulps
+# and taking Y as a rational number (A/B) plus/minus up to 128 ulps,
+# with A,B picked in the range -128 to +128. All such cases with at least
+# 90 identical bits after the round-bit are provided - there
+# are 1443 such cases.
+#  * For Y close to -1/4, this results in near-exact values with up to 153
+#    identical bits after the round-bit. Such cases are obtained by taking
+#    X = 1.0 plus/minus 8*N ulps and Y = -0.25 minus/plus 5*N ulps
+#    for small integer values of N.
+#  * For other near-rational values of Y, near-exact cases and
+#    near-midpoint values with up to 107 identical bits after
+#    the round-bit have been found.
+#
+0x1.ffffffffffffdp-1,0x1.5555555555555p-1 # h=158
+#
+# the following was contributed by Bernt Gombala
+# (file wc_subnorm_non_midpoint_cases.txt)
+#
+# Cases for binary64 pow(x,y) that are neither exact nor midpoint, but
+# instead have the property that if they were to be evaluated in a format
+# that is the usual binary64 except having a wider exponent-range, then
+# they would have been midpoint-cases - which makes them susceptible to
+# double-rounding problems for implementations that compute a result with
+# binary64-mantissa precision first, then coverts that down to subnormal
+# afterwards. All of these cases evaluate to binary64 subnormal results
+# in the range (2^-1026,2^-1022) - there exists 445 such cases.
+#
+0x1.c3648a437c02p-913,0x1.2p+0 # h=53
+# the following inputs improve coverage (AI generated)
+0x0.0000000000006p-1022,-0x1.f0200000000d5p-136 # h=125
+# the following inputs raise spurious underflow
+-0x1.10a688680a753p-93,0x1.6p+3 # h=54

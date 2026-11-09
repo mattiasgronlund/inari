@@ -1,9 +1,11 @@
 // The logarithms ln x, log2 x and log10 x and the inverse hyperbolic functions asinh, acosh and
 // atanh with the dyadic kernel, each rounded to an `f64` toward +∞ if `up` and toward -∞
-// otherwise, as MPFR rounds them (`src/dyadic.rs` says what `ziv` returns at its cap).
-// `src/mpfr_calls/kernel.rs` makes them the `ln_rd`, `ln_ru` and the others that
-// `src/elementary.rs` calls, and the tests on 64-bit Linux and macOS compare them with those
-// of the MPFR backend, `src/mpfr_calls/mpfr.rs`.
+// otherwise, and, as `ln_near` and the others, to nearest, ties to even, as MPFR rounds them
+// (`src/dyadic.rs` says what `ziv` and `ziv_near` return at their caps).
+// `src/mpfr_calls/kernel.rs` makes the first the `ln_rd`, `ln_ru` and the others that
+// `src/elementary.rs` calls, `src/cr.rs` makes both the `ln_rn`, `ln_rd`, `ln_ru` and the
+// others of `inari::cr`, and the tests on 64-bit Linux and macOS compare them with those of
+// MPFR, `src/mpfr_calls/mpfr.rs`.
 //
 // Each function first settles some arguments by rules: NaN, ±∞, the arguments outside its
 // domain, the zeros of ln, log2 and log10 and the ±1 of atanh, whose results are infinite, the
@@ -12,7 +14,14 @@
 // argument whose result is an `f64` unless an enclosure has that `f64` as its bound in the
 // direction of the rounding (the header of `src/dyadic/exp.rs` says why). The other arguments
 // with such results are 1 for ln and acosh and 2^k for log2, for which the evaluations below
-// give exact enclosures. `ziv` computes the rest from an `Eval`.
+// give exact enclosures. `ziv` computes the rest from an `Eval`. The functions rounded to
+// nearest have the same rules, with |x| < 2^-27 (`TINY_NEAR`) for asinh and atanh, below which
+// the results are less than half an ulp from x, and `ziv_near` computes the rest from the same
+// `Eval`s. None of the results is the midpoint of two adjacent `f64`s, which an enclosure
+// could settle only if the midpoint were one of its bounds: log2 x and log10 x are rational
+// only at the powers of 2 and of 10, where they are integers, and ln x, asinh x, acosh x and
+// atanh x are transcendental wherever they are not 0, by the theorem of Lindemann and
+// Weierstrass.
 //
 // The evaluations reduce ln x to ln x = e ln 2 + ln m for m = x / 2^e in [1/√2, √2), where
 // ln m = 2 atanh s for s = (m - 1) / (m + 1), as (1 + s) / (1 - s) = m, with
@@ -32,13 +41,18 @@
 // in `rocq/theories/Mpfr.v` says. They build on `rocq/theories/DyLogCore.v` for
 // `atanh_series`, `reduce`, `ln_dy` and `ln_encl`, `rocq/theories/DyLogRules.v` for the
 // identities that the evaluations use and the rules of `log_rules` and of the powers of 10,
-// and `rocq/theories/DyLogTiny.v` for the rules of asinh and atanh at tiny arguments. That a
-// test passes by the cap of `ziv` is not proved, nor that the evaluations do not panic.
+// and `rocq/theories/DyLogTiny.v` for the rules of asinh and atanh at tiny arguments.
+// `rocq/theories/DyLogNear.v` proves that each of the six functions rounded to nearest, at a
+// finite argument in its domain, where a rule settles the argument or a rounding test of
+// `ziv_near` passes, returns its result rounded to nearest as `near_round` in
+// `rocq/theories/NearF64.v` says, from the same enclosures and bounds and the cells of
+// `rocq/theories/NearCells.v`. That a test passes by the cap of `ziv` or of `ziv_near` is not
+// proved, nor that the evaluations do not panic, nor that no result is a midpoint.
 
 use super::{
     consts::{ln10, ln2},
-    exp::{away, mul_int, toward_zero, POW10, TINY_HYP},
-    ziv, Dyadic, Encl, Eval,
+    exp::{away, mul_int, toward_zero, POW10, TINY_HYP, TINY_NEAR},
+    ziv, ziv_near, Dyadic, Encl, Eval,
 };
 
 #[cfg(test)]
@@ -245,11 +259,27 @@ pub(crate) fn ln(x: f64, up: bool) -> f64 {
     }
 }
 
+/// ln x rounded to nearest, ties to even.
+pub(crate) fn ln_near(x: f64) -> f64 {
+    match log_rules(x) {
+        Some(r) => r,
+        None => ziv_near(&Ln(x), 1),
+    }
+}
+
 /// log2 x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn log2(x: f64, up: bool) -> f64 {
     match log_rules(x) {
         Some(r) => r,
         None => ziv(&Log2(x), up, 1),
+    }
+}
+
+/// log2 x rounded to nearest, ties to even.
+pub(crate) fn log2_near(x: f64) -> f64 {
+    match log_rules(x) {
+        Some(r) => r,
+        None => ziv_near(&Log2(x), 1),
     }
 }
 
@@ -261,6 +291,18 @@ pub(crate) fn log10(x: f64, up: bool) -> f64 {
             // log10(10^k) = k.
             Some(k) => k as f64,
             None => ziv(&Log10(x), up, 1),
+        },
+    }
+}
+
+/// log10 x rounded to nearest, ties to even.
+pub(crate) fn log10_near(x: f64) -> f64 {
+    match log_rules(x) {
+        Some(r) => r,
+        None => match POW10.iter().position(|&p| p == x) {
+            // log10(10^k) = k.
+            Some(k) => k as f64,
+            None => ziv_near(&Log10(x), 1),
         },
     }
 }
@@ -277,6 +319,18 @@ pub(crate) fn asinh(x: f64, up: bool) -> f64 {
     }
 }
 
+/// asinh x rounded to nearest, ties to even.
+pub(crate) fn asinh_near(x: f64) -> f64 {
+    if x.is_nan() || x.is_infinite() {
+        x
+    } else if x.abs() < TINY_NEAR {
+        // x - x^3 / 6 <= asinh x <= x for x in [0, 1], and asinh is odd.
+        x
+    } else {
+        ziv_near(&Asinh(x), 1)
+    }
+}
+
 /// acosh x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn acosh(x: f64, up: bool) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
@@ -285,6 +339,17 @@ pub(crate) fn acosh(x: f64, up: bool) -> f64 {
         f64::NAN
     } else {
         ziv(&Acosh(x), up, 1)
+    }
+}
+
+/// acosh x rounded to nearest, ties to even.
+pub(crate) fn acosh_near(x: f64) -> f64 {
+    if x.is_nan() || x == f64::INFINITY {
+        x
+    } else if x < 1.0 {
+        f64::NAN
+    } else {
+        ziv_near(&Acosh(x), 1)
     }
 }
 
@@ -307,5 +372,26 @@ pub(crate) fn atanh(x: f64, up: bool) -> f64 {
         away(x, up)
     } else {
         ziv(&Atanh(x), up, 1)
+    }
+}
+
+/// atanh x rounded to nearest, ties to even.
+pub(crate) fn atanh_near(x: f64) -> f64 {
+    let t = x.abs();
+    if x.is_nan() {
+        x
+    } else if t > 1.0 {
+        f64::NAN
+    } else if t == 1.0 {
+        if x > 0.0 {
+            f64::INFINITY
+        } else {
+            f64::NEG_INFINITY
+        }
+    } else if t < TINY_NEAR {
+        // x <= atanh x <= x + x^3 / (3 (1 - x^2)) for x in [0, 1), and atanh is odd.
+        x
+    } else {
+        ziv_near(&Atanh(x), 1)
     }
 }

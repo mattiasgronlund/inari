@@ -1,12 +1,14 @@
 // Tests of the inverse trigonometric functions of the dyadic kernel. Every generator runs on
 // every platform through `check` and `check2`, which check that the two directions give the
-// same `f64` or two adjacent ones, or NaN for both. On 64-bit Linux and macOS, where the tests
-// have MPFR, they also compare both directions with the function of `src/mpfr_calls/mpfr.rs`
-// that computes the same function with MPFR, which they have to agree with bit for bit.
+// same `f64` or two adjacent ones, or NaN for both, and that the rounding to nearest gives one
+// of them, or NaN if they are. On 64-bit Linux and macOS, where the tests have MPFR, they also
+// compare the two directions and the rounding to nearest with the functions of
+// `src/mpfr_calls/mpfr.rs` that compute the same function with MPFR, which they have to agree
+// with bit for bit.
 
 use super::*;
 use crate::dyadic::tests::Rng;
-use std::f64::consts::SQRT_2;
+use std::f64::consts::{FRAC_PI_2, PI, SQRT_2};
 
 type Directed = fn(f64, bool) -> f64;
 
@@ -15,6 +17,11 @@ const ASIN: usize = 1;
 const ACOS: usize = 2;
 
 const FUNCTIONS: [(&str, Directed); 3] = [("atan", atan), ("asin", asin), ("acos", acos)];
+
+type Near = fn(f64) -> f64;
+
+// The functions of `FUNCTIONS` rounded to nearest, in the same order.
+const NEAR: [Near; 3] = [atan_near, asin_near, acos_near];
 
 // The signs of (y, x) in the four quadrants.
 const QUADRANTS: [(f64, f64); 4] = [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)];
@@ -90,27 +97,55 @@ fn check_pair(name: &str, args: &str, lo: f64, hi: f64) {
     }
 }
 
-// Checks the function `i` at `x` in both directions, as the header says.
+// `near`, the rounding to nearest of `name` at `args`, is one of `lo` and `hi`, its two
+// directions, or NaN if they are. This holds for zeros too: a number of magnitude at most
+// 2^-1075 rounds to nearest to the zero of its sign, which the direction toward 0 also gives.
+fn check_near(name: &str, args: &str, lo: f64, hi: f64, near: f64) {
+    let ok = if lo.is_nan() {
+        near.is_nan()
+    } else {
+        near.to_bits() == lo.to_bits() || near.to_bits() == hi.to_bits()
+    };
+    assert!(
+        ok,
+        "{}({}): {:e} to nearest, outside ({:e}, {:e})",
+        name, args, near, lo, hi
+    );
+}
+
+// Checks the function `i` at `x` in both directions and to nearest, as the header says.
 fn check(i: usize, x: f64) {
     let (name, f) = FUNCTIONS[i];
     let (lo, hi) = (f(x, false), f(x, true));
-    check_pair(name, &format!("{:e}", x), lo, hi);
+    let near = NEAR[i](x);
+    let args = format!("{:e}", x);
+    check_pair(name, &args, lo, hi);
+    check_near(name, &args, lo, hi, near);
     #[cfg(all(
         target_pointer_width = "64",
         any(target_os = "linux", target_os = "macos")
     ))]
-    mpfr::check(i, x, lo, hi);
+    {
+        mpfr::check(i, x, lo, hi);
+        mpfr::check_near(i, x, near);
+    }
 }
 
-// Checks atan2 at (y, x) in both directions, as the header says.
+// Checks atan2 at (y, x) in both directions and to nearest, as the header says.
 fn check2(y: f64, x: f64) {
     let (lo, hi) = (atan2(y, x, false), atan2(y, x, true));
-    check_pair("atan2", &format!("{:e}, {:e}", y, x), lo, hi);
+    let near = atan2_near(y, x);
+    let args = format!("{:e}, {:e}", y, x);
+    check_pair("atan2", &args, lo, hi);
+    check_near("atan2", &args, lo, hi, near);
     #[cfg(all(
         target_pointer_width = "64",
         any(target_os = "linux", target_os = "macos")
     ))]
-    mpfr::check2(y, x, lo, hi);
+    {
+        mpfr::check2(y, x, lo, hi);
+        mpfr::check2_near(y, x, near);
+    }
 }
 
 // `x` and the `k` `f64`s on each side of it, for an `x` that has `k` finite `f64`s on each
@@ -215,18 +250,34 @@ fn special_and_exact() {
             }
         }
     }
+    // To nearest: atan and asin keep the sign of a zero, atan(±2^54) and asin(1) are the `f64`
+    // nearest ±π/2, acos(1) is +0 and acos(-1) the `f64` nearest π.
+    for x in [0.0, -0.0] {
+        assert_eq!(atan_near(x).to_bits(), x.to_bits());
+        assert_eq!(asin_near(x).to_bits(), x.to_bits());
+    }
+    assert_eq!(atan_near(HUGE_ATAN), FRAC_PI_2);
+    assert_eq!(atan_near(-HUGE_ATAN), -FRAC_PI_2);
+    assert_eq!(asin_near(1.0), FRAC_PI_2);
+    assert_eq!(acos_near(1.0).to_bits(), 0);
+    assert_eq!(acos_near(-1.0), PI);
 }
 
 // Each rule and each case of `atan_encl` at its threshold and the 3 `f64`s on each side of it,
 // both signs of them: `TINY_HYP` and `HUGE_ATAN` for atan, `TINY_ASIN` for asin, 1 for asin
 // and acos, where their domains end, `T1`, 1 and `T2` for atan, and `ASIN_SPLIT` for asin and
-// acos. For atan2, y = q d and x = d for q at `TINY_HYP` and the `f64`s around it, where
-// y / x = q exactly for d = 1 and 2^1000, which the rule of `tiny_quotient` takes below
-// `TINY_HYP`, and the quotients |y| / |x| at the thresholds of `atan_encl`, in each quadrant.
+// acos. The rules to nearest take `TINY_NEAR` and `HUGE_ATAN` for atan and `TINY_ASIN` for
+// asin, and atan is checked at 2^53 too, where `ziv_near` settles atan x to nearest. For
+// atan2, y = q d and x = d for q at `TINY_NEAR` and `TINY_HYP` and the `f64`s around them,
+// where y / x = q exactly for d = 1 and 2^1000, which the rule of `tiny_quotient` takes below
+// `TINY_HYP` and that of `atan2_near` below `TINY_NEAR`, and the quotients |y| / |x| at the
+// thresholds of `atan_encl`, in each quadrant.
 #[test]
 fn rules_at_their_thresholds() {
     let thresholds = [
+        (ATAN, TINY_NEAR),
         (ATAN, TINY_HYP),
+        (ATAN, pow2(53)),
         (ATAN, HUGE_ATAN),
         (ATAN, T1),
         (ATAN, 1.0),
@@ -243,7 +294,7 @@ fn rules_at_their_thresholds() {
             check(i, -x);
         }
     }
-    for q in around(TINY_HYP, 3) {
+    for q in [around(TINY_NEAR, 3), around(TINY_HYP, 3)].concat() {
         // y = q d, which is exact for d = 1 and 2^1000, and rounded for the other d unless
         // q d fits in an `f64`: for 2^-1000 it is subnormal, with fewer bits than q.
         for d in [1.0, pow2(-1000), pow2(1000), 3.0, 0.75, f64::MAX / 3.0] {
@@ -464,6 +515,90 @@ fn close_to_an_f64() {
     }
 }
 
+// An odd number of `bits` bits, at random, for `bits` in [1, 63].
+fn odd(rng: &mut Rng, bits: u32) -> u64 {
+    (1 << (bits - 1)) | rng.below(1 << (bits - 1)) | 1
+}
+
+// atan2 at y = X m 2^(k - 1075) and x = X 2^k for odd X and m with X m < 2^53 and k >= 1, so
+// that y / x = m 2^-1075 is midway between the `f64`s (m - 1) 2^-1075 and (m + 1) 2^-1075, and
+// atan(y / x) rounds to nearest to the first, which `midpoint_quotient` gives, and for -y. The
+// cases are X = 1 with m = 1 at k = 1, which is atan2(2^-1074, 2) = atan 2^-1075, m = 2^53 - 1
+// at k = 1, the greatest quotient, and m = 0x1272d1a7f62303 at k = 785, which is
+// atan2(0x1.272d1a7f62303p-238, 2^785), at which `ziv_near` took 64 limbs before the rule, in
+// the CORE-MATH run of `src/cr/tests/mpfr/hard_cases.rs`, and 2,000 random ones: X = 1, so
+// that x = 2^k, with m of 1 to 53 bits for half of them, and otherwise X of b in [2, 52] bits
+// with m of 1 to 53 - b bits, and k uniform in [1, 1024 - b], so that x <= `f64::MAX`.
+//
+// Each case also checks atan2 at the `f64`s y' next to y and -y, at which `midpoint_quotient`
+// gives `None`: y' / x = m 2^-1075 ± u / x for the step u <= 2^(k - 1075), a power of 2, from
+// y to y', which is not a dyadic number for X > 1, the `f64` (m ± 1) 2^-1075 for X = 1 and
+// u = 2^(k - 1075), and an odd multiple of u / x < 2^-1075 otherwise. On 64-bit Linux and
+// macOS, `atan2_near` takes at most 4 limbs at each argument.
+#[test]
+fn midpoint_quotients() {
+    let mut cases = vec![
+        (1, 1, 1),
+        (1, (1 << 53) - 1, 1),
+        (1, 0x0012_72d1_a7f6_2303, 785),
+    ];
+    let mut rng = Rng(1075);
+    for _ in 0..2000 {
+        let (xo, bm, kmax) = if rng.below(2) == 0 {
+            (1, 53, 1023)
+        } else {
+            let b = uniform(&mut rng, 2, 52);
+            (odd(&mut rng, b as u32), 53 - b, 1024 - b)
+        };
+        let bits = uniform(&mut rng, 1, bm) as u32;
+        let m = odd(&mut rng, bits);
+        let k = uniform(&mut rng, 1, kmax);
+        cases.push((xo, m, k));
+    }
+    for (xo, m, k) in cases {
+        // X m < 2^53 and X are exact, and so are their products by 2^(k - 1075) and 2^k.
+        let (y, x) = ((xo * m) as f64 * pow2(k - 1075), xo as f64 * pow2(k));
+        // (m - 1) 2^-1075 = ((m - 1) / 2) 2^-1074, below 2^-1022.
+        let f = f64::from_bits((m - 1) / 2);
+        for s in [1.0, -1.0] {
+            let (y, f) = (s * y, s * f);
+            let args = format!("{:e}, {:e}", y, x);
+            assert_eq!(
+                midpoint_quotient(y, x).map(f64::to_bits),
+                Some(f.to_bits()),
+                "midpoint_quotient({})",
+                args
+            );
+            assert_eq!(
+                atan2_near(y, x).to_bits(),
+                f.to_bits(),
+                "atan2({}) to nearest",
+                args
+            );
+            for y1 in around(y, 1) {
+                if y1 != y {
+                    assert_eq!(
+                        midpoint_quotient(y1, x),
+                        None,
+                        "midpoint_quotient({:e}, {:e})",
+                        y1,
+                        x
+                    );
+                }
+                check2(y1, x);
+                #[cfg(all(
+                    target_pointer_width = "64",
+                    any(target_os = "linux", target_os = "macos")
+                ))]
+                {
+                    let level = mpfr::near_level2(y1, x);
+                    assert!(level <= 4, "atan2({:e}, {:e}): {} limbs", y1, x, level);
+                }
+            }
+        }
+    }
+}
+
 // The hardest arguments that three searches found, as (function, x), and as (y, x) for atan2:
 // those whose results are the closest to an `f64` relative to the result, so that a directed
 // rounding of them needs the most bits. The searches, harnesses outside the crate, rounded each
@@ -653,7 +788,10 @@ fn random_arguments() {
 ))]
 mod mpfr {
     use super::*;
-    use crate::{dyadic::consts::PI, mpfr_calls::mpfr::*};
+    use crate::{
+        dyadic::{consts::PI, reset_ziv_level, ziv_level},
+        mpfr_calls::mpfr::*,
+    };
 
     type Mpfr = fn(f64) -> f64;
 
@@ -693,6 +831,44 @@ mod mpfr {
             want_lo,
             want_hi
         );
+    }
+
+    const MPFR_NEAR: [Mpfr; 3] = [atan_rn, asin_rn, acos_rn];
+
+    // `near`, which the function `i` gave at `x` rounded to nearest, is MPFR's rounding to
+    // nearest, or NaN where MPFR gives NaN.
+    pub(super) fn check_near(i: usize, x: f64, near: f64) {
+        let want = MPFR_NEAR[i](x);
+        assert!(
+            same(near, want),
+            "{}({:e}): {:e} to nearest != MPFR's {:e}",
+            FUNCTIONS[i].0,
+            x,
+            near,
+            want
+        );
+    }
+
+    // The same for atan2 at (y, x), against `atan2_rn(y, x)`, whose first argument is y, as for
+    // `mpfr_atan2`.
+    pub(super) fn check2_near(y: f64, x: f64, near: f64) {
+        let want = atan2_rn(y, x);
+        assert!(
+            same(near, want),
+            "atan2({:e}, {:e}): {:e} to nearest != MPFR's {:e}",
+            y,
+            x,
+            near,
+            want
+        );
+    }
+
+    // The highest level, in limbs, at which `ziv_near` returned in `atan2_near(y, x)`, as
+    // `ziv_level` gives it: 0 where a rule settled it. `ziv_level` has the `cfg` of this module.
+    pub(super) fn near_level2(y: f64, x: f64) -> usize {
+        reset_ziv_level();
+        atan2_near(y, x);
+        ziv_level().0
     }
 
     // `PI` is floor(π 2^4222): the floors of π 2^4222 rounded down and up to 4,300 bits are

@@ -1,17 +1,21 @@
 // Tests of the evaluations of the powers of the dyadic kernel at each level of Ziv's strategy
-// that is forced with `ziv_at`, as `src/dyadic/exp/tests/levels.rs` has them for the
-// exponentials.
+// that is forced with `ziv_at` and `ziv_near_at`, as `src/dyadic/exp/tests/levels.rs` has them
+// for the exponentials.
 //
 // Each evaluation is taken at a few ordinary arguments, which neither a rule of `pow.rs` nor
-// `exact` settles, at each of the 64 levels from 1 to 64 limbs, not only at those that `ziv`
-// tries. At each of them, `ziv_at` either fails or gives the rounding of the power, on every
-// platform. `ziv_cap`, the step of `ziv` at its cap of 64 limbs, also gives the rounding at
-// each argument, in both directions. On 64-bit Linux and macOS, where the tests have MPFR, each
-// enclosure also holds the value of the power that MPFR computes, and each doubling of the
-// precision at least halves its width.
+// `exact` or `exact_near` settles, at each of the 64 levels from 1 to 64 limbs, not only at
+// those that `ziv` and `ziv_near` try. At each of them, `ziv_at` either fails or gives the
+// rounding of the power, in each direction, and `ziv_near_at` either fails or gives its
+// rounding to nearest, `pow_near` or `pown_near`, on every platform. From 2 limbs on, each of
+// these tests passes. `ziv_cap` and `ziv_near_cap`, the steps of `ziv` and `ziv_near` at their
+// cap of 64 limbs, also give the roundings at each argument, in both directions and to
+// nearest. On 64-bit Linux and macOS, where the tests have MPFR, each enclosure also holds the
+// value of the power that MPFR computes, each doubling of the precision at least halves its
+// width, and the rounding to nearest has the bits of MPFR's, `pow_rn` or `pown_rn` of
+// `src/mpfr_calls/mpfr.rs`.
 
 use super::*;
-use crate::dyadic::{ziv_at, ziv_cap};
+use crate::dyadic::{ziv_at, ziv_cap, ziv_near_at, ziv_near_cap};
 
 // The array of `$f::<N, _> $args` for each N from 1 to 64, in that order.
 macro_rules! at_each_level {
@@ -47,6 +51,16 @@ impl Case {
             Case::Pown(x, n) => pown(x, n, up),
         }
     }
+
+    // The rounding of the value of the case to nearest, ties to even, by the function of
+    // `pow.rs` that computes it. Every x of `CASES` is positive, so that `pown_near` rounds the
+    // value that `Pown` encloses, rather than negating the rounding of (-x)^n.
+    fn near(self) -> f64 {
+        match self {
+            Case::Pow(x, y) => pow_near(x, y),
+            Case::Pown(x, n) => pown_near(x, n),
+        }
+    }
 }
 
 // 1 + 2^-40 and 1 - 2^-40, which are `f64`s.
@@ -67,14 +81,17 @@ const BELOW_ONE: f64 = 1.0 - 1.0 / 1_099_511_627_776.0;
 //   1 ± 2^-40 with n = i32::MAX and n = i32::MIN, for which binary powering takes 20, 30 and 31
 //   squarings. Then three at which |t| is between 700 and 745: 1.7^1335, near the largest
 //   `f64`, and 0.51^1100 and 3.3^-600, which are subnormal.
-// None of the results is an `f64`. x^y is one only at a power of 2 or at a y = p / 2^k > 0 with
-// p < 34 and k <= 5, from the conditions of `exact`: the odd part o of x is then that of a
-// dyadic number r to the 2^k, and that of r^p is below 2^53, so that 3^(2^k) <= o and
-// 3^p < 2^53 if o > 1. The only power of 2 here is 2^-1074, where 0.7 · -1074 is not an
-// integer, and the only such y is 2.5, where 0.3 is not the square of a dyadic number, as its o
-// is not a square. x^n is one only if o^n < 2^53 for n > 0 and o = 1 for n < 0, and here each o
-// is above 2^26 and each |n| at least 3, so that o^|n| > 2^78. 1.1^3 and 2.9^12 have an o^n of
-// 154 and 631 bits, so that their enclosures are exact, of width 0, from 3 and 10 limbs on.
+// None of the results is an `f64`, nor a midpoint between two adjacent `f64`s, which an
+// enclosure settles to nearest only if it is one of its bounds. Both are dyadic numbers whose
+// odd part is below 2^54, as `exact_near` takes them. x^y is one only at a power of 2 or at a
+// y = p / 2^k > 0 with p < 35 and k <= 5, from the conditions of `exact_near`: the odd part o
+// of x is then that of a dyadic number r to the 2^k, and that of r^p is below 2^54, so that
+// 3^(2^k) <= o < 2^53 and 3^p < 2^54 if o > 1. The only power of 2 here is 2^-1074, where
+// 0.7 · -1074 is not an integer, and the only such y is 2.5, where 0.3 is not the square of a
+// dyadic number, as its o is not a square. x^n is one only if o^n < 2^54 for n > 0 and o = 1
+// for n < 0, and here each o is above 2^26 and each |n| at least 3, so that o^|n| > 2^78.
+// 1.1^3 and 2.9^12 have an o^n of 154 and 631 bits, so that their enclosures are exact, of
+// width 0, from 3 and 10 limbs on.
 const CASES: [Case; 24] = [
     Case::Pow(0.3, 2.5),
     Case::Pow(1.7, -3.3),
@@ -124,17 +141,42 @@ fn rounds_at<const N: usize, E: Eval>(f: &E, c: Case, want: [f64; 2]) -> bool {
     passed
 }
 
+// `ziv_near_at::<N>` on `f`, the evaluation of `c`, either fails or gives `want`, the rounding
+// to nearest. Returns whether it passed.
+fn near_at<const N: usize, E: Eval>(f: &E, c: Case, want: f64) -> bool {
+    match ziv_near_at::<N, E>(f) {
+        // The bits, as none of the results is a zero.
+        Some(y) => {
+            assert!(
+                y.to_bits() == want.to_bits(),
+                "{:?} at {} limbs to nearest: {:e} != {:e}",
+                c,
+                N,
+                y,
+                want
+            );
+            true
+        }
+        None => false,
+    }
+}
+
 // Checks `f`, the evaluation of `c`, at each level, as the header says.
 fn forced<E: Eval>(f: &E, c: Case) {
     let want = [c.rounded(false), c.rounded(true)];
     let passed = at_each_level!(rounds_at(f, c, want));
+    let near = c.near();
+    let passed_near = at_each_level!(near_at(f, c, near));
     // From 2 limbs on, the enclosures at these arguments are far narrower than the distances
-    // from their values to the `f64`s, and each level passes, so that the test compares the
-    // roundings of each level, and not only of the first that passes.
-    for (l, &p) in passed.iter().enumerate().skip(1) {
+    // from their values to the `f64`s and to the midpoints between them, and each level passes
+    // in each direction and to nearest, so that the test compares the roundings of each level,
+    // and not only of the first that passes.
+    for (l, (&p, &q)) in passed.iter().zip(&passed_near).enumerate().skip(1) {
         assert!(p, "{:?} fails at {} limbs", c, l + 1);
+        assert!(q, "{:?} fails at {} limbs to nearest", c, l + 1);
     }
-    // As level 64 passes, `ziv_cap`, the step of `ziv` at its cap, gives the rounding.
+    // As level 64 passes, `ziv_cap` and `ziv_near_cap`, the steps of `ziv` and `ziv_near` at
+    // their cap, give the roundings.
     for up in [false, true] {
         let y = ziv_cap(f, up);
         assert!(
@@ -146,11 +188,22 @@ fn forced<E: Eval>(f: &E, c: Case) {
             want[usize::from(up)]
         );
     }
+    let y = ziv_near_cap(f);
+    assert!(
+        y.to_bits() == near.to_bits(),
+        "{:?} at the cap to nearest: {:e} != {:e}",
+        c,
+        y,
+        near
+    );
     #[cfg(all(
         target_pointer_width = "64",
         any(target_os = "linux", target_os = "macos")
     ))]
-    mpfr::enclosures(f, c);
+    {
+        mpfr::enclosures(f, c);
+        mpfr::near(c, near);
+    }
 }
 
 #[test]
@@ -244,6 +297,7 @@ fn hard_cases() {
 mod mpfr {
     use super::*;
     use crate::dyadic::tests::check_normal;
+    use crate::mpfr_calls::mpfr::{pow_rn, pown_rn};
     use rug::{float::Round, integer::Order, ops::Pow as _, Float, Integer};
 
     // MPFR's precision for the values of the powers, above that of the last level, so that
@@ -318,5 +372,22 @@ mod mpfr {
                 2 * n
             );
         }
+    }
+
+    // `near`, the rounding of `c` to nearest that `pow_near` or `pown_near` gave, is MPFR's,
+    // which `pow_rn` and `pown_rn` round once with the subnormals of an `f64`: the same bits,
+    // or NaN for both.
+    pub(super) fn near(c: Case, near: f64) {
+        let want = match c {
+            Case::Pow(x, y) => pow_rn(x, y),
+            Case::Pown(x, n) => pown_rn(x, n),
+        };
+        assert!(
+            near.to_bits() == want.to_bits() || (near.is_nan() && want.is_nan()),
+            "{:?} to nearest: {:e} != MPFR's {:e}",
+            c,
+            near,
+            want
+        );
     }
 }

@@ -1,9 +1,10 @@
 // Tests of the powers of the dyadic kernel. Every generator runs on every platform through
 // `check_pow` and `check_pown`, which check that the two directions give the same `f64` or two
-// adjacent ones, or NaN for both. On 64-bit Linux and macOS, where the tests have MPFR, they
+// adjacent ones, or NaN for both, and that `pow_near` and `pown_near`, which round to nearest,
+// give one of them, or NaN. On 64-bit Linux and macOS, where the tests have MPFR, they
 // also compare both directions with `pow_rd`, `pow_ru`, `pown_rd` and `pown_ru` of
-// `src/mpfr_calls/mpfr.rs`, which compute them with MPFR, which they have to agree with bit for
-// bit.
+// `src/mpfr_calls/mpfr.rs`, and nearest with its `pow_rn` and `pown_rn`, which compute them
+// with MPFR and which they have to agree with bit for bit, `pow` except at x < 0.
 
 use super::*;
 use crate::dyadic::tests::Rng;
@@ -117,26 +118,48 @@ fn check_pair(what: &str, lo: f64, hi: f64) {
     }
 }
 
-// Checks x^y in both directions, as the header says.
-fn check_pow(x: f64, y: f64) {
-    let (lo, hi) = (pow(x, y, false), pow(x, y, true));
-    check_pair(&format!("pow({:e}, {:e})", x, y), lo, hi);
-    #[cfg(all(
-        target_pointer_width = "64",
-        any(target_os = "linux", target_os = "macos")
-    ))]
-    mpfr::check_pow(x, y, lo, hi);
+// `near`, the rounding to nearest of the number that `lo` and `hi` round, is one of them, or NaN
+// if they are. This holds for zeros too: a number of magnitude at most 2^-1075 rounds to
+// nearest to the zero of its sign, which the direction toward 0 also gives.
+fn check_near(what: &str, lo: f64, hi: f64, near: f64) {
+    let ok = if lo.is_nan() {
+        near.is_nan()
+    } else {
+        near.to_bits() == lo.to_bits() || near.to_bits() == hi.to_bits()
+    };
+    assert!(
+        ok,
+        "{}: {:e} to nearest, outside ({:e}, {:e})",
+        what, near, lo, hi
+    );
 }
 
-// Checks x^n in both directions, as the header says.
-fn check_pown(x: f64, n: i32) {
-    let (lo, hi) = (pown(x, n, false), pown(x, n, true));
-    check_pair(&format!("pown({:e}, {})", x, n), lo, hi);
+// Checks x^y in both directions and to nearest, as the header says.
+fn check_pow(x: f64, y: f64) {
+    let (lo, hi) = (pow(x, y, false), pow(x, y, true));
+    let near = pow_near(x, y);
+    let what = format!("pow({:e}, {:e})", x, y);
+    check_pair(&what, lo, hi);
+    check_near(&what, lo, hi, near);
     #[cfg(all(
         target_pointer_width = "64",
         any(target_os = "linux", target_os = "macos")
     ))]
-    mpfr::check_pown(x, n, lo, hi);
+    mpfr::check_pow(x, y, lo, hi, near);
+}
+
+// Checks x^n in both directions and to nearest, as the header says.
+fn check_pown(x: f64, n: i32) {
+    let (lo, hi) = (pown(x, n, false), pown(x, n, true));
+    let near = pown_near(x, n);
+    let what = format!("pown({:e}, {})", x, n);
+    check_pair(&what, lo, hi);
+    check_near(&what, lo, hi, near);
+    #[cfg(all(
+        target_pointer_width = "64",
+        any(target_os = "linux", target_os = "macos")
+    ))]
+    mpfr::check_pown(x, n, lo, hi, near);
 }
 
 // Arguments on which mismatches were found, as `("pow", x, y)` or `("pown", x, n)`, each with
@@ -567,9 +590,13 @@ mod mpfr {
         a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan())
     }
 
-    // `lo` and `hi`, which `pow` gave at (x, y), are MPFR's roundings.
-    pub(super) fn check_pow(x: f64, y: f64, lo: f64, hi: f64) {
-        // NaN here for x < 0, where MPFR differs at integer y; `Interval::pow` never passes it.
+    // `lo` and `hi`, which `pow` gave at (x, y), are MPFR's roundings, and `near`, which
+    // `pow_near` gave, is MPFR's rounding to nearest, ties to even, which `pow_rn` rounds once
+    // with the subnormals of an `f64`.
+    pub(super) fn check_pow(x: f64, y: f64, lo: f64, hi: f64, near: f64) {
+        // At x < 0, -∞ included, the three are NaN unless y is ±0, where they are 1, and MPFR
+        // differs from that at integer y; `Interval::pow` never passes such an x, and
+        // `src/cr.rs` tests the signed wrapper of `pow` there.
         if x < 0.0 {
             return;
         }
@@ -584,10 +611,21 @@ mod mpfr {
             want_lo,
             want_hi
         );
+        let want = pow_rn(x, y);
+        assert!(
+            same(near, want),
+            "pow({:e}, {:e}): {:e} to nearest != MPFR's {:e}",
+            x,
+            y,
+            near,
+            want
+        );
     }
 
-    // `lo` and `hi`, which `pown` gave at (x, n), are MPFR's roundings.
-    pub(super) fn check_pown(x: f64, n: i32, lo: f64, hi: f64) {
+    // `lo` and `hi`, which `pown` gave at (x, n), are MPFR's roundings, and `near`, which
+    // `pown_near` gave, is MPFR's rounding to nearest, ties to even, which `pown_rn` rounds
+    // once with the subnormals of an `f64`.
+    pub(super) fn check_pown(x: f64, n: i32, lo: f64, hi: f64, near: f64) {
         let (want_lo, want_hi) = (pown_rd(x, n), pown_ru(x, n));
         assert!(
             same(lo, want_lo) && same(hi, want_hi),
@@ -599,10 +637,20 @@ mod mpfr {
             want_lo,
             want_hi
         );
+        let want = pown_rn(x, n);
+        assert!(
+            same(near, want),
+            "pown({:e}, {}): {:e} to nearest != MPFR's {:e}",
+            x,
+            n,
+            near,
+            want
+        );
     }
 }
 
 mod exact;
 mod levels;
+mod near;
 mod near_floats;
 mod rules;

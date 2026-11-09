@@ -1,9 +1,11 @@
 // The powers x^y for an `f64` y and x^n for an `i32` n with the dyadic kernel, each rounded to
-// an `f64` toward +∞ if `up` and toward -∞ otherwise, as MPFR rounds them but for x^y at
-// x < 0 (below; `src/dyadic.rs` says what `ziv` returns at its cap). `src/mpfr_calls/kernel.rs`
-// makes them the `pow_rd`, `pow_ru`, `pown_rd` and `pown_ru` that `src/elementary.rs` calls,
-// and the tests on 64-bit Linux and macOS compare them with those of the MPFR backend,
-// `src/mpfr_calls/mpfr.rs`.
+// an `f64` toward +∞ if `up` and toward -∞ otherwise, and, as `pow_near` and `pown_near`, to
+// nearest, ties to even, as MPFR rounds them but for x^y at x < 0 (below; `src/dyadic.rs`
+// says what `ziv` and `ziv_near` return at their caps). `src/mpfr_calls/kernel.rs` makes the
+// first the `pow_rd`, `pow_ru`, `pown_rd` and `pown_ru` that `src/elementary.rs` calls,
+// `src/cr.rs` makes both the `pow_rn`, `pow_rd`, `pow_ru`, `powi_rn`, `powi_rd` and `powi_ru`
+// of `inari::cr`, with MPFR's values of x^y at x < 0, and the tests on 64-bit Linux and macOS
+// compare them with those of MPFR, `src/mpfr_calls/mpfr.rs`.
 //
 // Each function first settles some arguments by rules: NaN, the zeros and the infinities, the
 // zero exponents, x = 1 for x^y, and, from bounds on the exponents of the arguments, some of
@@ -21,6 +23,16 @@
 // 2^256 in magnitude to `mpfr_pow_z`, which computes x^y by multiplications. `ziv` computes
 // the rest from an `Eval`, at a first level that grows with the bits that the evaluation
 // loses.
+//
+// The functions rounded to nearest have the same rules, with the bounds at which the results
+// overflow, are less than half an ulp from 1 or are at most 2^-1075, whose tie goes to +0, and
+// `exact_near` in place of `exact`. Rounded to nearest, Ziv's strategy cannot settle an
+// argument whose result is the midpoint of two adjacent `f64`s unless the midpoint is a bound
+// of an enclosure, as in an exact one, since the two bounds of an enclosure that holds it
+// strictly inside round to different `f64`s. `exact_near` finds the arguments of x^y whose
+// results are `f64`s or such midpoints, q 2^e for an odd q < 2^54 and e >= -1075, as `exact`
+// finds the `f64`s, and x^n at such a midpoint is again binary powering that rounds nothing,
+// which the loop settles at its first level.
 //
 // x^y = e^t for t = y ln x, for x > 0. The evaluation takes ln x = e ln 2 + σ a for the
 // (e, a, less) of `reduce` of `src/dyadic/log.rs`, with σ = -1 if `less` and 1 otherwise, and
@@ -44,14 +56,23 @@
 // to x^n. `DyPown.v` proves the rules of x^n and binary powering. These files also show that
 // `exact` finds every argument that reaches it whose exact result is an `f64`, and that both
 // functions return that `f64` at every finite argument whose exact result is one, with x > 0
-// for x^y and x other than 0 for x^n. That a test passes by the cap of `ziv` at the other
-// arguments is not proved, nor that the evaluations do not panic.
+// for x^y and x other than 0 for x^n. `rocq/theories/DyPowNear.v` proves that `pow_near` and
+// `pown_near`, at finite arguments in their domains, where a rule or `exact_near` settles the
+// arguments or a rounding test of `ziv_near` passes, return x^y and x^n rounded to nearest as
+// `near_round` in `rocq/theories/NearF64.v` says, from the same enclosures and bounds, the
+// cells of `rocq/theories/NearCells.v` and `rocq/theories/DyPowNearExact.v` for
+// `exact_near`. `DyPowNearExact.v` also shows that `exact_near` finds every argument that
+// reaches it whose x^y is an `f64` or a midpoint, and `DyPowNear.v` that `pow_near` returns
+// the rounding to nearest at every finite x > 0 whose x^y is one. That x^n at a midpoint is
+// settled at the first level is not proved: the tests check its value, which the step of
+// `ziv_near` at the cap would also give. That a test passes by the cap of `ziv` or of
+// `ziv_near` at the other arguments is not proved, nor that the evaluations do not panic.
 
 use super::{
     consts::ln2,
     exp::{mul_f64, mul_int, near_one, overflow, scaled, underflow},
     log::reduce,
-    ziv, Dyadic, Encl, Eval,
+    round, ziv, ziv_near, Dyadic, Encl, Eval,
 };
 use std::f64::consts::LOG2_E;
 
@@ -113,7 +134,7 @@ fn ln_expo(x: f64) -> i64 {
 }
 
 // Whether the finite y is an odd integer: its odd part is at 2^0.
-fn is_odd_integer(y: f64) -> bool {
+pub(crate) fn is_odd_integer(y: f64) -> bool {
     y != 0.0 && odd_parts(y).1 == 0
 }
 
@@ -170,6 +191,61 @@ fn exact(x: f64, y: f64) -> Option<f64> {
         return None;
     }
     Some(Dyadic::<1>::from_f64(q as f64).shl(e as i64).to_f64(false))
+}
+
+// r^p for an odd r >= 3, if it is below 2^54, as `small_power` with the bound of `exact_near`.
+fn small_power_near(r: u64, p: u64) -> Option<u64> {
+    let mut q = 1;
+    for _ in 0..p {
+        let t = u128::from(q) * u128::from(r);
+        if t >= 1 << 54 {
+            return None;
+        }
+        q = t as u64;
+    }
+    Some(q)
+}
+
+// x^y rounded to nearest, ties to even, if x^y is an `f64` or the midpoint of two adjacent
+// `f64`s, for a finite x > 0 other than 1 and a finite y != 0, and `None` otherwise. As in
+// `exact`, whose argument this repeats, but a midpoint is q 2^e for an odd q < 2^54 and
+// e >= -1075, so that the bound on the power is 2^54 and the least exponent -1075.
+fn exact_near(x: f64, y: f64) -> Option<f64> {
+    let (mut mx, mut ex) = odd_parts(x);
+    let (my, ey) = odd_parts(y);
+    // |y| >= 2^12 makes |ex y| >= 2^12 for mx = 1, as ex != 0, and mx^|y| >= 3^4096 > 2^54
+    // otherwise.
+    if ey > 11 {
+        return None;
+    }
+    let (p, k) = if ey >= 0 { (my << ey, 0) } else { (my, -ey) };
+    for _ in 0..k {
+        let s = (mx as f64).sqrt() as u64;
+        if ex % 2 != 0 || s * s != mx {
+            return None;
+        }
+        mx = s;
+        ex /= 2;
+    }
+    // x^y = mr^±p 2^(±p er) for the mr and er that are now mx and ex.
+    let q = if mx == 1 {
+        1
+    } else if y < 0.0 {
+        return None;
+    } else {
+        small_power_near(mx, p)?
+    };
+    let e = i128::from(ex) * i128::from(p);
+    let e = if y < 0.0 { -e } else { e };
+    // q 2^e is a midpoint or an `f64` if q < 2^54, which holds, and its least bit and its top
+    // bit are in range.
+    let top = e + i128::from(63 - q.leading_zeros());
+    if e < -1075 || top > 1023 {
+        return None;
+    }
+    // q 2^e is exact in one limb.
+    let d: Dyadic<1> = round(false, &[q], e as i64, false, false);
+    Some(d.to_f64_near())
 }
 
 // x^y = 2^k e^-w for a finite x > 0 and a finite y, as the header says, for |y ln x| < 2^13.
@@ -274,6 +350,77 @@ pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64 {
     }
 }
 
+/// x^y rounded to nearest, ties to even, and NaN for a finite x < 0 and for x = -∞, as `pow`
+/// takes them.
+pub(crate) fn pow_near(x: f64, y: f64) -> f64 {
+    if y == 0.0 {
+        1.0
+    } else if x.is_nan() {
+        x
+    } else if y.is_nan() {
+        if x == 1.0 {
+            1.0
+        } else {
+            y
+        }
+    } else if x < 0.0 {
+        f64::NAN
+    } else if x == 1.0 {
+        1.0
+    } else if y.is_infinite() {
+        // |x| < 1 or x > 1, where x is ±0 or positive.
+        if (x > 1.0) == (y > 0.0) {
+            f64::INFINITY
+        } else {
+            0.0
+        }
+    } else if x == 0.0 {
+        // ±0 or ±∞, negative for x = -0 and an odd integer y.
+        let r = if y < 0.0 { f64::INFINITY } else { 0.0 };
+        if x.is_sign_negative() && is_odd_integer(y) {
+            -r
+        } else {
+            r
+        }
+    } else if x == f64::INFINITY {
+        if y > 0.0 {
+            x
+        } else {
+            0.0
+        }
+    } else {
+        // 2^s <= |y ln x| < 2^(s + 4), and x^y = e^(y ln x) is above 1 if y ln x > 0.
+        let ey = expo(y);
+        let s = ey + ln_expo(x);
+        let above = (y > 0.0) == (x > 1.0);
+        if s >= 10 {
+            // |y ln x| >= 1024 > 1025 ln 2.
+            if above {
+                f64::INFINITY
+            } else {
+                0.0
+            }
+        } else if s <= -58 {
+            // |y ln x| < 2^-54, as the rule of `exp_near` near 0.
+            1.0
+        } else if let Some(v) = exact_near(x, y) {
+            // The midpoints among them, which an enclosure settles only if they are one of its
+            // bounds.
+            v
+        } else if f64::from(y as i32) == y {
+            // An integer y from -2^31 to 2^31 - 1, as in `pow`.
+            pown_pos_near(x, y as i32)
+        } else {
+            let start = if ey.min(s + 4) >= POW_START_BITS {
+                2
+            } else {
+                1
+            };
+            ziv_near(&Pow(x, y), start)
+        }
+    }
+}
+
 // x^|n| for an enclosure of positive numbers x and n >= 1, by binary powering:
 // x^n = (x^2)^(n / 2) times x for an odd n.
 fn powi<const N: usize>(x: &Encl<N>, n: u32) -> Encl<N> {
@@ -328,6 +475,30 @@ fn pown_pos(x: f64, n: i32, up: bool) -> f64 {
     }
 }
 
+// x^n rounded to nearest, ties to even, for a finite x > 0 and n != 0, with the bounds of
+// `pown_pos`.
+fn pown_pos_near(x: f64, n: i32) -> f64 {
+    let (g, n64) = (expo(x), i64::from(n));
+    let (lo, hi) = if n > 0 {
+        (g * n64, (g + 1) * n64)
+    } else {
+        ((g + 1) * n64, g * n64)
+    };
+    if lo >= 1024 {
+        f64::INFINITY
+    } else if hi <= -1075 {
+        // x^n <= 2^-1075, whose tie goes to +0.
+        0.0
+    } else {
+        let start = if n.unsigned_abs() >= 1 << POWN_START_BITS {
+            2
+        } else {
+            1
+        };
+        ziv_near(&Pown(x, n), start)
+    }
+}
+
 /// x^n rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn pown(x: f64, n: i32, up: bool) -> f64 {
     if n == 0 {
@@ -351,5 +522,31 @@ pub(crate) fn pown(x: f64, n: i32, up: bool) -> f64 {
         -pown_pos(-x, n, !up)
     } else {
         pown_pos(x.abs(), n, up)
+    }
+}
+
+/// x^n rounded to nearest, ties to even.
+pub(crate) fn pown_near(x: f64, n: i32) -> f64 {
+    if n == 0 {
+        1.0
+    } else if x.is_nan() {
+        x
+    } else if x == 0.0 || x.is_infinite() {
+        // A zero or an infinity, negative for x < 0 or x = -0 and an odd n.
+        let r = if (x == 0.0) == (n < 0) {
+            f64::INFINITY
+        } else {
+            0.0
+        };
+        if x.is_sign_negative() && n % 2 != 0 {
+            -r
+        } else {
+            r
+        }
+    } else if x < 0.0 && n % 2 != 0 {
+        // Rounding to nearest is symmetric.
+        -pown_pos_near(-x, n)
+    } else {
+        pown_pos_near(x.abs(), n)
     }
 }

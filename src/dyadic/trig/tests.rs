@@ -1,10 +1,11 @@
 // Tests of the trigonometric functions of the dyadic kernel. Every generator runs on every
 // platform through `check`, which checks that the two directions give the same `f64` or two
-// adjacent ones, or NaN for both. On 64-bit Linux and macOS, where the tests have MPFR, it also
-// compares both directions with the function of `src/mpfr_calls/mpfr.rs` that computes the
-// same function with MPFR, which they have to agree with bit for bit. The generator of the
-// `f64`s nearest to multiples of π/2 needs π to more bits than an `f64` has, so it runs only
-// where the tests have MPFR.
+// adjacent ones, or NaN for both, and that the function of `NEAR`, which rounds to nearest,
+// gives one of them, or NaN where they do. On 64-bit Linux and macOS, where the tests have
+// MPFR, it also compares the three roundings with the functions of `src/mpfr_calls/mpfr.rs`
+// that compute the same function with MPFR, which they have to agree with bit for bit. The
+// generator of the `f64`s nearest to multiples of π/2 needs π to more bits than an `f64` has,
+// so it runs only where the tests have MPFR.
 
 use super::*;
 use crate::dyadic::tests::Rng;
@@ -16,6 +17,13 @@ const COS: usize = 1;
 const TAN: usize = 2;
 
 const FUNCTIONS: [(&str, Directed); 3] = [("sin", sin), ("cos", cos), ("tan", tan)];
+
+type Near = fn(f64) -> f64;
+
+// The functions of `FUNCTIONS` rounded to nearest, in the same order. They skip the rules of
+// `sin_small`, `cos_small` and `tan_small`, and below their tiny threshold, `TINY_NEAR` =
+// 2^-27, give x for sin and tan and 1 for cos.
+const NEAR: [Near; 3] = [sin_near, cos_near, tan_near];
 
 // The `f64` after `x` toward +∞, for `x` below +∞: 2^-1074 after either zero, and -0 after
 // -2^-1074. `f64::next_up` needs a Rust after the MSRV.
@@ -88,16 +96,37 @@ fn check_pair(name: &str, x: f64, lo: f64, hi: f64) {
     }
 }
 
-// Checks the function `i` at `x` in both directions, as the header says.
+// `near`, the rounding to nearest of the number that `lo` and `hi` round, is one of them, or NaN
+// if they are. This holds for zeros too: a number of magnitude at most 2^-1075 rounds to
+// nearest to the zero of its sign, which the direction toward 0 also gives.
+fn check_near(name: &str, x: f64, lo: f64, hi: f64, near: f64) {
+    let ok = if lo.is_nan() {
+        near.is_nan()
+    } else {
+        near.to_bits() == lo.to_bits() || near.to_bits() == hi.to_bits()
+    };
+    assert!(
+        ok,
+        "{}({:e}): {:e} to nearest, outside ({:e}, {:e})",
+        name, x, near, lo, hi
+    );
+}
+
+// Checks the function `i` at `x` in both directions and to nearest, as the header says.
 fn check(i: usize, x: f64) {
     let (name, f) = FUNCTIONS[i];
     let (lo, hi) = (f(x, false), f(x, true));
+    let near = NEAR[i](x);
     check_pair(name, x, lo, hi);
+    check_near(name, x, lo, hi, near);
     #[cfg(all(
         target_pointer_width = "64",
         any(target_os = "linux", target_os = "macos")
     ))]
-    mpfr::check(i, x, lo, hi);
+    {
+        mpfr::check(i, x, lo, hi);
+        mpfr::check_near(i, x, near);
+    }
 }
 
 // Checks each function at `x` and at -x.
@@ -212,22 +241,63 @@ fn special_and_exact() {
             }
         }
     }
+    // The same to nearest.
+    for x in [0.0, -0.0] {
+        assert_eq!(sin_near(x).to_bits(), x.to_bits());
+        assert_eq!(tan_near(x).to_bits(), x.to_bits());
+        assert_eq!(cos_near(x), 1.0);
+    }
+    for x in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+        for f in NEAR {
+            assert!(f(x).is_nan());
+        }
+    }
 }
 
 // Each rule and the reduction at its threshold and the 3 `f64`s on each side of it, both signs
 // of them: `TINY_HYP` = 2^-26 for the three functions, at which the rules of small arguments
 // take over from those of tiny ones, the bounds of their ranges, 2^-14 for `cos_small` and
 // `tan_small` and 2^-13 for `sin_small`, and `NO_REDUCE` and π/4, between which the reduction
-// starts with k = 0.
+// starts with k = 0. For the roundings to nearest: `TINY_NEAR` = 2^-27, below which they give x
+// for sin and tan and 1 for cos, and the arguments past which x or 1 is no longer the nearest
+// `f64`, where the test also checks that the third `f64` below gives x or 1 and the third above
+// does not:
+// - sin at ∛3 2^-26, where x^3 / 6 = 2^-79 is half the gap from x to the `f64` below it, as x
+//   is in (2^-26, 2^-25), and x - x^3 / 6 < sin x < x - x^3 / 6 + x^5 / 120.
+// - cos at 2^-26 / √2, where t^2 / 2 = 2^-54 is half the gap from 1 to the `f64` below it, and
+//   1 - t^2 / 2 < cos t < 1 - t^2 / 2 + t^4 / 24.
+// - tan at ∛6 2^-27 = ∛3 2^(-80/3), where x^3 / 3 = 2^-80 is half the gap from x to the `f64`
+//   above it, as x is in (2^-27, 2^-26), and x + x^3 / 3 < tan x < x + x^3 / 3 + x^5 / 4.
+// The test computes each argument to within about an `f64`, so the third `f64`s on each side
+// are at least 2 gaps from it, a relative distance of at least 2^-52. That moves x^3 or t^2 by
+// at least 6 2^-53 or 4 2^-53 of it, more than the last term of its bounds, x^5 / 120, t^4 / 24
+// or x^5 / 4, so the result at each of them is on the side of the midpoint that the `f64` is on
+// of the argument.
 #[test]
 fn rules_at_their_thresholds() {
     for t in [
+        TINY_NEAR,
         TINY_HYP,
         pow2(-14),
         pow2(-13),
         NO_REDUCE,
         std::f64::consts::FRAC_PI_4,
     ] {
+        for x in around(t, 3) {
+            check_all(x);
+        }
+    }
+    for (i, t) in [
+        (SIN, 3f64.cbrt() * pow2(-26)),
+        (COS, pow2(-26) / 2f64.sqrt()),
+        (TAN, 6f64.cbrt() * pow2(-27)),
+    ] {
+        let tiny = |x: f64| if i == COS { 1.0 } else { x };
+        let below = next_down(next_down(next_down(t)));
+        let above = next_up(next_up(next_up(t)));
+        let name = FUNCTIONS[i].0;
+        assert_eq!(NEAR[i](below), tiny(below), "{}({:e})", name, below);
+        assert_ne!(NEAR[i](above), tiny(above), "{}({:e})", name, above);
         for x in around(t, 3) {
             check_all(x);
         }
@@ -588,6 +658,8 @@ mod mpfr {
 
     const MPFR: [(Mpfr, Mpfr); 3] = [(sin_rd, sin_ru), (cos_rd, cos_ru), (tan_rd, tan_ru)];
 
+    const MPFR_NEAR: [Mpfr; 3] = [sin_rn, cos_rn, tan_rn];
+
     fn same(a: f64, b: f64) -> bool {
         a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan())
     }
@@ -605,6 +677,20 @@ mod mpfr {
             hi,
             want_lo,
             want_hi
+        );
+    }
+
+    // `near`, which the function `i` gave at `x` to nearest, is MPFR's rounding to nearest, or
+    // NaN where MPFR gives NaN.
+    pub(super) fn check_near(i: usize, x: f64, near: f64) {
+        let want = MPFR_NEAR[i](x);
+        assert!(
+            same(near, want),
+            "{}({:e}): {:e} to nearest != MPFR's {:e}",
+            FUNCTIONS[i].0,
+            x,
+            near,
+            want
         );
     }
 

@@ -1,9 +1,10 @@
 // Tests of the exponentials and hyperbolic functions of the dyadic kernel. Every generator runs
 // on every platform through `check`, which checks that the two directions give the same `f64`
-// or two adjacent ones, and that they give the roundings that bounds on the functions determine
-// (`known`). On 64-bit Linux and macOS, where the tests have MPFR, `check` also compares both
-// directions with the function of `src/mpfr_calls/mpfr.rs` that computes the same function
-// with MPFR, which they have to agree with bit for bit.
+// or two adjacent ones, that the rounding to nearest is one of them, and that the directions
+// give the roundings that bounds on the functions determine (`known`). On 64-bit Linux and
+// macOS, where the tests have MPFR, `check` also compares both directions and the rounding to
+// nearest with the functions of `src/mpfr_calls/mpfr.rs` that compute the same function with
+// MPFR, which they have to agree with bit for bit.
 
 use super::*;
 use crate::dyadic::tests::Rng;
@@ -25,6 +26,13 @@ const FUNCTIONS: [(&str, Directed); 6] = [
     ("sinh", sinh),
     ("cosh", cosh),
     ("tanh", tanh),
+];
+
+type Near = fn(f64) -> f64;
+
+// The functions of `FUNCTIONS` rounded to nearest, in the same order.
+const NEAR: [Near; 6] = [
+    exp_near, exp2_near, exp10_near, sinh_near, cosh_near, tanh_near,
 ];
 
 // 1.25 * 2^-26, below which sinh, cosh and tanh are within an ulp of x or 1 (`known`).
@@ -127,10 +135,34 @@ fn known(i: usize, x: f64) -> Option<(f64, f64)> {
     Some(r)
 }
 
-// Checks the function `i` at `x` in both directions, as the header says.
+// `near`, the rounding to nearest of the number that `lo` and `hi` round, which the function `i`
+// gave at `x`, is one of them, or NaN if they are. This holds for zeros too: a number of
+// magnitude at most 2^-1075 rounds to nearest to the zero of its sign, which the direction
+// toward 0 also gives.
+fn check_near(i: usize, x: f64, lo: f64, hi: f64, near: f64) {
+    let ok = if lo.is_nan() {
+        near.is_nan()
+    } else {
+        near.to_bits() == lo.to_bits() || near.to_bits() == hi.to_bits()
+    };
+    assert!(
+        ok,
+        "{}({:e}): {:e} to nearest, outside ({:e}, {:e})",
+        FUNCTIONS[i].0, x, near, lo, hi
+    );
+}
+
+// Checks the function `i` at `x` in both directions and to nearest, as the header says.
 fn check(i: usize, x: f64) {
     let (name, f) = FUNCTIONS[i];
     let (lo, hi) = (f(x, false), f(x, true));
+    let near = NEAR[i](x);
+    check_near(i, x, lo, hi, near);
+    #[cfg(all(
+        target_pointer_width = "64",
+        any(target_os = "linux", target_os = "macos")
+    ))]
+    mpfr::check_near(i, x, near);
     if x.is_nan() {
         assert!(
             lo.is_nan() && hi.is_nan(),
@@ -258,6 +290,63 @@ fn rules_at_their_thresholds() {
         }
         check(i, f64::NAN);
     }
+}
+
+// Each rule of the functions of `exp.rs` rounded to nearest at its threshold and the 3 `f64`s
+// on each side of it, with both signs, and other arguments at which the rounding to nearest
+// changes: -1074 and -1076 for 2^x, where 2^x is 2^-1074 and 2^-1076, below the tie 2^-1075
+// between 0 and 2^-1074; the integers from 1 to 24 for 10^x, where 10^x is an `f64` up to 22,
+// 10^23 is the midpoint of two `f64`s, and 10^24 is neither; and for tanh, 19, the threshold
+// of its directions, and 27.5 ln 2, within an ulp of where 1 - tanh x = 2 / (e^2x + 1) is
+// 2^-54, as e^(55 ln 2) = 2^55.
+#[test]
+fn near_rules_at_their_thresholds() {
+    let thresholds: [&[f64]; 6] = [
+        &[710.0, -746.0, f64::EPSILON / 4.0],
+        &[1024.0, -1074.0, -1075.0, -1076.0, f64::EPSILON / 4.0],
+        &[309.0, -324.0, f64::EPSILON / 16.0],
+        &[711.0, TINY_NEAR, TINY_HYP],
+        &[711.0, TINY_NEAR, TINY_HYP],
+        &[19.0, 19.061547465398498, 20.0, TINY_NEAR],
+    ];
+    for (i, thresholds) in thresholds.iter().enumerate() {
+        for &x in *thresholds {
+            for x in around(x, 3) {
+                check(i, x);
+                check(i, -x);
+            }
+        }
+    }
+    for n in 1..=24 {
+        for x in around(f64::from(n), 3) {
+            check(EXP10, x);
+            check(EXP10, -x);
+        }
+    }
+}
+
+// Roundings to nearest that follow without bounds: 10^n for n up to 22 is an `f64`, which
+// `str::parse` gives; 10^23 is the midpoint of two `f64`s, and its tie goes to the even one,
+// 0x44b5_2d02_c7e1_4af6, which `1e23` also is; 2^-1074 is an `f64`, 2^-1075 is the midpoint of
+// 0 and 2^-1074, whose tie goes to 0, and 2^-1076 is below it. 1 - 2^-53 < tanh 19 < 1 - 2^-54
+// and 1 - 2^-54 < tanh 20 < 1, as 1 - tanh x = 2 / (e^2x + 1) and 54 ln 2 < 38 < 55 ln 2 < 40.
+#[test]
+fn near_exact_values() {
+    assert_eq!(exp10_near(23.0).to_bits(), 0x44b5_2d02_c7e1_4af6);
+    for k in 1..=22 {
+        let want: f64 = format!("1e{}", k).parse().unwrap();
+        assert_eq!(
+            exp10_near(f64::from(k)).to_bits(),
+            want.to_bits(),
+            "10^{}",
+            k
+        );
+    }
+    assert_eq!(exp2_near(-1074.0).to_bits(), 1);
+    assert_eq!(exp2_near(-1075.0).to_bits(), 0);
+    assert_eq!(exp2_near(-1076.0).to_bits(), 0);
+    assert_eq!(tanh_near(19.0).to_bits(), next_down(1.0).to_bits());
+    assert_eq!(tanh_near(20.0).to_bits(), 1f64.to_bits());
 }
 
 // The arguments at which the reductions of `exp.rs` change their k or their branch, with the 2
@@ -622,6 +711,23 @@ mod mpfr {
             hi,
             want_lo,
             want_hi
+        );
+    }
+
+    // MPFR's roundings to nearest, once and with IEEE subnormals, in the order of `FUNCTIONS`.
+    const MPFR_NEAR: [Mpfr; 6] = [exp_rn, exp2_rn, exp10_rn, sinh_rn, cosh_rn, tanh_rn];
+
+    // `near`, which the function `i` gave at `x` rounded to nearest, is MPFR's rounding to
+    // nearest, or NaN if MPFR's is.
+    pub(super) fn check_near(i: usize, x: f64, near: f64) {
+        let want = MPFR_NEAR[i](x);
+        assert!(
+            near.to_bits() == want.to_bits() || (near.is_nan() && want.is_nan()),
+            "{}({:e}): {:e} to nearest != MPFR's {:e}",
+            FUNCTIONS[i].0,
+            x,
+            near,
+            want
         );
     }
 }

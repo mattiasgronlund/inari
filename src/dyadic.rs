@@ -1,7 +1,8 @@
 // Dyadic numbers of a fixed precision, enclosures of real numbers by them, and Ziv's strategy
-// for rounding a real number to an `f64` from enclosures of increasing precision: the
-// multi-precision kernel that the elementary functions compute their bounds with, through
-// `src/mpfr_calls/kernel.rs`.
+// for rounding a real number to an `f64` from enclosures of increasing precision, toward -∞ or
+// +∞ (`ziv`) and to nearest, ties to even (`ziv_near`): the multi-precision kernel that the
+// elementary functions compute their bounds with, through `src/mpfr_calls/kernel.rs`, and
+// that the correctly rounded functions of `src/cr.rs` call.
 //
 // A `Dyadic<N>` is `(-1)^neg * m * 2^exp` for a mantissa `m` of `N` 64-bit limbs, the least
 // significant first, at the precision p = 64 N bits. It is normalized: 0 is `m = 0` with
@@ -20,8 +21,8 @@
 //
 // `rocq/theories/Model.v` transcribes each function of this file except `with_buf` and the
 // tests, so it has to be updated along with them. Nor does it transcribe the record of the
-// levels that `ziv` uses (`ZIV_LEVEL`) or the statements of `ziv` that set it: only the tests
-// compile them, and they change no result. `rocq/theories/DyRound.v`,
+// levels that `ziv` uses (`ZIV_LEVEL`) or the statements of `ziv` and `ziv_near` that set it:
+// only the tests compile them, and they change no result. `rocq/theories/DyRound.v`,
 // `rocq/theories/DyConv.v`, `rocq/theories/DyIsqrt.v`, `rocq/theories/DyOps.v` and
 // `rocq/theories/DyDriver.v` prove them correct, and `rocq/theories/DyGrow.v` bounds the
 // exponents of the enclosures that they return. `ziv` does not panic at its cap of 64 limbs:
@@ -31,6 +32,18 @@
 // (`ziv_strict_correct` and `ziv_strict_ziv`), and a value on the side of the rounding
 // wherever the evaluation does not panic (`ziv_side`). That the value at the cap is within one
 // `f64` of the correct rounding is not proved.
+//
+// `rocq/theories/DyConvNear.v` proves that `to_f64_near` rounds to nearest, ties to even, as
+// `near_round` in `rocq/theories/NearF64.v` says, with `rocq/theories/NearRound.v` for the
+// rounding of its window of bits. `rocq/theories/DyDriverNear.v` proves that `ziv_near` returns
+// the number that `f` encloses rounded to nearest where a test passes
+// (`ziv_near_strict_correct` and `ziv_near_strict_ziv`): the bits of the two rounded bounds,
+// unlike `==`, tell -0 from +0, so that a passing test also fixes the sign of a zero.
+// `ziv_near` does not panic at its cap either: where no test passes, it returns the rounding
+// to nearest of a bound of the enclosure at 64 limbs (`ziv_near_cap_round`), which is not
+// known to be the rounding of the number that `f` encloses. `rocq/theories/NearCells.v` gives
+// the real numbers that round to nearest to the `f64`s of the rules of the functions rounded
+// to nearest.
 //
 // The constants ln 2, ln 10 and π are in `src/dyadic/consts.rs`, the exponentials and the
 // hyperbolic functions computed with the kernel in `src/dyadic/exp.rs`, the logarithms and the
@@ -50,13 +63,19 @@ mod pow;
 mod tests;
 mod trig;
 
-// The functions that `src/mpfr_calls/kernel.rs` calls.
+// The functions that `src/mpfr_calls/kernel.rs` and `src/cr.rs` call.
 pub(crate) use self::{
-    atan::{acos, asin, atan, atan2},
-    exp::{cosh, exp, exp10, exp2, sinh, tanh},
-    log::{acosh, asinh, atanh, ln, log10, log2},
-    pow::{pow, pown},
-    trig::{cos, sin, tan},
+    atan::{acos, acos_near, asin, asin_near, atan, atan2, atan2_near, atan_near},
+    exp::{
+        cosh, cosh_near, exp, exp10, exp10_near, exp2, exp2_near, exp_near, sinh, sinh_near, tanh,
+        tanh_near,
+    },
+    log::{
+        acosh, acosh_near, asinh, asinh_near, atanh, atanh_near, ln, ln_near, log10, log10_near,
+        log2, log2_near,
+    },
+    pow::{is_odd_integer, pow, pow_near, pown, pown_near},
+    trig::{cos, cos_near, sin, sin_near, tan, tan_near},
 };
 
 /// `(-1)^neg * m * 2^exp`, normalized as the header says.
@@ -374,6 +393,63 @@ impl<const N: usize> Dyadic<N> {
         let sticky = self.m[..N.saturating_sub(2)].iter().any(|&l| l != 0);
         round_up_exact(neg, q, (b - 128) as i32, sticky)
     }
+
+    /// `self` rounded to the nearest `f64`, ties to even. A zero gives +0, and a nonzero number
+    /// of magnitude at most 2^-1075 a zero of its sign, as MPFR rounds them.
+    pub(crate) fn to_f64_near(self) -> f64 {
+        if self.is_zero() {
+            0.0
+        } else if self.neg {
+            // Rounding to nearest is symmetric.
+            -self.round_near()
+        } else {
+            self.round_near()
+        }
+    }
+
+    // |self| rounded to the nearest `f64`, ties to even, for a nonzero `self`.
+    fn round_near(&self) -> f64 {
+        // 2^(b - 1) <= |self| < 2^b.
+        let b = i128::from(self.exp) + 64 * N as i128;
+        if b >= 1025 {
+            // |self| >= 2^1024.
+            return f64::INFINITY;
+        }
+        if b <= -1075 {
+            // |self| < 2^-1075, half of the least subnormal number.
+            return 0.0;
+        }
+        // The top 128 bits q of m, at 2^(b - 128), with the lower limbs as the sticky bit, as
+        // in `round_up`.
+        let lo = N.checked_sub(2).map_or(0, |i| self.m[i]);
+        let q = u128::from(self.m[N - 1]) << 64 | u128::from(lo);
+        let sticky = self.m[..N.saturating_sub(2)].iter().any(|&l| l != 0);
+        // The last bit of the result is at 2^lsb: 53 bits, or the least subnormal number.
+        // q = kept 2^s + rest with rest < 2^s, for s = lsb - (b - 128), which is 75 for
+        // b >= -1021 and grows to 128 at b = -1074, where kept = 0. So kept < 2^53.
+        let lsb = (b - 53).max(-1074);
+        let s = (lsb - (b - 128)) as u32;
+        let (kept, rest) = if s == 128 {
+            (0, q)
+        } else {
+            (q >> s, q & ((1 << s) - 1))
+        };
+        let half = 1 << (s - 1);
+        // Up above the half, and at the half if the lower limbs are not zero or kept is odd
+        // (ties to even).
+        let kept = if rest > half || (rest == half && (sticky || kept % 2 == 1)) {
+            kept + 1
+        } else {
+            kept
+        };
+        if kept == 0 {
+            0.0
+        } else {
+            // kept 2^lsb is exact, and an `f64` unless it is 2^1024 (kept = 2^53 at
+            // lsb = 971), which rounds up to +∞.
+            round_up_exact(false, kept, lsb as i32, false)
+        }
+    }
 }
 
 // The order of the values, which agrees with the derived `PartialEq` of the representations, as
@@ -612,8 +688,10 @@ thread_local! {
     static ZIV_LEVEL: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
 }
 
-// `reset_ziv_level` and `ziv_level` have the `cfg` of `src/mpfr_calls/tests.rs`, their only
-// caller, so that they are not dead code in the tests of the other platforms.
+// `reset_ziv_level` and `ziv_level` have the `cfg` of their callers, the MPFR tests of
+// `src/mpfr_calls/tests.rs`, of `src/dyadic/atan/tests.rs` (`near_level2`) and of
+// `src/cr/tests/mpfr/hard_cases.rs`, so that they are not dead code in the tests of the other
+// platforms. They record the levels of `ziv_near` too.
 
 /// Forgets the levels that `ziv` has used on this thread, so that `ziv_level` is `(0, 0)` until
 /// `ziv` is called again.
@@ -685,4 +763,65 @@ pub(crate) fn ziv<E: Eval>(f: &E, up: bool, start: usize) -> f64 {
     #[cfg(test)]
     record_ziv_level(64);
     ziv_cap(f, up)
+}
+
+/// `round_bounds_near(f) = (lo, hi)`, the bounds of `f.eval::<N>()` rounded to nearest, ties to
+/// even.
+fn round_bounds_near<const N: usize, E: Eval>(f: &E) -> (f64, f64) {
+    let x = f.eval::<N>();
+    (x.lo.to_f64_near(), x.hi.to_f64_near())
+}
+
+/// Ziv's rounding test to nearest at `N` limbs: the number that `f` encloses rounded to
+/// nearest, ties to even, if both bounds of `f.eval::<N>()` round to it. Rounding to nearest
+/// is monotonic, so that it is then also the rounding of each number between them.
+pub(crate) fn ziv_near_at<const N: usize, E: Eval>(f: &E) -> Option<f64> {
+    let (lo, hi) = round_bounds_near::<N, E>(f);
+    // The bits, unlike `==`, tell -0 from +0: bounds that round to zeros of both signs do not
+    // settle the sign.
+    if lo.to_bits() == hi.to_bits() {
+        Some(lo)
+    } else {
+        None
+    }
+}
+
+/// The last step of `ziv_near`, at 64 limbs: the test of `ziv_near_at`, and where it fails, the
+/// one of the rounded bounds whose last bit is 0. Where the two are adjacent `f64`s, that is
+/// the rounding of the midpoint between them, ties to even. The result is the rounding of a
+/// bound of `f.eval::<64>()`, but it is known to be the rounding of the number that `f`
+/// encloses only where the test passes.
+fn ziv_near_cap<E: Eval>(f: &E) -> f64 {
+    let (lo, hi) = round_bounds_near::<64, E>(f);
+    if lo.to_bits() == hi.to_bits() || lo.to_bits() & 1 == 0 {
+        lo
+    } else {
+        hi
+    }
+}
+
+/// The number that `f` encloses rounded to nearest, ties to even, by Ziv's strategy as `ziv`
+/// takes it: the test of `ziv_near_at` at each of 1, 2, 4, 8, 16 and 32 limbs that is at least
+/// `start`, in that order, until it passes, and then `ziv_near_cap` at 64 limbs.
+pub(crate) fn ziv_near<E: Eval>(f: &E, start: usize) -> f64 {
+    // The tests also record the levels that it uses, for `ziv_level`.
+    macro_rules! try_levels {
+        ($($n:literal),*) => {
+            $(
+                if start <= $n {
+                    if let Some(x) = ziv_near_at::<$n, E>(f) {
+                        #[cfg(test)]
+                        record_ziv_level($n);
+                        return x;
+                    }
+                    #[cfg(test)]
+                    record_ziv_failure();
+                }
+            )*
+        };
+    }
+    try_levels!(1, 2, 4, 8, 16, 32);
+    #[cfg(test)]
+    record_ziv_level(64);
+    ziv_near_cap(f)
 }

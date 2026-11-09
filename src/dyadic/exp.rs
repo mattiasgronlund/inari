@@ -1,9 +1,10 @@
 // The exponentials e^x, 2^x and 10^x and the hyperbolic functions sinh, cosh and tanh with the
-// dyadic kernel, each rounded to an `f64` toward +∞ if `up` and toward -∞ otherwise, as MPFR
-// rounds them (`src/dyadic.rs` says what `ziv` returns at its cap). `src/mpfr_calls/kernel.rs`
-// makes them the `exp_rd`, `exp_ru` and the others that `src/elementary.rs` calls, and the
-// tests on 64-bit Linux and macOS compare them with those of the MPFR backend,
-// `src/mpfr_calls/mpfr.rs`.
+// dyadic kernel, each rounded to an `f64` toward +∞ if `up` and toward -∞ otherwise, and, as
+// `exp_near` and the others, to nearest, ties to even, as MPFR rounds them (`src/dyadic.rs`
+// says what `ziv` and `ziv_near` return at their caps). `src/mpfr_calls/kernel.rs` makes the
+// first the `exp_rd`, `exp_ru` and the others that `src/elementary.rs` calls, `src/cr.rs`
+// makes both the `exp_rn`, `exp_rd`, `exp_ru` and the others of `inari::cr`, and the tests on
+// 64-bit Linux and macOS compare them with those of MPFR, `src/mpfr_calls/mpfr.rs`.
 //
 // Each function first settles some arguments by rules: NaN and ±∞, the arguments beyond a
 // threshold past which the results overflow or are below 2^-1075 in magnitude, those whose
@@ -12,6 +13,22 @@
 // has that `f64` as its bound in the direction of the rounding, as the exact enclosures of 2^x
 // at an integer x do, since the two bounds of any other enclosure round to different `f64`s.
 // The rules also keep the reductions below in range. `ziv` computes the rest from an `Eval`.
+//
+// The functions rounded to nearest have rules of the same kinds, with thresholds of their own:
+// |x| >= 20 for tanh, as tanh 19 is more than half an ulp below 1, and |x| < 2^-27
+// (`TINY_NEAR`) for sinh, cosh and tanh, as below 2^-26 tanh x can be more than half an ulp
+// from x, and the bounds that prove the rules of sinh and cosh, x + x^3 / 3 and 1 + t^2, do
+// not keep sinh x and cosh x within half an ulp of x and 1 up to 2^-26. Rounded to nearest,
+// Ziv's strategy cannot settle an argument whose result is the midpoint of two adjacent
+// `f64`s unless the midpoint is a bound of an enclosure, as in an exact one, since the two
+// bounds of an enclosure that holds it strictly inside round to different `f64`s.
+// 10^23 = 5^23 2^23, with 5^23 odd and in [2^53, 2^54), has a rule, and 2^-1075, 2^x at
+// x = -1075, an exact enclosure. No other result is a midpoint: 2^x at any other integer x
+// is an `f64`, below 2^-1075 or at least 2^1024; 10^x at an integer x is an `f64` for
+// 0 <= x <= 22, has the odd part 5^x > 2^54 for x > 23 and is not dyadic for x < 0; 2^x and
+// 10^x at a non-integer x are irrational; and e^x, sinh x, cosh x and tanh x at a nonzero
+// `f64` x are transcendental, by the theorem of Lindemann and Weierstrass. None of this is
+// proved here. `ziv_near` computes the rest from the same `Eval`s.
 //
 // The evaluations reduce e^x to e^-y for y in [0, 2]: e^x = 2^k e^-y for y = k ln 2 - x. Then
 // e^-y = (e^-s)^(2^j) for s = y / 2^j, and the Taylor series of e^-s alternates, so that
@@ -27,12 +44,16 @@
 // `rocq/theories/Mpfr.v` says. They build on `rocq/theories/DyConst.v` for the constants,
 // `rocq/theories/DyExpCore.v` for `series`, `exp_neg` and `expm1_neg`, and
 // `rocq/theories/DyExpRules.v`, `rocq/theories/DyHypRules.v`, `rocq/theories/DySinhTiny.v`
-// and `rocq/theories/DyTanhTiny.v` for the rules. That a test passes by the cap of `ziv`
-// is not proved, nor that the evaluations do not panic.
+// and `rocq/theories/DyTanhTiny.v` for the rules. `rocq/theories/DyExpNear.v` proves that
+// each of the six functions rounded to nearest, at a finite argument, where a rule settles the
+// argument or a rounding test of `ziv_near` passes, returns its result rounded to nearest as
+// `near_round` in `rocq/theories/NearF64.v` says, from the same enclosures and bounds and the
+// cells of `rocq/theories/NearCells.v`. That a test passes by the cap of `ziv` or of
+// `ziv_near` is not proved, nor that the evaluations do not panic.
 
 use super::{
     consts::{ln10, ln2},
-    ziv, Dyadic, Encl, Eval,
+    ziv, ziv_near, Dyadic, Encl, Eval,
 };
 use std::f64::consts::{LOG2_10, LOG2_E};
 
@@ -45,6 +66,10 @@ mod tests;
 pub(super) const TINY_HYP: f64 = 1.0 / 67_108_864.0;
 const TINY_EXP: f64 = f64::EPSILON / 4.0;
 const TINY_EXP10: f64 = f64::EPSILON / 16.0;
+
+// 2^-27: the arguments of smaller magnitude have results within half an ulp of x, or of 1,
+// for the functions rounded to nearest that take it, as x^2 < 2^-54.
+pub(super) const TINY_NEAR: f64 = 1.0 / 134_217_728.0;
 
 // 10^n for n from 0 to 22, which are the `f64`s that these literals give, as 10^n = 2^n 5^n
 // and 5^22 < 2^53.
@@ -347,6 +372,25 @@ pub(crate) fn exp(x: f64, up: bool) -> f64 {
     }
 }
 
+/// e^x rounded to nearest, ties to even.
+pub(crate) fn exp_near(x: f64) -> f64 {
+    if x.is_nan() || x == f64::INFINITY {
+        x
+    } else if x == f64::NEG_INFINITY {
+        0.0
+    } else if x >= 710.0 {
+        f64::INFINITY
+    } else if x <= -746.0 {
+        // e^x < 2^-1075, half of the least subnormal number.
+        0.0
+    } else if x.abs() < TINY_EXP {
+        // 1 - 2^-54 < 1 + x <= e^x <= 1 / (1 - x) < 1 + 2^-53.
+        1.0
+    } else {
+        ziv_near(&Exp(x), 1)
+    }
+}
+
 /// 2^x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn exp2(x: f64, up: bool) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
@@ -362,6 +406,25 @@ pub(crate) fn exp2(x: f64, up: bool) -> f64 {
         near_one(x, up)
     } else {
         ziv(&Exp2(x), up, 1)
+    }
+}
+
+/// 2^x rounded to nearest, ties to even.
+pub(crate) fn exp2_near(x: f64) -> f64 {
+    if x.is_nan() || x == f64::INFINITY {
+        x
+    } else if x == f64::NEG_INFINITY {
+        0.0
+    } else if x >= 1024.0 {
+        f64::INFINITY
+    } else if x < -1075.0 {
+        // 2^x < 2^-1075. At -1075 itself the enclosure is exact, and its tie goes to +0.
+        0.0
+    } else if x.abs() < TINY_EXP {
+        // 2^x = e^(x ln 2), and |x ln 2| < |x|.
+        1.0
+    } else {
+        ziv_near(&Exp2(x), 1)
     }
 }
 
@@ -387,6 +450,32 @@ pub(crate) fn exp10(x: f64, up: bool) -> f64 {
     }
 }
 
+/// 10^x rounded to nearest, ties to even.
+pub(crate) fn exp10_near(x: f64) -> f64 {
+    if x.is_nan() || x == f64::INFINITY {
+        x
+    } else if x == f64::NEG_INFINITY {
+        0.0
+    } else if x >= 309.0 {
+        f64::INFINITY
+    } else if x <= -324.0 {
+        // 10^x < 2^-1075, half of the least subnormal number.
+        0.0
+    } else if x.abs() < TINY_EXP10 {
+        // 10^x = e^(x ln 10), and |x ln 10| < 4 |x| < 2^-54.
+        1.0
+    } else if (1.0..=22.0).contains(&x) && x == x.floor() {
+        POW10[x as usize]
+    } else if x == 23.0 {
+        // 10^23 = 5^23 2^23, with 5^23 odd and in [2^53, 2^54), is the midpoint of two
+        // adjacent `f64`s, which an enclosure settles only if it is one of its bounds. `1e23`
+        // is its rounding, ties to even.
+        1e23
+    } else {
+        ziv_near(&Exp10(x), 1)
+    }
+}
+
 /// sinh x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn sinh(x: f64, up: bool) -> f64 {
     if x.is_nan() || x.is_infinite() {
@@ -404,6 +493,22 @@ pub(crate) fn sinh(x: f64, up: bool) -> f64 {
     }
 }
 
+/// sinh x rounded to nearest, ties to even.
+pub(crate) fn sinh_near(x: f64) -> f64 {
+    if x.is_nan() || x.is_infinite() {
+        x
+    } else if x >= 711.0 {
+        f64::INFINITY
+    } else if x <= -711.0 {
+        f64::NEG_INFINITY
+    } else if x.abs() < TINY_NEAR {
+        // x <= sinh x <= x + x^3 / 3 for x in [0, 1], and sinh is odd.
+        x
+    } else {
+        ziv_near(&Sinh(x), 1)
+    }
+}
+
 /// cosh x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn cosh(x: f64, up: bool) -> f64 {
     let t = x.abs();
@@ -417,6 +522,21 @@ pub(crate) fn cosh(x: f64, up: bool) -> f64 {
         near_one(t, up)
     } else {
         ziv(&Cosh(t), up, 1)
+    }
+}
+
+/// cosh x rounded to nearest, ties to even.
+pub(crate) fn cosh_near(x: f64) -> f64 {
+    let t = x.abs();
+    if t.is_nan() || t == f64::INFINITY {
+        t
+    } else if t >= 711.0 {
+        f64::INFINITY
+    } else if t < TINY_NEAR {
+        // 1 <= cosh t <= 1 + t^2 for t in [0, 1].
+        1.0
+    } else {
+        ziv_near(&Cosh(t), 1)
     }
 }
 
@@ -446,5 +566,23 @@ pub(crate) fn tanh(x: f64, up: bool) -> f64 {
         toward_zero(x, up)
     } else {
         ziv(&Tanh(x), up, 1)
+    }
+}
+
+/// tanh x rounded to nearest, ties to even.
+pub(crate) fn tanh_near(x: f64) -> f64 {
+    if x.is_nan() {
+        x
+    } else if x >= 20.0 {
+        // 1 - 2^-54 < tanh x <= 1, as 1 - tanh x = 2 / (e^2x + 1) and 40 > 55 ln 2 = 38.12...
+        // `tanh`'s 19 is not enough here: 1 - tanh 19 > 2^-54.
+        1.0
+    } else if x <= -20.0 {
+        -1.0
+    } else if x.abs() < TINY_NEAR {
+        // x - x^3 / 3 <= tanh x <= x for x in [0, 1], and tanh is odd.
+        x
+    } else {
+        ziv_near(&Tanh(x), 1)
     }
 }

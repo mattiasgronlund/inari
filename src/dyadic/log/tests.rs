@@ -1,8 +1,10 @@
 // Tests of the logarithms and inverse hyperbolic functions of the dyadic kernel. Every generator
 // runs on every platform through `check`, which checks that the two directions give the same
-// `f64` or two adjacent ones, or NaN for both. On 64-bit Linux and macOS, where the tests have
-// MPFR, `check` also compares both directions with the function of `src/mpfr_calls/mpfr.rs`
-// that computes the same function with MPFR, which they have to agree with bit for bit.
+// `f64` or two adjacent ones, or NaN for both, and that the function rounded to nearest gives
+// one of them, or NaN. On 64-bit Linux and macOS, where the tests have MPFR, `check` also
+// compares both directions and the rounding to nearest with the functions of
+// `src/mpfr_calls/mpfr.rs` that compute the same function with MPFR, which they have to agree
+// with bit for bit.
 
 use super::*;
 use crate::dyadic::tests::Rng;
@@ -24,6 +26,13 @@ const FUNCTIONS: [(&str, Directed); 6] = [
     ("asinh", asinh),
     ("acosh", acosh),
     ("atanh", atanh),
+];
+
+type Near = fn(f64) -> f64;
+
+// The functions of `FUNCTIONS` rounded to nearest, in the same order.
+const NEAR: [Near; 6] = [
+    ln_near, log2_near, log10_near, asinh_near, acosh_near, atanh_near,
 ];
 
 // The `f64` after `x` toward +∞, for `x` below +∞: 2^-1074 after either zero, and -0 after
@@ -52,10 +61,27 @@ fn pow2(n: i32) -> f64 {
     }
 }
 
-// Checks the function `i` at `x` in both directions, as the header says.
+// `near`, the rounding to nearest of the number that `lo` and `hi` round, is one of them, or NaN
+// if they are. This holds for zeros too: a number of magnitude at most 2^-1075 rounds to
+// nearest to the zero of its sign, which the direction toward 0 also gives.
+fn check_near(name: &str, x: f64, lo: f64, hi: f64, near: f64) {
+    let ok = if lo.is_nan() {
+        near.is_nan()
+    } else {
+        near.to_bits() == lo.to_bits() || near.to_bits() == hi.to_bits()
+    };
+    assert!(
+        ok,
+        "{}({:e}): {:e} to nearest, outside ({:e}, {:e})",
+        name, x, near, lo, hi
+    );
+}
+
+// Checks the function `i` at `x` in both directions and to nearest, as the header says.
 fn check(i: usize, x: f64) {
     let (name, f) = FUNCTIONS[i];
     let (lo, hi) = (f(x, false), f(x, true));
+    let near = NEAR[i](x);
     if lo.is_nan() || hi.is_nan() {
         assert!(
             lo.is_nan() && hi.is_nan(),
@@ -75,11 +101,15 @@ fn check(i: usize, x: f64) {
             hi
         );
     }
+    check_near(name, x, lo, hi, near);
     #[cfg(all(
         target_pointer_width = "64",
         any(target_os = "linux", target_os = "macos")
     ))]
-    mpfr::check(i, x, lo, hi);
+    {
+        mpfr::check(i, x, lo, hi);
+        mpfr::check_near(i, x, near);
+    }
 }
 
 // `x` and the `k` `f64`s on each side of it, for an `x` that has `k` finite `f64`s on each
@@ -138,6 +168,7 @@ fn special_and_exact() {
         let x = pow2(k);
         assert_eq!(log2(x, false), f64::from(k));
         assert_eq!(log2(x, true), f64::from(k));
+        assert_eq!(log2_near(x), f64::from(k));
         for i in 0..FUNCTIONS.len() {
             check(i, x);
         }
@@ -146,9 +177,15 @@ fn special_and_exact() {
         assert_eq!(log10(x, false), k as f64);
         assert_eq!(log10(x, true), k as f64);
     }
+    // 10^k as the literal gives it, not as `POW10` holds it.
+    for k in 0..=22 {
+        let x: f64 = format!("1e{}", k).parse().unwrap();
+        assert_eq!(log10_near(x), f64::from(k));
+    }
     for i in [LN, LOG2, LOG10, ACOSH] {
         assert_eq!(FUNCTIONS[i].1(1.0, false).to_bits(), 0);
         assert_eq!(FUNCTIONS[i].1(1.0, true).to_bits(), 0);
+        assert_eq!(NEAR[i](1.0).to_bits(), 0);
     }
     // asinh and atanh keep the sign of a zero.
     for i in [ASINH, ATANH] {
@@ -156,16 +193,19 @@ fn special_and_exact() {
             for up in [false, true] {
                 assert_eq!(FUNCTIONS[i].1(x, up).to_bits(), x.to_bits());
             }
+            assert_eq!(NEAR[i](x).to_bits(), x.to_bits());
         }
     }
+    assert_eq!(atanh_near(1.0), f64::INFINITY);
+    assert_eq!(atanh_near(-1.0), f64::NEG_INFINITY);
 }
 
 // Each rule of `log.rs` at its threshold and the 3 `f64`s on each side of it, both signs of
 // them, and the special values. The thresholds are `TINY_HYP`, below which asinh and atanh are
-// within an ulp of x, 1 for acosh and atanh, where their domains end, and for the logarithms
-// the smallest positive `f64`, below which come zero and the negative numbers, the smallest
-// normal one, and the 4 largest ones, below +∞. log10 also has the powers of 10 of `POW10`,
-// which its rule takes.
+// within an ulp of x, `TINY_NEAR`, below which `asinh_near` and `atanh_near` give x, 1 for
+// acosh and atanh, where their domains end, and for the logarithms the smallest positive `f64`,
+// below which come zero and the negative numbers, the smallest normal one, and the 4 largest
+// ones, below +∞. log10 also has the powers of 10 of `POW10`, which its rule takes.
 #[test]
 fn rules_at_their_thresholds() {
     let smallest = f64::from_bits(1);
@@ -173,9 +213,9 @@ fn rules_at_their_thresholds() {
         &[smallest, f64::MIN_POSITIVE],
         &[smallest, f64::MIN_POSITIVE],
         &[smallest, f64::MIN_POSITIVE],
-        &[TINY_HYP],
+        &[TINY_NEAR, TINY_HYP],
         &[1.0],
-        &[TINY_HYP, 1.0],
+        &[TINY_NEAR, TINY_HYP, 1.0],
     ];
     let special = [
         0.0,
@@ -523,6 +563,22 @@ mod mpfr {
             hi,
             want_lo,
             want_hi
+        );
+    }
+
+    const MPFR_NEAR: [Mpfr; 6] = [ln_rn, log2_rn, log10_rn, asinh_rn, acosh_rn, atanh_rn];
+
+    // `near`, which the function `i` rounded to nearest gave at `x`, is MPFR's rounding to
+    // nearest, or NaN where MPFR gives NaN.
+    pub(super) fn check_near(i: usize, x: f64, near: f64) {
+        let want = MPFR_NEAR[i](x);
+        assert!(
+            near.to_bits() == want.to_bits() || (near.is_nan() && want.is_nan()),
+            "{}({:e}): {:e} to nearest != MPFR's {:e}",
+            FUNCTIONS[i].0,
+            x,
+            near,
+            want
         );
     }
 }

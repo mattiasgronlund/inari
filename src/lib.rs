@@ -22,6 +22,8 @@ pub use self::{
 
 pub mod _docs;
 
+pub mod cr;
+
 #[cfg(feature = "__bench")]
 #[doc(hidden)]
 pub mod __bench;

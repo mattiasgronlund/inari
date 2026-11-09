@@ -1,17 +1,19 @@
 // Tests of the evaluations of the logarithms and inverse hyperbolic functions of the dyadic
-// kernel at each level of Ziv's strategy that is forced with `ziv_at`, as
+// kernel at each level of Ziv's strategy that is forced with `ziv_at` and `ziv_near_at`, as
 // `src/dyadic/exp/tests/levels.rs` has them for the exponentials.
 //
 // Each function is taken at a few ordinary arguments, which no rule of `log.rs` settles, at
-// each of the 64 levels from 1 to 64 limbs, not only at those that `ziv` tries. At each of them,
-// `ziv_at` either fails or gives the rounding of the function, on every platform. `ziv_cap`,
-// the step of `ziv` at its cap of 64 limbs, also gives the rounding at each argument, in both
-// directions. On 64-bit Linux and macOS, where the tests have MPFR, each enclosure also holds
-// the value of the function that MPFR computes, and each doubling of the precision at least
-// halves its width.
+// each of the 64 levels from 1 to 64 limbs, not only at those that `ziv` and `ziv_near` try. At
+// each of them, on every platform, `ziv_at` either fails or gives the rounding of the function
+// in its direction, and `ziv_near_at` either fails or gives its rounding to nearest, which is
+// one of the two directed roundings. `ziv_cap`, the step of `ziv` at its cap of 64 limbs, also
+// gives the rounding at each argument, in both directions, and `ziv_near_cap`, the step of
+// `ziv_near` at its cap, the rounding to nearest. On 64-bit Linux and macOS, where the tests
+// have MPFR, the rounding to nearest is also MPFR's, each enclosure holds the value of the
+// function that MPFR computes, and each doubling of the precision at least halves its width.
 
 use super::*;
-use crate::dyadic::{ziv_at, ziv_cap};
+use crate::dyadic::{ziv_at, ziv_cap, ziv_near_at, ziv_near_cap};
 
 // The array of `$f::<N, _> $args` for each N from 1 to 64, in that order.
 macro_rules! at_each_level {
@@ -76,16 +78,48 @@ fn rounds_at<const N: usize, E: Eval>(f: &E, i: usize, x: f64, want: [f64; 2]) -
     passed
 }
 
+// `ziv_near_at::<N>` on `f`, the evaluation of the function `i` at `x`, either fails or gives
+// `want`, the rounding to nearest. Returns whether it passed.
+fn rounds_near_at<const N: usize, E: Eval>(f: &E, i: usize, x: f64, want: f64) -> bool {
+    match ziv_near_at::<N, E>(f) {
+        // The bits, as none of the results is a zero.
+        Some(y) => {
+            assert!(
+                y.to_bits() == want.to_bits(),
+                "{}({:e}) to nearest at {} limbs: {:e} != {:e}",
+                FUNCTIONS[i].0,
+                x,
+                N,
+                y,
+                want
+            );
+            true
+        }
+        None => false,
+    }
+}
+
 // Checks `f`, the evaluation of the function `i` at `x`, at each level, as the header says.
 fn forced<E: Eval>(f: &E, i: usize, x: f64) {
     let g = FUNCTIONS[i].1;
     let want = [g(x, false), g(x, true)];
+    let near = NEAR[i](x);
+    check_near(FUNCTIONS[i].0, x, want[0], want[1], near);
     let passed = at_each_level!(rounds_at(f, i, x, want));
+    let passed_near = at_each_level!(rounds_near_at(f, i, x, near));
     // From 2 limbs on, the enclosures at these arguments are far narrower than the distances
-    // from their values to the `f64`s, and each level passes, so that the test compares the
-    // roundings of each level, and not only of the first that passes.
-    for (l, &p) in passed.iter().enumerate().skip(1) {
+    // from their values to the `f64`s and to the midpoints between them, and each level passes
+    // in each direction and to nearest, so that the test compares the roundings of each level,
+    // and not only of the first that passes.
+    for (l, (&p, &q)) in passed.iter().zip(&passed_near).enumerate().skip(1) {
         assert!(p, "{}({:e}) fails at {} limbs", FUNCTIONS[i].0, x, l + 1);
+        assert!(
+            q,
+            "{}({:e}) fails to nearest at {} limbs",
+            FUNCTIONS[i].0,
+            x,
+            l + 1
+        );
     }
     // As level 64 passes, `ziv_cap`, the step of `ziv` at its cap, gives the rounding.
     for up in [false, true] {
@@ -100,11 +134,26 @@ fn forced<E: Eval>(f: &E, i: usize, x: f64) {
             want[usize::from(up)]
         );
     }
+    // As level 64 passes to nearest, `ziv_near_cap`, the step of `ziv_near` at its cap, gives
+    // the rounding to nearest.
+    let y = ziv_near_cap(f);
+    assert!(
+        y.to_bits() == near.to_bits(),
+        "{}({:e}) to nearest at the cap: {:e} != {:e}",
+        FUNCTIONS[i].0,
+        x,
+        y,
+        near
+    );
     #[cfg(all(
         target_pointer_width = "64",
         any(target_os = "linux", target_os = "macos")
     ))]
-    mpfr::enclosures(f, i, x);
+    {
+        // The parent's `mpfr`, which the one below hides from `use super::*`.
+        super::mpfr::check_near(i, x, near);
+        mpfr::enclosures(f, i, x);
+    }
 }
 
 #[test]

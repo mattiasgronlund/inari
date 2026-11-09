@@ -1,19 +1,26 @@
 // The inverse trigonometric functions atan, asin, acos and atan2 with the dyadic kernel, each
-// rounded to an `f64` toward +∞ if `up` and toward -∞ otherwise, as MPFR rounds them
-// (`src/dyadic.rs` says what `ziv` returns at its cap). `src/mpfr_calls/kernel.rs` makes them
-// the `atan_rd`, `atan_ru` and the others that `src/elementary.rs` calls, and the tests on
-// 64-bit Linux and macOS compare them with those of the MPFR backend, `src/mpfr_calls/mpfr.rs`.
+// rounded to an `f64` toward +∞ if `up` and toward -∞ otherwise, and, as `atan_near` and the
+// others, to nearest, ties to even, as MPFR rounds them (`src/dyadic.rs` says what `ziv` and
+// `ziv_near` return at their caps). `src/mpfr_calls/kernel.rs` makes the first the `atan_rd`,
+// `atan_ru` and the others that `src/elementary.rs` calls, `src/cr.rs` makes both the
+// `atan_rn`, `atan_rd`, `atan_ru` and the others of `inari::cr`, and the tests on 64-bit Linux
+// and macOS compare them with those of MPFR, `src/mpfr_calls/mpfr.rs`.
 //
 // Each function first settles some arguments by rules: NaN, ±∞, the arguments outside the
 // domains of asin and acos, the arguments of atan and asin of magnitude below 2^-26 and 2^-27,
 // whose results are within an ulp of x, those of atan of magnitude at least 2^54, whose results
 // round as ±π/2 do, and those of atan2 at which it is a zero, ±π/4, ±π/2, ±3π/4 or ±π, or, for
-// x > 0, within an ulp of a quotient y / x that is an `f64` of magnitude below 2^-26, all as
-// MPFR gives them. Ziv's strategy cannot settle an argument
-// whose result is an `f64` unless an enclosure has that `f64` as its bound in the direction of
-// the rounding (the header of `src/dyadic/exp.rs` says why). The only other argument with such
-// a result is 1 for acos, for which the evaluations below give the exact enclosure [0, 0].
-// `ziv` computes the rest from an `Eval`.
+// x > 0, within an ulp of a quotient y / x that is an `f64` of magnitude below 2^-26, or, to
+// nearest, within 2^-3000 of a quotient midway between two `f64`s below 2^-1021, which Ziv's
+// strategy would settle only at 32 or 64 limbs, all as MPFR gives them. Ziv's strategy cannot
+// settle an argument whose result is an `f64` unless an enclosure has that `f64` as its bound
+// in the direction of the rounding (the header of `src/dyadic/exp.rs` says why). The only
+// other argument with such a result is 1 for acos, for which the evaluations below give the
+// exact enclosure [0, 0]. `ziv` computes the rest from an `Eval`. The functions rounded to
+// nearest have the same rules, with 2^-27 (`TINY_NEAR`) for atan and for the quotients of
+// atan2, below which the results are less than half an ulp from x and from y / x, and the
+// rule of the midway quotients (`midpoint_quotient`). `ziv_near` computes the rest from the
+// same `Eval`s.
 //
 // The evaluations reduce every function to atan w for an enclosure of numbers w >= 0
 // (`atan_encl`), which takes atan w = atan u for u = w if w <= `T1`,
@@ -39,13 +46,21 @@
 // `asin_parts`, `rocq/theories/AtanSeries.v` for the bounds of the series and the halving,
 // `rocq/theories/AtanIdent.v` for the identities that the evaluations use,
 // `rocq/theories/DyConstPi.v` for π, and `rocq/theories/DyAtanTiny.v` for the rules of atan,
-// asin and atan2 at tiny arguments and quotients. That a test passes by the cap of `ziv`
-// is not proved, nor that the evaluations do not panic.
+// asin and atan2 at tiny arguments and quotients. `rocq/theories/DyAtanNear.v` proves that
+// each of the four functions rounded to nearest, at finite arguments in its domain, where a
+// rule settles the arguments or a rounding test of `ziv_near` passes, returns its result
+// rounded to nearest as `near_round` in `rocq/theories/NearF64.v` says, from the same
+// enclosures and bounds and the cells of `rocq/theories/NearCells.v`. It builds on
+// `rocq/theories/DyAtanMidQ.v` for `midpoint_quotient`, which uses
+// `rocq/theories/MidQuot.v` for its quotient, `rocq/theories/MidRound.v` for its rounding
+// toward zero and `rocq/theories/NearAtanMid.v` for atan at the midway quotients. That a test
+// passes by the cap of `ziv` or of `ziv_near` is not proved, nor that the evaluations do not
+// panic.
 
 use super::{
     consts::pi,
-    exp::{away, toward_zero, TINY_HYP},
-    ziv, Dyadic, Encl, Eval,
+    exp::{away, toward_zero, TINY_HYP, TINY_NEAR},
+    ziv, ziv_near, Dyadic, Encl, Eval,
 };
 
 #[cfg(test)]
@@ -180,6 +195,11 @@ fn pi_times(c: f64, up: bool) -> f64 {
     ziv(&PiMul(c), up, 1)
 }
 
+// c π rounded to nearest, ties to even, for an `f64` c != 0.
+fn pi_times_near(c: f64) -> f64 {
+    ziv_near(&PiMul(c), 1)
+}
+
 // atan x, for a finite x, from atan t for t = |x|, as atan is odd.
 struct Atan(f64);
 
@@ -280,6 +300,44 @@ fn tiny_quotient(y: f64, x: f64) -> Option<f64> {
     }
 }
 
+// y / x rounded toward zero to an `f64`, for finite y and x != 0, if it is an odd multiple of
+// 2^-1075 and the exponents of the `Dyadic`s give |y / x| < 2^-1021. The `f64`s below 2^-1021
+// are the multiples of 2^-1074, so that such a quotient q is the midpoint between the two
+// `f64`s q - 2^-1075 and q + 2^-1075. For q > 0, atan q is in (q - q^3 / 3, q), and q^3 / 3
+// < 2^-3000 is less than half an ulp, 2^-1075, so that atan q is between q and the `f64` f next
+// to q toward zero, and rounds to nearest to f, as it does for q < 0, since atan is odd. Ziv's
+// strategy settles that only at an enclosure of atan q narrower than q^3 / 3, which is
+// q^2 / 3, 2^-2045 to 2^-2150, relative to q, at 32 or 64 limbs.
+//
+// The mantissas of `a` and `b` are in [2^63, 2^64), so that |y / x| < 2^(a.exp - b.exp + 1),
+// which is at most 2^-1021 if a.exp - b.exp <= -1022. The quotients that this check leaves out
+// are above 2^(a.exp - b.exp - 1) >= 2^-1022, where no quotient of two `f64`s is a midpoint
+// between two `f64`s: for y = Y 2^i and x = X 2^j with odd Y and X, y / x = m 2^c with an odd m
+// needs Y = m X, so that m <= |Y| < 2^53, and q = m 2^-1075 < 2^-1022 here, while the midpoints
+// above 2^-1022 are the m 2^c with odd m in [2^53, 2^54). Every other quotient q is more than
+// |q| 2^-108 from each such midpoint M within a factor 2 of it (|M| >= |q| / 2 gives
+// 2^c > |q| 2^-55): q - M = (Y 2^i - m X 2^(j + c)) / (X 2^j), whose numerator is a nonzero
+// multiple of 2^min(i, j + c), so that |q - M| >= 2^c / |X| > |q| 2^-108 if j + c <= i, and
+// |q - M| >= 2^(i - j) / |X| = |q| / |Y| > |q| 2^-53 otherwise. atan q, within |q|^3 / 3 of
+// q, is then more than |q| 2^-109 from every midpoint for |q| < 2^-54, which few limbs settle.
+//
+// The quotient at 1 limb is exact, `lo` = `hi`, if it is a multiple of 2^-1075 below 2^-1021,
+// which has at most 54 bits. `lo` is then m 2^exp for its mantissa m = o 2^t, with o odd and t
+// its trailing zeros, so that y / x is an odd multiple of 2^-1075 exactly when exp + t = -1075.
+// `lo.to_f64(lo.neg)` rounds it toward -∞ if it is positive and toward +∞ if it is negative.
+fn midpoint_quotient(y: f64, x: f64) -> Option<f64> {
+    let (a, b) = (Dyadic::<1>::from_f64(y), Dyadic::<1>::from_f64(x));
+    if a.exp - b.exp > -1022 {
+        return None;
+    }
+    let (lo, hi) = (a.div(&b, false), a.div(&b, true));
+    if lo == hi && lo.exp + i64::from(lo.m[0].trailing_zeros()) == -1075 {
+        Some(lo.to_f64(lo.neg))
+    } else {
+        None
+    }
+}
+
 /// atan x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn atan(x: f64, up: bool) -> f64 {
     if x.is_nan() {
@@ -292,6 +350,22 @@ pub(crate) fn atan(x: f64, up: bool) -> f64 {
         toward_zero(x, up)
     } else {
         ziv(&Atan(x), up, 1)
+    }
+}
+
+/// atan x rounded to nearest, ties to even.
+pub(crate) fn atan_near(x: f64) -> f64 {
+    if x.is_nan() {
+        x
+    } else if x.abs() >= HUGE_ATAN {
+        // π/2 - 2^-54 < atan x < π/2 for x >= 2^54, and both ends round to the `f64`
+        // π/2 - 6.12... 10^-17, whose half-ulp is 2^-53.
+        pi_times_near(0.5_f64.copysign(x))
+    } else if x.abs() < TINY_NEAR {
+        // x - x^3 / 3 <= atan x < x for x in (0, 1], and atan is odd.
+        x
+    } else {
+        ziv_near(&Atan(x), 1)
     }
 }
 
@@ -309,6 +383,20 @@ pub(crate) fn asin(x: f64, up: bool) -> f64 {
     }
 }
 
+/// asin x rounded to nearest, ties to even.
+pub(crate) fn asin_near(x: f64) -> f64 {
+    if x.is_nan() {
+        x
+    } else if x.abs() > 1.0 {
+        f64::NAN
+    } else if x.abs() < TINY_ASIN {
+        // x < asin x <= x + x^3 for x in (0, 1/2], and asin is odd.
+        x
+    } else {
+        ziv_near(&Asin(x), 1)
+    }
+}
+
 /// acos x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn acos(x: f64, up: bool) -> f64 {
     if x.is_nan() {
@@ -317,6 +405,17 @@ pub(crate) fn acos(x: f64, up: bool) -> f64 {
         f64::NAN
     } else {
         ziv(&Acos(x), up, 1)
+    }
+}
+
+/// acos x rounded to nearest, ties to even.
+pub(crate) fn acos_near(x: f64) -> f64 {
+    if x.is_nan() {
+        x
+    } else if x.abs() > 1.0 {
+        f64::NAN
+    } else {
+        ziv_near(&Acos(x), 1)
     }
 }
 
@@ -355,5 +454,48 @@ pub(crate) fn atan2(y: f64, x: f64, up: bool) -> f64 {
             Some(q) => toward_zero(q, up),
             None => ziv(&Atan2(y, x), up, 1),
         }
+    }
+}
+
+/// atan2(y, x) rounded to nearest, ties to even, with the values of MPFR's `mpfr_atan2` at the
+/// zeros and infinities.
+pub(crate) fn atan2_near(y: f64, x: f64) -> f64 {
+    if y.is_nan() || x.is_nan() {
+        f64::NAN
+    } else if y == 0.0 {
+        // y for x >= +0, and π with the sign of y for x <= -0.
+        if x.is_sign_positive() {
+            y
+        } else {
+            pi_times_near(1.0_f64.copysign(y))
+        }
+    } else if y.is_infinite() {
+        let c: f64 = if x == f64::INFINITY {
+            0.25
+        } else if x == f64::NEG_INFINITY {
+            0.75
+        } else {
+            0.5
+        };
+        pi_times_near(c.copysign(y))
+    } else if x == f64::INFINITY {
+        0.0_f64.copysign(y)
+    } else if x == f64::NEG_INFINITY {
+        pi_times_near(1.0_f64.copysign(y))
+    } else if x == 0.0 {
+        pi_times_near(0.5_f64.copysign(y))
+    } else if x > 0.0 {
+        // atan2(y, x) = atan(y / x) for x > 0, which `midpoint_quotient` settles for a
+        // quotient midway between two `f64`s below 2^-1021, and the rule of `atan_near` for an
+        // `f64` quotient below 2^-27.
+        match midpoint_quotient(y, x) {
+            Some(f) => f,
+            None => match tiny_quotient(y, x) {
+                Some(q) if q.abs() < TINY_NEAR => q,
+                _ => ziv_near(&Atan2(y, x), 1),
+            },
+        }
+    } else {
+        ziv_near(&Atan2(y, x), 1)
     }
 }

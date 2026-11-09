@@ -1410,6 +1410,33 @@ Definition to_f64 (n : nat) (x : dyadic) (up : bool) : option f64 :=
   else if up then round_up n x (dy_neg x)
   else let* r := round_up n x (negb (dy_neg x)) in Some (opp r).
 
+(** [x.round_near()], where [(lsb - (b - 128)) as u32] and [lsb as i32]
+    are [lsb - (b - 128)] and [lsb], as [b] is in [-1074, 1024] there,
+    [kept % 2 == 1] is [kept mod 2 =? 1], and [kept + 1], which stays at
+    or below 2 ^ 53, is computed without a check. [DyConvNear.v]
+    proves it. *)
+Definition round_near (n : nat) (x : dyadic) : option f64 :=
+  let* b := checked_i 128 (dy_exp x + 64 * Z.of_nat n) in
+  if 1025 <=? b then Some infinity else
+  if b <=? -1075 then Some zero else
+  let lo := if (2 <=? n)%nat then Limbs.limb (dy_m x) (n - 2) else 0 in
+  let q := Z.lor (Z.shiftl (Limbs.limb (dy_m x) (n - 1)) 64 mod 2 ^ 128) lo in
+  let sticky := existsb (fun l => negb (l =? 0)) (firstn (n - 2) (dy_m x)) in
+  let lsb := Z.max (b - 53) (-1074) in
+  let s := lsb - (b - 128) in
+  let '(kept, rest) := if s =? 128 then (0, q) else (Z.shiftr q s, Z.land q (Z.shiftl 1 s - 1)) in
+  let half := Z.shiftl 1 (s - 1) in
+  let kept' :=
+    if (half <? rest) || ((rest =? half) && (sticky || (kept mod 2 =? 1))) then kept + 1
+    else kept in
+  if kept' =? 0 then Some zero else Generic.round_up_exact false kept' lsb false.
+
+(** [x.to_f64_near()] *)
+Definition to_f64_near (n : nat) (x : dyadic) : option f64 :=
+  if is_zero n x then Some zero
+  else if dy_neg x then let* r := round_near n x in Some (opp r)
+  else round_near n x.
+
 (** [x.cmp(&y)] of [impl Ord for Dyadic<N>] *)
 Definition sign (n : nat) (x : dyadic) : Z :=
   if is_zero n x then 0 else if dy_neg x then -1 else 1.
@@ -1535,6 +1562,40 @@ Fixpoint ziv_levels (ev : nat -> option encl) (up : bool) (start : nat) (levels 
 Definition ziv (ev : nat -> option encl) (up : bool) (start : nat) : option f64 :=
   let* r := ziv_levels ev up start (1 :: 2 :: 4 :: 8 :: 16 :: 32 :: nil)%nat in
   match r with Some x => Some x | None => ziv_cap ev up end.
+
+(** The same, rounded to nearest: [fn round_bounds_near<N, E>(f: &E) ->
+    (f64, f64)], [fn ziv_near_at], [fn ziv_near_cap] and [fn ziv_near],
+    where [lo.to_bits() & 1] is [Z.land (to_bits lo) 1].
+    [DyDriverNear.v] proves them. *)
+Definition round_bounds_near (ev : nat -> option encl) (n : nat) : option (f64 * f64) :=
+  let* x := ev n in
+  let* lo := to_f64_near n (en_lo x) in
+  let* hi := to_f64_near n (en_hi x) in
+  Some (lo, hi).
+
+Definition ziv_near_at (ev : nat -> option encl) (n : nat) : option (option f64) :=
+  let* (lo, hi) := round_bounds_near ev n in
+  Some (if to_bits lo =? to_bits hi then Some lo else None).
+
+Definition ziv_near_cap (ev : nat -> option encl) : option f64 :=
+  let* (lo, hi) := round_bounds_near ev 64 in
+  Some (if (to_bits lo =? to_bits hi) || (Z.land (to_bits lo) 1 =? 0) then lo else hi).
+
+Fixpoint ziv_near_levels (ev : nat -> option encl) (start : nat) (levels : list nat)
+  : option (option f64) :=
+  match levels with
+  | nil => Some None
+  | n :: ls =>
+      if (start <=? n)%nat then
+        let* r := ziv_near_at ev n in
+        match r with Some x => Some (Some x) | None => ziv_near_levels ev start ls end
+      else ziv_near_levels ev start ls
+  end.
+
+(** As [ziv], the statements under [#[cfg(test)]] are not transcribed. *)
+Definition ziv_near (ev : nat -> option encl) (start : nat) : option f64 :=
+  let* r := ziv_near_levels ev start (1 :: 2 :: 4 :: 8 :: 16 :: 32 :: nil)%nat in
+  match r with Some x => Some x | None => ziv_near_cap ev end.
 
 End Dyadic.
 
@@ -1670,6 +1731,9 @@ Definition log2_10 : f64 := from_bits 0x400a934f0979a371.
 Definition tiny_hyp : f64 := from_bits 0x3e50000000000000.
 Definition tiny_exp : f64 := from_bits 0x3c90000000000000.
 Definition tiny_exp10 : f64 := from_bits 0x3c70000000000000.
+
+(** [TINY_NEAR]: 2^-27. *)
+Definition tiny_near : f64 := from_bits 0x3e40000000000000.
 
 (** [POW10[k]], the literal [1e<k>], which is 10^k rounded to nearest. *)
 Definition pow10 (k : Z) : f64 := binary_normalize 53 1024 _ _ mode_NE (10 ^ k) 0 false.
@@ -1958,6 +2022,80 @@ Definition sinh_dir := sinh_dir_with Dyadic.ziv.
 Definition cosh_dir := cosh_dir_with Dyadic.ziv.
 Definition tanh_dir := tanh_dir_with Dyadic.ziv.
 
+(** The functions of the file rounded to nearest, with [ziv_near] a
+    parameter as [ziv] is in [Driver]: [exp_near_with ziv_near] is
+    [exp_near] with [ziv_near] for [Dyadic.ziv_near], and [exp_near] after
+    the section is [exp_near_with Dyadic.ziv_near]. [DyExpNear.v] proves
+    them, also for a [ziv_near] that returns only where a rounding test
+    passes ([DyDriverNear.ziv_near_strict]). *)
+Section DriverNear.
+Variable ziv_near : (nat -> option Dyadic.encl) -> nat -> option f64.
+
+(** [pub(crate) fn exp_near(x: f64) -> f64] *)
+Definition exp_near_with (x : f64) : option f64 :=
+  if is_nan x || eq x infinity then Some x
+  else if eq x neg_infinity then Some zero
+  else if ge x (from_bits 0x4086300000000000) (* 710.0 *) then Some infinity
+  else if le x (from_bits 0xc087500000000000) (* -746.0 *) then Some zero
+  else if lt (fabs x) tiny_exp then Some one
+  else ziv_near (ev_exp x) 1.
+
+(** [pub(crate) fn exp2_near(x: f64) -> f64] *)
+Definition exp2_near_with (x : f64) : option f64 :=
+  if is_nan x || eq x infinity then Some x
+  else if eq x neg_infinity then Some zero
+  else if ge x (from_bits 0x4090000000000000) (* 1024.0 *) then Some infinity
+  else if lt x (from_bits 0xc090cc0000000000) (* -1075.0 *) then Some zero
+  else if lt (fabs x) tiny_exp then Some one
+  else ziv_near (ev_exp2 x) 1.
+
+(** [pub(crate) fn exp10_near(x: f64) -> f64], as [exp10_dir_with], where
+    the literal [1e23] is [from_bits 0x44b52d02c7e14af6]. *)
+Definition exp10_near_with (x : f64) : option f64 :=
+  if is_nan x || eq x infinity then Some x
+  else if eq x neg_infinity then Some zero
+  else if ge x (from_bits 0x4073500000000000) (* 309.0 *) then Some infinity
+  else if le x (from_bits 0xc074400000000000) (* -324.0 *) then Some zero
+  else if lt (fabs x) tiny_exp10 then Some one
+  else if le one x && le x (from_bits 0x4036000000000000) (* 22.0 *) && eq x (ffloor x) then
+    Some (pow10 (to_i64 x))
+  else if eq x (from_bits 0x4037000000000000) (* 23.0 *) then
+    Some (from_bits 0x44b52d02c7e14af6)
+  else ziv_near (ev_exp10 x) 1.
+
+(** [pub(crate) fn sinh_near(x: f64) -> f64], as [sinh_dir_with]. *)
+Definition sinh_near_with (x : f64) : option f64 :=
+  if is_nan x || (eq x infinity || eq x neg_infinity) then Some x
+  else if ge x (from_bits 0x4086380000000000) (* 711.0 *) then Some infinity
+  else if le x (from_bits 0xc086380000000000) (* -711.0 *) then Some neg_infinity
+  else if lt (fabs x) tiny_near then Some x
+  else ziv_near (ev_sinh x) 1.
+
+(** [pub(crate) fn cosh_near(x: f64) -> f64] *)
+Definition cosh_near_with (x : f64) : option f64 :=
+  let t := fabs x in
+  if is_nan t || eq t infinity then Some t
+  else if ge t (from_bits 0x4086380000000000) (* 711.0 *) then Some infinity
+  else if lt t tiny_near then Some one
+  else ziv_near (ev_cosh t) 1.
+
+(** [pub(crate) fn tanh_near(x: f64) -> f64] *)
+Definition tanh_near_with (x : f64) : option f64 :=
+  if is_nan x then Some x
+  else if ge x (from_bits 0x4034000000000000) (* 20.0 *) then Some one
+  else if le x (from_bits 0xc034000000000000) (* -20.0 *) then Some m_one
+  else if lt (fabs x) tiny_near then Some x
+  else ziv_near (ev_tanh x) 1.
+
+End DriverNear.
+
+Definition exp_near := exp_near_with Dyadic.ziv_near.
+Definition exp2_near := exp2_near_with Dyadic.ziv_near.
+Definition exp10_near := exp10_near_with Dyadic.ziv_near.
+Definition sinh_near := sinh_near_with Dyadic.ziv_near.
+Definition cosh_near := cosh_near_with Dyadic.ziv_near.
+Definition tanh_near := tanh_near_with Dyadic.ziv_near.
+
 End DyadicExp.
 
 (** ** The logarithms and inverse hyperbolic functions of the dyadic kernel
@@ -2183,6 +2321,60 @@ Definition asinh_dir := asinh_dir_with Dyadic.ziv.
 Definition acosh_dir := acosh_dir_with Dyadic.ziv.
 Definition atanh_dir := atanh_dir_with Dyadic.ziv.
 
+(** The functions of the file rounded to nearest, with [ziv_near] a
+    parameter, as in [DyadicExp]. [DyLogNear.v] proves them. *)
+Section DriverNear.
+Variable ziv_near : (nat -> option Dyadic.encl) -> nat -> option f64.
+
+(** [pub(crate) fn ln_near(x: f64) -> f64] *)
+Definition ln_near_with (x : f64) : option f64 :=
+  match log_rules x with Some r => Some r | None => ziv_near (ev_ln x) 1 end.
+
+(** [pub(crate) fn log2_near(x: f64) -> f64] *)
+Definition log2_near_with (x : f64) : option f64 :=
+  match log_rules x with Some r => Some r | None => ziv_near (ev_log2 x) 1 end.
+
+(** [pub(crate) fn log10_near(x: f64) -> f64], as [log10_dir_with]. *)
+Definition log10_near_with (x : f64) : option f64 :=
+  match log_rules x with
+  | Some r => Some r
+  | None =>
+      match List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23) with
+      | Some k => Some (of_u64 (Z.of_nat k))
+      | None => ziv_near (ev_log10 x) 1
+      end
+  end.
+
+(** [pub(crate) fn asinh_near(x: f64) -> f64], as [asinh_dir_with]. *)
+Definition asinh_near_with (x : f64) : option f64 :=
+  if is_nan x || (eq x infinity || eq x DyadicExp.neg_infinity) then Some x
+  else if lt (fabs x) DyadicExp.tiny_near then Some x
+  else ziv_near (ev_asinh x) 1.
+
+(** [pub(crate) fn acosh_near(x: f64) -> f64] *)
+Definition acosh_near_with (x : f64) : option f64 :=
+  if is_nan x || eq x infinity then Some x
+  else if lt x DyadicExp.one then Some B754_nan
+  else ziv_near (ev_acosh x) 1.
+
+(** [pub(crate) fn atanh_near(x: f64) -> f64] *)
+Definition atanh_near_with (x : f64) : option f64 :=
+  let t := fabs x in
+  if is_nan x then Some x
+  else if gt t DyadicExp.one then Some B754_nan
+  else if eq t DyadicExp.one then Some (if gt x zero then infinity else DyadicExp.neg_infinity)
+  else if lt t DyadicExp.tiny_near then Some x
+  else ziv_near (ev_atanh x) 1.
+
+End DriverNear.
+
+Definition ln_near := ln_near_with Dyadic.ziv_near.
+Definition log2_near := log2_near_with Dyadic.ziv_near.
+Definition log10_near := log10_near_with Dyadic.ziv_near.
+Definition asinh_near := asinh_near_with Dyadic.ziv_near.
+Definition acosh_near := acosh_near_with Dyadic.ziv_near.
+Definition atanh_near := atanh_near_with Dyadic.ziv_near.
+
 End DyadicLog.
 
 (** ** The inverse trigonometric functions of the dyadic kernel
@@ -2390,6 +2582,26 @@ Definition tiny_quotient (y x : f64) : option (option f64) :=
   let* q' := Dyadic.to_f64 1 hi true in
   Some (if eq q q' && lt (fabs q) DyadicExp.tiny_hyp then Some q else None).
 
+(** [fn midpoint_quotient(y: f64, x: f64) -> Option<f64>], with
+    [Some None] for [None], where [a.exp - b.exp] and
+    [lo.exp + i64::from(lo.m[0].trailing_zeros())], which cannot overflow,
+    are computed without a check, and the derived [lo == hi] compares the
+    fields [neg], [exp] and [m[0]] of the two. [DyAtanMidQ.v] proves
+    it. *)
+Definition midpoint_quotient (y x : f64) : option (option f64) :=
+  let* a := Dyadic.from_f64 1 y in
+  let* b := Dyadic.from_f64 1 x in
+  if -1022 <? Dyadic.dy_exp a - Dyadic.dy_exp b then Some None else
+  let* lo := Dyadic.div 1 a b false in
+  let* hi := Dyadic.div 1 a b true in
+  let m := Limbs.limb (Dyadic.dy_m lo) 0 in
+  if Bool.eqb (Dyadic.dy_neg lo) (Dyadic.dy_neg hi) && (Dyadic.dy_exp lo =? Dyadic.dy_exp hi)
+     && (m =? Limbs.limb (Dyadic.dy_m hi) 0) && (Dyadic.dy_exp lo + trailing_zeros 64 m =? -1075)
+  then
+    let* f := Dyadic.to_f64 1 lo (Dyadic.dy_neg lo) in
+    Some (Some f)
+  else Some None.
+
 (** [pub(crate) fn atan(x: f64, up: bool) -> f64] *)
 Definition atan_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x then Some x
@@ -2441,6 +2653,77 @@ Definition atan_dir := atan_dir_with Dyadic.ziv.
 Definition asin_dir := asin_dir_with Dyadic.ziv.
 Definition acos_dir := acos_dir_with Dyadic.ziv.
 Definition atan2_dir := atan2_dir_with Dyadic.ziv.
+
+(** The functions of the file rounded to nearest, with [ziv_near] a
+    parameter, as in [DyadicExp]. [midpoint_quotient] and [tiny_quotient],
+    which do not use [ziv], are those of [Driver]. [DyAtanNear.v] proves
+    them. *)
+Section DriverNear.
+Variable ziv_near : (nat -> option Dyadic.encl) -> nat -> option f64.
+
+(** [fn pi_times_near(c: f64) -> f64] *)
+Definition pi_times_near_with (c : f64) : option f64 := ziv_near (ev_pi c) 1.
+
+(** [pub(crate) fn atan_near(x: f64) -> f64] *)
+Definition atan_near_with (x : f64) : option f64 :=
+  if is_nan x then Some x
+  else if ge (fabs x) huge_atan then pi_times_near_with (copysign DyadicLog.half x)
+  else if lt (fabs x) DyadicExp.tiny_near then Some x
+  else ziv_near (ev_atan x) 1.
+
+(** [pub(crate) fn asin_near(x: f64) -> f64] *)
+Definition asin_near_with (x : f64) : option f64 :=
+  if is_nan x then Some x
+  else if gt (fabs x) DyadicExp.one then Some B754_nan
+  else if lt (fabs x) tiny_asin then Some x
+  else ziv_near (ev_asin x) 1.
+
+(** [pub(crate) fn acos_near(x: f64) -> f64] *)
+Definition acos_near_with (x : f64) : option f64 :=
+  if is_nan x then Some x
+  else if gt (fabs x) DyadicExp.one then Some B754_nan
+  else ziv_near (ev_acos x) 1.
+
+(** [pub(crate) fn atan2_near(y: f64, x: f64) -> f64], as
+    [atan2_dir_with], where the guard [if q.abs() < TINY_NEAR] of the arm
+    [Some(q)] of [tiny_quotient] is the [if] of [Some q], and [_] is both
+    other cases. For [x > 0], [midpoint_quotient] settles a quotient
+    midway between two [f64]s below 2^-1021, and [tiny_quotient] an [f64]
+    quotient below 2^-27 by the rule of [atan_near]; for [x < 0] it is the
+    loop. *)
+Definition atan2_near_with (y x : f64) : option f64 :=
+  if is_nan y || is_nan x then Some B754_nan
+  else if eq y zero then
+    if negb (Bsign x) then Some y else pi_times_near_with (copysign DyadicExp.one y)
+  else if eq y infinity || eq y DyadicExp.neg_infinity then
+    let c :=
+      if eq x infinity then quarter
+      else if eq x DyadicExp.neg_infinity then three_quarters
+      else DyadicLog.half in
+    pi_times_near_with (copysign c y)
+  else if eq x infinity then Some (copysign zero y)
+  else if eq x DyadicExp.neg_infinity then pi_times_near_with (copysign DyadicExp.one y)
+  else if eq x zero then pi_times_near_with (copysign DyadicLog.half y)
+  else if gt x zero then
+    let* mq := midpoint_quotient y x in
+    match mq with
+    | Some f => Some f
+    | None =>
+        let* q := tiny_quotient y x in
+        match q with
+        | Some q => if lt (fabs q) DyadicExp.tiny_near then Some q else ziv_near (ev_atan2 y x) 1
+        | None => ziv_near (ev_atan2 y x) 1
+        end
+    end
+  else ziv_near (ev_atan2 y x) 1.
+
+End DriverNear.
+
+Definition pi_times_near := pi_times_near_with Dyadic.ziv_near.
+Definition atan_near := atan_near_with Dyadic.ziv_near.
+Definition asin_near := asin_near_with Dyadic.ziv_near.
+Definition acos_near := acos_near_with Dyadic.ziv_near.
+Definition atan2_near := atan2_near_with Dyadic.ziv_near.
 
 End DyadicAtan.
 
@@ -2675,6 +2958,36 @@ Definition sin_dir := sin_dir_with Dyadic.ziv.
 Definition cos_dir := cos_dir_with Dyadic.ziv.
 Definition tan_dir := tan_dir_with Dyadic.ziv.
 
+(** The functions of the file rounded to nearest, with [ziv_near] a
+    parameter, as in [DyadicExp]. [DyTrigNear.v] proves them. *)
+Section DriverNear.
+Variable ziv_near : (nat -> option Dyadic.encl) -> nat -> option f64.
+
+(** [pub(crate) fn sin_near(x: f64) -> f64], as [sin_dir_with]. *)
+Definition sin_near_with (x : f64) : option f64 :=
+  if negb (is_finite x) then Some B754_nan
+  else if lt (fabs x) DyadicExp.tiny_near then Some x
+  else ziv_near (ev_sin x) 1.
+
+(** [pub(crate) fn cos_near(x: f64) -> f64] *)
+Definition cos_near_with (x : f64) : option f64 :=
+  let t := fabs x in
+  if negb (is_finite t) then Some B754_nan
+  else if lt t DyadicExp.tiny_near then Some DyadicExp.one
+  else ziv_near (ev_cos t) 1.
+
+(** [pub(crate) fn tan_near(x: f64) -> f64] *)
+Definition tan_near_with (x : f64) : option f64 :=
+  if negb (is_finite x) then Some B754_nan
+  else if lt (fabs x) DyadicExp.tiny_near then Some x
+  else ziv_near (ev_tan x) 1.
+
+End DriverNear.
+
+Definition sin_near := sin_near_with Dyadic.ziv_near.
+Definition cos_near := cos_near_with Dyadic.ziv_near.
+Definition tan_near := tan_near_with Dyadic.ziv_near.
+
 End DyadicTrig.
 
 (** ** The powers of the dyadic kernel
@@ -2758,6 +3071,16 @@ Fixpoint small_power_loop (fuel : nat) (r q : Z) : option Z :=
 (** [fn small_power(r: u64, p: u64) -> Option<u64>] *)
 Definition small_power (r p : Z) : option Z := small_power_loop (Z.to_nat p) r 1.
 
+(** [fn small_power_near(r: u64, p: u64) -> Option<u64>] and its loop,
+    as [small_power] with the bound 2 ^ 54. *)
+Fixpoint small_power_near_loop (fuel : nat) (r q : Z) : option Z :=
+  match fuel with
+  | O => Some q
+  | S f => let t := q * r in if 2 ^ 54 <=? t then None else small_power_near_loop f r t
+  end.
+
+Definition small_power_near (r p : Z) : option Z := small_power_near_loop (Z.to_nat p) r 1.
+
 (** The loop of [fn exact], run [k] times, where [mx as f64] is [of_u64
     mx], [s as u64] is [to_u64], [ex % 2] is [Z.rem], [ex /= 2] is
     [Z.quot], and [s * s], which stays below 2 ^ 54, is computed without
@@ -2792,6 +3115,28 @@ Definition exact (x y : f64) : option (option f64) :=
           let* d := Dyadic.from_f64 1 (of_u64 q) in
           let* d' := Dyadic.shl 1 d e in
           let* v := Dyadic.to_f64 1 d' false in
+          Some (Some v)
+      end
+  end.
+
+(** [fn exact_near(x: f64, y: f64) -> Option<f64>], as [exact], where
+    [round] is [Dyadic.round], and [e as i64], after the check of [e], is
+    [e]. [DyPowNearExact.v] proves it. *)
+Definition exact_near (x y : f64) : option (option f64) :=
+  let '(mx, ex) := odd_parts x in
+  let '(my, ey) := odd_parts y in
+  if 11 <? ey then Some None else
+  let '(p, k) := if 0 <=? ey then (Z.shiftl my ey, 0) else (my, - ey) in
+  match roots_loop (Z.to_nat k) mx ex with
+  | None => Some None
+  | Some (mr, er) =>
+      match (if mr =? 1 then Some 1 else if lt y zero then None else small_power_near mr p) with
+      | None => Some None
+      | Some q =>
+          let e := if lt y zero then - (er * p) else er * p in
+          if (e <? -1075) || (1023 <? e + (63 - leading_zeros 64 q)) then Some None else
+          let* d := Dyadic.round 1 false (q :: nil) e false false in
+          let* v := Dyadic.to_f64_near 1 d in
           Some (Some v)
       end
   end.
@@ -2917,7 +3262,112 @@ Definition pow_dir := pow_dir_with Dyadic.ziv.
 Definition pown_pos := pown_pos_with Dyadic.ziv.
 Definition pown_dir := pown_dir_with Dyadic.ziv.
 
+(** The functions of the file rounded to nearest, with [ziv_near] a
+    parameter, as in [DyadicExp]. [DyPowNear.v] proves them. *)
+Section DriverNear.
+Variable ziv_near : (nat -> option Dyadic.encl) -> nat -> option f64.
+
+(** [fn pown_pos_near(x: f64, n: i32) -> f64] for [k = n], as
+    [pown_pos_with]. *)
+Definition pown_pos_near_with (x : f64) (k : Z) : option f64 :=
+  let g := expo x in
+  let '(lo, hi) := if 0 <? k then (g * k, (g + 1) * k) else ((g + 1) * k, g * k) in
+  if 1024 <=? lo then Some infinity
+  else if hi <=? -1075 then Some zero
+  else ziv_near (ev_pown x k) (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat).
+
+(** [pub(crate) fn pow_near(x: f64, y: f64) -> f64], as [pow_dir_with]. *)
+Definition pow_near_with (x y : f64) : option f64 :=
+  if eq y zero then Some DyadicExp.one
+  else if is_nan x then Some x
+  else if is_nan y then Some (if eq x DyadicExp.one then DyadicExp.one else y)
+  else if lt x zero then Some B754_nan
+  else if eq x DyadicExp.one then Some DyadicExp.one
+  else if eq y infinity || eq y DyadicExp.neg_infinity then
+    Some (if Bool.eqb (gt x DyadicExp.one) (gt y zero) then infinity else zero)
+  else if eq x zero then
+    let r := if lt y zero then infinity else zero in
+    Some (if Bsign x && is_odd_integer y then opp r else r)
+  else if eq x infinity then Some (if gt y zero then x else zero)
+  else
+    let ey := expo y in
+    let s := ey + ln_expo x in
+    let above := Bool.eqb (gt y zero) (gt x DyadicExp.one) in
+    if 10 <=? s then Some (if above then infinity else zero)
+    else if s <=? -58 then Some DyadicExp.one
+    else
+      let* r := exact_near x y in
+      match r with
+      | Some v => Some v
+      | None =>
+          if eq (of_i64 (to_i32 y)) y then pown_pos_near_with x (to_i32 y)
+          else
+            ziv_near (ev_pow x y) (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
+      end.
+
+(** [pub(crate) fn pown_near(x: f64, n: i32) -> f64] for [k = n], as
+    [pown_dir_with]. *)
+Definition pown_near_with (x : f64) (k : Z) : option f64 :=
+  if k =? 0 then Some DyadicExp.one
+  else if is_nan x then Some x
+  else if eq x zero || (eq x infinity || eq x DyadicExp.neg_infinity) then
+    let r := if Bool.eqb (eq x zero) (k <? 0) then infinity else zero in
+    Some (if Bsign x && negb (Z.rem k 2 =? 0) then opp r else r)
+  else if lt x zero && negb (Z.rem k 2 =? 0) then
+    let* v := pown_pos_near_with (opp x) k in Some (opp v)
+  else pown_pos_near_with (fabs x) k.
+
+End DriverNear.
+
+Definition pow_near := pow_near_with Dyadic.ziv_near.
+Definition pown_pos_near := pown_pos_near_with Dyadic.ziv_near.
+Definition pown_near := pown_near_with Dyadic.ziv_near.
+
 End DyadicPow.
+
+(** ** The signs of [pow] in [src/cr.rs]
+
+    [fn pow_dir(x: f64, y: f64, up: bool) -> f64] and [fn
+    pow_near_signed(x: f64, y: f64) -> f64] of [src/cr.rs], where [-x]
+    is [opp x], [y.floor()] is [ffloor y], [f64::NAN] is [B754_nan], and
+    [dyadic::is_odd_integer], [dyadic::pow] and [dyadic::pow_near] are
+    those of [DyadicPow], with [ziv] and [ziv_near] parameters as there.
+    The other functions of [src/cr.rs] call a function of the kernel and
+    nothing else. [CrPow.v] proves these two. *)
+Module Cr.
+
+Section Driver.
+Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
+
+Definition pow_dir_with (x y : f64) (up : bool) : option f64 :=
+  if lt x zero && negb (is_nan y) then
+    if DyadicPow.is_odd_integer y then
+      let* v := DyadicPow.pow_dir_with ziv (opp x) y (negb up) in Some (opp v)
+    else if eq y (ffloor y) || eq x DyadicExp.neg_infinity then
+      DyadicPow.pow_dir_with ziv (opp x) y up
+    else Some B754_nan
+  else DyadicPow.pow_dir_with ziv x y up.
+
+End Driver.
+
+Section DriverNear.
+Variable ziv_near : (nat -> option Dyadic.encl) -> nat -> option f64.
+
+Definition pow_near_signed_with (x y : f64) : option f64 :=
+  if lt x zero && negb (is_nan y) then
+    if DyadicPow.is_odd_integer y then
+      let* v := DyadicPow.pow_near_with ziv_near (opp x) y in Some (opp v)
+    else if eq y (ffloor y) || eq x DyadicExp.neg_infinity then
+      DyadicPow.pow_near_with ziv_near (opp x) y
+    else Some B754_nan
+  else DyadicPow.pow_near_with ziv_near x y.
+
+End DriverNear.
+
+Definition pow_dir := pow_dir_with Dyadic.ziv.
+Definition pow_near_signed := pow_near_signed_with Dyadic.ziv_near.
+
+End Cr.
 
 (** ** MPFR
 

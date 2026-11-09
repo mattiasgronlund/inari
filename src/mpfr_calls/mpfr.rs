@@ -3,10 +3,13 @@
 
 use gmp_mpfr_sys::mpfr::{
     self,
-    rnd_t::{RNDD, RNDU},
+    rnd_t::{RNDD, RNDN, RNDU},
 };
 use rug::{Float, Rational};
-use std::{ffi::CString, os::raw::c_char};
+use std::{
+    ffi::CString,
+    os::raw::{c_char, c_int},
+};
 
 // Panics unless the linked MPFR is built thread-safe, as the MPFR that `gmp-mpfr-sys` builds
 // is. A system MPFR, which the feature `use-system-libs` of `gmp-mpfr-sys` links, need not be,
@@ -244,6 +247,84 @@ mpfr_fn!(sin, sin_rd, sin_ru);
 mpfr_fn!(sinh, sinh_rd, sinh_ru);
 mpfr_fn!(tan, tan_rd, tan_ru);
 mpfr_fn!(tanh, tanh_rd, tanh_ru);
+
+// `z` set by `call` to an MPFR function of it rounded to nearest, ties to even, then rounded
+// to the numbers that an `f64` holds, as an `f64`. `call` returns the ternary value of the
+// MPFR function. Rounding to nearest at 53 bits in MPFR's default exponent range and then with
+// `get_d` would round twice below `f64::MIN_POSITIVE`, where an `f64` has fewer than 53 bits,
+// and a value just off a midpoint of those numbers could round to the midpoint first and
+// then to the even neighbour on the wrong side. So `call` rounds once at the range that
+// `with_parse_range` sets, where MPFR's overflow and underflow are those of an `f64`, then
+// `mpfr::subnormalize` rounds `z` to the bits that an `f64` has at its exponent from that
+// ternary value, as `round_rational` does (§5.13 "Exception Related Functions" of the MPFR
+// manual shows this use for the IEEE 754 binary64 format), and `get_d` converts it exactly.
+// Every `f64` argument is in that range, as the manual asks of the inputs.
+fn round_near(z: &mut Float, call: impl FnOnce(&mut Float) -> c_int) -> f64 {
+    with_parse_range(|| {
+        let t = call(z);
+        unsafe { mpfr::subnormalize(z.as_raw_mut(), t, RNDN) };
+        get_d(z, RNDN)
+    })
+}
+
+// `$mpfr_f` rounded to nearest, ties to even, to an `f64`, against which `src/cr.rs` tests its
+// functions rounded to nearest, with the arguments of `mpfr_fn!`, `mpfr_fn2!` and
+// `mpfr_fn_si!`: `x`, then `y` as an `f64` or an `i32` for the arms with `f64` and `i32`, so
+// that `atan2_rn(y, x)` is atan2(y, x), as `mpfr::atan2` takes `y` first. Only the tests use
+// the functions that this macro defines, and `rocq/theories/Model.v` transcribes none of them,
+// unlike those of `mpfr_fn!`, `mpfr_fn2!` and `mpfr_fn_si!`.
+macro_rules! mpfr_near {
+    ($mpfr_f:ident, $f_rn:ident) => {
+        pub(crate) fn $f_rn(x: f64) -> f64 {
+            let mut z = Float::with_val(f64::MANTISSA_DIGITS, x);
+            round_near(&mut z, |z| unsafe {
+                mpfr::$mpfr_f(z.as_raw_mut(), z.as_raw(), RNDN)
+            })
+        }
+    };
+
+    ($mpfr_f:ident, $f_rn:ident, f64) => {
+        pub(crate) fn $f_rn(x: f64, y: f64) -> f64 {
+            let mut z = Float::with_val(f64::MANTISSA_DIGITS, x);
+            let y = Float::with_val(f64::MANTISSA_DIGITS, y);
+            round_near(&mut z, |z| unsafe {
+                mpfr::$mpfr_f(z.as_raw_mut(), z.as_raw(), y.as_raw(), RNDN)
+            })
+        }
+    };
+
+    // `y.into()` converts the `i32` `y` to a `c_long` exactly.
+    ($mpfr_f:ident, $f_rn:ident, i32) => {
+        pub(crate) fn $f_rn(x: f64, y: i32) -> f64 {
+            let mut z = Float::with_val(f64::MANTISSA_DIGITS, x);
+            round_near(&mut z, |z| unsafe {
+                mpfr::$mpfr_f(z.as_raw_mut(), z.as_raw(), y.into(), RNDN)
+            })
+        }
+    };
+}
+
+mpfr_near!(acos, acos_rn);
+mpfr_near!(acosh, acosh_rn);
+mpfr_near!(asin, asin_rn);
+mpfr_near!(asinh, asinh_rn);
+mpfr_near!(atan, atan_rn);
+mpfr_near!(atan2, atan2_rn, f64);
+mpfr_near!(atanh, atanh_rn);
+mpfr_near!(cos, cos_rn);
+mpfr_near!(cosh, cosh_rn);
+mpfr_near!(exp, exp_rn);
+mpfr_near!(exp10, exp10_rn);
+mpfr_near!(exp2, exp2_rn);
+mpfr_near!(log, ln_rn);
+mpfr_near!(log10, log10_rn);
+mpfr_near!(log2, log2_rn);
+mpfr_near!(pow, pow_rn, f64);
+mpfr_near!(pow_si, pown_rn, i32);
+mpfr_near!(sin, sin_rn);
+mpfr_near!(sinh, sinh_rn);
+mpfr_near!(tan, tan_rn);
+mpfr_near!(tanh, tanh_rn);
 
 // The bound `x` of an interval as inari printed it with MPFR before it had digits of its own,
 // against which `src/format/diff_tests.rs` checks `bound` of `src/format.rs`: rounded toward

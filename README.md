@@ -45,6 +45,19 @@ For a program, a small launcher, itself built for `x86-64`, can run the build fo
 
 For a shared library (a `cdylib`) on Linux with glibc 2.33 or later, the dynamic loader can do the picking. Install the builds for `x86-64-v2`, `x86-64-v3` and `x86-64-v4` in the subdirectories `glibc-hwcaps/x86-64-v2/`, `glibc-hwcaps/x86-64-v3/` and `glibc-hwcaps/x86-64-v4/` of the directory the library is found in, and the loader loads the copy for the highest level the CPU supports (see [ld.so(8)](https://man7.org/linux/man-pages/man8/ld.so.8.html), "glibc Hardware capabilities"). It does so in the directories of `LD_LIBRARY_PATH`, `RUNPATH` and `RPATH`, and for `dlopen` of a name without a slash; a name with a slash is a path, and the loader loads that file. Glibc before 2.33, a CPU that has none of the levels in `glibc-hwcaps/`, and a program that loads the library by its path in that directory get the copy in the directory itself, which must therefore be the lowest level you ship. This is glibc's mechanism: musl, macOS and Windows do not have it.
 
+## Correctly Rounded Functions
+
+The module `inari::cr` has the elementary functions of intervals as functions of an `f64` (of two for `atan2` and `pow`, and of an `f64` and an `i32` for `powi`), each rounded to nearest with ties to even (`_rn`), toward -∞ (`_rd`) and toward +∞ (`_ru`), computed with the same kernel:
+
+```rust
+use inari::cr;
+assert_eq!(cr::exp_rn(0.0), 1.0);
+assert!(cr::sin_rd(1.0) < cr::sin_ru(1.0));
+assert_eq!(cr::pow_rn(-2.0, 3.0), -8.0);
+```
+
+They are correctly rounded wherever a rule or Ziv's strategy, with enclosures of up to 4,096 bits, settles the argument. At an argument that reaches that cap, they return the rounding of a bound of the last enclosure, which is not known to be correctly rounded, but none of the hard-to-round arguments that CORE-MATH lists for these functions reaches it. The documentation of the module gives their values at the zeros, at the infinities and outside the domains, which are MPFR's, and those of `pow` at x < 0. Tests on 64-bit Linux and macOS compare them with MPFR in all three roundings.
+
 ## Cargo Features
 
 - `gmp` - Deprecated, and does nothing; to be removed in the next major release. It used to be enabled by default, and to enable interval literals, formatting and the elementary functions, which need neither GMP nor MPFR now (see above). The features `gmp-mpfr-sys`, `nom` and `rug`, which Cargo used to derive from the optional dependencies of `gmp`, are deprecated and do nothing too.
