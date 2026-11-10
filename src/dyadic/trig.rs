@@ -84,10 +84,10 @@
 // `ziv_near`, nor that the evaluations do not panic.
 //
 // sin, cos and tan try a fast path in double-double after their rules and before `ziv` and
-// `ziv_near` (`fast_sin`, `fast_cos` and `fast_tan`), with the rounding tests of
-// `src/dyadic/fast.rs`, which take a positive h, applied to |y| and the sign put back
-// (`fast_round_dir` and `fast_round_near`). Where a test fails, or the fast path declines the
-// argument, the function calls `ziv` or `ziv_near` as before. The fast path takes
+// `ziv_near` (`fast_sin`, `fast_cos` and `fast_tan`), with the rounding tests for an h of either
+// sign, `round_dir_signed` and `round_near_signed` of `src/dyadic/fast.rs`, after a scaling by a
+// power of 2 (`fast_round_dir` and `fast_round_near`). Where a test fails, or the fast path
+// declines the argument, the function calls `ziv` or `ziv_near` as before. The fast path takes
 // |x| < 2^16 (`LIMIT`), reduces x to n u + ρ for u = π/4096 and |ρ| <= u/2 (1 + 2^-24), with u
 // in three parts as Cody and Waite do (`fast_reduce`), and, with n = 2048 q + i, so that x is
 // i u + ρ past q π/2, takes sin(i u + ρ) = sin(i u) cos ρ + cos(i u) sin ρ, with sin and cos of
@@ -108,9 +108,9 @@
 // `rocq/theories/FastTrigReduce.v` for the reduction, `rocq/theories/FastTrigTables.v` for
 // the tables and constants, and `rocq/theories/FastTrigSC.v`, `rocq/theories/FastTrigEval.v`
 // and `rocq/theories/FastTrigDiv.v` for the steps. `rocq/theories/FastTrigRound.v` proves the
-// tests with the sign, and `rocq/theories/FastTrig.v` proves that the fast path returns sin x,
-// cos t and tan x rounded, with and without an FMA. As those are correct roundings,
-// `sin_dir_sign` and `cos_dir_sign` hold where the fast path returns too.
+// scaling and, with `rocq/theories/FastSign.v`, the tests, and `rocq/theories/FastTrig.v` proves
+// that the fast path returns sin x, cos t and tan x rounded, with and without an FMA. As those
+// are correct roundings, `sin_dir_sign` and `cos_dir_sign` hold where the fast path returns too.
 //
 // [CORE-MATH] P. Zimmermann et al., the CORE-MATH project, `src/binary64/sin/sin.c` (MIT
 // license); no constant or table is copied from it.
@@ -118,7 +118,7 @@
 use super::{
     consts::PI,
     exp::{away, near_one, toward_zero, TINY_HYP, TINY_NEAR},
-    fast::{fast_two_sum, round_dir, round_near},
+    fast::{fast_two_sum, round_dir_signed, round_near_signed},
     round, ziv, ziv_near, Dyadic, Encl, Eval,
 };
 use crate::limbs;
@@ -613,32 +613,29 @@ fn fast_tan(x: f64) -> Option<(f64, f64)> {
     })
 }
 
-// (h 2^-e, l 2^-e, e, false) for h > 0 and (-h 2^-e, -l 2^-e, e, true) for h < 0, with
-// 2^e <= |h| < 2^(e + 1), for a normal h: the scaled pair that the rounding tests of
-// `src/dyadic/fast.rs` take, whose h lies in [1, 2).
-fn fast_unscale(h: f64, l: f64) -> (f64, f64, i64, bool) {
-    let neg = h < 0.0;
-    let (h, l) = if neg { (-h, -l) } else { (h, l) };
-    let e = (h.to_bits() >> 52) as i64 - 1023;
+// (h 2^-e, l 2^-e, e) with 2^e <= |h| < 2^(e + 1), for h = RN(h + l) and 2^-1022 <= |h| <
+// 2^1023 of either sign, where l 2^-e is rounded if it is below 2^-1022 in magnitude: the
+// scaled pair that the rounding tests of `src/dyadic/fast.rs` take, whose |h| lies in [1, 2).
+// The mask drops the sign bit, so that e is the exponent of |h|.
+fn fast_unscale(h: f64, l: f64) -> (f64, f64, i64) {
+    let e = ((h.to_bits() >> 52) & 0x7ff) as i64 - 1023;
     let s = f64::from_bits(((1023 - e) as u64) << 52);
-    (h * s, l * s, e, neg)
+    (h * s, l * s, e)
 }
 
-// The rounding of y toward +∞ if `up` and toward -∞ otherwise, for h + l within 3 2^-71 |y| of
-// y, or `None` where the test of `round_dir` fails. A negative y is -|y|, and rounding |y|
-// the other way and negating rounds y.
+// The rounding of y toward +∞ if `up` and toward -∞ otherwise, for h = RN(h + l) with
+// 2^-1000 <= |h| <= 2^1000, as the fast paths give it, and h + l within 3 2^-71 |y| of y, or
+// `None` where the test of `round_dir_signed`, which takes the sign, fails.
 fn fast_round_dir(h: f64, l: f64, up: bool) -> Option<f64> {
-    let (h, l, e, neg) = fast_unscale(h, l);
-    let r = round_dir(h, l, e, up != neg)?;
-    Some(if neg { -r } else { r })
+    let (h, l, e) = fast_unscale(h, l);
+    round_dir_signed(h, l, e, up)
 }
 
 // The rounding of y to nearest, as `fast_round_dir`. `rocq/theories/FastTrigRound.v` proves
 // both (`fast_round_dir_correct` and `fast_round_near_correct`).
 fn fast_round_near(h: f64, l: f64) -> Option<f64> {
-    let (h, l, e, neg) = fast_unscale(h, l);
-    let r = round_near(h, l, e)?;
-    Some(if neg { -r } else { r })
+    let (h, l, e) = fast_unscale(h, l);
+    round_near_signed(h, l, e)
 }
 
 // sin x, cos t and tan x rounded toward +∞ if `up` and toward -∞ otherwise, and to nearest, by

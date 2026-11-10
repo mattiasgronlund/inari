@@ -872,11 +872,12 @@ const WIDE: f64 = 1.0 / 288_230_376_151_711_744.0;
 
 // sin, cos and tan where a rounding test of the fast path passes, but would fail with `WIDE` in
 // place of the bound 2^-68, as `widened` in `src/dyadic/exp/tests.rs` checks e^x: the h + l of
-// `fast_unscale`, with h in [1, 2), is within 2^-58 of h, which a directed rounding cannot cross,
-// or of a midpoint between h and the `f64` next to it, which the rounding to nearest cannot
-// cross. There an error in the bound would show first, so the fast path has to give the kernel's
-// `f64`s, and MPFR's, as `check_fast` checks them. A narrow pass of the directed tests counts
-// only where the rules of tiny and small arguments leave x to the fast path.
+// `fast_unscale`, negated where h < 0, with h in [1, 2), is within 2^-58 of h, which a directed
+// rounding cannot cross, or of a midpoint between h and the `f64` next to it, which the rounding
+// to nearest cannot cross. There an error in the bound would show first, so the fast path has to
+// give the kernel's `f64`s, and MPFR's, as `check_fast` checks them. A narrow pass of the
+// directed tests counts only where the rules of tiny and small arguments leave x to the fast
+// path.
 #[test]
 fn widened() {
     let mut rng = Rng(906);
@@ -887,7 +888,9 @@ fn widened() {
             let Some((h, l)) = fast_parts(i, x) else {
                 continue;
             };
-            let (h, l, _, _) = fast_unscale(h, l);
+            // The scaled pair, negated where h < 0, as `round_dir_signed` does.
+            let (h, l, _) = fast_unscale(h, l);
+            let (h, l) = if h < 0.0 { (-h, -l) } else { (h, l) };
             // Half the gap between h and the next `f64` above it, and below it.
             let above = f64::EPSILON / 2.0;
             let below = if h > 1.0 {
@@ -1204,7 +1207,7 @@ mod mpfr {
     // The directed rounding tests of the fast path fail at the arguments of `HARD_CASES` and
     // `SMALL_FALL_THROUGH`, and their negations, with 2^-27 <= |x| < `LIMIT` and y = f(x) within
     // 2^-72 |y| of an `f64` g. The bound of the core puts h + l within (2^-72 + 3 2^-71) |y| of
-    // g, which is below 2^-68 after the scaling of `fast_unscale` to h in [1, 2), so that h is g
+    // g, which is below 2^-68 after the scaling of `fast_unscale` to |h| in [1, 2), so that h is g
     // and |l| is below 2^-68, where neither direction passes.
     #[test]
     fn hard_cases_fall_through() {

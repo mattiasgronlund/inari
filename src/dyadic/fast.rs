@@ -5,8 +5,8 @@
 // results. `src/dyadic/exp.rs` uses it for e^x, 2^x, 10^x, sinh, cosh and tanh,
 // `src/dyadic/log.rs` for ln x, log2 x, log10 x, asinh, acosh and atanh, whose results can be
 // negative (`round_dir_signed`, `round_near_signed`), `src/dyadic/trig.rs` for sin, cos and tan,
-// which puts the sign back itself, `src/dyadic/pow.rs` for x^y and x^n, and `src/dyadic/atan.rs`
-// for atan, atan2, asin and acos, which put the sign back themselves.
+// with the same tests, `src/dyadic/pow.rs` for x^y and x^n, and `src/dyadic/atan.rs` for atan,
+// atan2, asin and acos, which put the sign back themselves.
 //
 // A fast path computes a scaled result y = f(x) 2^-e, for an integer e in [-1021, 1022], as an
 // unevaluated sum h + l of two `f64`s with h = RN(h + l), 1/2 < h < 2, and a proved bound

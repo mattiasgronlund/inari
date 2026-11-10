@@ -4681,33 +4681,23 @@ Definition fast_tan (fma : bool) (x : f64) : option (f64 * f64) :=
               else let '(h, l) := fast_div fma c0 c1 s0 s1 in (opp h, opp l))
   end.
 
-(** [fn fast_unscale(h: f64, l: f64) -> (f64, f64, i64, bool)], where
-    [(h.to_bits() >> 52) as i64] is [Z.shiftr (to_bits h) 52], [(1023 -
-    e) as u64] is [(1023 - e) mod 2^64], and [<< 52] drops the bits
-    above 64, as in [Fast.scale]. *)
-Definition fast_unscale (h l : f64) : f64 * f64 * Z * bool :=
-  let neg := lt h zero in
-  let '(h, l) := if neg then (opp h, opp l) else (h, l) in
-  let e := Z.shiftr (to_bits h) 52 - 1023 in
+(** [fn fast_unscale(h: f64, l: f64) -> (f64, f64, i64)], where
+    [((h.to_bits() >> 52) & 0x7ff) as i64] is [Z.land (Z.shiftr (to_bits
+    h) 52) 0x7ff], [(1023 - e) as u64] is [(1023 - e) mod 2^64], and [<<
+    52] drops the bits above 64, as in [Fast.scale]. *)
+Definition fast_unscale (h l : f64) : f64 * f64 * Z :=
+  let e := Z.land (Z.shiftr (to_bits h) 52) 0x7ff - 1023 in
   let s := from_bits (Z.shiftl ((1023 - e) mod 2^64) 52 mod 2^64) in
-  (mul h s, mul l s, e, neg).
+  (mul h s, mul l s, e).
 
-(** [fn fast_round_dir(h: f64, l: f64, up: bool) -> Option<f64>], where
-    [up != neg] is [xorb up neg], and [fn fast_round_near(h: f64, l: f64)
-    -> Option<f64>]. [FastTrigRound.v] proves them. *)
+(** [fn fast_round_dir(h: f64, l: f64, up: bool) -> Option<f64>] and [fn
+    fast_round_near(h: f64, l: f64) -> Option<f64>]. [FastTrigRound.v]
+    proves them. *)
 Definition fast_round_dir (h l : f64) (up : bool) : option f64 :=
-  let '(h, l, e, neg) := fast_unscale h l in
-  match Fast.round_dir h l e (xorb up neg) with
-  | Some r => Some (if neg then opp r else r)
-  | None => None
-  end.
+  let '(h, l, e) := fast_unscale h l in Fast.round_dir_signed h l e up.
 
 Definition fast_round_near (h l : f64) : option f64 :=
-  let '(h, l, e, neg) := fast_unscale h l in
-  match Fast.round_near h l e with
-  | Some r => Some (if neg then opp r else r)
-  | None => None
-  end.
+  let '(h, l, e) := fast_unscale h l in Fast.round_near_signed h l e.
 
 (** [fn fast_sin_dir(x: f64, up: bool) -> Option<f64>], the same for [cos]
     (of [t]) and [tan], and [fn fast_sin_near(x: f64) -> Option<f64>] and
