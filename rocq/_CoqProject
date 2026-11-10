@@ -207,6 +207,7 @@ theories/FastHypPos.v
 theories/FastCoshPos.v
 theories/FastTanhPos.v
 theories/FastHyp.v
+theories/RoundOpp.v
 theories/FastSign.v
 theories/FastLogTables.v
 theories/FastLogTaylor.v
@@ -228,6 +229,14 @@ theories/FastTrigDiv.v
 theories/FastTrigRound.v
 theories/FastTrigCore.v
 theories/FastTrig.v
+theories/FastPowTaylor.v
+theories/FastPowHorner.v
+theories/FastPowCube.v
+theories/FastPowPoly.v
+theories/FastPowCore.v
+theories/FastPowLn.v
+theories/FastPowMul.v
+theories/FastPow.v
 theories/DyExp.v
 theories/DyHyp.v
 theories/DyLogRules.v

@@ -10,8 +10,10 @@
     and that the results of [z] have ([driver_post]): by the rules of
     [DyPowRules.v] where one applies, the exact cases of [DyPowExact.v],
     [pown_pos_post] of [DyPown.v] for an integer [y] from [-2^31] to
-    [2^31 - 1], which [pow] passes to [pown_pos], and otherwise the
-    driver with the enclosure of [ev_pow_correct] of [DyPowCore.v]. So,
+    [2^31 - 1], which [pow] passes to [pown_pos], then the fast path
+    ([FastPow.fast_pow_dir_correct], as [|y ln x| >= 2^-57] there by the
+    rules), and otherwise the driver with the enclosure of
+    [ev_pow_correct] of [DyPowCore.v]. So,
     for such [x] and [y]: with [ziv_strict], the kernel rounds [Rpow] in
     the direction [up] where it returns
     ([pow_dir_correct]); the Rust ([pow_dir], with [Dyadic.ziv]) returns
@@ -28,7 +30,7 @@ From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr MpfrRound Limbs Elementary DyRound DyConv DyOps DyDriver
   DyGrow DyConst DyExpCore DyExpRules DyExp DyLogRules DyLogCore DyPowArith DyPowRules
   DyPowExact DyPowCore.
-From Inari Require DyPown.
+From Inari Require DyPown FastPow.
 
 Open Scope Z_scope.
 
@@ -250,7 +252,13 @@ destruct (DyadicPow.exact x y) as [[w|]|] eqn:Ex; [| | discriminate E].
       by (intros K; apply Y0; rewrite <- I, K; reflexivity).
     rewrite <- I, <- (powerRZ_Rpower _ _ Px).
     exact (DyPown.pown_pos_post z post Hp Hz x _ up v Fx Px Hk Hi E).
-  + refine (Hz (DyadicPow.ev_pow x y) up _ _ v _ E).
+  + (* The fast path, where [|y ln x| >= 2^-57], then the driver. *)
+    destruct (DyadicPow.fast_pow_dir false x y up) eqn:F; cbv iota in E.
+    { injection E as <-. apply Hp.
+      apply (FastPow.fast_pow_dir_correct false x y up _ Fx Px Fy); [| exact F].
+      right. destruct (pow_rule_bounds x y Fx Px X1 Fy Y0) as ([Hb _] & _).
+      apply Rle_trans with (2 := Hb). apply bpow_le. apply Z.leb_gt in S2. lia. }
+    refine (Hz (DyadicPow.ev_pow x y) up _ _ v _ E).
     intros n a Hn Ea. exact (ev_pow_correct n x y a Hn Fx Px Fy Ea).
 Qed.
 
@@ -286,7 +294,8 @@ destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58); [exact (fun h => h)|]
 destruct (DyadicPow.exact x y) as [[w|]|]; [exact (fun h => h) | | exact (fun h => h)].
 cbv beta iota.
 destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y);
-  [apply DyPown.pown_pos_strict | apply ziv_strict_ziv].
+  [apply DyPown.pown_pos_strict |].
+destruct (DyadicPow.fast_pow_dir false x y up); [exact (fun h => h) | apply ziv_strict_ziv].
 Qed.
 
 Lemma pow_dir_exact_with :

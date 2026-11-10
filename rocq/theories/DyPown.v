@@ -10,7 +10,10 @@
     at their first level ([driver_exact]: [ziv_strict_exact] and
     [ziv_exact]). [pown_pos_with z x k up] takes the rules below, which
     bound [x^k] by the exponent of [x] ([expo_spec] of [DyPowRules.v]),
-    where one applies, and otherwise the driver [z]. [pown_dir_with z]
+    where one applies, then the fast path of [FastPow.v] at [y = k], and
+    otherwise the driver [z]. Where the fast path returns, its result is
+    the correct rounding ([FastPow.fast_pow_dir_correct]), which is
+    [x^k] itself where that is an [f64]. [pown_dir_with z]
     returns the special values that [pown_c] of [Contract.v] names
     ([pown_dir_zero_neg] and [pown_dir_inf]), and otherwise
     [pown_pos_with z] of [|x|], negated for an odd [k] at [x < 0].
@@ -36,7 +39,7 @@ From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary MpfrRound OfPointCore DyRound DyConv DyOps
   DyDriver DyGrow DyExpRules DyExp DyPowArith DyPowRules.
 From Stdlib Require Zquot.
-From Inari Require ParseRound.
+From Inari Require RoundOpp FastLogNorm DyPowCore FastPow.
 
 Open Scope Z_scope.
 
@@ -547,6 +550,30 @@ Qed.
 
 (** ** [pown_pos] *)
 
+(** The hypotheses of [FastPow.fast_pow_dir_correct] at [y = f64::from(k)]
+    for an [i32] [k <> 0]: [|k| <= 2^31] at [x = 1], and [|k ln x| >=
+    2^-54] otherwise ([FastLogNorm.ln_f64_ne1]). *)
+Lemma pown_fast_hyp :
+  forall (x : f64) k, is_finite x = true -> (0 < B2R x)%R -> k <> 0 -> is_i32 k ->
+  is_finite (DyadicPow.of_i64 k) = true /\ B2R (DyadicPow.of_i64 k) = IZR k /\
+  ((B2R x = 1 /\ Rabs (B2R (DyadicPow.of_i64 k)) <= bpow radix2 900) \/
+   bpow radix2 (-60) <= Rabs (B2R (DyadicPow.of_i64 k) * ln (B2R x)))%R.
+Proof.
+intros x k Fx Hx Hk Hi. unfold is_i32 in Hi.
+destruct (DyPowCore.of_i64_exact k) as [Fk Vk]; [lia |].
+split; [exact Fk | split; [exact Vk |]]. rewrite Vk.
+destruct (Req_dec (B2R x) 1) as [X1 | X1].
+- left. split; [exact X1 |].
+  apply Rle_trans with (bpow radix2 31); [| apply bpow_le; lia].
+  rewrite <- abs_IZR, <- (IZR_Zpower radix2 31) by lia. apply IZR_le. cbn. lia.
+- right. pose proof (FastLogNorm.ln_f64_ne1 x Fx Hx X1) as L.
+  rewrite Rabs_mult.
+  assert (K1 : (1 <= Rabs (IZR k))%R) by (rewrite <- abs_IZR; apply IZR_le; lia).
+  apply Rle_trans with (bpow radix2 (-54)); [apply bpow_le; lia |].
+  rewrite <- (Rmult_1_l (bpow radix2 (-54))).
+  apply Rmult_le_compat; [lra | apply bpow_ge_0 | exact K1 | exact L].
+Qed.
+
 Lemma pown_pos_post :
   forall z post, rounds_post post -> driver_post z post ->
   forall x k (up : bool) v,
@@ -558,6 +585,18 @@ assert (Hl : forall start, z (DyadicPow.ev_pown x k) up start = Some v ->
              post up (powerRZ (B2R x) k) v).
 { intros start H. apply (Hz (DyadicPow.ev_pown x k) up start _ v); [| exact H].
   intros n a Hn Ea. exact (ev_pown_correct x k n a Hn Fx Hx Hk Hi Ea). }
+(* The fast path, then the driver. *)
+assert (Hm : forall start,
+  match DyadicPow.fast_pow_dir false x (DyadicPow.of_i64 k) up with
+  | Some r => Some r
+  | None => z (DyadicPow.ev_pown x k) up start
+  end = Some v -> post up (powerRZ (B2R x) k) v).
+{ intros start. destruct (DyadicPow.fast_pow_dir false x (DyadicPow.of_i64 k) up) eqn:F.
+  - intros H. injection H as <-. apply Hp.
+    destruct (pown_fast_hyp x k Fx Hx Hk Hi) as (Fk & Vk & H).
+    rewrite (powerRZ_Rpower _ _ Hx), <- Vk.
+    exact (FastPow.fast_pow_dir_correct false x _ up _ Fx Hx Fk H F).
+  - exact (Hl start). }
 unfold DyadicPow.pown_pos_with in E. cbv zeta in E.
 destruct (0 <? k) eqn:K; cbv beta iota in E.
 - destruct (1024 <=? DyadicPow.expo x * k) eqn:O.
@@ -566,14 +605,14 @@ destruct (0 <? k) eqn:K; cbv beta iota in E.
   + destruct ((DyadicPow.expo x + 1) * k <=? -1075) eqn:U.
     * injection E as <-. apply Hp. apply pown_rule_underflow; [exact Fx | exact Hx |].
       rewrite K. apply Z.leb_le. exact U.
-    * exact (Hl _ E).
+    * exact (Hm _ E).
 - destruct (1024 <=? (DyadicPow.expo x + 1) * k) eqn:O.
   + injection E as <-. apply Hp. apply pown_rule_overflow; [exact Fx | exact Hx |].
     rewrite K. apply Z.leb_le. exact O.
   + destruct (DyadicPow.expo x * k <=? -1075) eqn:U.
     * injection E as <-. apply Hp. apply pown_rule_underflow; [exact Fx | exact Hx |].
       rewrite K. apply Z.leb_le. exact U.
-    * exact (Hl _ E).
+    * exact (Hm _ E).
 Qed.
 
 Lemma pown_pos_exact :
@@ -589,6 +628,21 @@ assert (Hz : forall start, (start <= 64)%nat ->
              z (DyadicPow.ev_pown x k) up start = Some v).
 { intros start Hs. exact (Hd (DyadicPow.ev_pown x k) up start v Fv Nv Hs
     (fun n Hn => ev_pown_exact x k n v Hn Fx Hx Hk Hi Fv Hv)). }
+(* The fast path returns the correct rounding of the [f64] [v], which is [v]. *)
+assert (Hm :
+  match DyadicPow.fast_pow_dir false x (DyadicPow.of_i64 k) up with
+  | Some r => Some r
+  | None => z (DyadicPow.ev_pown x k) up
+              (if 2 ^ DyadicPow.pown_start_bits <=? Z.abs k then 2%nat else 1%nat)
+  end = Some v).
+{ destruct (DyadicPow.fast_pow_dir false x (DyadicPow.of_i64 k) up) as [r|] eqn:F.
+  - f_equal. destruct (pown_fast_hyp x k Fx Hx Hk Hi) as (Fk & Vk & H).
+    pose proof (FastPow.fast_pow_dir_correct false x _ up r Fx Hx Fk H F) as R.
+    unfold rounds in R. rewrite Vk, <- (powerRZ_Rpower _ _ Hx), Hv in R.
+    destruct (round_f64_unique _ _ _ _ R (rnd_exact v _ _ Fv eq_refl)) as [-> | (s & s' & _ & E)];
+      [reflexivity |].
+    exfalso. apply Nv. rewrite E. reflexivity.
+  - apply Hz. destruct (2 ^ DyadicPow.pown_start_bits <=? Z.abs k); lia. }
 unfold DyadicPow.pown_pos_with. cbv zeta.
 destruct (0 <? k) eqn:K; cbv beta iota.
 - destruct (1024 <=? DyadicPow.expo x * k) eqn:O.
@@ -597,14 +651,14 @@ destruct (0 <? k) eqn:K; cbv beta iota.
   + destruct ((DyadicPow.expo x + 1) * k <=? -1075) eqn:U.
     * exfalso. apply (pown_rule_not_exact x k v Fx Hx Fv); [| exact Hv].
       right. rewrite K. apply Z.leb_le. exact U.
-    * apply Hz. destruct (2 ^ DyadicPow.pown_start_bits <=? Z.abs k); lia.
+    * exact Hm.
 - destruct (1024 <=? (DyadicPow.expo x + 1) * k) eqn:O.
   + exfalso. apply (pown_rule_not_exact x k v Fx Hx Fv); [| exact Hv].
     left. rewrite K. apply Z.leb_le. exact O.
   + destruct (DyadicPow.expo x * k <=? -1075) eqn:U.
     * exfalso. apply (pown_rule_not_exact x k v Fx Hx Fv); [| exact Hv].
       right. rewrite K. apply Z.leb_le. exact U.
-    * apply Hz. destruct (2 ^ DyadicPow.pown_start_bits <=? Z.abs k); lia.
+    * exact Hm.
 Qed.
 
 (** Where [pown_pos_with ziv_strict] returns, [pown_pos] returns the same. *)
@@ -616,10 +670,12 @@ intros x k up v. unfold DyadicPow.pown_pos, DyadicPow.pown_pos_with. cbv zeta.
 destruct (0 <? k); cbv beta iota.
 - destruct (1024 <=? DyadicPow.expo x * k); [exact (fun h => h) |].
   destruct ((DyadicPow.expo x + 1) * k <=? -1075); [exact (fun h => h) |].
-  apply ziv_strict_ziv.
+  destruct (DyadicPow.fast_pow_dir false x (DyadicPow.of_i64 k) up);
+    [exact (fun h => h) | apply ziv_strict_ziv].
 - destruct (1024 <=? (DyadicPow.expo x + 1) * k); [exact (fun h => h) |].
   destruct (DyadicPow.expo x * k <=? -1075); [exact (fun h => h) |].
-  apply ziv_strict_ziv.
+  destruct (DyadicPow.fast_pow_dir false x (DyadicPow.of_i64 k) up);
+    [exact (fun h => h) | apply ziv_strict_ziv].
 Qed.
 
 (** ** Helpers of [pown_dir] *)
@@ -712,43 +768,21 @@ pose proof (pown_sign_B2R x Fx Nx) as Sx. rewrite S1 in Sx.
 split; [exact Sx|]. rewrite pown_powerRZ_opp, S2. reflexivity.
 Qed.
 
-(** [ParseRound.mpfr_round_up_opp] the other way round: the negation of
-    [-v] rounded down is [v] rounded up. *)
+(** [RoundOpp.mpfr_round_down_opp], restated for the files that name it
+    from this one: the negation of [-v] rounded down is [v] rounded up. *)
 Lemma mpfr_round_down_opp :
   forall v w, mpfr_round f64_format RNDD (- v) (with_val w) ->
   mpfr_round f64_format RNDU v (with_val (opp w)).
-Proof.
-intros v w H.
-destruct (is_finite w) eqn:Fw.
-- assert (Fo : is_finite (opp w) = true) by (unfold opp; rewrite is_finite_Bopp; exact Fw).
-  assert (Ro : (B2R (opp w) = - B2R w)%R) by apply B2R_Bopp.
-  destruct (Req_dec (B2R w) 0%R) as [E0|N0].
-  + destruct (ParseRound.with_val_zero w Fw E0) as (s & Es). rewrite Es in H. cbn [mpfr_round] in H.
-    assert (E0' : B2R (opp w) = 0%R) by (rewrite Ro, E0; apply Ropp_0).
-    destruct (ParseRound.with_val_zero _ Fo E0') as (s' & ->). cbn [mpfr_round].
-    pose proof (Rnd_UP_pt_opp _ ParseRound.f64_format_opp _ _ H) as H'.
-    rewrite Ropp_involutive, Ropp_0 in H'. exact H'.
-  + rewrite (with_val_finite w Fw N0) in H. cbn [mpfr_round] in H. destruct H as (_ & H).
-    assert (N0' : B2R (opp w) <> 0%R) by (rewrite Ro; lra).
-    rewrite (with_val_finite _ Fo N0'). cbn [mpfr_round]. split; [exact N0'|].
-    rewrite Ro. pose proof (Rnd_UP_pt_opp _ ParseRound.f64_format_opp _ _ H) as H'.
-    rewrite Ropp_involutive in H'. exact H'.
-- destruct w as [s|[|]| |s m e B]; try discriminate Fw;
-    cbn [opp Bopp with_val mpfr_round negb] in *; try contradiction.
-  intros g Fg. pose proof (H _ (ParseRound.f64_format_opp _ Fg)). lra.
-Qed.
+Proof. exact RoundOpp.mpfr_round_down_opp. Qed.
 
-(** The negation of [-r] rounded in the direction [negb up] is [r]
-    rounded in the direction [up]. *)
+(** [RoundOpp.pown_rnd_opp], restated for the files that name it from
+    this one: the negation of [-r] rounded in the direction [negb up] is
+    [r] rounded in the direction [up]. *)
 Lemma pown_rnd_opp :
   forall (up : bool) r w,
   mpfr_round f64_format (if negb up then RNDU else RNDD) (- r) (with_val w) ->
   mpfr_round f64_format (if up then RNDU else RNDD) r (with_val (opp w)).
-Proof.
-intros [|] r w H; cbn [negb] in H.
-- exact (mpfr_round_down_opp r w H).
-- exact (ParseRound.mpfr_round_up_opp r w H).
-Qed.
+Proof. exact RoundOpp.pown_rnd_opp. Qed.
 
 (** A property of results that the negation carries from [-r] in the
     direction [negb up] to [r] in the direction [up], as [pown_rnd_opp]

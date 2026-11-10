@@ -137,7 +137,11 @@ fn check_near(what: &str, lo: f64, hi: f64, near: f64) {
 // Checks x^y in both directions and to nearest, as the header says.
 fn check_pow(x: f64, y: f64) {
     let (lo, hi) = (pow(x, y, false), pow(x, y, true));
-    let near = pow_near(x, y);
+    check_pow_results(x, y, lo, hi, pow_near(x, y));
+}
+
+// Checks `lo`, `hi` and `near`, which `pow` and `pow_near` gave at (x, y), as `check_pow`.
+fn check_pow_results(x: f64, y: f64, lo: f64, hi: f64, near: f64) {
     let what = format!("pow({:e}, {:e})", x, y);
     check_pair(&what, lo, hi);
     check_near(&what, lo, hi, near);
@@ -151,7 +155,11 @@ fn check_pow(x: f64, y: f64) {
 // Checks x^n in both directions and to nearest, as the header says.
 fn check_pown(x: f64, n: i32) {
     let (lo, hi) = (pown(x, n, false), pown(x, n, true));
-    let near = pown_near(x, n);
+    check_pown_results(x, n, lo, hi, pown_near(x, n));
+}
+
+// Checks `lo`, `hi` and `near`, which `pown` and `pown_near` gave at (x, n), as `check_pown`.
+fn check_pown_results(x: f64, n: i32, lo: f64, hi: f64, near: f64) {
     let what = format!("pown({:e}, {})", x, n);
     check_pair(&what, lo, hi);
     check_near(&what, lo, hi, near);
@@ -579,12 +587,544 @@ fn random_wide() {
     }
 }
 
+// A random `f64` uniform in [0, 1).
+fn unit(rng: &mut Rng) -> f64 {
+    rng.below(1 << 53) as f64 / (1u64 << 53) as f64
+}
+
+// -1 or 1, at random.
+fn sign(rng: &mut Rng) -> f64 {
+    if rng.below(2) == 0 {
+        -1.0
+    } else {
+        1.0
+    }
+}
+
+// m 2^e for m uniform in [1, 2) (52 random bits) and e uniform in [lo, hi], rounded to a
+// subnormal below e = -1022.
+fn log_uniform(rng: &mut Rng, lo: i64, hi: i64) -> f64 {
+    let e = lo + rng.below(u64::try_from(hi - lo + 1).unwrap()) as i64;
+    (1.0 + rng.below(1 << 52) as f64 / (1u64 << 52) as f64) * pow2(e)
+}
+
+// x within 2^-20 of 1 and not 1: 1 + k 2^-52 or 1 - k 2^-53 for k log-uniform in [1, 2^32).
+fn near_one(rng: &mut Rng) -> f64 {
+    let j = rng.below(32);
+    let k = ((1u64 << j) + rng.below(1 << j)) as f64;
+    if rng.below(2) == 0 {
+        1.0 + k * pow2(-52)
+    } else {
+        1.0 - k * pow2(-53)
+    }
+}
+
+// ±2^u for u uniform in ±1000 / |n| (±1000 at n = 0), so that x^n is in [2^-1000, 2^1000].
+fn pown_x(rng: &mut Rng, n: i32) -> f64 {
+    let u = (2.0 * unit(rng) - 1.0) * 1000.0 / f64::from(n).abs().max(1.0);
+    sign(rng) * u.exp2()
+}
+
+// n with |n| uniform in [2^(b - 1), 2^b) for b uniform in [1, 31], and a random sign.
+fn wide_n(rng: &mut Rng) -> i32 {
+    let b = 1 + rng.below(31);
+    let a = (1i64 << (b - 1)) + rng.below(1 << (b - 1)) as i64;
+    i32::try_from(if rng.below(2) == 0 { -a } else { a }).unwrap()
+}
+
+// (x, y) at which x^y is an `f64`, as the `exact` set of the counts of `pow` (row 78) draws them:
+// for an even i, x = 2^e and y = j / 2^k, where x^y = 2^(j e / 2^k), and for an odd i,
+// x = r^(2^k) 2^(2^k f) and y = m / 2^k for an odd r, where x^y = r^m 2^(m f).
+fn exact_pair(rng: &mut Rng, i: usize) -> (f64, f64) {
+    if i % 2 == 0 {
+        // k <= min(tz(e), 10), q = e / 2^k, j q in [-1074, 1023], and j odd if k > 0.
+        let e = loop {
+            let e = -1074 + rng.below(2098) as i64;
+            if e != 0 {
+                break e;
+            }
+        };
+        let k = rng.below(u64::from(e.trailing_zeros().min(10)) + 1) as i64;
+        let q = e >> k;
+        let (jlo, jhi) = if q > 0 {
+            (-(1074 / q), 1023 / q)
+        } else {
+            (-(1023 / -q), 1074 / -q)
+        };
+        let j = loop {
+            let j = jlo + rng.below(u64::try_from(jhi - jlo + 1).unwrap()) as i64;
+            if j != 0 && (k == 0 || j % 2 != 0) {
+                break j;
+            }
+        };
+        (pow2(e), j as f64 / (1u64 << k) as f64)
+    } else {
+        // r^(2^k) < 2^53 for r <= RMAX[k], r^m < 2^53 with m <= 33, m odd if k > 0, and f in
+        // [-20, 20].
+        const RMAX: [u64; 6] = [(1 << 53) - 1, 94_906_265, 9741, 97, 9, 3];
+        let k = rng.below(6) as usize;
+        let bits = 64 - RMAX[k].leading_zeros();
+        let r = loop {
+            let b = 2 + rng.below(u64::from(bits - 1)) as u32;
+            let r = (1u64 << (b - 1)) + rng.below(1 << (b - 1));
+            if r % 2 == 1 && r <= RMAX[k] {
+                break r;
+            }
+        };
+        let (mut mmax, mut p) = (0u64, 1u128);
+        while mmax < 33 && p * u128::from(r) < 1 << 53 {
+            p *= u128::from(r);
+            mmax += 1;
+        }
+        let m = loop {
+            let m = 1 + rng.below(mmax);
+            if k == 0 || m % 2 == 1 {
+                break m;
+            }
+        };
+        let f = -20 + rng.below(41) as i64;
+        let x = r.pow(1 << k) as f64 * pow2(f << k);
+        (x, m as f64 / (1u64 << k) as f64)
+    }
+}
+
+// (x, y) moved by one ulp of x or of y, at random.
+fn moved(rng: &mut Rng, (x, y): (f64, f64)) -> (f64, f64) {
+    match rng.below(4) {
+        0 => (next_up(x), y),
+        1 => (next_down(x), y),
+        2 => (x, next_up(y)),
+        _ => (x, next_down(y)),
+    }
+}
+
+// The i-th argument (x, y) of `pow` in the set `name` of `fast_path_agrees_with_kernel`, as the
+// counts of `pow` (rows 78, 84 and 89) draw them:
+// - `lu4`: x log-uniform over the positive `f64`s, subnormals included, and y uniform in [-4, 4);
+// - `near1`: x within 2^-20 of 1, and y = t / ln x for |t| log-uniform in [2^-10, 745];
+// - `mid`: x log-uniform in [2^-64, 2^64), and |y| log-uniform in [2^-8, 2^13);
+// - `int`: x log-uniform in [2^-30, 2^31), and an integer y with |y| in [1, 40];
+// - `intlu`: an integer y = n with |n| log-uniform over `i32`, and x^n in [2^-1000, 2^1000];
+// - `t745`: x as in `lu4`, and y = t / ln x for |t| uniform in [100, 745];
+// - `edge`: x as in `lu4`, and y = t / ln x for t uniform in [700, 745.2] or [-746, -700], next to
+//   the ends of the range of `fast_exp` and to overflow and underflow;
+// - `exact`: x^y is an `f64` (`exact_pair`), which `exact` and `exact_near` settle before the fast
+//   path;
+// - `nexact`: those moved by one ulp of x or of y.
+fn pow_case(name: &str, rng: &mut Rng, i: usize) -> (f64, f64) {
+    let any = |rng: &mut Rng| log_uniform(rng, -1074, 1023);
+    match name {
+        "lu4" => (any(rng), 8.0 * unit(rng) - 4.0),
+        "near1" => {
+            let x = near_one(rng);
+            let t = sign(rng) * log_uniform(rng, -10, 9).min(745.0);
+            (x, t / x.ln())
+        }
+        "mid" => (
+            log_uniform(rng, -64, 63),
+            sign(rng) * log_uniform(rng, -8, 12),
+        ),
+        "int" => (
+            log_uniform(rng, -30, 30),
+            sign(rng) * (1 + rng.below(40)) as f64,
+        ),
+        "intlu" => {
+            let n = wide_n(rng);
+            (pown_x(rng, n).abs(), f64::from(n))
+        }
+        "t745" => {
+            let x = any(rng);
+            (x, sign(rng) * (100.0 + 645.0 * unit(rng)) / x.ln())
+        }
+        "edge" => {
+            let x = any(rng);
+            let t = if rng.below(2) == 0 {
+                700.0 + 45.2 * unit(rng)
+            } else {
+                -700.0 - 46.0 * unit(rng)
+            };
+            (x, t / x.ln())
+        }
+        "exact" => exact_pair(rng, i),
+        "nexact" => {
+            let p = exact_pair(rng, i);
+            moved(rng, p)
+        }
+        _ => unreachable!(),
+    }
+}
+
+// The i-th argument (x, n) of `pown` in the set `name` of `fast_path_agrees_with_kernel`:
+// - `pn2`, `pnm2`, `pn3` and `pn17`: n = 2, -2, 3 and 17, and x = ±2^u with x^n in
+//   [2^-1000, 2^1000] (`pown_x`);
+// - `pnint`: ±x for x log-uniform in [2^-30, 2^31), and |n| in [1, 40];
+// - `pnlu`: n with |n| log-uniform over `i32`, and x as in `pn2`;
+// - `pnany`: n uniform over `i32`, and x as in `pn2`;
+// - `pnexact`: ±r 2^f for an odd r, f in [-20, 20] and n in [1, 33] with r^n < 2^53, at which x^n
+//   is an `f64`, and which reach the fast path, whose directed tests fail;
+// - `pnnexact`: those with x moved by one ulp.
+fn pown_case(name: &str, rng: &mut Rng) -> (f64, i32) {
+    match name {
+        "pn2" | "pnm2" | "pn3" | "pn17" => {
+            let n = match name {
+                "pn2" => 2,
+                "pnm2" => -2,
+                "pn3" => 3,
+                _ => 17,
+            };
+            (pown_x(rng, n), n)
+        }
+        "pnint" => {
+            let x = sign(rng) * log_uniform(rng, -30, 30);
+            (x, (sign(rng) * (1 + rng.below(40)) as f64) as i32)
+        }
+        "pnlu" => {
+            let n = wide_n(rng);
+            (pown_x(rng, n), n)
+        }
+        "pnany" => {
+            let n = rng.next() as i32;
+            (pown_x(rng, n), n)
+        }
+        "pnexact" | "pnnexact" => {
+            let bits = 1 + rng.below(26);
+            let r = 2 * rng.below(1 << bits) + 1;
+            let mut n = 1;
+            while n < 33 && u128::from(r).pow(n + 1) < 1 << 53 {
+                n += 1;
+            }
+            let n = 1 + rng.below(n.into()) as i32;
+            let x = sign(rng) * r as f64 * pow2(rng.below(41) as i64 - 20);
+            if name == "pnexact" {
+                (x, n)
+            } else if rng.below(2) == 0 {
+                (next_up(x), n)
+            } else {
+                (next_down(x), n)
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+// The calls of a set of arguments, and the rounding tests of the fast path that passed and failed
+// in them. A call without a test is settled by a rule, by `exact`, or by the kernel where y ln x is
+// outside the range of `fast_exp`; a failed test also leaves the call to the kernel.
+#[derive(Default)]
+struct Tally {
+    calls: usize,
+    passed: usize,
+    failed: usize,
+}
+
+impl Tally {
+    // Adds the three calls at one argument, with their tests as `agree_pow` gives them.
+    fn add(&mut self, (passed, failed): (usize, usize)) {
+        self.calls += 3;
+        self.passed += passed;
+        self.failed += failed;
+    }
+
+    fn print(&self, name: &str) {
+        eprintln!(
+            "fast path, {name}: {} calls, {} by the fast path, {} failed tests, {} without a test",
+            self.calls,
+            self.passed,
+            self.failed,
+            self.calls - self.passed - self.failed
+        );
+    }
+}
+
+// x^y in both directions and to nearest gives the same `f64`s with the fast path as with it
+// disabled, and agrees with MPFR (`check_pow_results`). Returns the rounding tests of the fast path
+// that passed and failed in the three calls.
+fn agree_pow(x: f64, y: f64) -> (usize, usize) {
+    crate::dyadic::fast::reset_fast_counts();
+    let fast = (pow(x, y, false), pow(x, y, true), pow_near(x, y));
+    let counts = crate::dyadic::fast::fast_counts();
+    crate::dyadic::fast::set_fast_path(false);
+    let kernel = (pow(x, y, false), pow(x, y, true), pow_near(x, y));
+    crate::dyadic::fast::set_fast_path(true);
+    assert!(
+        fast.0.to_bits() == kernel.0.to_bits()
+            && fast.1.to_bits() == kernel.1.to_bits()
+            && fast.2.to_bits() == kernel.2.to_bits(),
+        "pow({:e}, {:e}): {:?} with the fast path != {:?} without it",
+        x,
+        y,
+        fast,
+        kernel
+    );
+    check_pow_results(x, y, fast.0, fast.1, fast.2);
+    counts
+}
+
+// `agree_pow` for x^n.
+fn agree_pown(x: f64, n: i32) -> (usize, usize) {
+    crate::dyadic::fast::reset_fast_counts();
+    let fast = (pown(x, n, false), pown(x, n, true), pown_near(x, n));
+    let counts = crate::dyadic::fast::fast_counts();
+    crate::dyadic::fast::set_fast_path(false);
+    let kernel = (pown(x, n, false), pown(x, n, true), pown_near(x, n));
+    crate::dyadic::fast::set_fast_path(true);
+    assert!(
+        fast.0.to_bits() == kernel.0.to_bits()
+            && fast.1.to_bits() == kernel.1.to_bits()
+            && fast.2.to_bits() == kernel.2.to_bits(),
+        "pown({:e}, {}): {:?} with the fast path != {:?} without it",
+        x,
+        n,
+        fast,
+        kernel
+    );
+    check_pown_results(x, n, fast.0, fast.1, fast.2);
+    counts
+}
+
+// x^y and x^n give the same `f64`s, in both directions and to nearest, with the fast path as with
+// it disabled, and agree with MPFR, on 2000 arguments of each set of `pow_case` and `pown_case`,
+// and print how many calls the fast path settled. Most of its rounding tests pass on the sets in
+// its range, no exact x^y reaches it, and the directed tests at the exact x^n fail, as they have
+// to, so that the kernel computes those.
+#[test]
+fn fast_path_agrees_with_kernel() {
+    let mut rng = Rng(89);
+    let mut total = Tally::default();
+    for name in [
+        "lu4", "near1", "mid", "int", "intlu", "t745", "edge", "exact", "nexact",
+    ] {
+        let mut t = Tally::default();
+        for i in 0..2000 {
+            let (x, y) = pow_case(name, &mut rng, i);
+            t.add(agree_pow(x, y));
+        }
+        t.print(&format!("pow {name}"));
+        match name {
+            "exact" => assert!(
+                t.passed == 0 && t.failed == 0,
+                "pow exact: {} passed, {} failed",
+                t.passed,
+                t.failed
+            ),
+            "nexact" => (),
+            _ => assert!(
+                t.passed > 100 * t.failed && t.passed > 0,
+                "pow {name}: {} passed, {} failed",
+                t.passed,
+                t.failed
+            ),
+        }
+        total.passed += t.passed;
+        total.failed += t.failed;
+    }
+    for name in [
+        "pn2", "pnm2", "pn3", "pn17", "pnint", "pnlu", "pnany", "pnexact", "pnnexact",
+    ] {
+        let mut t = Tally::default();
+        for _ in 0..2000 {
+            let (x, n) = pown_case(name, &mut rng);
+            t.add(agree_pown(x, n));
+        }
+        t.print(&format!("pown {name}"));
+        match name {
+            // Both directed tests fail at each of the 2000 exact x^n.
+            "pnexact" => assert!(
+                t.failed >= 4000,
+                "pown exact: {} passed, {} failed",
+                t.passed,
+                t.failed
+            ),
+            "pnnexact" => (),
+            // n = 1 in about 1 case of 80 (pnint) or 62 (pnlu), and x^1 = x is exact, so both
+            // directed tests fail there.
+            "pnint" | "pnlu" => assert!(
+                t.passed > 20 * t.failed && t.passed > 0,
+                "pown {name}: {} passed, {} failed",
+                t.passed,
+                t.failed
+            ),
+            _ => assert!(
+                t.passed > 100 * t.failed && t.passed > 0,
+                "pown {name}: {} passed, {} failed",
+                t.passed,
+                t.failed
+            ),
+        }
+        total.passed += t.passed;
+        total.failed += t.failed;
+    }
+    assert!(total.passed > 0 && total.failed > 0);
+}
+
+// x^y and x^n next to the edges of the fast path, as `agree_pow` and `agree_pown` check them:
+// - x next to (362 + i) / 512 2^k, the ends of the intervals of `LOG_TABLE` (and of the reduction
+//   from M to M / 2 at i = 0 and 362), with 511/512 and 513/512, the ends of the two intervals
+//   around 1 where r = 1, at k = 0, at subnormal, normal and the largest exponents;
+// - x = 1 ± j ulp for j up to 64, with |y ln x| up to past 709, and y and n at the ends of `i32`;
+// - subnormal x, at which ln x is from about -744 to -708, with y ln x from -707 to 709;
+// - y ln x next to -707 and 709, the ends of the range of `fast_exp`, to -1022 ln 2 and
+//   -1074 ln 2, the subnormal results, and to 1024 ln 2 and -1075 ln 2, overflow and underflow;
+// - y and n at the ends of `i32`, and the integers just past them, with x^y in range.
+#[test]
+fn fast_path_edges() {
+    let mut rng = Rng(891);
+    let mut t = Tally::default();
+    for k in [-1065, -1022, -1, 0, 1, 1023] {
+        for i in 362..=724 {
+            for x in around(f64::from(i) / 512.0 * pow2(k), 1) {
+                for s in [-700.0, -0.75, pow2(-50), 1.5, 700.0] {
+                    t.add(agree_pow(x, s / x.ln()));
+                }
+                t.add(agree_pow(x, 2.5));
+                t.add(agree_pow(x, -0.3));
+                if k == 0 || k == -1 {
+                    for n in [2, 3, -3, 17] {
+                        t.add(agree_pown(x, n));
+                    }
+                }
+            }
+        }
+    }
+    t.print("table edges");
+    let mut t = Tally::default();
+    let ends = [
+        i32::MAX,
+        i32::MAX - 1,
+        i32::MIN,
+        i32::MIN + 1,
+        1 << 30,
+        -(1 << 30),
+    ];
+    for j in 1..=64 {
+        for x in [
+            1.0 + f64::from(j) * pow2(-52),
+            1.0 - f64::from(j) * pow2(-53),
+        ] {
+            for s in [0.5, 50.0, 700.0, 708.9, 709.5, 745.0] {
+                t.add(agree_pow(x, s / x.ln()));
+                t.add(agree_pow(x, -s / x.ln()));
+            }
+            for n in ends {
+                t.add(agree_pow(x, f64::from(n)));
+                t.add(agree_pown(x, n));
+                t.add(agree_pown(-x, n));
+            }
+        }
+    }
+    t.print("1 ± j ulp");
+    let mut t = Tally::default();
+    let mut subnormals: Vec<f64> = (1..=64).map(f64::from_bits).collect();
+    subnormals.extend((1..=16).map(|j| f64::from_bits((1 << 52) - j)));
+    subnormals.extend((0..64).map(|_| f64::from_bits(1 + rng.below((1 << 52) - 1))));
+    for &x in &subnormals {
+        for s in [-707.0, -706.5, -300.0, -1e-3, 1e-3, 300.0, 708.5, 709.0] {
+            t.add(agree_pow(x, s / x.ln()));
+        }
+        for y in [0.25, 0.95] {
+            t.add(agree_pow(x, y));
+            t.add(agree_pow(x, -y));
+        }
+        for n in [1, -1, 2, -2] {
+            t.add(agree_pown(x, n));
+        }
+    }
+    t.print("subnormal x");
+    let mut t = Tally::default();
+    let ln2 = std::f64::consts::LN_2;
+    let ends = [
+        -707.0,
+        709.0,
+        -1022.0 * ln2,
+        -1074.0 * ln2,
+        1024.0 * ln2,
+        -1075.0 * ln2,
+    ];
+    for _ in 0..200 {
+        let x = log_uniform(&mut rng, -1074, 1023);
+        for s in ends {
+            for y in around(s / x.ln(), 2) {
+                t.add(agree_pow(x, y));
+            }
+        }
+    }
+    t.print("range ends");
+    let mut t = Tally::default();
+    let big = [
+        2_147_483_648.0,
+        -2_147_483_649.0,
+        4_294_967_296.0,
+        -4_294_967_296.0,
+    ];
+    for n in [i32::MAX, i32::MAX - 1, i32::MIN, i32::MIN + 1] {
+        for _ in 0..100 {
+            let x = pown_x(&mut rng, n);
+            t.add(agree_pown(x, n));
+            t.add(agree_pow(x.abs(), f64::from(n)));
+        }
+    }
+    for y in big {
+        for _ in 0..100 {
+            t.add(agree_pow(pown_x(&mut rng, i32::MAX).abs(), y));
+        }
+    }
+    t.print("i32 ends");
+}
+
+// 2^-57, 2^10 times the bound 2^-67 of the fast path (`ERR67`).
+const WIDE: f64 = 1024.0 * ERR67;
+
+// x^y where a rounding test of the fast path passes, but would fail with `WIDE` in place of the
+// bound 2^-67: h + l is within 2^-57 of h, which a directed rounding cannot cross, or of a
+// midpoint between h and the next `f64`, which the rounding to nearest cannot cross. There an
+// error in the bound would show first, so the fast path has to give the same `f64`s as the
+// kernel, and as MPFR. The arguments are those of the sets `lu4`, `near1` and `mid`.
+#[test]
+fn widened() {
+    let mut rng = Rng(892);
+    let (mut dir, mut near) = (0, 0);
+    for i in 0..6000 {
+        let (x, y) = pow_case(["lu4", "near1", "mid"][i % 3], &mut rng, i);
+        let Some((h, l, _)) = fast_pow(x, y) else {
+            continue;
+        };
+        // 1/2 < h < 2: half the gap between h and the next `f64` above it is 2^-53 for h >= 1
+        // and 2^-54 below, and the gap below it is the same but at h = 1, where it is 2^-54.
+        let above = if h >= 1.0 {
+            f64::EPSILON / 2.0
+        } else {
+            f64::EPSILON / 4.0
+        };
+        let below = if h > 1.0 {
+            f64::EPSILON / 2.0
+        } else {
+            f64::EPSILON / 4.0
+        };
+        let narrow_dir = ERR67 < l.abs() && l.abs() <= WIDE;
+        let narrow_near = l < above - ERR67
+            && l > -(below - ERR67)
+            && (l >= above - WIDE || l <= -(below - WIDE));
+        if !narrow_dir && !narrow_near {
+            continue;
+        }
+        dir += usize::from(narrow_dir);
+        near += usize::from(narrow_near);
+        agree_pow(x, y);
+    }
+    assert!(
+        dir >= 20 && near >= 20,
+        "{dir} narrow passes of the directed tests and {near} of the test to nearest"
+    );
+}
+
 #[cfg(all(
     target_pointer_width = "64",
     any(target_os = "linux", target_os = "macos")
 ))]
 mod mpfr {
+    use super::{fast_pow, pow2, pow_case, pown_case, Rng};
     use crate::mpfr_calls::mpfr::*;
+    use rug::{float::Round, ops::Pow as _, Float};
 
     fn same(a: f64, b: f64) -> bool {
         a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan())
@@ -646,6 +1186,86 @@ mod mpfr {
             near,
             want
         );
+    }
+
+    // The precision of the values that the results of the fast path are checked against, far
+    // above that of the bound checked.
+    const PREC: u32 = 300;
+
+    // |x^y 2^-e - (h + l)| in units of 2^-67, for the (h, l, e) that `fast_pow` gave at (x, y),
+    // after checking that they meet the bounds of `fast_pow_correct` in
+    // `rocq/theories/FastPow.v`: h = RN(h + l), 1/2 < h < 2, e in [-1021, 1022] and
+    // |x^y 2^-e - (h + l)| <= 2^-67. `None` where `fast_pow` gives `None`, and where (x, y) is
+    // outside the hypotheses of the theorem: a finite x > 0, a finite y, and x = 1 and
+    // |y| <= 2^900, or 2^-60 <= |y ln x|.
+    fn fast_pow_error(x: f64, y: f64) -> Option<f64> {
+        if !(x.is_finite() && x > 0.0 && y.is_finite()) {
+            return None;
+        }
+        // t is y ln x with ln x and the product rounded toward zero, so that |t| <= |y ln x|,
+        // and |t| >= 2^-60 shows that 2^-60 <= |y ln x|.
+        let ln = Float::with_val_round(PREC, Float::with_val(53, x).ln_ref(), Round::Zero).0;
+        let t = Float::with_val_round(PREC, &ln * y, Round::Zero).0;
+        if !((x == 1.0 && y.abs() <= pow2(900)) || t.abs() >= pow2(-60)) {
+            return None;
+        }
+        let (h, l, e) = fast_pow(x, y)?;
+        let f = |v: f64| Float::with_val(53, v);
+        let mut d = Float::with_val(PREC, (&f(x)).pow(&f(y))) >> i32::try_from(e).unwrap();
+        d -= h;
+        d -= l;
+        d.abs_mut();
+        assert!(
+            h + l == h && 0.5 < h && h < 2.0 && (-1021..=1022).contains(&e) && d <= pow2(-67),
+            "fast_pow({x:e}, {y:e}): ({h:e}, {l:e}, {e}), with |x^y 2^-e - (h + l)| = {:e}",
+            d.to_f64()
+        );
+        Some(d.to_f64() / pow2(-67))
+    }
+
+    // `fast_pow` meets the bounds of `fast_pow_correct` (`fast_pow_error`) on 2000 arguments of
+    // each set of `pow_case`, and of each set of `pown_case` as `pown` passes them to it, |x|
+    // and y = n, and on at least a tenth of each set it gives (h, l, e) inside the hypotheses of
+    // the theorem. The test prints how many of each set it checked and their largest error.
+    #[test]
+    fn fast_pow_bound() {
+        let mut rng = Rng(893);
+        let mut sets = vec![];
+        for name in [
+            "lu4", "near1", "mid", "int", "intlu", "t745", "edge", "exact", "nexact",
+        ] {
+            let args: Vec<(f64, f64)> = (0..2000).map(|i| pow_case(name, &mut rng, i)).collect();
+            sets.push((format!("pow {name}"), args));
+        }
+        for name in [
+            "pn2", "pnm2", "pn3", "pn17", "pnint", "pnlu", "pnany", "pnexact", "pnnexact",
+        ] {
+            let args: Vec<(f64, f64)> = (0..2000)
+                .map(|_| {
+                    let (x, n) = pown_case(name, &mut rng);
+                    (x.abs(), f64::from(n))
+                })
+                .collect();
+            sets.push((format!("pown {name}"), args));
+        }
+        for (name, args) in sets {
+            let errs: Vec<f64> = args
+                .iter()
+                .filter_map(|&(x, y)| fast_pow_error(x, y))
+                .collect();
+            let worst = errs.iter().fold(0.0, |a: f64, &b| a.max(b));
+            eprintln!(
+                "fast_pow, {name}: {} of {} arguments checked, largest error {worst:.4} 2^-67",
+                errs.len(),
+                args.len()
+            );
+            // The fewest are in `edge`, where y ln x is mostly outside the range of `fast_exp`.
+            assert!(
+                errs.len() >= args.len() / 10,
+                "fast_pow, {name}: only {} arguments checked",
+                errs.len()
+            );
+        }
     }
 }
 

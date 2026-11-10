@@ -54,6 +54,8 @@ From Inari Require FastSign FastLogTables FastLogTaylor FastLogHorner FastLogPol
   FastLogCore FastLogNorm FastLogLn FastLogBy FastLog.
 From Inari Require FastTrigTables FastTrigReduce FastTrigSC FastTrigEval FastTrigDiv
   FastTrigRound FastTrigCore FastTrig.
+From Inari Require FastPowTaylor FastPowHorner FastPowCube FastPowPoly FastPowCore FastPowLn FastPowMul
+  FastPow.
 From Inari Require KahanMcDonald DyTrigPos SideTight SideTheorems DyPointSide.
 From Inari Require ExpQuadratic PowFactor ExpIrrational CosNiven CosIrrational DyExactDriver
   DyExactPoint DyTrigExact DyExpPoint DyExpExact DyLogSeries DyLogPoint DyLogExact DyAtanExact.
@@ -424,6 +426,23 @@ Print Assumptions FastTrig.fast_tan_dir_correct.
 Print Assumptions FastTrig.fast_tan_near_correct.
 Print Assumptions FastTrig.fast_tan_dir_fma.
 Print Assumptions FastTrig.fast_tan_near_fma.
+Print Assumptions FastPowTaylor.log1p_shift2.
+Print Assumptions FastPowHorner.log1p_horner4_correct.
+Print Assumptions FastPowCube.log1p_cube_correct.
+Print Assumptions FastPowCube.log1p_cube_fma.
+Print Assumptions FastPowPoly.log1p_poly_acc_correct.
+Print Assumptions FastPowPoly.log1p_poly_acc_fma.
+Print Assumptions FastPowCore.ln_core_acc_correct.
+Print Assumptions FastPowCore.ln_core_acc_fma.
+Print Assumptions FastPowLn.ln_acc_correct.
+Print Assumptions FastPowLn.ln_acc_fma.
+Print Assumptions FastPowMul.fast_pow_mul.
+Print Assumptions FastPowMul.fast_pow_mul_one.
+Print Assumptions FastPow.fast_pow_correct.
+Print Assumptions FastPow.fast_pow_dir_correct.
+Print Assumptions FastPow.fast_pow_near_correct.
+Print Assumptions FastPow.fast_pow_dir_fma.
+Print Assumptions FastPow.fast_pow_near_fma.
 Print Assumptions DyExp.exp_dir_correct.
 Print Assumptions DyExp.exp_dir_side.
 Print Assumptions DyExp.exp_dir_strict.

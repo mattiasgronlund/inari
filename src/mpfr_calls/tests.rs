@@ -1192,11 +1192,11 @@ fn switch_reaches_mpfr() {
 }
 
 // The levels that the kernel used, as the tests record them: none for a case that a rule or
-// the fast path of `exp` or `sin` settles, the first level for most of the others, such as
-// `sin` with the fast path off, a retry for a case that `soak` found past level 1, which the
+// the fast path of `exp`, `sin` or `pown` settles, the first level for most of the others, such
+// as `sin` with the fast path off, a retry for a case that `soak` found past level 1, which the
 // fast path settles and the kernel reaches only with the fast path off, and level 2 without a
-// retry for `pown` of a large exponent, which starts at 2 limbs. The MPFR backend does not call
-// `ziv`.
+// retry for `pown` of a large exponent, which starts at 2 limbs, with the fast path off. The
+// MPFR backend does not call `ziv`.
 #[test]
 fn ziv_levels_recorded() {
     let levels = |f: &dyn Fn() -> f64| {
@@ -1214,9 +1214,11 @@ fn ziv_levels_recorded() {
     assert_eq!(levels(&|| kernel::exp_rd(1.276253168049783e2)), (0, 0));
     dyadic::set_fast_path(false);
     let retry = levels(&|| kernel::exp_rd(1.276253168049783e2));
+    let pown = levels(&|| kernel::pown_rd(1.5, 1000));
     dyadic::set_fast_path(true);
     assert_eq!(retry, (2, 1));
-    assert_eq!(levels(&|| kernel::pown_rd(1.5, 1000)), (2, 0));
+    assert_eq!(pown, (2, 0));
+    assert_eq!(levels(&|| kernel::pown_rd(1.5, 1000)), (0, 0));
     assert_eq!(levels(&|| mpfr::exp_rd(1.276253168049783e2)), (0, 0));
 }
 

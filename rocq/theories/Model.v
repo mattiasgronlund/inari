@@ -2208,7 +2208,7 @@ Definition T2 : list (Z * Z) := [
 Definition tbl (t : list (Z * Z)) (i : Z) : f64 * f64 :=
   let '(h, l) := nth (Z.to_nat i) t (0, 0) in (from_bits h, from_bits l).
 
-(** [fn fast_exp(zh: f64, zl: f64) -> Option<(f64, f64, i64)>], where
+(** [pub(super) fn fast_exp(zh: f64, zl: f64) -> Option<(f64, f64, i64)>], where
     [(-707.0..=709.0).contains(&zh)] is [-707.0 <= zh && zh <= 709.0], [kf
     as i64] is [to_i64 kf], [k & 63] and [(k >> 6) & 63] are [Z.land] and
     [Z.shiftr] of the integer [k], [k >> 12] is [Z.shiftr k 12], and [fma]
@@ -2772,6 +2772,12 @@ Definition Q3 : Z := 0x3fd5555555555555.
 Definition Q5 : Z := 0x3fc999999999999a.
 Definition Q6 : Z := 0xbfc5555555555555.
 Definition Q7 : Z := 0x3fc2492492492492.
+
+(** [Q3L] and [Q9], the constants of [log1p_poly_acc] below, as the bits
+    of [f64]s. *)
+Definition Q3L : Z := 0x3c75555555555555.
+Definition Q9 : Z := 0x3fbc71c71c71c71c.
+
 Definition two52 : f64 := from_bits 0x4330000000000000.
 Definition frac : Z := 0x000fffffffffffff.
 Definition neg_quarter : f64 := from_bits 0xbfd0000000000000.
@@ -3222,6 +3228,50 @@ Definition fast_log_by (fma : bool) (x : f64) (c d : Z * Z) : option (f64 * f64 
   let '(s, t) := Fast.fast_two_sum (mul ef dh) ph in
   let '(h, l) := Fast.fast_two_sum s (add t (add pl (mul ef dl))) in
   normalize h l.
+
+(** [fn log1p_poly_acc(z1: f64, z2: f64) -> (f64, f64)], where [fma] is
+    [HAS_FMA], [-0.5 * sh] is [mul neg_half sh] and [0.5 * sl] is [mul
+    half sl]. [FastPowPoly.v] proves it. *)
+Definition log1p_poly_acc (fma : bool) (z1 z2 : f64) : f64 * f64 :=
+  let sh := mul z1 z1 in
+  let sl := Generic.two_prod_err fma z1 z1 sh in
+  let ch := mul z1 sh in
+  let cl := add (Generic.two_prod_err fma z1 sh ch) (mul z1 sl) in
+  let dh := mul ch (from_bits Q3) in
+  let dl :=
+    add (Generic.two_prod_err fma ch (from_bits Q3) dh)
+      (add (mul cl (from_bits Q3)) (mul ch (from_bits Q3L))) in
+  let q :=
+    mul (mul ch z1)
+      (add neg_quarter
+         (mul z1 (add (from_bits Q5)
+            (mul z1 (add (from_bits Q6)
+               (mul z1 (add (from_bits Q7)
+                  (mul z1 (add neg_eighth (mul z1 (from_bits Q9))))))))))) in
+  let '(ah, al) := Fast.fast_two_sum z1 (mul neg_half sh) in
+  let '(bh, bl) := Fast.fast_two_sum ah dh in
+  (bh, add q (add (add al bl) (add (sub dl (mul half sl)) (mul z2 (add (sub DyadicExp.one z1) sh))))).
+
+(** [fn ln_core_acc(x: f64) -> (i64, f64, f64)], as [ln_core].
+    [FastPowCore.v] proves it. *)
+Definition ln_core_acc (fma : bool) (x : f64) : Z * f64 * f64 :=
+  let '(e, m, i) := ln_split x in
+  let '(r, th, tl) := ltbl i in
+  let p := mul r m in
+  let pe := Generic.two_prod_err fma r m p in
+  let '(z1, z2) := Fast.fast_two_sum (sub p DyadicExp.one) pe in
+  let '(ah, pl) := log1p_poly_acc fma z1 z2 in
+  let '(u, v) := Fast.fast_two_sum th ah in
+  let '(a_h, a_l) := Fast.fast_two_sum u (add v (add tl pl)) in
+  (e, a_h, a_l).
+
+(** [pub(super) fn ln_acc(x: f64) -> (f64, f64)], where [e as f64] is
+    [of_i64 e], for [DyadicPow.fast_pow]. [FastPowLn.v] proves it. *)
+Definition ln_acc (fma : bool) (x : f64) : f64 * f64 :=
+  let '(e, a_h, a_l) := ln_core_acc fma x in
+  let ef := of_i64 e in
+  let '(s, t) := Fast.fast_two_sum (mul ef (from_bits LN2H)) a_h in
+  Fast.fast_two_sum s (add t (add a_l (mul ef (from_bits LN2L)))).
 
 (** [fn fast_ln_dir(x: f64, up: bool) -> Option<f64>], the same for
     [log2] and [log10], and [fn fast_ln_near(x: f64) -> Option<f64>] and
@@ -4489,10 +4539,40 @@ Definition ev_pow (x y : f64) (n : nat) : option Dyadic.encl :=
   let* w := if less then Dyadic.encl_add n zl ya else Dyadic.encl_sub n zl ya in
   DyadicExp.scaled n w k h l.
 
+(** [fn fast_pow(x: f64, y: f64) -> Option<(f64, f64, i64)>], [fn
+    fast_pow_dir(x: f64, y: f64, up: bool) -> Option<f64>] and [fn
+    fast_pow_near(x: f64, y: f64) -> Option<f64>], where [fma] is
+    [HAS_FMA] and [?] is a [match]. [FastPow.v] proves them. *)
+Definition fast_pow (fma : bool) (x y : f64) : option (f64 * f64 * Z) :=
+  let '(lh, ll) := DyadicLog.ln_acc fma x in
+  let th := mul y lh in
+  let tl := add (Generic.two_prod_err fma y lh th) (mul y ll) in
+  DyadicExp.fast_exp fma th tl.
+
+Definition fast_pow_dir (fma : bool) (x y : f64) (up : bool) : option f64 :=
+  match fast_pow fma x y with
+  | Some (h, l, e) => Fast.round_dir_err h l e DyadicExp.err67 up
+  | None => None
+  end.
+
+Definition fast_pow_near (fma : bool) (x y : f64) : option f64 :=
+  match fast_pow fma x y with
+  | Some (h, l, e) => Fast.round_near_err h l e DyadicExp.err67
+  | None => None
+  end.
+
 (** The functions of the file with [ziv] a parameter: [pow_dir_with ziv] is
     [pow] with [ziv] for [Dyadic.ziv], and [pow_dir] after the section is
     [pow_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
-    returns only where a rounding test passes ([DyDriver.ziv_strict]). *)
+    returns only where a rounding test passes ([DyDriver.ziv_strict]).
+
+    [pown_pos] tries the fast path after its two rules and before [ziv],
+    with [y = f64::from(n)], and [pow] after [exact] and its integer [y],
+    before [ziv]; their forms rounded to nearest do the same before
+    [ziv_near]. [HAS_FMA] depends on the target. The fast path takes it as
+    an argument, and the functions below pass [false]:
+    [FastPow.fast_pow_dir_fma] and [FastPow.fast_pow_near_fma] show that
+    [true] gives the same result at every argument that reaches it. *)
 Section Driver.
 Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
 
@@ -4527,7 +4607,11 @@ Definition pown_pos_with (x : f64) (k : Z) (up : bool) : option f64 :=
   let '(lo, hi) := if 0 <? k then (g * k, (g + 1) * k) else ((g + 1) * k, g * k) in
   if 1024 <=? lo then Some (DyadicExp.overflow up)
   else if hi <=? -1075 then Some (DyadicExp.underflow up)
-  else ziv (ev_pown x k) up (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat).
+  else
+    match fast_pow_dir false x (of_i64 k) up with
+    | Some r => Some r
+    | None => ziv (ev_pown x k) up (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat)
+    end.
 
 (** [pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64], where
     [f64::NAN] is [B754_nan], [y.is_infinite()] is [eq y infinity || eq
@@ -4562,7 +4646,11 @@ Definition pow_dir_with (x y : f64) (up : bool) : option f64 :=
       | None =>
           if eq (of_i64 (to_i32 y)) y then pown_pos_with x (to_i32 y) up
           else
-            ziv (ev_pow x y) up (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
+            match fast_pow_dir false x y up with
+            | Some v => Some v
+            | None =>
+                ziv (ev_pow x y) up (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
+            end
       end.
 
 (** [pub(crate) fn pown(x: f64, n: i32, up: bool) -> f64] for [k = n],
@@ -4596,7 +4684,11 @@ Definition pown_pos_near_with (x : f64) (k : Z) : option f64 :=
   let '(lo, hi) := if 0 <? k then (g * k, (g + 1) * k) else ((g + 1) * k, g * k) in
   if 1024 <=? lo then Some infinity
   else if hi <=? -1075 then Some zero
-  else ziv_near (ev_pown x k) (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat).
+  else
+    match fast_pow_near false x (of_i64 k) with
+    | Some r => Some r
+    | None => ziv_near (ev_pown x k) (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat)
+    end.
 
 (** [pub(crate) fn pow_near(x: f64, y: f64) -> f64], as [pow_dir_with]. *)
 Definition pow_near_with (x y : f64) : option f64 :=
@@ -4624,7 +4716,11 @@ Definition pow_near_with (x y : f64) : option f64 :=
       | None =>
           if eq (of_i64 (to_i32 y)) y then pown_pos_near_with x (to_i32 y)
           else
-            ziv_near (ev_pow x y) (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
+            match fast_pow_near false x y with
+            | Some v => Some v
+            | None =>
+                ziv_near (ev_pow x y) (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
+            end
       end.
 
 (** [pub(crate) fn pown_near(x: f64, n: i32) -> f64] for [k = n], as

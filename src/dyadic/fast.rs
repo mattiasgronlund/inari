@@ -3,8 +3,9 @@
 // of an approximation in double-double, with the error bound 2^-68 or one given as an argument
 // (`round_dir_err`, `round_near_err`), and the scaling of their results. `src/dyadic/exp.rs`
 // uses it for e^x, 2^x, 10^x, sinh, cosh and tanh, `src/dyadic/log.rs` for ln x, log2 x and
-// log10 x, whose results can be negative (`round_dir_signed`, `round_near_signed`), and
-// `src/dyadic/trig.rs` for sin, cos and tan, which puts the sign back itself.
+// log10 x, whose results can be negative (`round_dir_signed`, `round_near_signed`),
+// `src/dyadic/trig.rs` for sin, cos and tan, which puts the sign back itself, and
+// `src/dyadic/pow.rs` for x^y and x^n.
 //
 // A fast path computes a scaled result y = f(x) 2^-e, for an integer e in [-1021, 1022], as an
 // unevaluated sum h + l of two `f64`s with h = RN(h + l), 1/2 < h < 2, and a proved bound

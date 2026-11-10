@@ -44,36 +44,57 @@
 // Every product is of enclosures of nonnegative numbers but those of `Pow`, and every quotient
 // is by an enclosure of positive numbers.
 //
+// x^y and x^n try a fast path in double-double before `ziv` and `ziv_near` (`fast_pow_dir` and
+// `fast_pow_near`): `pow` and `pow_near` after `exact` and `exact_near` and after the integer y
+// that they pass to x^n, and `pown_pos` and `pown_pos_near` after their two rules, at y = n.
+// It computes ln x as lh + ll within 17/16 2^-79 |ln x| (`ln_acc` of `src/dyadic/log.rs`),
+// t = y ln x as th + tl within 3/4 2^-69 of it, with th = RN(y lh) and the error of that
+// product, which is exact there, and e^t by `fast_exp` of `src/dyadic/exp.rs`, as h + l with
+// x^y 2^-e within 2^-67 of it, and rounds that with the tests of `src/dyadic/fast.rs` at 2^-67
+// (`round_dir_err` and `round_near_err`). Where th is out of the range of `fast_exp` or a test
+// fails, the function calls `ziv` or `ziv_near` as before. The x^y that are `f64`s do not
+// reach the fast path, as `exact` and `exact_near` settle them first, and neither do, in
+// `pow_near`, the midpoints, which `exact_near` settles. At an x^n that is an `f64`, the
+// directed test fails, as it passes only where the scaled result lies strictly between two
+// adjacent `f64`s, and the loop settles x^n at its first level as above. Where the fast path
+// returns, it returns the correct rounding, at these arguments too.
+//
 // `rocq/theories/Model.v` transcribes each function of this file except the tests, so it has
 // to be updated along with them. `rocq/theories/DyPow.v` and `rocq/theories/DyPown.v` prove
 // that `pow` and `pown`, at finite arguments in their domains (`pow_dom` and `pown_dom` of
 // `rocq/theories/Elementary.v`) and where they do not panic, return values on the side of
-// x^y and x^n that the rounding is on, and, where a rule or `exact` settles the arguments or
-// a rounding test of `ziv` passes, x^y and x^n rounded as `mpfr_round` in
+// x^y and x^n that the rounding is on, and, where a rule or `exact` settles the arguments, the
+// fast path returns or a rounding test of `ziv` passes, x^y and x^n rounded as `mpfr_round` in
 // `rocq/theories/Mpfr.v` says. `DyPow.v` builds on `rocq/theories/DyPowRules.v` for the
 // rules, `rocq/theories/DyPowCore.v` for `Pow`, `rocq/theories/DyPowExact.v` and
-// `rocq/theories/DyPowArith.v` for `exact`, and `DyPown.v` for the integer y that `pow` passes
-// to x^n. `DyPown.v` proves the rules of x^n and binary powering. These files also show that
+// `rocq/theories/DyPowArith.v` for `exact`, `DyPown.v` for the integer y that `pow` passes
+// to x^n, and `rocq/theories/FastPow.v` for the fast path. `DyPown.v` proves the rules of x^n
+// and binary powering. `FastPow.v` proves that the fast path returns x^y rounded, with and
+// without an FMA, from `rocq/theories/FastPowLn.v` for `ln_acc`, `rocq/theories/FastPowMul.v`
+// for t and `rocq/theories/FastExpCore.v` for `fast_exp`. These files also show that
 // `exact` finds every argument that reaches it whose exact result is an `f64`, and that both
 // functions return that `f64` at every finite argument whose exact result is one, with x > 0
 // for x^y and x other than 0 for x^n. `rocq/theories/DyPowNear.v` proves that `pow_near` and
 // `pown_near`, at finite arguments in their domains, where a rule or `exact_near` settles the
-// arguments or a rounding test of `ziv_near` passes, return x^y and x^n rounded to nearest as
-// `near_round` in `rocq/theories/NearF64.v` says, from the same enclosures and bounds, the
-// cells of `rocq/theories/NearCells.v` and `rocq/theories/DyPowNearExact.v` for
-// `exact_near`. `DyPowNearExact.v` also shows that `exact_near` finds every argument that
-// reaches it whose x^y is an `f64` or a midpoint, and `DyPowNear.v` that `pow_near` returns
-// the rounding to nearest at every finite x > 0 whose x^y is one. That x^n at a midpoint is
-// settled at the first level is not proved: the tests check its value, which the step of
-// `ziv_near` at the cap would also give. That a test passes by the cap of `ziv` or of
-// `ziv_near` at the other arguments is not proved, nor that the evaluations do not panic.
+// arguments, the fast path returns or a rounding test of `ziv_near` passes, return x^y and x^n
+// rounded to nearest as `near_round` in `rocq/theories/NearF64.v` says, from the same
+// enclosures and bounds, the cells of `rocq/theories/NearCells.v` and
+// `rocq/theories/DyPowNearExact.v` for `exact_near`. `DyPowNearExact.v` also shows that
+// `exact_near` finds every argument that reaches it whose x^y is an `f64` or a midpoint, and
+// `DyPowNear.v` that `pow_near` returns the rounding to nearest at every finite x > 0 whose x^y
+// is one. That x^n at a midpoint is settled at the first level is not proved: the tests check
+// its value, which the step of `ziv_near` at the cap would also give. That a test passes by the
+// cap of `ziv` or of `ziv_near` at the other arguments is not proved, nor that the evaluations
+// do not panic.
 
 use super::{
     consts::ln2,
-    exp::{mul_f64, mul_int, near_one, overflow, scaled, underflow},
-    log::reduce,
+    exp::{fast_exp, mul_f64, mul_int, near_one, overflow, scaled, underflow, ERR67},
+    fast::{round_dir_err, round_near_err},
+    log::{ln_acc, reduce},
     round, ziv, ziv_near, Dyadic, Encl, Eval,
 };
+use crate::simd::{two_prod_err, HAS_FMA};
 use std::f64::consts::LOG2_E;
 
 #[cfg(test)]
@@ -277,6 +298,34 @@ fn to_k(c: f64) -> i64 {
     k
 }
 
+// x^y = e^(y ln x) for a finite x > 0, as (h, l, e) with x^y 2^-e within 2^-67 of h + l,
+// h = RN(h + l), 1/2 < h < 2 and e in [-1021, 1022], from t = y ln x in double-double and
+// `fast_exp`, or `None` where t is out of the range of `fast_exp`. ln x is lh + ll within
+// 17/16 2^-79 |ln x| (`ln_acc`), y lh is exact as th + `two_prod_err`, and so t = th + tl is
+// within about 2^-69.4 of y ln x where |th| <= 709. `rocq/theories/FastPow.v` proves it, for
+// 2^-60 <= |y ln x|, and for x = 1 and |y| <= 2^900, where t = 0 (`fast_pow_correct`).
+fn fast_pow(x: f64, y: f64) -> Option<(f64, f64, i64)> {
+    let (lh, ll) = ln_acc(x);
+    let th = y * lh;
+    let tl = two_prod_err::<HAS_FMA>(y, lh, th) + y * ll;
+    fast_exp(th, tl)
+}
+
+// x^y rounded toward +∞ if `up` and toward -∞ otherwise, and to nearest, by the fast path, or
+// `None` where its rounding test fails or y ln x is out of its range.
+// `rocq/theories/FastPow.v` proves that they return those roundings (`fast_pow_dir_correct`
+// and `fast_pow_near_correct`), and the same with and without an FMA (`fast_pow_dir_fma` and
+// `fast_pow_near_fma`), with the hypotheses of `fast_pow_correct`.
+fn fast_pow_dir(x: f64, y: f64, up: bool) -> Option<f64> {
+    let (h, l, e) = fast_pow(x, y)?;
+    round_dir_err(h, l, e, ERR67, up)
+}
+
+fn fast_pow_near(x: f64, y: f64) -> Option<f64> {
+    let (h, l, e) = fast_pow(x, y)?;
+    round_near_err(h, l, e, ERR67)
+}
+
 /// x^y rounded toward +∞ if `up` and toward -∞ otherwise, and NaN for a finite x < 0 and for
 /// x = -∞, as the header says.
 pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64 {
@@ -338,6 +387,8 @@ pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64 {
             // 2 log2 |y| products of enclosures, and a quotient for y < 0, where `Pow`
             // evaluates a logarithm and an exponential, as the header says.
             pown_pos(x, y as i32, up)
+        } else if let Some(v) = fast_pow_dir(x, y, up) {
+            v
         } else {
             // The evaluation loses about the bits of |y a| + 1, and |y a| <= min(|t|, |y| / 2).
             let start = if ey.min(s + 4) >= POW_START_BITS {
@@ -410,6 +461,8 @@ pub(crate) fn pow_near(x: f64, y: f64) -> f64 {
         } else if f64::from(y as i32) == y {
             // An integer y from -2^31 to 2^31 - 1, as in `pow`.
             pown_pos_near(x, y as i32)
+        } else if let Some(v) = fast_pow_near(x, y) {
+            v
         } else {
             let start = if ey.min(s + 4) >= POW_START_BITS {
                 2
@@ -465,6 +518,8 @@ fn pown_pos(x: f64, n: i32, up: bool) -> f64 {
         overflow(up)
     } else if hi <= -1075 {
         underflow(up)
+    } else if let Some(v) = fast_pow_dir(x, f64::from(n), up) {
+        v
     } else {
         let start = if n.unsigned_abs() >= 1 << POWN_START_BITS {
             2
@@ -489,6 +544,8 @@ fn pown_pos_near(x: f64, n: i32) -> f64 {
     } else if hi <= -1075 {
         // x^n <= 2^-1075, whose tie goes to +0.
         0.0
+    } else if let Some(v) = fast_pow_near(x, f64::from(n)) {
+        v
     } else {
         let start = if n.unsigned_abs() >= 1 << POWN_START_BITS {
             2

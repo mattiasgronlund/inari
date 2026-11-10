@@ -924,6 +924,22 @@ mod mpfr {
         assert_eq!(FRAC, (1 << 52) - 1, "FRAC");
     }
 
+    // The two constants of `log1p_poly_acc` are what the comment on them says, with the bound
+    // that the header of `rocq/theories/FastPowPoly.v` states: Q3L = RN(1/3 - Q3), with
+    // Q3 + Q3L within 2^-109 of 1/3, and Q9 = RN(1/9).
+    #[test]
+    fn ln_acc_constants() {
+        let third = Float::with_val(PREC, 3).recip();
+        check_low("Q3L", &third, f64::from_bits(Q3), f64::from_bits(Q3L), -109);
+        let want = Float::with_val(PREC, 9).recip().to_f64();
+        assert_eq!(
+            Q9,
+            want.to_bits(),
+            "Q9: {:e} != {want:e}",
+            f64::from_bits(Q9)
+        );
+    }
+
     // `ln_core(x)` meets the bounds of `ln_core_correct` in `rocq/theories/FastLogCore.v`:
     // a_h = RN(a_h + a_l), e in [-1074, 1024], and |ln m| <= 7/20 and
     // |ln m - (a_h + a_l)| <= 3 2^-71 |ln m| for m = 2^-e x. And the fast paths of ln, log2 and
@@ -993,6 +1009,69 @@ mod mpfr {
                     d.to_f64()
                 );
             }
+        }
+    }
+
+    // `ln_core_acc(x)` meets the bounds of `ln_core_acc_correct` in
+    // `rocq/theories/FastPowCore.v`: a_h = RN(a_h + a_l), e in [-1074, 1024], and |ln m| <= 7/20
+    // and |ln m - (a_h + a_l)| <= 2^-79 |ln m| for m = 2^-e x. And `ln_acc(x)`, the logarithm of
+    // x^y, meets those of `ln_acc_correct` in `rocq/theories/FastPowLn.v`: lh = RN(lh + ll),
+    // |lh| <= 745 and |ln x - (lh + ll)| <= 17/16 2^-79 |ln x|. The arguments are those of
+    // `table_and_reduction_edges`, random ones of any exponent, subnormals with a random number
+    // of significant bits, and 1 ± d for random d with an exponent in [-53, -1], in the two
+    // intervals of the table around 1, where r = 1, and beyond them.
+    #[test]
+    fn ln_acc_bound() {
+        let mut rng = Rng(884);
+        let mut args = vec![];
+        for k in edge_exponents() {
+            for j in 0..512 {
+                args.extend(around((1.0 + f64::from(j) / 512.0) * pow2(k), 1));
+            }
+        }
+        args.extend(around(1.0, 64));
+        args.extend((1..=64).map(f64::from_bits));
+        let mut x = f64::MAX;
+        for _ in 0..64 {
+            args.push(x);
+            x = next_down(x);
+        }
+        for _ in 0..4000 {
+            args.push(any_positive(&mut rng));
+            args.push(near_one(&mut rng, -53, -1));
+            let w = rng.below(52);
+            args.push(f64::from_bits((1 << w) | rng.below(1 << w)));
+        }
+        for x in args {
+            let (e, ah, al) = ln_core_acc(x);
+            // m = 2^-e x is exact in 300 bits.
+            let mut lm = Float::with_val(PREC, x) >> i32::try_from(e).unwrap();
+            lm.ln_mut();
+            let mut d = Float::with_val(PREC, &lm - ah);
+            d -= al;
+            d.abs_mut();
+            assert!(
+                ah + al == ah
+                    && (-1074..=1024).contains(&e)
+                    && lm.clone().abs() <= 0.35
+                    && d <= lm.clone().abs() * pow2(-79),
+                "ln_core_acc({x:e}): ({e}, {ah:e}, {al:e}), with |ln m - (a_h + a_l)| = {:e} \
+                 and ln m = {:e}",
+                d.to_f64(),
+                lm.to_f64()
+            );
+            let (lh, ll) = ln_acc(x);
+            let lx = Float::with_val(PREC, x).ln();
+            let mut d = Float::with_val(PREC, &lx - lh);
+            d -= ll;
+            d.abs_mut();
+            // 17/16 2^-79 = 17 2^-83.
+            assert!(
+                lh + ll == lh && lh.abs() <= 745.0 && d <= lx.clone().abs() * 17 * pow2(-83),
+                "ln_acc({x:e}): ({lh:e}, {ll:e}), with |ln x - (lh + ll)| = {:e} and ln x = {:e}",
+                d.to_f64(),
+                lx.to_f64()
+            );
         }
     }
 }

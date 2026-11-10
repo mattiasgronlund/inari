@@ -92,6 +92,9 @@
 // `rocq/theories/FastCoshPos.v` and `rocq/theories/FastTanhPos.v` the bounds of
 // `fast_sinh_pos` and the others, and `rocq/theories/FastHyp.v` proves that the fast paths
 // return sinh x, cosh x and tanh x rounded, with and without an FMA.
+//
+// The fast path of x^y and x^n in `src/dyadic/pow.rs` also calls `fast_exp`, at y ln x in
+// double-double, and rounds its result with the bound `ERR67`, as its header says.
 
 use super::{
     consts::{ln10, ln2},
@@ -435,9 +438,9 @@ const CH10: u64 = 0x3e927e4fb7789f5c;
 const CH12: u64 = 0x3e21eed8eff8d898;
 
 // 2^-63, 2^-67 and 2^-68: the error bounds of the fast paths of sinh, cosh and tanh that are
-// not computed from an exponent.
+// not computed from an exponent, and 2^-67 also that of x^y and x^n in `src/dyadic/pow.rs`.
 const ERR63: f64 = f64::EPSILON / 2048.0;
-const ERR67: f64 = f64::EPSILON / 32768.0;
+pub(super) const ERR67: f64 = f64::EPSILON / 32768.0;
 const ERR68: f64 = f64::EPSILON / 65536.0;
 
 // e^z for z = zh + zl, as (h, l, e) with e^z 2^-e within 2^-68 - 2^-72 of h + l, h = RN(h + l),
@@ -453,7 +456,7 @@ const ERR68: f64 = f64::EPSILON / 65536.0;
 //
 // [CORE-MATH] P. Zimmermann et al., the CORE-MATH project, `src/binary64/exp/exp.c` (MIT
 // license); no constant or table is copied from it.
-fn fast_exp(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
+pub(super) fn fast_exp(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
     if !(-707.0..=709.0).contains(&zh) {
         return None;
     }

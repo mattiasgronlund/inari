@@ -74,6 +74,15 @@
 // `rocq/theories/FastSign.v` proves the rounding tests for a negative h, and
 // `rocq/theories/FastLog.v` proves that the fast path returns ln x, log2 x and log10 x
 // rounded, with and without an FMA.
+//
+// The fast path of x^y and x^n in `src/dyadic/pow.rs` takes ln x from `ln_acc`, which computes
+// it as `fast_ln` does, from the same `ln_split` and table, but with `ln_core_acc` and
+// `log1p_poly_acc`, the Taylor polynomial of degree 9 with its first three terms in
+// double-double, and without the normalization of `fast_ln`, within 17/16 2^-79 |ln x| of ln x.
+// `rocq/theories/FastPowPoly.v` bounds the error of `log1p_poly_acc`, from
+// `rocq/theories/FastPowTaylor.v`, `rocq/theories/FastPowHorner.v` and
+// `rocq/theories/FastPowCube.v`, and `rocq/theories/FastPowCore.v` and
+// `rocq/theories/FastPowLn.v` those of `ln_core_acc` and `ln_acc`.
 
 use super::{
     consts::{ln10, ln2},
@@ -298,6 +307,11 @@ const Q5: u64 = 0x3fc999999999999a;
 const Q6: u64 = 0xbfc5555555555555;
 const Q7: u64 = 0x3fc2492492492492;
 
+// The constants of the more accurate logarithm of x^y (`log1p_poly_acc`): `Q3L` = RN(1/3 - Q3),
+// so that Q3 + Q3L is 1/3 within 2^-109, and `Q9` = RN(1/9).
+const Q3L: u64 = 0x3c75555555555555;
+const Q9: u64 = 0x3fbc71c71c71c71c;
+
 // 2^52, which scales a subnormal `f64` to a normal one exactly, and the mask of the fraction
 // field of an `f64`.
 const TWO52: f64 = 4_503_599_627_370_496.0;
@@ -412,6 +426,65 @@ fn fast_log_by(x: f64, c: [u64; 2], d: [u64; 2]) -> Option<(f64, f64, i64)> {
     let (s, t) = fast_two_sum(ef * dh, ph);
     let (h, l) = fast_two_sum(s, t + (pl + ef * dl));
     normalize(h, l)
+}
+
+// ln(1 + z) for z = z1 + z2 with |z1| <= 2^-9 and |z2| <= 2^-53 |z1|, as bh + pl, more
+// accurately than `log1p_poly`, for x^y: the Taylor polynomial of degree 9 at z1, with
+// z1 - z1^2/2 + z1^3/3 in double-double, the terms of degree 4 to 9 by Horner's scheme in `f64`,
+// added last, and z2 (1 - z1 + z1^2), the terms of ln(1 + z) of first order in z2. z1^2 is exact
+// as sh + sl and z1 sh as ch plus its error (`two_prod_err`), so that z1^3 is ch + cl up to the
+// roundings of z1 sl and of the sum in cl; ch Q3 is exact as dh plus its error, so that z1^3 / 3
+// is dh + dl up to the roundings of cl Q3, ch Q3L and the two sums in dl, with Q3 + Q3L within
+// 2^-109 of 1/3. The two Fast2Sums are exact, as |sh / 2| < |z1| and |dh| < |ah| [Dekker].
+// `rocq/theories/FastPowPoly.v` proves the bound (`log1p_poly_acc_correct`).
+fn log1p_poly_acc(z1: f64, z2: f64) -> (f64, f64) {
+    let sh = z1 * z1;
+    let sl = two_prod_err::<HAS_FMA>(z1, z1, sh);
+    let ch = z1 * sh;
+    let cl = two_prod_err::<HAS_FMA>(z1, sh, ch) + z1 * sl;
+    let (q3, q3l) = (f64::from_bits(Q3), f64::from_bits(Q3L));
+    let dh = ch * q3;
+    let dl = two_prod_err::<HAS_FMA>(ch, q3, dh) + (cl * q3 + ch * q3l);
+    let (q5, q6, q7, q9) = (
+        f64::from_bits(Q5),
+        f64::from_bits(Q6),
+        f64::from_bits(Q7),
+        f64::from_bits(Q9),
+    );
+    let q = ch * z1 * (-0.25 + z1 * (q5 + z1 * (q6 + z1 * (q7 + z1 * (-0.125 + z1 * q9)))));
+    let (ah, al) = fast_two_sum(z1, -0.5 * sh);
+    let (bh, bl) = fast_two_sum(ah, dh);
+    (
+        bh,
+        q + ((al + bl) + ((dl - 0.5 * sl) + z2 * ((1.0 - z1) + sh))),
+    )
+}
+
+// ln x = e ln 2 + a_h + a_l up to 2^-79 |ln m|, for a finite x > 0, as (e, a_h, a_l), with
+// m = x / 2^e and a_h = RN(a_h + a_l): `ln_core` with `log1p_poly_acc`.
+// `rocq/theories/FastPowCore.v` proves the bound (`ln_core_acc_correct`).
+fn ln_core_acc(x: f64) -> (i64, f64, f64) {
+    let (e, m, i) = ln_split(x);
+    let [r, th, tl] = LOG_TABLE[i];
+    let (r, th, tl) = (f64::from_bits(r), f64::from_bits(th), f64::from_bits(tl));
+    // z = r m - 1 = z1 + z2 exactly, as in `ln_core`.
+    let p = r * m;
+    let pe = two_prod_err::<HAS_FMA>(r, m, p);
+    let (z1, z2) = fast_two_sum(p - 1.0, pe);
+    let (ah, pl) = log1p_poly_acc(z1, z2);
+    let (u, v) = fast_two_sum(th, ah);
+    let (a_h, a_l) = fast_two_sum(u, v + (tl + pl));
+    (e, a_h, a_l)
+}
+
+// ln x as lh + ll, with lh = RN(lh + ll) and |ln x - (lh + ll)| <= 17/16 2^-79 |ln x|, for a
+// finite x > 0, for x^y in `src/dyadic/pow.rs`: e ln 2 + a_h + a_l as in `fast_ln`, without its
+// normalization. `rocq/theories/FastPowLn.v` proves it (`ln_acc_correct`).
+pub(super) fn ln_acc(x: f64) -> (f64, f64) {
+    let (e, a_h, a_l) = ln_core_acc(x);
+    let ef = e as f64;
+    let (s, t) = fast_two_sum(ef * f64::from_bits(LN2H), a_h);
+    fast_two_sum(s, t + (a_l + ef * f64::from_bits(LN2L)))
 }
 
 // ln x, log2 x and log10 x rounded toward +∞ if `up` and toward -∞ otherwise, and to nearest,

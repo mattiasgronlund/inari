@@ -12,7 +12,7 @@
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Encoding TwoSum DyDriver NearF64 NearCells FastRound.
-From Inari Require DyPown.
+From Inari Require RoundOpp.
 
 Open Scope R_scope.
 
@@ -69,7 +69,7 @@ destruct (lt h zero).
   injection Hv as <-.
   destruct (opp_pair h l y Fh Fl Hrn Hh Hs Hy) as (Fh' & Fl' & Hrn' & Hh' & Hy').
   pose proof (round_dir_correct _ _ e (negb up) w (- y) Fh' Fl' Hrn' Hh' He Hy' Hw) as R.
-  unfold rounds in R |- *. apply DyPown.pown_rnd_opp.
+  unfold rounds in R |- *. apply RoundOpp.pown_rnd_opp.
   replace (- (y * bpow radix2 e)) with (- y * bpow radix2 e) by ring. exact R.
 - rewrite Rabs_pos_eq in Hh by exact Hs.
   exact (round_dir_correct h l e up v y Fh Fl Hrn Hh He Hy Hv).

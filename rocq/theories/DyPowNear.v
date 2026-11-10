@@ -20,7 +20,7 @@ From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr MpfrRound Limbs Elementary DyRound DyConv DyOps DyDriver
   DyGrow DyConst DyExpCore DyExpRules DyExp DyLogRules DyLogCore DyPowArith DyPowRules
   DyPowExact DyPowCore NearF64 NearCells DyDriverNear DyPowNearExact.
-From Inari Require DyPown DyPow.
+From Inari Require DyPown DyPow FastPow.
 
 Open Scope Z_scope.
 
@@ -117,6 +117,18 @@ assert (Hl : forall start, ziv_near_strict (DyadicPow.ev_pown x k) start = Some 
              near_round (powerRZ (B2R x) k) v).
 { intros start H. refine (ziv_near_strict_correct _ _ _ _ _ H).
   intros n a Hn Ea. exact (DyPown.ev_pown_correct x k n a Hn Fx Hx Hk Hi Ea). }
+(* The fast path, then the driver. *)
+assert (Hm : forall start,
+  match DyadicPow.fast_pow_near false x (DyadicPow.of_i64 k) with
+  | Some r => Some r
+  | None => ziv_near_strict (DyadicPow.ev_pown x k) start
+  end = Some v -> near_round (powerRZ (B2R x) k) v).
+{ intros start. destruct (DyadicPow.fast_pow_near false x (DyadicPow.of_i64 k)) eqn:F.
+  - intros H. injection H as <-.
+    destruct (DyPown.pown_fast_hyp x k Fx Hx Hk Hi) as (Fk & Vk & H).
+    rewrite (powerRZ_Rpower _ _ Hx), <- Vk.
+    exact (FastPow.fast_pow_near_correct false x _ _ Fx Hx Fk H F).
+  - exact (Hl start). }
 unfold DyadicPow.pown_pos_near_with in E. cbv zeta in E.
 destruct (0 <? k) eqn:K; cbv beta iota in E.
 - destruct (1024 <=? DyadicPow.expo x * k) eqn:O.
@@ -125,14 +137,14 @@ destruct (0 <? k) eqn:K; cbv beta iota in E.
   + destruct ((DyadicPow.expo x + 1) * k <=? -1075) eqn:U.
     * injection E as <-. apply pown_zero_near; [exact Fx | exact Hx |].
       rewrite K. apply Z.leb_le. exact U.
-    * exact (Hl _ E).
+    * exact (Hm _ E).
 - destruct (1024 <=? (DyadicPow.expo x + 1) * k) eqn:O.
   + injection E as <-. apply pown_inf_near; [exact Fx | exact Hx |].
     rewrite K. apply Z.leb_le. exact O.
   + destruct (DyadicPow.expo x * k <=? -1075) eqn:U.
     * injection E as <-. apply pown_zero_near; [exact Fx | exact Hx |].
       rewrite K. apply Z.leb_le. exact U.
-    * exact (Hl _ E).
+    * exact (Hm _ E).
 Qed.
 
 (** Where [pown_pos_near_with ziv_near_strict] returns, [pown_pos_near]
@@ -146,10 +158,12 @@ intros x k v. unfold DyadicPow.pown_pos_near_with. cbv zeta.
 destruct (0 <? k); cbv beta iota.
 - destruct (1024 <=? DyadicPow.expo x * k); [exact (fun h => h) |].
   destruct ((DyadicPow.expo x + 1) * k <=? -1075); [exact (fun h => h) |].
-  apply ziv_near_strict_ziv.
+  destruct (DyadicPow.fast_pow_near false x (DyadicPow.of_i64 k));
+    [exact (fun h => h) | apply ziv_near_strict_ziv].
 - destruct (1024 <=? (DyadicPow.expo x + 1) * k); [exact (fun h => h) |].
   destruct (DyadicPow.expo x * k <=? -1075); [exact (fun h => h) |].
-  apply ziv_near_strict_ziv.
+  destruct (DyadicPow.fast_pow_near false x (DyadicPow.of_i64 k));
+    [exact (fun h => h) | apply ziv_near_strict_ziv].
 Qed.
 
 (** ** Helpers of [pown_near], as [DyPown.pown_dir_zero_pos] and
@@ -263,7 +277,13 @@ destruct (DyadicPow.exact_near x y) as [[w|]|] eqn:Ex; [| | discriminate E].
       by (intros K; apply Y0; rewrite <- I, K; reflexivity).
     rewrite <- I, <- (powerRZ_Rpower _ _ Px).
     exact (pown_pos_near x _ v Fx Px Hk Hi E).
-  + refine (ziv_near_strict_correct _ _ _ _ _ E).
+  + (* The fast path, where [|y ln x| >= 2^-57], then the driver. *)
+    destruct (DyadicPow.fast_pow_near false x y) eqn:F; cbv iota in E.
+    { injection E as <-.
+      apply (FastPow.fast_pow_near_correct false x y _ Fx Px Fy); [| exact F].
+      right. destruct (pow_rule_bounds x y Fx Px X1 Fy Y0) as ([Hb _] & _).
+      apply Rle_trans with (2 := Hb). apply bpow_le. apply Z.leb_gt in S2. lia. }
+    refine (ziv_near_strict_correct _ _ _ _ _ E).
     intros n a Hn Ea. exact (ev_pow_correct n x y a Hn Fx Px Fy Ea).
 Qed.
 
@@ -323,8 +343,8 @@ destruct (10 <=? DyadicPow.expo y + DyadicPow.ln_expo x); [exact (fun h => h)|].
 destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58); [exact (fun h => h)|].
 destruct (DyadicPow.exact_near x y) as [[w|]|]; [exact (fun h => h) | | exact (fun h => h)].
 cbv beta iota.
-destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y);
-  [apply pown_pos_near_strict | apply ziv_near_strict_ziv].
+destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y); [apply pown_pos_near_strict |].
+destruct (DyadicPow.fast_pow_near false x y); [exact (fun h => h) | apply ziv_near_strict_ziv].
 Qed.
 
 Theorem pown_near_strict :
