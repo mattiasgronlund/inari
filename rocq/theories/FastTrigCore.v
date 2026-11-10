@@ -4,15 +4,17 @@
     return [(h, l)] at an [x] with [|x| >= 2^-27], [h + l] is sin x, cos x
     or tan x within a relative 2^-71, 2^-71 and [3 * 2^-71], with [h =
     RN(h + l)] and [2^-1000 <= |h| <= 2^1000] ([fast_sin_correct] and the
-    others): with [n = 2048 q + i] from [FastTrigReduce.v], x = q π/2 + i
-    π/4096 + ρ, and sin x and cos x are [±] [fast_eval] at [j = i] and ρ, or
-    at [j = 2048 - i] and [-ρ]. They return the same with and without an
-    FMA ([fast_sin_fma] and the others). *)
+    others): with [n = 2048 q + i] from [DyadicTrig.fast_reduce_any]
+    ([FastTrigReduce.v] below 2^16, [FastTrigBig.v] above), x = 2π k + q
+    π/2 + i π/4096 + ρ for an integer [k], and sin x and cos x are [±]
+    [fast_eval] at [j = i] and ρ, or at [j = 2048 - i] and [-ρ]. They
+    return the same with and without an FMA ([fast_sin_fma] and the
+    others). *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr TwoSum FastRound FastTrigTables FastTrigReduce FastTrigSC
-  FastTrigEval FastTrigDiv.
+  FastTrigEval FastTrigDiv FastTrigBig.
 From Inari Require Import TrigPieces TrigSeries FastExpErr.
 
 Open Scope R_scope.
@@ -397,32 +399,45 @@ Qed.
 
 (** ** The quadrant *)
 
-(** What [fast_reduce] gives where [fast_quad] and [fast_tan] go on: [n =
-    2048 q + i] with [1 <= i <= 2047], and the premises of [eval_both] at
-    ρ = x - n π/4096. *)
+(** What [fast_reduce_any] gives where [fast_quad] and [fast_tan] go on:
+    [n = 2048 q + i] with [1 <= i <= 2047], and the premises of
+    [eval_both] at ρ = x - 2π j - n π/4096 for an integer [j].
+    [fast_reduce_any_correct] gives an [N] equal to [n] modulo 8192 and the
+    bounds at ρ = x - N π/4096; with [N - n = 8192 j], N π/4096 is 2π j +
+    n π/4096. *)
 Lemma quad_setup :
-  forall x n rh rl rr, DyadicTrig.fast_reduce x = Some (n, rh, rl, rr) ->
+  forall x n rh rl rr, DyadicTrig.fast_reduce_any false x = Some (n, rh, rl, rr) ->
   (Z.land n 2047 =? 0)%Z = false -> eq rh zero = false ->
   (1 <= Z.land n 2047 <= 2047)%Z /\
   IZR n = 2048 * IZR (Z.shiftr n 11) + IZR (Z.land n 2047) /\
   is_finite rh = true /\ is_finite rl = true /\ is_finite rr = true /\
   B2R rr = RN (B2R rh + B2R rl) /\
-  Rabs (B2R x - IZR n * (PI / 4096)) <= PI / 8192 * (1 + bpow radix2 (-24)) /\
-  Rabs (B2R x - IZR n * (PI / 4096) - (B2R rh + B2R rl)) <= bpow radix2 (-90) /\
   Rabs (B2R rl) <= bpow radix2 (-37) /\
-  bpow radix2 (-65) <= Rabs (B2R rh).
+  bpow radix2 (-65) <= Rabs (B2R rh) /\
+  exists j : Z,
+  Rabs (B2R x - IZR j * (2 * PI) - IZR n * (PI / 4096)) <=
+    PI / 8192 * (1 + bpow radix2 (-24)) /\
+  Rabs (B2R x - IZR j * (2 * PI) - IZR n * (PI / 4096) - (B2R rh + B2R rl)) <=
+    bpow radix2 (-90).
 Proof.
 intros x n rh rl rr R Ei Ez.
-destruct (fast_reduce_correct x n rh rl rr R)
-  as (Fx & Xb & Nb & Frh & Frl & Frr & Err & E90 & Erho & Erl & Erh).
+destruct (fast_reduce_any_correct x n rh rl rr R)
+  as (_ & _ & Frh & Frl & Frr & Err & Hrl & Erh & N & Nm & E90 & Erho).
 apply Z.eqb_neq in Ei. pose proof (land_2047_range n).
 assert (Nz : n <> 0%Z) by (intros ->; apply Ei; reflexivity).
 pose proof (eq_zero_false rh Frh Ez) as Hz.
 split; [lia |]. split; [apply split_n |].
 do 3 (split; [assumption |]).
 split; [subst rr; exact (rr_rn rh rl Frh Frl Frr) |].
-do 3 (split; [assumption |]).
-exact (Erh Nz Hz).
+split; [assumption |]. split; [exact (Erh Nz Hz) |].
+(* N = 8192 j + n, so N π/4096 = 2π j + n π/4096. *)
+pose proof (Z_div_mod_eq_full (N - n) 8192) as D. rewrite Nm in D.
+exists ((N - n) / 8192)%Z.
+assert (Ej : IZR N = 8192 * IZR ((N - n) / 8192) + IZR n)
+  by (rewrite <- mult_IZR, <- plus_IZR; f_equal; lia).
+replace (B2R x - IZR ((N - n) / 8192) * (2 * PI) - IZR n * (PI / 4096))
+  with (B2R x - IZR N * (PI / 4096)) by (rewrite Ej; field).
+split; assumption.
 Qed.
 
 (** A pair within a relative 2^-71 of a [v] between 2^-13 and 1 gives
@@ -460,7 +475,7 @@ Qed.
 (** [fast_quad] at [s] gives sin (x + s π/2). *)
 Lemma quad_correct :
   forall x n rh rl rr s h l,
-  DyadicTrig.fast_reduce x = Some (n, rh, rl, rr) ->
+  DyadicTrig.fast_reduce_any false x = Some (n, rh, rl, rr) ->
   DyadicTrig.fast_quad false n s rh rl rr = Some (h, l) ->
   is_finite h = true /\ is_finite l = true /\ B2R h = RN (B2R h + B2R l) /\
   bpow radix2 (-1000) <= Rabs (B2R h) <= bpow radix2 1000 /\
@@ -472,10 +487,15 @@ unfold DyadicTrig.fast_quad in Q. cbv zeta in Q.
 destruct (Z.land n 2047 =? 0)%Z eqn:Ei; [discriminate Q |]. cbn [orb] in Q.
 destruct (eq rh zero) eqn:Ez; [discriminate Q |].
 destruct (quad_setup x n rh rl rr R Ei Ez)
-  as (Hi & Sn & Frh & Frl & Frr & Hrr & Hrho & Err & Hrl & Hrh).
+  as (Hi & Sn & Frh & Frl & Frr & Hrr & Hrl & Hrh & j & Hrho & Err).
+(* sin has period 2π, so x - 2π j stands for x. *)
+rewrite (tp_sin_sub (B2R x + IZR s * (PI / 2)) j).
+replace (B2R x + IZR s * (PI / 2) - 2 * IZR j * PI)
+  with (B2R x - IZR j * (2 * PI) + IZR s * (PI / 2)) by ring.
+set (z := B2R x - IZR j * (2 * PI)) in *.
 pose proof (eval_both _ rh rl rr _ Hi Frh Frl Frr Hrr Hrho Err Hrl Hrh) as EB.
-set (y := IZR (Z.land n 2047) * (PI / 4096) + (B2R x - IZR n * (PI / 4096))) in EB.
-assert (A : sin (B2R x + IZR s * (PI / 2)) = sin (IZR (Z.shiftr n 11 + s) * (PI / 2) + y))
+set (y := IZR (Z.land n 2047) * (PI / 4096) + (z - IZR n * (PI / 4096))) in EB.
+assert (A : sin (z + IZR s * (PI / 2)) = sin (IZR (Z.shiftr n 11 + s) * (PI / 2) + y))
   by (unfold y; f_equal; rewrite plus_IZR, Sn; field).
 rewrite A, sin_quad. clear A.
 revert Q EB. destruct (DyadicTrig.fast_sc false (Z.land n 2047)) as [[[sh sl] ch] cl].
@@ -527,10 +547,11 @@ Theorem fast_sin_correct :
   Rabs (sin (B2R x) - (B2R h + B2R l)) <= bpow radix2 (-71) * Rabs (sin (B2R x)).
 Proof.
 intros x h l Fx Hx F. unfold DyadicTrig.fast_sin in F.
-destruct (DyadicTrig.fast_reduce x) as [[[[n rh] rl] rr] |] eqn:R; [| discriminate F].
+destruct (DyadicTrig.fast_reduce_any false x) as [[[[n rh] rl] rr] |] eqn:R; [| discriminate F].
 destruct (n =? 0)%Z eqn:N0.
 - apply Z.eqb_eq in N0. subst n.
-  destruct (fast_reduce_correct x 0 rh rl rr R) as (_ & _ & _ & _ & _ & _ & _ & _ & Erho & _).
+  pose proof (proj1 (fast_reduce_any_correct x 0 rh rl rr R) eq_refl) as R0.
+  destruct (fast_reduce_correct x 0 rh rl rr R0) as (_ & _ & _ & _ & _ & _ & _ & _ & Erho & _).
   rewrite Rmult_0_l, Rminus_0_r in Erho.
   pose proof (fast_sin0_correct x Fx (conj Hx Erho)) as S0.
   revert F S0. destruct (DyadicTrig.fast_sin0 x) as [h0 l0]. intros F S0.
@@ -551,10 +572,11 @@ Theorem fast_cos_correct :
   Rabs (cos (B2R t) - (B2R h + B2R l)) <= bpow radix2 (-71) * Rabs (cos (B2R t)).
 Proof.
 intros t h l Ft Ht F. unfold DyadicTrig.fast_cos in F.
-destruct (DyadicTrig.fast_reduce t) as [[[[n rh] rl] rr] |] eqn:R; [| discriminate F].
+destruct (DyadicTrig.fast_reduce_any false t) as [[[[n rh] rl] rr] |] eqn:R; [| discriminate F].
 destruct (n =? 0)%Z eqn:N0.
 - apply Z.eqb_eq in N0. subst n.
-  destruct (fast_reduce_correct t 0 rh rl rr R) as (_ & _ & _ & _ & _ & _ & _ & _ & Erho & _).
+  pose proof (proj1 (fast_reduce_any_correct t 0 rh rl rr R) eq_refl) as R0.
+  destruct (fast_reduce_correct t 0 rh rl rr R0) as (_ & _ & _ & _ & _ & _ & _ & _ & Erho & _).
   rewrite Rmult_0_l, Rminus_0_r in Erho.
   pose proof (fast_cos0_correct t Ft (conj Ht Erho)) as C0.
   revert F C0. destruct (DyadicTrig.fast_cos0 t) as [h0 l0]. intros F C0.
@@ -612,11 +634,12 @@ Theorem fast_tan_correct :
   Rabs (tan (B2R x) - (B2R h + B2R l)) <= 3 * bpow radix2 (-71) * Rabs (tan (B2R x)).
 Proof.
 intros x h l Fx Hx F. unfold DyadicTrig.fast_tan in F.
-destruct (DyadicTrig.fast_reduce x) as [[[[n rh] rl] rr] |] eqn:R; [| discriminate F].
+destruct (DyadicTrig.fast_reduce_any false x) as [[[[n rh] rl] rr] |] eqn:R; [| discriminate F].
 destruct (n =? 0)%Z eqn:N0.
 - (* n = 0: tan x = sin x / cos x from fast_sin0 and fast_cos0 *)
   apply Z.eqb_eq in N0. subst n.
-  destruct (fast_reduce_correct x 0 rh rl rr R) as (_ & _ & _ & _ & _ & _ & _ & _ & Erho & _).
+  pose proof (proj1 (fast_reduce_any_correct x 0 rh rl rr R) eq_refl) as R0.
+  destruct (fast_reduce_correct x 0 rh rl rr R0) as (_ & _ & _ & _ & _ & _ & _ & _ & Erho & _).
   rewrite Rmult_0_l, Rminus_0_r in Erho.
   pose proof (fast_sin0_correct x Fx (conj Hx Erho)) as S0.
   pose proof (fast_cos0_correct x Fx (conj Hx Erho)) as C0.
@@ -636,10 +659,16 @@ destruct (n =? 0)%Z eqn:N0.
   destruct (Z.land n 2047 =? 0)%Z eqn:Ei; [discriminate F |]. cbn [orb] in F.
   destruct (eq rh zero) eqn:Ez; [discriminate F |].
   destruct (quad_setup x n rh rl rr R Ei Ez)
-    as (Hi & Sn & Frh & Frl & Frr & Hrr & Hrho & Err & Hrl & Hrh).
+    as (Hi & Sn & Frh & Frl & Frr & Hrr & Hrl & Hrh & j & Hrho & Err).
+  (* sin and cos have period 2π, so tan x = tan (x - 2π j). *)
+  assert (T : tan (B2R x) = tan (B2R x - IZR j * (2 * PI))).
+  { unfold tan. rewrite (tp_sin_sub (B2R x) j), (tp_cos_sub (B2R x) j).
+    replace (2 * IZR j * PI) with (IZR j * (2 * PI)) by ring. reflexivity. }
+  rewrite T. clear T.
+  set (z := B2R x - IZR j * (2 * PI)) in *.
   pose proof (eval_both _ rh rl rr _ Hi Frh Frl Frr Hrr Hrho Err Hrl Hrh) as EB.
-  set (y := IZR (Z.land n 2047) * (PI / 4096) + (B2R x - IZR n * (PI / 4096))) in EB.
-  assert (A : tan (B2R x) = tan (IZR (Z.shiftr n 11) * (PI / 2) + y))
+  set (y := IZR (Z.land n 2047) * (PI / 4096) + (z - IZR n * (PI / 4096))) in EB.
+  assert (A : tan z = tan (IZR (Z.shiftr n 11) * (PI / 2) + y))
     by (unfold y; f_equal; rewrite Sn; field).
   rewrite A. clear A.
   revert F EB. destruct (DyadicTrig.fast_sc false (Z.land n 2047)) as [[[sh sl] ch] cl].
@@ -676,13 +705,14 @@ Qed.
 (** The [rh] of the reduction past the guards of [fast_quad] is between
     2^-65 and 1 in magnitude, as is its negation. *)
 Lemma rh_range :
-  forall x n rh rl rr, DyadicTrig.fast_reduce x = Some (n, rh, rl, rr) ->
+  forall x n rh rl rr, DyadicTrig.fast_reduce_any false x = Some (n, rh, rl, rr) ->
   (Z.land n 2047 =? 0)%Z = false -> eq rh zero = false ->
   bpow radix2 (-65) <= Rabs (B2R rh) <= 1 /\ bpow radix2 (-65) <= Rabs (B2R (opp rh)) <= 1.
 Proof.
 intros x n rh rl rr R Ei Ez.
 destruct (quad_setup x n rh rl rr R Ei Ez)
-  as (_ & _ & _ & _ & _ & _ & Hrho & Err & Hrl & Hrh).
+  as (_ & _ & _ & _ & _ & _ & Hrl & Hrh & j & Hrho & Err).
+set (rho := B2R x - IZR j * (2 * PI) - IZR n * (PI / 4096)) in *.
 destruct (opp_ok rh) as [_ Rrh]. rewrite Rrh, Rabs_Ropp.
 pose proof PI_4. pose proof PI_RGT_0.
 assert (B : bpow radix2 (-24) <= 1 /\ bpow radix2 (-90) <= bpow radix2 (-10) /\
@@ -691,18 +721,16 @@ assert (B : bpow radix2 (-24) <= 1 /\ bpow radix2 (-90) <= bpow radix2 (-10) /\
 assert (B10 : bpow radix2 (-10) = / 1024) by (cbn [bpow radix_val radix2 Z.pow_pos]; lra).
 assert (P : PI / 8192 * (1 + bpow radix2 (-24)) <= 4 / 8192 * 2).
 { apply Rmult_le_compat; [lra | pose proof (bpow_ge_0 radix2 (-24)); lra | lra | lra]. }
-pose proof (Rabs_triang (B2R x - IZR n * (PI / 4096) - (B2R rh + B2R rl)) (B2R rl)) as T1.
-pose proof (Rabs_triang (B2R x - IZR n * (PI / 4096))
-  (- (B2R x - IZR n * (PI / 4096) - (B2R rh + B2R rl) + B2R rl))) as T2.
+pose proof (Rabs_triang (rho - (B2R rh + B2R rl)) (B2R rl)) as T1.
+pose proof (Rabs_triang rho (- (rho - (B2R rh + B2R rl) + B2R rl))) as T2.
 rewrite Rabs_Ropp in T2.
-replace (B2R x - IZR n * (PI / 4096) + - (B2R x - IZR n * (PI / 4096) - (B2R rh + B2R rl) +
-  B2R rl)) with (B2R rh) in T2 by ring.
+replace (rho + - (rho - (B2R rh + B2R rl) + B2R rl)) with (B2R rh) in T2 by ring.
 lra.
 Qed.
 
 (** [fast_quad] is the same with and without an FMA. *)
 Lemma quad_fma :
-  forall x n rh rl rr s, DyadicTrig.fast_reduce x = Some (n, rh, rl, rr) ->
+  forall x n rh rl rr s, DyadicTrig.fast_reduce_any false x = Some (n, rh, rl, rr) ->
   DyadicTrig.fast_quad true n s rh rl rr = DyadicTrig.fast_quad false n s rh rl rr.
 Proof.
 intros x n rh rl rr s R.
@@ -725,8 +753,8 @@ Theorem fast_sin_fma :
   forall x, bpow radix2 (-27) <= Rabs (B2R x) ->
   DyadicTrig.fast_sin true x = DyadicTrig.fast_sin false x.
 Proof.
-intros x _. unfold DyadicTrig.fast_sin.
-destruct (DyadicTrig.fast_reduce x) as [[[[n rh] rl] rr] |] eqn:R; [| reflexivity].
+intros x _. unfold DyadicTrig.fast_sin. rewrite fast_reduce_any_fma.
+destruct (DyadicTrig.fast_reduce_any false x) as [[[[n rh] rl] rr] |] eqn:R; [| reflexivity].
 destruct (n =? 0)%Z; [reflexivity |].
 exact (quad_fma x n rh rl rr 0 R).
 Qed.
@@ -735,8 +763,8 @@ Theorem fast_cos_fma :
   forall t, bpow radix2 (-27) <= Rabs (B2R t) ->
   DyadicTrig.fast_cos true t = DyadicTrig.fast_cos false t.
 Proof.
-intros t _. unfold DyadicTrig.fast_cos.
-destruct (DyadicTrig.fast_reduce t) as [[[[n rh] rl] rr] |] eqn:R; [| reflexivity].
+intros t _. unfold DyadicTrig.fast_cos. rewrite fast_reduce_any_fma.
+destruct (DyadicTrig.fast_reduce_any false t) as [[[[n rh] rl] rr] |] eqn:R; [| reflexivity].
 destruct (n =? 0)%Z; [reflexivity |].
 exact (quad_fma t n rh rl rr 1 R).
 Qed.
@@ -765,12 +793,13 @@ Theorem fast_tan_fma :
   forall x, bpow radix2 (-27) <= Rabs (B2R x) ->
   DyadicTrig.fast_tan true x = DyadicTrig.fast_tan false x.
 Proof.
-intros x Hx. unfold DyadicTrig.fast_tan.
-destruct (DyadicTrig.fast_reduce x) as [[[[n rh] rl] rr] |] eqn:R; [| reflexivity].
+intros x Hx. unfold DyadicTrig.fast_tan. rewrite fast_reduce_any_fma.
+destruct (DyadicTrig.fast_reduce_any false x) as [[[[n rh] rl] rr] |] eqn:R; [| reflexivity].
 destruct (n =? 0)%Z eqn:N0.
 - (* n = 0: the quotient of fast_sin0 and fast_cos0 *)
   apply Z.eqb_eq in N0. subst n.
-  destruct (fast_reduce_correct x 0 rh rl rr R) as (Fx & _ & _ & _ & _ & _ & _ & _ & Erho & _).
+  pose proof (proj1 (fast_reduce_any_correct x 0 rh rl rr R) eq_refl) as R0.
+  destruct (fast_reduce_correct x 0 rh rl rr R0) as (Fx & _ & _ & _ & _ & _ & _ & _ & Erho & _).
   rewrite Rmult_0_l, Rminus_0_r in Erho.
   pose proof (fast_sin0_correct x Fx (conj Hx Erho)) as S0.
   pose proof (fast_cos0_correct x Fx (conj Hx Erho)) as C0.
@@ -789,7 +818,7 @@ destruct (n =? 0)%Z eqn:N0.
   destruct (Z.land n 2047 =? 0)%Z eqn:Ei; [reflexivity |]. cbn [orb].
   destruct (eq rh zero) eqn:Ez; [reflexivity |].
   destruct (quad_setup x n rh rl rr R Ei Ez)
-    as (Hi & _ & Frh & Frl & Frr & Hrr & Hrho & Err & Hrl & Hrh).
+    as (Hi & _ & Frh & Frl & Frr & Hrr & Hrl & Hrh & j & Hrho & Err).
   destruct (rh_range x n rh rl rr R Ei Ez) as [Rh Rh'].
   destruct (opp_ok rh) as [Frh' _].
   pose proof (eval_both _ rh rl rr _ Hi Frh Frl Frr Hrr Hrho Err Hrl Hrh) as EB.

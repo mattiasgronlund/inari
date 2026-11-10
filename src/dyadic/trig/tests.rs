@@ -803,7 +803,7 @@ fn fast_parts(i: usize, x: f64) -> Option<(f64, f64)> {
 // 3. At x = n (U1 + U2) for n = m 2^k with m in {1, 3, 5, 7}, an `f64`, as U1 + U2 is an odd
 //    multiple of 2^-60 below 2^-10 and m < 8, the reduction gives n and rh = x - n U1 - n U2 = 0,
 //    and the fast paths decline x.
-// 4. Around `LIMIT`, at and above which the fast paths leave x to the kernel.
+// 4. Around `LIMIT`, at and above which `fast_reduce_big` takes x instead of `fast_reduce`.
 #[test]
 fn reduction_edges() {
     for n in edge_ns() {
@@ -852,7 +852,10 @@ fn reduction_edges() {
         }
     }
     for x in [LIMIT, -LIMIT] {
-        assert!(fast_reduce(x).is_none() && declined(x), "{x:e}");
+        assert!(
+            fast_reduce(x).is_none() && fast_reduce_big(x).is_some(),
+            "{x:e}"
+        );
         assert!(
             fast_reduce(next_down(x.abs()).copysign(x)).is_some(),
             "{x:e}"
@@ -877,14 +880,21 @@ const WIDE: f64 = 1.0 / 288_230_376_151_711_744.0;
 // to nearest cannot cross. There an error in the bound would show first, so the fast path has to
 // give the kernel's `f64`s, and MPFR's, as `check_fast` checks them. A narrow pass of the
 // directed tests counts only where the rules of tiny and small arguments leave x to the fast
-// path.
+// path. The arguments are those of `fast_arg`, which `fast_reduce` reduces, and of `big_arg`,
+// which `fast_reduce_big` reduces, and both kinds need narrow passes of both tests.
 #[test]
 fn widened() {
     let mut rng = Rng(906);
     for i in [SIN, COS, TAN] {
-        let (mut dir, mut near) = (0, 0);
-        for k in 0..4000 {
-            let x = fast_arg(&mut rng, k % 2 == 0);
+        // The narrow passes of the directed tests and of the test to nearest, below `LIMIT` and
+        // at or above it.
+        let mut counts = [[0; 2]; 2];
+        for k in 0..6000 {
+            let x = match k % 3 {
+                0 => fast_arg(&mut rng, true),
+                1 => fast_arg(&mut rng, false),
+                _ => big_arg(&mut rng),
+            };
             let Some((h, l)) = fast_parts(i, x) else {
                 continue;
             };
@@ -907,13 +917,184 @@ fn widened() {
             if !narrow_dir && !narrow_near {
                 continue;
             }
-            dir += usize::from(narrow_dir);
-            near += usize::from(narrow_near);
+            let c = &mut counts[usize::from(x.abs() >= LIMIT)];
+            c[0] += usize::from(narrow_dir);
+            c[1] += usize::from(narrow_near);
             check_fast(i, x);
         }
         assert!(
-            dir >= 20 && near >= 20,
-            "{}: {dir} narrow passes of the directed tests and {near} of the test to nearest",
+            counts.iter().flatten().all(|&c| c >= 20),
+            "{}: {counts:?} narrow passes of the directed tests and of the test to nearest, \
+             below `LIMIT` and at or above it",
+            FUNCTIONS[i].0
+        );
+    }
+}
+
+// The bits of a reduction, so that two of them compare equal only if their n and the bits of
+// their rh, rl and rr are, the signs of zeros included.
+fn reduction_bits(r: Option<(i64, f64, f64, f64)>) -> Option<(i64, u64, u64, u64)> {
+    r.map(|(n, rh, rl, rr)| (n, rh.to_bits(), rl.to_bits(), rr.to_bits()))
+}
+
+// `fast_reduce_any(x)` is `fast_reduce(x)` for |x| < `LIMIT` and `fast_reduce_big(x)` for the
+// other x, NaN included. `fast_reduce_big(x)` is `None` unless x is finite with |x| >= `LIMIT`,
+// and otherwise meets the conjuncts of `fast_reduce_big_correct` in
+// `rocq/theories/FastTrigBig.v` that do not need π: n is in [1, 8191] with n mod 2048 != 0, so
+// that `fast_sin`, `fast_cos` and `fast_tan` never take it for the n = 0 of
+// |x| <= u/2 (1 + 2^-24), rh, rl and rr are finite, rr = RN(rh + rl), |rl| <= 2^-37 and
+// |rh| >= 2^-65. Returns whether `fast_reduce_big` takes x.
+fn check_big(x: f64) -> bool {
+    let big = fast_reduce_big(x);
+    let want = if x.abs() < LIMIT { fast_reduce(x) } else { big };
+    assert_eq!(
+        reduction_bits(fast_reduce_any(x)),
+        reduction_bits(want),
+        "fast_reduce_any({x:e})"
+    );
+    let Some((n, rh, rl, rr)) = big else {
+        return false;
+    };
+    assert!(
+        x.is_finite()
+            && x.abs() >= LIMIT
+            && (1..8192).contains(&n)
+            && n & 2047 != 0
+            && rh.is_finite()
+            && rl.is_finite()
+            && rr.is_finite()
+            && rr.to_bits() == (rh + rl).to_bits()
+            && rl.abs() <= pow2(-37)
+            && rh.abs() >= pow2(-65),
+        "fast_reduce_big({x:e}) = ({n}, {rh:e}, {rl:e}, {rr:e})"
+    );
+    true
+}
+
+// 6381956970095103 2^797, the `f64` nearest to a multiple of π/2 of Kahan and McDonald (the
+// header of `trig.rs`): there i = 0, so that `fast_reduce_big` declines it.
+const KM: f64 = 5.319372648326541e255;
+
+// Arguments x = m 2^E at less than 2^-64 from a multiple N u of u = π/4096 with
+// i = N mod 2048 != 0, as (x, whether `fast_reduce_big` takes x), each with ρ = x - N u and i,
+// from MPFR at 1,400 bits. ρ / u is the F of `fast_reduce_big` up to less than 2^-126.
+// `fast_reduce_big` declines x where 0 <= F < 2^-53, that is, up to less than 2^-126 u at either
+// end, where 0 <= ρ < 2^-53 u, about 2^-63.35, which a random argument reaches with a chance of
+// about 2^-53: there fh, F rounded down to a multiple of 2^-53, is 0, and so is rh. Where
+// -2^-53 <= F < 0, fh = -2^-53, and rh and rl, both of about 2^-63.35 in magnitude, nearly
+// cancel, which `fast_reduce_big_correct` allows: it takes those x. A search found them from the
+// continued fractions of 2^(E + 12) / π: in each binade, x / u = m 2^(E + 12) / π.
+const NEAR_STEPS: [(f64, bool); 12] = [
+    // 6381956970095103 2^786, the m of `KM` 11 binades lower: ρ = 2^-71.9, i = 1461.
+    (2.597349925940694e252, false),
+    (1.7461668602022784e36, true), // 5916243447979695 2^68: -2^-69.9, i = 1959.
+    (1.91615904031879e295, true),  // 8444920710073313 2^928: -2^-69.8, i = 1205.
+    (1.0588239478072454e17, true), // 6617649673795284 2^4: -2^-68.4, i = 159.
+    (1.515713510270437e304, true), // 6221301883130153 2^958: -2^-68.1, i = 1091.
+    (2.751058338380003e8, true),   // 4615509997160240 2^-24: -2^-66.9, i = 645.
+    // 7763785107565477 2^-36, of the lowest binade above `LIMIT`: -2^-66.03, i = 2032.
+    (1.1297794273654984e5, true),
+    (2.2595588547309968e5, true), // Its double, 7763785107565477 2^-35: -2^-65.03, i = 2016.
+    (7.797439572557102e213, false), // 6519508725532052 2^658: 2^-65.002, i = 1879.
+    (4.125141702366462e147, false), // 5811667653394439 2^438: 2^-64.997, i = 1395.
+    (1.1004233353520012e9, true), // 4615509997160240 2^-22: -2^-64.89, i = 532.
+    (2.4838578073150272e14, false), // 7948344983408087 2^-5: 2^-64.81, i = 477.
+];
+
+// The positive arguments of `fast_reduce_big` at its edges:
+// 1. For each biased exponent be from 1039 to 2046, those of the `f64`s from 2^16 up to
+//    `f64::MAX`, m 2^(be - 1075) for m = 2^52, 2^53 - 1 and a random m between. Its window of
+//    `INV2PI` starts at bit k = be - 1011 from the top, at limb k / 64 shifted by k mod 64, so
+//    that these take every limb and every shift.
+// 2. 8 random m at k = 64 j - 1, 64 j and 64 j + 1 for j from 1 to 16, where the shift wraps
+//    from 63 to 0 and the window moves to the next limb.
+// 3. The 3 `f64`s on each side of `LIMIT` and of `KM`, and the 4 largest `f64`s.
+// 4. The x of `NEAR_STEPS`.
+fn big_edge_args() -> Vec<f64> {
+    let mut rng = Rng(950);
+    let mut random_m = || (1 << 52) + u128::from(rng.below(1 << 52));
+    let mut v = vec![];
+    for be in 1039..=2046 {
+        for m in [1 << 52, (1 << 53) - 1, random_m()] {
+            v.push(from_parts(be, m));
+        }
+    }
+    for j in 1..=16 {
+        for be in [1010, 1011, 1012] {
+            for _ in 0..8 {
+                v.push(from_parts(be + 64 * j, random_m()));
+            }
+        }
+    }
+    v.extend(around(LIMIT, 3));
+    v.extend(around(KM, 3));
+    let mut x = f64::MAX;
+    v.push(x);
+    for _ in 0..3 {
+        x = next_down(x);
+        v.push(x);
+    }
+    v.extend(NEAR_STEPS.iter().map(|&(x, _)| x));
+    v
+}
+
+// `fast_reduce_big` and `fast_reduce_any` at the arguments of `big_edge_args` and their
+// negations, as `check_big` checks them, and sin, cos and tan there, as `check_fast` checks
+// them. Both reductions decline NaN and the infinities, `fast_reduce_big` declines ±`KM` and
+// the x of `NEAR_STEPS` with 0 <= ρ < 2^-53 u and their negations, and takes the others of
+// `NEAR_STEPS` and most of the other arguments.
+#[test]
+fn big_reduction_edges() {
+    for x in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, KM, -KM] {
+        assert!(!check_big(x), "{x:e}");
+    }
+    for (x, takes) in NEAR_STEPS {
+        for y in [x, -x] {
+            assert_eq!(check_big(y), takes, "fast_reduce_big({y:e})");
+        }
+    }
+    let args = big_edge_args();
+    let mut taken = 0;
+    for &x in &args {
+        for y in [x, -x] {
+            taken += usize::from(check_big(y));
+            for i in [SIN, COS, TAN] {
+                check_fast(i, y);
+            }
+        }
+    }
+    assert!(
+        taken > 2 * args.len() * 99 / 100,
+        "fast_reduce_big takes {taken} of {} arguments",
+        2 * args.len()
+    );
+}
+
+// A random argument of `fast_reduce_big`: log-uniform in [2^16, 2^1024), with a random sign.
+fn big_arg(rng: &mut Rng) -> f64 {
+    random_sign(rng) * log_uniform(rng, 16, 1023)
+}
+
+// sin, cos and tan on random arguments of `big_arg`, as `check_big` and `check_fast` check them.
+// The fast path takes all but about 1 in 2048 of them, where i = 0, so more than 99%, and most of
+// its rounding tests pass.
+#[test]
+fn big_random() {
+    let mut rng = Rng(951);
+    for i in [SIN, COS, TAN] {
+        reset_fast_counts();
+        let mut taken = 0;
+        for _ in 0..3000 {
+            let x = big_arg(&mut rng);
+            check_big(x);
+            taken += usize::from(fast_parts(i, x).is_some());
+            check_fast(i, x);
+        }
+        let (passed, failed) = fast_counts();
+        assert!(
+            taken > 2970 && passed > 100 * failed && passed > 15_000,
+            "{}: the fast path takes {taken} of 3000 arguments, and its rounding tests passed \
+             {passed} times and failed {failed} times",
             FUNCTIONS[i].0
         );
     }
@@ -928,7 +1109,7 @@ mod mpfr {
     use crate::mpfr_calls::mpfr::*;
     use rug::{
         float::{Constant, Round},
-        Float,
+        Float, Integer,
     };
 
     type Mpfr = fn(f64) -> f64;
@@ -1243,6 +1424,207 @@ mod mpfr {
             }
         }
         assert!(reached >= 16, "{reached} hard cases reach a rounding test");
+    }
+
+    // `INV2PI` is floor(2^1216 / (2π)) = floor(2^1215 / π), as its comment says: 2^1215 / π is
+    // between 2^1215 / π rounded down to 1,400 bits, with π rounded up, and 2^1215 / π rounded
+    // up, with π rounded down, whose floors are equal, so they are that of 2^1215 / π.
+    #[test]
+    fn inv2pi_table() {
+        use rug::integer::Order;
+        let floor = |r, pi_r| {
+            let (pi, _) = Float::with_val_round(1400, Constant::Pi, pi_r);
+            let (q, _) = Float::with_val_round(1400, pi.recip_ref(), r);
+            (q << 1215u32).to_integer_round(Round::Down).unwrap().0
+        };
+        let t = floor(Round::Down, Round::Up);
+        assert_eq!(t, floor(Round::Up, Round::Down));
+        assert_eq!(t.significant_bits(), 1214);
+        let mut limbs = [0; 20];
+        t.write_digits(&mut limbs, Order::Msf);
+        let rows: String = limbs
+            .iter()
+            .map(|l| {
+                let h = format!("{:016x}", l);
+                format!(
+                    "    0x{}_{}_{}_{},\n",
+                    &h[..4],
+                    &h[4..8],
+                    &h[8..12],
+                    &h[12..]
+                )
+            })
+            .collect();
+        assert!(limbs == INV2PI, "INV2PI should be\n{}", rows);
+    }
+
+    // The precision of the reductions of the arguments of `fast_reduce_big`: x / u is below 2^1037
+    // for |x| < 2^1024, so that k, x / u rounded to an integer, is right unless x / u is within
+    // about 2^-360 of a midpoint between two integers, and ρ = x - k u, from u and k u to 1,400
+    // bits, is within about 2^-370 of it.
+    const BIG_PREC: u32 = 1400;
+
+    // u = π/4096 to `BIG_PREC` bits.
+    fn big_u() -> Float {
+        Float::with_val(BIG_PREC, Constant::Pi) / 4096u32
+    }
+
+    // k = x / u rounded to an integer, and ρ = x - k u, for the u of `big_u`.
+    fn big_rho(x: f64, u: &Float) -> (Integer, Float) {
+        let k = Float::with_val(BIG_PREC, x / u).to_integer().unwrap();
+        let ku = Float::with_val(BIG_PREC, u * &k);
+        (k, x - ku)
+    }
+
+    // What `fast_reduce_big` does with an x, as `check_big_bound` finds it: it takes x, or it
+    // declines x, at i = k mod 2048 = 0 or at a small ρ.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    enum Big {
+        Taken,
+        AtZero,
+        Small,
+    }
+
+    // `fast_reduce_big(x)`, for |x| >= `LIMIT`, meets `fast_reduce_big_correct` in
+    // `rocq/theories/FastTrigBig.v` with N = k, for k and ρ = x - k u of `big_rho`. With s the
+    // sign of x, so that s ρ is the ρ of |x|, it is `None` where k mod 2048 = 0 or
+    // 0 <= s ρ < 2^-53 u (see `NEAR_STEPS`), here checked up to 2^-100 on each side. Otherwise it
+    // is (n, rh, rl, rr) with n = k mod 8192, |ρ - (rh + rl)| <= 2^-90 and |ρ| <= u/2 (1 + 2^-24),
+    // for `half` = u/2 (1 + 2^-24), and the bounds that `check_big` checks. Returns k and what
+    // `fast_reduce_big` does.
+    fn check_big_bound(x: f64, u: &Float, half: &Float) -> (Integer, Big) {
+        let (k, rho) = big_rho(x, u);
+        let mut size = rho.clone();
+        size.abs_mut();
+        let s_rho = if x < 0.0 {
+            Float::with_val(BIG_PREC, -&rho)
+        } else {
+            rho.clone()
+        };
+        let margin = pow2(-100);
+        let step = Float::with_val(BIG_PREC, u * pow2(-53));
+        let step_hi = Float::with_val(BIG_PREC, &step + margin);
+        let step_lo = Float::with_val(BIG_PREC, &step - margin);
+        let at_zero = k.mod_u(2048) == 0;
+        let Some((n, rh, rl, rr)) = fast_reduce_big(x) else {
+            assert!(
+                at_zero || (s_rho >= -margin && s_rho <= step_hi),
+                "fast_reduce_big({x:e}) declines it, with k = {k} and ρ = {:e}",
+                rho.to_f64()
+            );
+            return (k, if at_zero { Big::AtZero } else { Big::Small });
+        };
+        check_big(x);
+        let mut err = Float::with_val(BIG_PREC, &rho - rh);
+        err -= rl;
+        err.abs_mut();
+        assert!(
+            !at_zero
+                && (s_rho <= margin || s_rho >= step_lo)
+                && n == i64::from(k.mod_u(8192))
+                && err <= pow2(-90)
+                && size <= *half,
+            "fast_reduce_big({x:e}) = ({n}, {rh:e}, {rl:e}, {rr:e}), with k = {k}, ρ = {:e} and \
+             |ρ - (rh + rl)| = {:e}",
+            rho.to_f64(),
+            err.to_f64()
+        );
+        (k, Big::Taken)
+    }
+
+    // u/2 (1 + 2^-24), the bound on |ρ| of `check_big_bound`, for the u of `big_u`.
+    fn big_half(u: &Float) -> Float {
+        let mut half = Float::with_val(BIG_PREC, u * (1.0 + pow2(-24)));
+        half >>= 1;
+        half
+    }
+
+    // `fast_reduce_big` on the arguments of `big_edge_args` and 4,000 of `big_arg`, and their
+    // negations, as `check_big_bound` checks it. It declines `KM` and the x of `NEAR_STEPS` with
+    // 0 <= ρ < 2^-53 u and their negations, so that both kinds of decline occur, and takes the
+    // others of `NEAR_STEPS`.
+    #[test]
+    fn fast_reduce_big_bound() {
+        let u = big_u();
+        let half = big_half(&u);
+        for (x, takes) in NEAR_STEPS {
+            for y in [x, -x] {
+                let want = if takes { Big::Taken } else { Big::Small };
+                assert_eq!(check_big_bound(y, &u, &half).1, want, "{y:e}");
+            }
+        }
+        assert_eq!(check_big_bound(KM, &u, &half).1, Big::AtZero);
+        let mut rng = Rng(952);
+        let mut args = big_edge_args();
+        args.extend((0..4000).map(|_| big_arg(&mut rng)));
+        let mut counts = [0; 3];
+        for x in args {
+            for y in [x, -x] {
+                if y.abs() >= LIMIT {
+                    counts[check_big_bound(y, &u, &half).1 as usize] += 1;
+                }
+            }
+        }
+        assert!(
+            counts[0] > 10_000 && counts[1] > 0 && counts[2] > 0,
+            "fast_reduce_big takes {} arguments, and declines {} at i = 0 and {} at a small ρ",
+            counts[0],
+            counts[1],
+            counts[2]
+        );
+    }
+
+    // The arguments next to the steps of the reduction of `fast_reduce_big`, as (N, x, whether x
+    // is near a midpoint): x = RN(N u) and RN((N + 1/2) u), for N = N0 + 2048 q + d with q from
+    // -4 to 4 and d in {-1, 0, 1}, where N0 is the multiple of 8192 nearest to 1.5 2^e / u, for e
+    // in {16, 17, 20, 24, 28, 32, 36, 39}. There i = N mod 2048 is 2047, 0 or 1, and q changes.
+    // As N u < 2^40, the `f64`s there are at most 2^-13 apart, so that the 2 `f64`s on each side
+    // of RN(N u) are within u/2 of N u too, and those of RN((N + 1/2) u) within u/2 of N u on one
+    // side of (N + 1/2) u and of (N + 1) u on the other.
+    fn step_args(u: &Float) -> Vec<(i64, f64, bool)> {
+        let mut v = vec![];
+        for e in [16, 17, 20, 24, 28, 32, 36, 39] {
+            let n0 = Float::with_val(BIG_PREC, 1.5 * pow2(e) / u) / 8192u32;
+            let n0 = n0.to_integer().unwrap().to_i64().unwrap() * 8192;
+            for q in -4..=4 {
+                for d in -1..=1 {
+                    let n = n0 + 2048 * q + d;
+                    let x = Float::with_val(BIG_PREC, u * n);
+                    let mut mid = Float::with_val(BIG_PREC, u * (2 * n + 1));
+                    mid >>= 1;
+                    v.push((n, x.to_f64(), false));
+                    v.push((n, mid.to_f64(), true));
+                }
+            }
+        }
+        v
+    }
+
+    // At the arguments of `step_args` and the 2 `f64`s on each side of each, x / u rounds to N
+    // around RN(N u), and to N on one side of RN((N + 1/2) u) and N + 1 on the other, where
+    // `fast_reduce_big` meets its bounds as `check_big_bound` checks them, both signs of each,
+    // and sin, cos and tan there are as `check_fast` checks them.
+    #[test]
+    fn big_steps() {
+        let u = big_u();
+        let half = big_half(&u);
+        for (n, x, mid) in step_args(&u) {
+            let mut ks = vec![];
+            for y in around(x, 2) {
+                ks.push(check_big_bound(y, &u, &half).0.to_i64().unwrap());
+                check_big_bound(-y, &u, &half);
+                for i in [SIN, COS, TAN] {
+                    check_fast(i, y);
+                    check_fast(i, -y);
+                }
+            }
+            let ok = if mid {
+                ks.contains(&n) && ks.contains(&(n + 1)) && ks.iter().all(|&k| k == n || k == n + 1)
+            } else {
+                ks.iter().all(|&k| k == n)
+            };
+            assert!(ok, "around {x:e}, N = {n}: {ks:?}");
+        }
     }
 }
 

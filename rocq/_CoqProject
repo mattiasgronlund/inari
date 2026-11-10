@@ -233,6 +233,11 @@ theories/FastTrigSC.v
 theories/FastTrigEval.v
 theories/FastTrigDiv.v
 theories/FastTrigRound.v
+theories/FastTrigBigInt.v
+theories/FastTrigBigMul.v
+theories/FastTrigBigDec.v
+theories/FastTrigBigSum.v
+theories/FastTrigBig.v
 theories/FastTrigCore.v
 theories/FastTrig.v
 theories/FastPowTaylor.v

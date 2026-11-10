@@ -4702,6 +4702,79 @@ Definition fast_mul (fma : bool) (ah al bh bl : f64) : f64 * f64 :=
   let p := mul ah bh in
   (p, add (Generic.two_prod_err fma ah bh p) (add (mul ah bl) (mul al bh))).
 
+(** [INV2PI] of [src/dyadic/trig/tables.rs], the bits of 1/(2π) from the
+    most significant limb, and [INV2PI[j]], read where [j] is in the
+    bounds of the table, at most 19. [FastTrigBigInt.v] proves that,
+    read as one integer T, T <= 2^1215 / π <= T + 1 ([inv2pi_bounds]). *)
+Definition INV2PI : list Z := [
+  0x0000000000000000; 0x28be60db9391054a; 0x7f09d5f47d4d3770; 0x36d8a5664f10e410;
+  0x7f9458eaf7aef158; 0x6dc91b8e909374b8; 0x01924bba82746487; 0x3f877ac72c4a69cf;
+  0xba208d7d4baed121; 0x3a671c09ad17df90; 0x4e64758e60d4ce7d; 0x272117e2ef7e4a0e;
+  0xc7fe25fff7816603; 0xfbcbc462d6829b47; 0xdb4d9fb3c9f2c26d; 0xd3d18fd9a797fa8b;
+  0x5d49eeb1faf97c5e; 0xcf41ce7de294a4ba; 0x9afed7ec47e35742; 0x1580cc11bf1edaea].
+
+Definition inv2pi (j : Z) : Z := nth (Z.to_nat j) INV2PI 0.
+
+(** [k as f64] for an [i64] [k], which rounds to nearest, ties to even,
+    as [DyadicLog.of_i64]. *)
+Definition of_i64 (k : Z) : f64 := binary_normalize 53 1024 _ _ mode_NE k 0 false.
+
+(** The closure [w] of [fn fast_reduce_big] at [k] = [be - 1011] and [j],
+    where [i] = [k >> 6] and [f] = [k & 63] are [Z.shiftr] and [Z.land],
+    [<<] of a [u64] drops the bits above 64, and [INV2PI[i + j]] and
+    [INV2PI[i + j + 1]] are [inv2pi], as [k] is at most 1035 and [j] at
+    most 2, so that [i + j + 1] is at most 19. *)
+Definition big_w (k j : Z) : Z :=
+  let i := Z.shiftr k 6 in
+  let f := Z.land k 63 in
+  Z.lor (Z.shiftl (inv2pi (i + j)) f mod 2^64)
+        (Z.shiftr (Z.shiftr (inv2pi (i + j + 1)) 1) (63 - f)).
+
+(** [fn fast_reduce_big(x: f64) -> Option<(i64, f64, f64, f64)>], where
+    the [u64] and [u128] values are integers, [u64::MAX >> 1] is [2^63 -
+    1], [(be - 1011) as usize] is [be - 1011], which is in [28, 1035]
+    there, [p1 & u128::from(u64::MAX)] and [c as u64] are [mod 2^64], as
+    are [wrapping_mul], [wrapping_add] and [r2 << 13], [(p1 >> 64) as u64]
+    and [(c >> 64) as u64] are [Z.shiftr], as both are below 2^64, [as
+    i64] of [r2.wrapping_add(1 << 50) >> 51], which is below 2^13, keeps
+    its value, [as i64] of a [u64] [v] is [v - 2^64] for [v >= 2^63], [a
+    >> 11] of an [i64] is [Z.shiftr], which rounds toward -∞ as Rust's
+    does, [as f64] of an [i64] and [as i64 as f64] of a [u64] below 2^53
+    are [of_i64], [(-n) & 8191] is [Z.land (- n) 8191], [x < 0.0] is [lt
+    x zero], [f64::from_bits(U1) + f64::from_bits(U2)] is [add] and
+    [rh.abs()] is [fabs rh]. [FastTrigBig.v] proves it. *)
+Definition fast_reduce_big (fma : bool) (x : f64) : option (Z * f64 * f64 * f64) :=
+  let b := Z.land (to_bits x) (2^63 - 1) in
+  let be := Z.shiftr b 52 in
+  if negb ((1039 <=? be) && (be <=? 2046)) then None else
+  let m := Z.lor (Z.land b (2^52 - 1)) (2^52) in
+  let k := be - 1011 in
+  let p0 := m * big_w k 2 in
+  let p1 := m * big_w k 1 in
+  let c := Z.shiftr p0 64 + p1 mod 2^64 in
+  let r1 := c mod 2^64 in
+  let r2 := (m * big_w k 0 + Z.shiftr p1 64 + Z.shiftr c 64) mod 2^64 in
+  let n := Z.shiftr ((r2 + 2^50) mod 2^64) 51 in
+  if Z.land n 2047 =? 0 then None else
+  let a0 := Z.lor (Z.shiftl r2 13 mod 2^64) (Z.shiftr r1 51) in
+  let a := if a0 <? 2^63 then a0 else a0 - 2^64 in
+  let fh := mul (of_i64 (Z.shiftr a 11)) (from_bits 0x3ca0000000000000) in
+  let fl := mul (of_i64 (Z.land (Z.shiftr r1 9) (2^53 - 1))) (from_bits 0x3950000000000000) in
+  let '(n, fh, fl) :=
+    if lt x zero then (Z.land (- n) 8191, opp fh, opp fl) else (n, fh, fl) in
+  let uh := add (from_bits U1) (from_bits U2) in
+  let '(rh, rl) := fast_mul fma fh fl uh (from_bits U3) in
+  if lt (fabs rh) (from_bits 0x3be0000000000000) then None
+  else Some (n, rh, rl, add rh rl).
+
+(** [fn fast_reduce_any(x: f64) -> Option<(i64, f64, f64, f64)>], where
+    [or_else] is a [match]. [FastTrigBig.v] proves it. *)
+Definition fast_reduce_any (fma : bool) (x : f64) : option (Z * f64 * f64 * f64) :=
+  match fast_reduce x with
+  | Some r => Some r
+  | None => fast_reduce_big fma x
+  end.
+
 (** [fn fast_sc(i: i64) -> (f64, f64, f64, f64)], where [i >> 6] and [i &
     63] are [Z.shiftr] and [Z.land], and [-qc] is [opp qc].
     [FastTrigSC.v] proves it. *)
@@ -4765,13 +4838,13 @@ Definition fast_quad (fma : bool) (n s : Z) (rh rl rr : f64) : option (f64 * f64
     Option<(f64, f64)>], where [?] is a [match]. [FastTrigCore.v] proves
     them. *)
 Definition fast_sin (fma : bool) (x : f64) : option (f64 * f64) :=
-  match fast_reduce x with
+  match fast_reduce_any fma x with
   | Some (n, rh, rl, rr) => if n =? 0 then Some (fast_sin0 x) else fast_quad fma n 0 rh rl rr
   | None => None
   end.
 
 Definition fast_cos (fma : bool) (t : f64) : option (f64 * f64) :=
-  match fast_reduce t with
+  match fast_reduce_any fma t with
   | Some (n, rh, rl, rr) => if n =? 0 then Some (fast_cos0 t) else fast_quad fma n 1 rh rl rr
   | None => None
   end.
@@ -4788,7 +4861,7 @@ Definition fast_div (fma : bool) (nh nl dh dl : f64) : f64 * f64 :=
     [Z.land n 2048], and the rest is as in [fast_quad]. [FastTrigCore.v]
     proves it. *)
 Definition fast_tan (fma : bool) (x : f64) : option (f64 * f64) :=
-  match fast_reduce x with
+  match fast_reduce_any fma x with
   | None => None
   | Some (n, rh, rl, rr) =>
     if n =? 0 then
