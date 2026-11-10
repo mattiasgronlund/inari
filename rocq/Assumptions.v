@@ -57,6 +57,7 @@ From Inari Require FastTrigTables FastTrigReduce FastTrigSC FastTrigEval FastTri
 From Inari Require FastPowTaylor FastPowHorner FastPowCube FastPowPoly FastPowCore FastPowLn FastPowMul
   FastPow.
 From Inari Require FastDdSqrt FastLogDd FastAhypAsinh FastAhypAcosh FastAhypAtanh FastAhyp.
+From Inari Require FastAtanTables FastAtanPoly FastAtanCore FastAtan FastAsin.
 From Inari Require KahanMcDonald DyTrigPos SideTight SideTheorems DyPointSide.
 From Inari Require ExpQuadratic PowFactor ExpIrrational CosNiven CosIrrational DyExactDriver
   DyExactPoint DyTrigExact DyExpPoint DyExpExact DyLogSeries DyLogPoint DyLogExact DyAtanExact.
@@ -471,6 +472,37 @@ Print Assumptions FastAhyp.fast_atanh_near_fma.
 Print Assumptions FastAhyp.fast_asinh_correct.
 Print Assumptions FastAhyp.fast_atanh_correct.
 Print Assumptions FastAhyp.fast_acosh_one.
+Print Assumptions FastAtanTables.fast_atan_table_correct.
+Print Assumptions FastAtanTables.fast_pio2_correct.
+Print Assumptions FastAtanTables.fast_atan_consts.
+Print Assumptions FastAtanPoly.fast_atan_poly_correct.
+Print Assumptions FastAtanPoly.fast_atan_poly_fma.
+Print Assumptions FastAtanCore.fast_atan_core_correct.
+Print Assumptions FastAtanCore.fast_atan_core_fma.
+Print Assumptions FastAtan.fast_atan_pos_correct.
+Print Assumptions FastAtan.fast_atan2_pos_correct.
+Print Assumptions FastAtan.fast_atan_pos_fma.
+Print Assumptions FastAtan.fast_atan2_pos_fma.
+Print Assumptions FastAtan.fast_atan_dir_correct.
+Print Assumptions FastAtan.fast_atan_near_correct.
+Print Assumptions FastAtan.fast_atan_dir_fma.
+Print Assumptions FastAtan.fast_atan_near_fma.
+Print Assumptions FastAtan.fast_atan2_dir_correct.
+Print Assumptions FastAtan.fast_atan2_near_correct.
+Print Assumptions FastAtan.fast_atan2_dir_fma.
+Print Assumptions FastAtan.fast_atan2_near_fma.
+Print Assumptions FastAsin.fast_asin_pos_correct.
+Print Assumptions FastAsin.fast_acos_val_correct.
+Print Assumptions FastAsin.fast_asin_pos_fma.
+Print Assumptions FastAsin.fast_acos_val_fma.
+Print Assumptions FastAsin.fast_asin_dir_correct.
+Print Assumptions FastAsin.fast_asin_near_correct.
+Print Assumptions FastAsin.fast_asin_dir_fma.
+Print Assumptions FastAsin.fast_asin_near_fma.
+Print Assumptions FastAsin.fast_acos_dir_correct.
+Print Assumptions FastAsin.fast_acos_near_correct.
+Print Assumptions FastAsin.fast_acos_dir_fma.
+Print Assumptions FastAsin.fast_acos_near_fma.
 Print Assumptions DyExp.exp_dir_correct.
 Print Assumptions DyExp.exp_dir_side.
 Print Assumptions DyExp.exp_dir_strict.

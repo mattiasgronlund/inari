@@ -5,13 +5,13 @@
 // three roundings at each argument as `compare` does, and prints, with `--nocapture`, the
 // levels of Ziv's strategy that the kernel used for each function and rounding, and how many
 // rounding tests of the fast paths (those of exp, exp2, exp10, sinh, cosh, tanh, ln, log2,
-// log10, asinh, acosh, atanh, sin, cos, tan and pow) passed and failed. Level 0 means that the
-// kernel returned without Ziv's strategy: a rule gave the result, a fast path passed its
-// rounding test, or the function is cbrt or hypot, which the kernel computes from exact integer
-// roots. The ignored `full_hard_cases` does the same at every argument of the files of a clone
-// of CORE-MATH, `random_levels` at random arguments, and `sample_hard_cases` writes the sample
-// again from a clone of CORE-MATH. Where a fast path passed, `hard_cases` (alone) checks the
-// argument again with the fast paths disabled, so that Ziv's strategy is checked there too.
+// log10, asinh, acosh, atanh, sin, cos, tan, pow, atan, asin, acos and atan2) passed and failed.
+// Level 0 means that the kernel returned without Ziv's strategy: a rule gave the result, a fast
+// path passed its rounding test, or the function is cbrt or hypot, which the kernel computes from
+// exact integer roots. The ignored `full_hard_cases` does the same at every argument of the files
+// of a clone of CORE-MATH, `random_levels` at random arguments, and `sample_hard_cases` writes the
+// sample again from a clone of CORE-MATH. Where a fast path passed, `hard_cases` (alone) checks
+// the argument again with the fast paths disabled, so that Ziv's strategy is checked there too.
 
 use super::*;
 use crate::dyadic::{fast_counts, reset_fast_counts, reset_ziv_level, set_fast_path, ziv_level};

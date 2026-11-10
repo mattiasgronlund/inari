@@ -418,7 +418,7 @@ const LN2: [u64; 2] = [0x3fe62e42fefa39ef, 0x3c7abc9e3b39803f];
 const LN10: [u64; 2] = [0x40026bb1bbb55516, 0xbcaf48ad494ea3e9];
 
 // 1.5 * 2^52: for |t| < 2^51, (t + SHIFTER) - SHIFTER is t rounded to an integer.
-const SHIFTER: f64 = 6_755_399_441_055_744.0;
+pub(super) const SHIFTER: f64 = 6_755_399_441_055_744.0;
 
 // The coefficients of the Taylor polynomials of the fast paths of sinh, cosh and tanh, as the
 // bits of `f64`s: `SH<n>` = RN(1/n!) for the odd n from 5 to 15 and `CH<n>` = RN(1/n!) for the
@@ -535,7 +535,7 @@ fn fast_exp10_near(x: f64) -> Option<f64> {
 }
 
 // 2^e, for e in [-1022, 1023], from its bits.
-fn two_pow(e: i64) -> f64 {
+pub(super) fn two_pow(e: i64) -> f64 {
     f64::from_bits(((e + 1023) as u64) << 52)
 }
 

@@ -28,7 +28,7 @@ From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary LogReal AtanReal DyRound DyConv DyOps
   DyDriver DyGrow DyConst DyExpCore DyExpRules DyExp ExpReal DyHypRules DyLogRules DyLogCore
-  DyLog DyLogHyp AtanSeries AtanIdent DyConstPi DyAtanTiny DyAtanCore MpfrRound.
+  DyLog DyLogHyp AtanSeries AtanIdent DyConstPi DyAtanTiny DyAtanCore MpfrRound FastAtan.
 From Inari Require PiBounds PiTight.
 
 Open Scope Z_scope.
@@ -387,6 +387,9 @@ destruct (ge (fabs x) DyadicAtan.huge_atan) eqn:G0; cbv iota in H.
 { exact (atan_huge_post z post Hg Hz x up v Fx G0 H). }
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
 { injection H as <-. apply Hp. exact (atan_tiny_rule x up Fx G). }
+destruct (DyadicAtan.fast_atan_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp.
+  exact (fast_atan_dir_correct false x up _ Fx (fast_atan_dir_range x Fx G0 G) F). }
 apply (Hz (DyadicAtan.ev_atan x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_atan_correct x n a Hn Fx Ha).
 Qed.
@@ -411,7 +414,7 @@ intros x up v. unfold DyadicAtan.atan_dir, DyadicAtan.atan_dir_with.
 destruct (is_nan x); [exact (fun h => h)|].
 destruct (ge (fabs x) DyadicAtan.huge_atan); [apply pi_times_strict|].
 destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|].
-apply ziv_strict_ziv.
+destruct (DyadicAtan.fast_atan_dir false x up); [exact (fun h => h) | apply ziv_strict_ziv].
 Qed.
 
 (** [pi_times_with ziv_strict (copysign 0.5 (±∞)) up] returns, and
@@ -547,9 +550,13 @@ destruct (gt x zero) eqn:Gx; cbv beta iota in H.
     destruct (tiny_quotient_correct y x q Fy Fx G1 Eq) as (Fq & Vq & Tq).
     rewrite (Ratan2_pos_x _ _ G1), <- Vq.
     apply Hp. exact (atan_tiny_rule q up Fq Tq).
-  + apply (Hz (DyadicAtan.ev_atan2 y x) up 1%nat); [|exact H].
+  + destruct (DyadicAtan.fast_atan2_dir false y x up) eqn:F; cbv iota in H.
+    { injection H as <-. apply Hp. exact (fast_atan2_dir_correct false y x up _ Fy Fx Z2 X2 F). }
+    apply (Hz (DyadicAtan.ev_atan2 y x) up 1%nat); [|exact H].
     intros n a Hn Ha. exact (ev_atan2_correct y x n a Hn Fy Fx Z2 X2 Ha).
-- apply (Hz (DyadicAtan.ev_atan2 y x) up 1%nat); [|exact H].
+- destruct (DyadicAtan.fast_atan2_dir false y x up) eqn:F; cbv iota in H.
+  { injection H as <-. apply Hp. exact (fast_atan2_dir_correct false y x up _ Fy Fx Z2 X2 F). }
+  apply (Hz (DyadicAtan.ev_atan2 y x) up 1%nat); [|exact H].
   intros n a Hn Ha. exact (ev_atan2_correct y x n a Hn Fy Fx Z2 X2 Ha).
 Qed.
 
@@ -579,9 +586,10 @@ destruct (eq y infinity || eq y DyadicExp.neg_infinity); [apply pi_times_strict|
 destruct (eq x infinity); [exact (fun h => h)|].
 destruct (eq x DyadicExp.neg_infinity); [apply pi_times_strict|].
 destruct (eq x zero); [apply pi_times_strict|].
-destruct (gt x zero); [|apply ziv_strict_ziv].
-destruct (DyadicAtan.tiny_quotient y x) as [[q|]|];
-  [exact (fun h => h) | apply ziv_strict_ziv | exact (fun h => h)].
+destruct (gt x zero).
+- destruct (DyadicAtan.tiny_quotient y x) as [[q|]|]; [exact (fun h => h) | | exact (fun h => h)].
+  destruct (DyadicAtan.fast_atan2_dir false y x up); [exact (fun h => h) | apply ziv_strict_ziv].
+- destruct (DyadicAtan.fast_atan2_dir false y x up); [exact (fun h => h) | apply ziv_strict_ziv].
 Qed.
 
 Lemma atan2_dir_inf_pos :

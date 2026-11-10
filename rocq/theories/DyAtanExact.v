@@ -137,6 +137,9 @@ unfold DyadicAtan.acos_dir_with.
 replace (is_nan DyadicExp.one) with false by (vm_compute; reflexivity).
 replace (gt (fabs DyadicExp.one) DyadicExp.one) with false by (vm_compute; reflexivity).
 cbv iota.
+replace (DyadicAtan.fast_acos_dir false DyadicExp.one up) with (@None f64)
+  by (destruct up; vm_compute; reflexivity).
+cbv iota.
 apply Hz0; [lia | exact ev_acos_one].
 Qed.
 

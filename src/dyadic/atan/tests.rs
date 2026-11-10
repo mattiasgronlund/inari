@@ -7,8 +7,11 @@
 // with bit for bit.
 
 use super::*;
-use crate::dyadic::tests::Rng;
-use std::f64::consts::{FRAC_PI_2, PI, SQRT_2};
+use crate::dyadic::{
+    fast::{fast_counts, reset_fast_counts, set_fast_path},
+    tests::Rng,
+};
+use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI, SQRT_2};
 
 type Directed = fn(f64, bool) -> f64;
 
@@ -789,6 +792,483 @@ fn random_arguments() {
     }
 }
 
+// The three roundings of the function `i` at x, as the bits of the `f64`s: toward -∞, toward +∞
+// and to nearest.
+fn roundings(i: usize, x: f64) -> [u64; 3] {
+    let f = FUNCTIONS[i].1;
+    [
+        f(x, false).to_bits(),
+        f(x, true).to_bits(),
+        NEAR[i](x).to_bits(),
+    ]
+}
+
+// The same for atan2 at (y, x).
+fn roundings2(y: f64, x: f64) -> [u64; 3] {
+    [
+        atan2(y, x, false).to_bits(),
+        atan2(y, x, true).to_bits(),
+        atan2_near(y, x).to_bits(),
+    ]
+}
+
+// The function `i` gives the same `f64`s at x, in both directions and to nearest, with the fast
+// path as with it disabled (`set_fast_path`), where the kernel computes every result that the
+// rules leave, and `check` holds.
+fn check_fast(i: usize, x: f64) {
+    let fast = roundings(i, x);
+    set_fast_path(false);
+    let kernel = roundings(i, x);
+    set_fast_path(true);
+    assert!(
+        fast == kernel,
+        "{}({:e}): {:?} with the fast path != {:?} without it",
+        FUNCTIONS[i].0,
+        x,
+        fast.map(f64::from_bits),
+        kernel.map(f64::from_bits)
+    );
+    check(i, x);
+}
+
+// The same for atan2 at (y, x), with `check2`.
+fn check2_fast(y: f64, x: f64) {
+    let fast = roundings2(y, x);
+    set_fast_path(false);
+    let kernel = roundings2(y, x);
+    set_fast_path(true);
+    assert!(
+        fast == kernel,
+        "atan2({:e}, {:e}): {:?} with the fast path != {:?} without it",
+        y,
+        x,
+        fast.map(f64::from_bits),
+        kernel.map(f64::from_bits)
+    );
+    check2(y, x);
+}
+
+// atan, asin, acos and atan2 give the same `f64`s, in both directions and to nearest, with the
+// fast path as with it disabled, and agree with MPFR, on random arguments of any exponent and of
+// a moderate magnitude, and most of their rounding tests pass.
+#[test]
+fn fast_path_agrees_with_kernel() {
+    let mut rng = Rng(91);
+    for (i, (name, _)) in FUNCTIONS.iter().enumerate() {
+        reset_fast_counts();
+        for n in 0..3000 {
+            let x = if n % 2 == 0 {
+                // Of any exponent, from the bits of a positive finite `f64`, in [0, 1) for asin
+                // and acos, with a random sign.
+                let bits = match i {
+                    ATAN => rng.below(0x7ff0_0000_0000_0000),
+                    _ => rng.below(0x3ff0_0000_0000_0000),
+                };
+                random_sign(&mut rng) * f64::from_bits(bits)
+            } else {
+                // Uniform in [-10, 10) for atan and in [-1, 1) for asin and acos.
+                let u = rng.below(1 << 53) as f64 / (1u64 << 52) as f64 - 1.0;
+                if i == ATAN {
+                    10.0 * u
+                } else {
+                    u
+                }
+            };
+            check_fast(i, x);
+        }
+        let (passed, failed) = fast_counts();
+        assert!(
+            passed > 100 * failed,
+            "{name}: {passed} passed, {failed} failed"
+        );
+    }
+    // atan2 with both arguments of any exponent and random signs, and at y = q x, rounded, for a
+    // q of magnitude in [2^-60, 2^61), in a random quadrant.
+    reset_fast_counts();
+    for n in 0..3000 {
+        let (y, x) = if n % 2 == 0 {
+            (
+                random_sign(&mut rng) * f64::from_bits(rng.below(0x7ff0_0000_0000_0000)),
+                random_sign(&mut rng) * f64::from_bits(rng.below(0x7ff0_0000_0000_0000)),
+            )
+        } else {
+            let x = 1.0 + rng.below(1 << 52) as f64 / (1u64 << 52) as f64;
+            let q = (1.0 + rng.below(1 << 52) as f64 / (1u64 << 52) as f64)
+                * pow2(rng.below(121) as i32 - 60);
+            (random_sign(&mut rng) * q * x, random_sign(&mut rng) * x)
+        };
+        check2_fast(y, x);
+    }
+    let (passed, failed) = fast_counts();
+    assert!(
+        passed > 100 * failed,
+        "atan2: {passed} passed, {failed} failed"
+    );
+}
+
+// The branches of the fast paths of atan, asin and acos, as (function, a, b) for the arguments x
+// with |x| in [a, b) of each, which both signs of x take. atan takes the polynomial at |x|
+// itself below about 1/128, where 64 |x| rounds to 0, from `TINY_NEAR` on (the directed rule
+// settles |x| below `TINY_HYP`), the table up to 1, and π/2 - atan(1 / |x|) up to `HUGE_ATAN`.
+// asin and acos take atan(t / √(1 - t^2)) up to `ASIN_S` and atan(√(1 - t^2) / t) above it, for
+// t = |x|, and acos takes π/2 - x below `TINY_ASIN`, down to 2^-1074, and π - acos t for x < 0.
+const BRANCHES: [(usize, f64, f64); 8] = [
+    (ATAN, TINY_NEAR, 1.0 / 128.0),
+    (ATAN, 1.0 / 128.0, 1.0),
+    (ATAN, 1.0, HUGE_ATAN),
+    (ASIN, TINY_ASIN, ASIN_S),
+    (ASIN, ASIN_S, 1.0),
+    (ACOS, 5e-324, TINY_ASIN),
+    (ACOS, TINY_ASIN, ASIN_S),
+    (ACOS, ASIN_S, 1.0),
+];
+
+// The branches of the fast path of atan2, as (swap, neg, lo, hi) for the arguments (y, x) with
+// |y| > |x| if `swap`, x < 0 if `neg`, and q = min(|y|, |x|) / max(|y|, |x|) in [2^lo, 2^hi),
+// in each of the four octants that `octant` takes. The core takes q where the exponents of the
+// two arguments differ by at most 60, which q >= 2^-59 ensures, and q < 2^-62 ensures that they
+// differ by more: there the fast path takes q itself for x > 0 and |y| < |x|, and π/2 ± q or
+// π - q otherwise.
+const BRANCHES2: [(bool, bool, i32, i32); 8] = [
+    (false, false, -59, 0),
+    (false, true, -59, 0),
+    (true, false, -59, 0),
+    (true, true, -59, 0),
+    (false, false, -1000, -62),
+    (false, true, -1000, -62),
+    (true, false, -1000, -62),
+    (true, true, -1000, -62),
+];
+
+// A random `f64` in [a, b), for 0 < a < b: uniform if `log` is false, and otherwise with an
+// exponent uniform over those of [a, b] and a random significand.
+fn in_range(rng: &mut Rng, a: f64, b: f64, log: bool) -> f64 {
+    let exponent = |x: f64| (x.to_bits() >> 52) as i32 - 1023;
+    loop {
+        let t = if log {
+            log_uniform(rng, exponent(a), exponent(b))
+        } else {
+            a + (b - a) * (rng.below(1 << 53) as f64 / (1u64 << 53) as f64)
+        };
+        if a <= t && t < b {
+            return t;
+        }
+    }
+}
+
+// A random (y, x) in the branch (swap, neg, lo, hi) of `BRANCHES2`, with a random sign of y: q
+// in [2^lo, 2^hi) from `in_range`, d = m 2^e for a random m in [1, 2) and an e uniform in
+// [-20, 1000], and q d rounded, which is normal, as the other argument.
+fn in_branch2(rng: &mut Rng, (swap, neg, lo, hi): (bool, bool, i32, i32), log: bool) -> (f64, f64) {
+    let q = in_range(rng, pow2(lo), pow2(hi), log);
+    let d = log_uniform(rng, -20, 1000);
+    let (a, b) = if swap { (d, q * d) } else { (q * d, d) };
+    (random_sign(rng) * a, if neg { -b } else { b })
+}
+
+// atan, asin, acos and atan2 on random arguments of each branch of their fast paths (`BRANCHES`
+// and `BRANCHES2`), half uniform over the branch and half of any exponent in it, with either
+// sign, against MPFR. Most of the rounding tests pass in each branch.
+#[test]
+fn fast_range_random() {
+    let mut rng = Rng(911);
+    for (i, a, b) in BRANCHES {
+        reset_fast_counts();
+        for n in 0..2000 {
+            let t = in_range(&mut rng, a, b, n % 2 == 1);
+            check(i, random_sign(&mut rng) * t);
+        }
+        let (passed, failed) = fast_counts();
+        assert!(
+            passed > 100 * failed,
+            "{} on [{a:e}, {b:e}): {passed} passed, {failed} failed",
+            FUNCTIONS[i].0
+        );
+    }
+    for branch in BRANCHES2 {
+        reset_fast_counts();
+        for n in 0..2000 {
+            let (y, x) = in_branch2(&mut rng, branch, n % 2 == 1);
+            check2(y, x);
+        }
+        let (passed, failed) = fast_counts();
+        assert!(
+            passed > 100 * failed,
+            "atan2 on {branch:?}: {passed} passed, {failed} failed"
+        );
+    }
+}
+
+// (h, l, e, err) of the fast path of the function `i` at x, as the function computes them before
+// its rounding tests, or `None` where the fast path leaves x to the kernel, for an x that the
+// rules leave: atan and asin take |x|, and give the sign of x to the rounding.
+fn fast_parts(i: usize, x: f64) -> Option<(f64, f64, i64, f64)> {
+    match i {
+        ATAN => fast_atan_pos(x.abs()),
+        ASIN => fast_asin_pos(x.abs()),
+        ACOS => fast_acos_val(x),
+        _ => unreachable!(),
+    }
+}
+
+// The same for atan2 at (y, x), which takes |y| and |x| and gives the sign of y to the rounding.
+fn fast_parts2(y: f64, x: f64) -> Option<(f64, f64, i64, f64)> {
+    fast_atan2_pos(y.abs(), x.abs(), x < 0.0)
+}
+
+// atan, asin, acos and atan2 next to the edges of the table, of its index, of the reductions and
+// of the ranges of their fast paths, both signs of each, where they give the same `f64`s with the
+// fast path as with it disabled, and as MPFR (`check_fast`, `check2_fast`):
+// - atan at the points j/64 of the table, at the ties (2j + 1)/128 of its index, and at their
+//   inverses, which π/2 - atan(1 / t) takes, and the 2 `f64`s on each side of them;
+// - asin and acos at the t at which t / √(1 - t^2) or √(1 - t^2) / t is one of those points, as
+//   the `f64` arithmetic gives them, and the `f64` on each side;
+// - atan at `TINY_NEAR`, `TINY_HYP`, 1 and `HUGE_ATAN`, asin and acos at `TINY_ASIN`, `ASIN_S`,
+//   1/√2, where both quotients are 1, and 1, and the 3 `f64`s on each side of them, and acos at
+//   0 and at 2^k for k in [-1074, -28], which π/2 - x takes;
+// - atan2, in each quadrant and with y and x swapped, at |y| / |x| at the points and ties of the
+//   table, at |y| = |x|, next to the axes, at exponents of |y| and |x| that differ by 59 to 62,
+//   where the core stops, for x > 0 at quotients around 2^-1021, below which the results are left
+//   to the kernel, and at the arguments of its rules: the zeros, infinities and NaN, the tiny
+//   quotients of `rules_at_their_thresholds`, and odd multiples of 2^-1075, the midway quotients
+//   of `midpoint_quotient`, and next to them.
+// The fast path computes its parts at every argument of atan in [2^-27, 1], whose core has no
+// quotient, of acos below 2^-27 and at -1, and of asin at ±1, and not of acos at 1; and for x > 0
+// and exponents that differ by more than 60, exactly at the results of at least 2^-1021.
+#[test]
+fn fast_edges() {
+    let mut args = vec![];
+    for j in 0..=64 {
+        let c = f64::from(j) / 64.0;
+        let tie = f64::from(2 * j + 1) / 128.0;
+        for t in [c, tie, 1.0 / c, 1.0 / tie] {
+            if t.is_finite() && t > 0.0 {
+                args.extend(around(t, 2).into_iter().map(|x| (ATAN, x)));
+            }
+        }
+        // t / √(1 - t^2) = s for t = s / √(1 + s^2), and √(1 - t^2) / t = s for
+        // t = 1 / √(1 + s^2).
+        for s in [c, tie] {
+            let r = (1.0 + s * s).sqrt();
+            for t in [s / r, 1.0 / r] {
+                if t > 0.0 && t < 1.0 {
+                    for x in around(t, 1) {
+                        args.push((ASIN, x));
+                        args.push((ACOS, x));
+                    }
+                }
+            }
+        }
+    }
+    for t in [TINY_NEAR, TINY_HYP, 1.0, HUGE_ATAN] {
+        args.extend(around(t, 3).into_iter().map(|x| (ATAN, x)));
+    }
+    for t in [TINY_ASIN, ASIN_S, FRAC_1_SQRT_2, 1.0] {
+        for x in around(t, 3) {
+            args.push((ASIN, x));
+            args.push((ACOS, x));
+        }
+    }
+    args.push((ACOS, 0.0));
+    args.extend((-1074..=-28).map(|k| (ACOS, pow2(k))));
+    for (i, x) in args {
+        for x in [x, -x] {
+            check_fast(i, x);
+            let always = match i {
+                ATAN => (TINY_NEAR..=1.0).contains(&x.abs()),
+                ASIN => x.abs() == 1.0,
+                _ => x.abs() < TINY_ASIN || x == -1.0,
+            };
+            assert!(
+                !always || fast_parts(i, x).is_some(),
+                "{}({:e}): no parts",
+                FUNCTIONS[i].0,
+                x
+            );
+        }
+    }
+    assert!(fast_parts(ACOS, 1.0).is_none());
+
+    let mut args2 = vec![];
+    // The points and ties of the table, as y / x.
+    for j in 1..=64 {
+        for (y, x) in [(f64::from(j), 64.0), (f64::from(2 * j - 1), 128.0)] {
+            args2.extend(around(y, 1).into_iter().map(|y| (y, x)));
+        }
+    }
+    // |y| = |x|, and next to it.
+    for d in [
+        1.0,
+        3.0,
+        0.75,
+        pow2(-1000),
+        pow2(1000),
+        5e-324,
+        f64::MIN_POSITIVE,
+    ] {
+        args2.extend(around(d, 2).into_iter().map(|y| (y, d)));
+    }
+    args2.push((f64::MAX, f64::MAX));
+    args2.push((next_down(f64::MAX), f64::MAX));
+    // Next to the axes.
+    for t in [5e-324, 1.5e-323, f64::MIN_POSITIVE, pow2(-1000)] {
+        for d in [1.0, 3.0, f64::MAX] {
+            args2.push((t, d));
+        }
+    }
+    // Exponents that differ by 59 to 62, scaled by powers of 2, which keeps the quotients.
+    for n in [
+        pow2(-62),
+        pow2(-61),
+        next_down(pow2(-60)),
+        pow2(-60),
+        1.5 * pow2(-60),
+        next_down(pow2(-59)),
+        pow2(-59),
+        next_down(pow2(-58)),
+    ] {
+        for d in [1.0, next_up(1.0), 1.5, next_down(2.0)] {
+            for s in [1.0, pow2(-500), pow2(500)] {
+                args2.push((n * s, d * s));
+            }
+        }
+    }
+    // For x > 0, the quotients y / x = (my / mx) 2^e at the results around 2^-1021, at which the
+    // fast path takes y / x itself, `normalize` scales my / mx into [1, 2), by 2 if my < mx,
+    // which takes 1 from e, and the rounding tests scale the result back only if it is at least
+    // 2^-1021.
+    let ms = [1.0, next_up(1.0), 1.25, 1.5, next_down(2.0)];
+    for e in -1024..=-1019 {
+        for my in ms {
+            for mx in ms {
+                for k in [2, 30, 500, 1000] {
+                    let (y, x) = (my * pow2(e + k), mx * pow2(k));
+                    args2.push((y, x));
+                    let scaled = e + if my < mx { -1 } else { 0 };
+                    assert_eq!(
+                        fast_parts2(y, x).is_some(),
+                        scaled >= -1021,
+                        "atan2({y:e}, {x:e})"
+                    );
+                }
+            }
+        }
+    }
+    // The rules: the zeros, infinities and NaN with each other and with finite values, the tiny
+    // quotients, and the midway quotients (2m + 1) 2^-1075, here (2m + 1) 2^(j - 1074) / 2^(j + 1),
+    // and next to them.
+    for y in SPECIAL {
+        for x in SPECIAL {
+            args2.push((y, x));
+        }
+    }
+    for q in [around(TINY_NEAR, 3), around(TINY_HYP, 3)].concat() {
+        for d in [1.0, pow2(-1000), pow2(1000), 3.0, 0.75, f64::MAX / 3.0] {
+            args2.push((q * d, d));
+        }
+    }
+    for m in [0.0, 1.0, 2.0, 1e6] {
+        for j in [0, 1, 30, 52] {
+            let y = (2.0 * m + 1.0) * pow2(j - 1074);
+            args2.extend(around(pow2(j + 1), 1).into_iter().map(|x| (y, x)));
+        }
+    }
+    for (y, x) in args2 {
+        for (sy, sx) in QUADRANTS {
+            check2_fast(sy * y, sx * x);
+            check2_fast(sx * x, sy * y);
+        }
+    }
+}
+
+// The rounding tests of the fast paths at (h, l, err), as `round_dir_err` and `round_near_err`
+// take them: whether the directed tests pass but would fail with 2^6 err in place of err, and
+// the same for the test to nearest.
+fn narrow((h, l, _, err): (f64, f64, i64, f64)) -> (bool, bool) {
+    let wide = 64.0 * err;
+    // Half the gap between h and the next `f64` above it, and below it.
+    let above = if h >= 1.0 {
+        f64::EPSILON / 2.0
+    } else {
+        f64::EPSILON / 4.0
+    };
+    let below = if h > 1.0 {
+        f64::EPSILON / 2.0
+    } else {
+        f64::EPSILON / 4.0
+    };
+    let h_ok = 0.5 < h && h < 2.0;
+    (
+        h_ok && err < l.abs() && l.abs() <= wide,
+        h_ok && l < above - err
+            && l > -(below - err)
+            && (l >= above - wide || l <= -(below - wide)),
+    )
+}
+
+// atan, asin, acos and atan2 where a rounding test of their fast paths passes, but would fail
+// with 2^6 err in place of the bound err that the fast path returns, as in `hyp_widened` of
+// `src/dyadic/exp/tests.rs`: there an error in the bound would show first, so the fast paths
+// have to give the same `f64`s as the kernel, and as MPFR. Each branch of `BRANCHES` and
+// `BRANCHES2` is sampled until it has 40 narrow passes of the directed tests and 40 of the test
+// to nearest, but for the branches of atan2 at which the fast path adds a q below 2^-62 to π/2
+// or π, or subtracts it, where the low part stays within 2^-62 of that of π/2 and the tests
+// pass by far. A directed test is taken from `TINY_HYP` on for atan.
+#[test]
+fn widened() {
+    let mut rng = Rng(912);
+    for (i, a, b) in BRANCHES {
+        let (mut dir, mut near, mut n) = (0, 0, 0);
+        while dir < 40 || near < 40 {
+            n += 1;
+            assert!(
+                n <= 1_000_000,
+                "{} on [{a:e}, {b:e}): {dir} narrow passes of the directed tests and {near} of \
+                 the test to nearest in 1000000 arguments",
+                FUNCTIONS[i].0
+            );
+            let x = random_sign(&mut rng) * in_range(&mut rng, a, b, n % 2 == 1);
+            let Some(parts) = fast_parts(i, x) else {
+                continue;
+            };
+            let (narrow_dir, narrow_near) = narrow(parts);
+            let narrow_dir = narrow_dir && (i != ATAN || x.abs() >= TINY_HYP);
+            if !narrow_dir && !narrow_near {
+                continue;
+            }
+            dir += usize::from(narrow_dir);
+            near += usize::from(narrow_near);
+            check_fast(i, x);
+        }
+    }
+    for branch in BRANCHES2 {
+        let (swap, neg, lo, _) = branch;
+        if lo < -60 && (swap || neg) {
+            continue;
+        }
+        let (mut dir, mut near, mut n) = (0, 0, 0);
+        while dir < 40 || near < 40 {
+            n += 1;
+            assert!(
+                n <= 1_000_000,
+                "atan2 on {branch:?}: {dir} narrow passes of the directed tests and {near} of \
+                 the test to nearest in 1000000 arguments"
+            );
+            let (y, x) = in_branch2(&mut rng, branch, n % 2 == 1);
+            let Some(parts) = fast_parts2(y, x) else {
+                continue;
+            };
+            let (narrow_dir, narrow_near) = narrow(parts);
+            if !narrow_dir && !narrow_near {
+                continue;
+            }
+            dir += usize::from(narrow_dir);
+            near += usize::from(narrow_near);
+            check2_fast(y, x);
+        }
+    }
+}
+
 #[cfg(all(
     target_pointer_width = "64",
     any(target_os = "linux", target_os = "macos")
@@ -798,6 +1278,10 @@ mod mpfr {
     use crate::{
         dyadic::{consts::PI, reset_ziv_level, ziv_level},
         mpfr_calls::mpfr::*,
+    };
+    use rug::{
+        float::{Constant, Round},
+        Float,
     };
 
     type Mpfr = fn(f64) -> f64;
@@ -882,11 +1366,7 @@ mod mpfr {
     // equal, so they are that of π 2^4222.
     #[test]
     fn pi_table() {
-        use rug::{
-            float::{Constant, Round},
-            integer::Order,
-            Float,
-        };
+        use rug::integer::Order;
         let floor = |r| {
             let (f, _) = Float::with_val_round(4300, Constant::Pi, r);
             (f << 4222u32).to_integer_round(Round::Down).unwrap().0
@@ -910,6 +1390,67 @@ mod mpfr {
             })
             .collect();
         assert!(limbs == PI, "PI should be\n{}", rows);
+    }
+
+    // The precision of the values that the table and the constants of the fast path are checked
+    // against, far above that of the bounds checked.
+    const PREC: u32 = 300;
+
+    // `pair` is the bits of [h, l] with h = RN(v), l = RN(v - h) and |h + l - v| <= 2^n.
+    fn check_pair(name: &str, pair: [u64; 2], v: &Float, n: i32) {
+        let (h, l) = (f64::from_bits(pair[0]), f64::from_bits(pair[1]));
+        assert_eq!(h.to_bits(), v.to_f64().to_bits(), "{name}: {h:e} != RN(v)");
+        let rest = Float::with_val(PREC, v - h);
+        let mut err = Float::with_val(PREC, &rest - l);
+        err.abs_mut();
+        assert!(
+            l.to_bits() == rest.to_f64().to_bits() && err <= pow2(n),
+            "{name}: {l:e} != RN(v - h) = {:e}, or |h + l - v| = {:e} is above 2^{n}",
+            rest.to_f64(),
+            err.to_f64()
+        );
+    }
+
+    // The table and the constants of the fast path of `atan.rs` are what the comments on them
+    // say, with the bounds that `fast_atan_table_correct`, `fast_pio2_correct` and
+    // `fast_atan_consts` in `rocq/theories/FastAtanTables.v` prove (the last with 2^-109 for
+    // `A3`, below the 2^-108 of its comment).
+    #[test]
+    fn fast_atan_table_and_constants() {
+        // Entry 0 is never read.
+        assert_eq!(ATAN_TABLE[0], [0, 0], "ATAN_TABLE[0]");
+        for (i, &pair) in ATAN_TABLE.iter().enumerate().skip(1) {
+            let name = format!("ATAN_TABLE[{i}]");
+            // atan(i / 64), with i / 64 exact.
+            let mut v = Float::with_val(PREC, u32::try_from(i).unwrap());
+            v /= 64;
+            v.atan_mut();
+            check_pair(&name, pair, &v, -104);
+            // 2^-7 <= h <= 4/5 and |l| <= 2^-53 h, as `fast_atan_table_correct` states. h is at
+            // most RN(π/4), and so below 4/5.
+            let (h, l) = (f64::from_bits(pair[0]), f64::from_bits(pair[1]));
+            assert!(
+                pow2(-7) <= h && h <= std::f64::consts::FRAC_PI_4 && l.abs() <= pow2(-53) * h,
+                "{name}: [{h:e}, {l:e}]"
+            );
+        }
+        let pio2 = Float::with_val(PREC, Constant::Pi) / 2;
+        check_pair("PIO2", PIO2, &pio2, -107);
+        check_pair("A3", A3, &Float::with_val(PREC, 3).recip(), -108);
+        for (name, a, n) in [
+            ("A5", A5, 5),
+            ("A7", A7, 7),
+            ("A9", A9, 9),
+            ("A11", A11, 11),
+        ] {
+            let want = Float::with_val(PREC, n).recip().to_f64();
+            assert_eq!(
+                a,
+                want.to_bits(),
+                "{name}: {:e} != RN(1/{n}) = {want:e}",
+                f64::from_bits(a)
+            );
+        }
     }
 }
 

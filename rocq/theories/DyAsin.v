@@ -23,7 +23,7 @@ From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 (* [DyHyp] for [hyp_fabs] and [hyp_half]. *)
 From Inari Require Import Model Mpfr Limbs Elementary LogReal AtanReal DyRound DyConv DyOps
   DyDriver DyGrow DyConst DyExpCore DyExpRules DyExp ExpReal DyHyp DyHypRules DyLogRules
-  DyLogCore DyLog DyLogHyp AtanSeries AtanIdent DyConstPi DyAtanTiny DyAtanCore DyAtan.
+  DyLogCore DyLog DyLogHyp AtanSeries AtanIdent DyConstPi DyAtanTiny DyAtanCore DyAtan FastAsin.
 
 Open Scope Z_scope.
 
@@ -166,6 +166,9 @@ destruct (gt (fabs x) DyadicExp.one) eqn:G1; cbv iota in H.
   rewrite dexp_one_R in G1'. lra. }
 destruct (lt (fabs x) DyadicAtan.tiny_asin) eqn:G2; cbv iota in H.
 { injection H as <-. apply Hp. exact (asin_tiny_rule x up Fx G2). }
+destruct (DyadicAtan.fast_asin_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp.
+  exact (fast_asin_dir_correct false x up _ Fx (fast_asin_range x Fx G1 G2) F). }
 apply (Hz (DyadicAtan.ev_asin x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_asin_correct x n a Hn Fx Dx Ha).
 Qed.
@@ -190,7 +193,7 @@ intros x up v. unfold DyadicAtan.asin_dir, DyadicAtan.asin_dir_with.
 destruct (is_nan x); [exact (fun h => h)|].
 destruct (gt (fabs x) DyadicExp.one); [exact (fun h => h)|].
 destruct (lt (fabs x) DyadicAtan.tiny_asin); [exact (fun h => h)|].
-apply ziv_strict_ziv.
+destruct (DyadicAtan.fast_asin_dir false x up); [exact (fun h => h) | apply ziv_strict_ziv].
 Qed.
 
 (** [|x| > 1.0] is false on [acos_dom]. *)
@@ -208,6 +211,9 @@ destruct (gt (fabs x) DyadicExp.one) eqn:G1; cbv iota in H.
 { exfalso. assert (G1' : lt DyadicExp.one (fabs x) = true) by exact G1.
   apply lt_R in G1'; [|reflexivity|exact Ft].
   rewrite dexp_one_R in G1'. lra. }
+destruct (DyadicAtan.fast_acos_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp.
+  exact (fast_acos_dir_correct false x up _ Fx (fast_acos_range x Fx G1) F). }
 apply (Hz (DyadicAtan.ev_acos x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_acos_correct x n a Hn Fx Dx Ha).
 Qed.
@@ -231,5 +237,5 @@ Proof.
 intros x up v. unfold DyadicAtan.acos_dir, DyadicAtan.acos_dir_with.
 destruct (is_nan x); [exact (fun h => h)|].
 destruct (gt (fabs x) DyadicExp.one); [exact (fun h => h)|].
-apply ziv_strict_ziv.
+destruct (DyadicAtan.fast_acos_dir false x up); [exact (fun h => h) | apply ziv_strict_ziv].
 Qed.

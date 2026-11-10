@@ -16,7 +16,7 @@ From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary LogReal AtanReal DyRound DyConv DyOps
   DyDriver DyGrow DyConst DyExpCore DyExpRules DyExp ExpReal DyHyp DyHypRules DyLogRules
   DyLogCore DyLog DyLogHyp AtanSeries AtanIdent DyConstPi DyAtanTiny DyAtanCore DyAtan DyAsin
-  MpfrRound NearF64 NearCells DyDriverNear DyAtanMidQ.
+  MpfrRound NearF64 NearCells DyDriverNear DyAtanMidQ FastAtan FastAsin.
 From Inari Require PiBounds PiTight.
 
 Open Scope Z_scope.
@@ -219,6 +219,8 @@ Local Ltac near_strict :=
   repeat match goal with
   | |- (if ?c then _ else _) = Some _ -> _ =>
       destruct c; [first [exact (fun h => h) | apply pi_times_near_strict]|]
+  | |- (match ?c with Some _ => _ | None => _ end) = Some _ -> _ =>
+      destruct c; [exact (fun h => h)|]
   end;
   apply ziv_near_strict_ziv.
 
@@ -237,6 +239,9 @@ destruct (ge (fabs x) DyadicAtan.huge_atan) eqn:G0; cbv iota in H.
 { exact (tn_huge x v Fx G0 H). }
 destruct (lt (fabs x) DyadicExp.tiny_near) eqn:G; cbv iota in H.
 { injection H as <-. exact (tn_odd atan x atan_opp tn_atan Fx (tn_tiny x Fx G)). }
+destruct (DyadicAtan.fast_atan_near false x) eqn:F; cbv iota in H.
+{ injection H as <-.
+  exact (fast_atan_near_correct false x _ Fx (fast_atan_near_range x Fx G0 G) F). }
 apply (ziv_near_strict_correct (DyadicAtan.ev_atan x) 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_atan_correct x n a Hn Fx Ha).
 Qed.
@@ -258,6 +263,9 @@ destruct (gt (fabs x) DyadicExp.one) eqn:G1; cbv iota in H.
   rewrite dexp_one_R in G1'. lra. }
 destruct (lt (fabs x) DyadicAtan.tiny_asin) eqn:G2; cbv iota in H.
 { injection H as <-. exact (tn_odd asin x asin_opp tn_asin Fx (tn_tiny_asin x Fx G2)). }
+destruct (DyadicAtan.fast_asin_near false x) eqn:F; cbv iota in H.
+{ injection H as <-.
+  exact (fast_asin_near_correct false x _ Fx (fast_asin_range x Fx G1 G2) F). }
 apply (ziv_near_strict_correct (DyadicAtan.ev_asin x) 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_asin_correct x n a Hn Fx Dx Ha).
 Qed.
@@ -276,8 +284,37 @@ destruct (gt (fabs x) DyadicExp.one) eqn:G1; cbv iota in H.
 { exfalso. assert (G1' : lt DyadicExp.one (fabs x) = true) by exact G1.
   apply lt_R in G1'; [|reflexivity|exact Ft].
   rewrite dexp_one_R in G1'. lra. }
+destruct (DyadicAtan.fast_acos_near false x) eqn:F; cbv iota in H.
+{ injection H as <-. exact (fast_acos_near_correct false x _ Fx (fast_acos_range x Fx G1) F). }
 apply (ziv_near_strict_correct (DyadicAtan.ev_acos x) 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_acos_correct x n a Hn Fx Dx Ha).
+Qed.
+
+(** [atan2_fast_near_with ziv_near_strict], at nonzero finite [y] and
+    [x]: the fast path ([fast_atan2_near_correct]), and otherwise the
+    loop. *)
+Local Lemma tn_atan2_fast :
+  forall y x v,
+  is_finite y = true -> is_finite x = true -> (B2R y <> 0)%R -> (B2R x <> 0)%R ->
+  DyadicAtan.atan2_fast_near_with ziv_near_strict y x = Some v ->
+  near_round (Ratan2 (B2R y) (B2R x)) v.
+Proof.
+intros y x v Fy Fx Y0 X0 H. unfold DyadicAtan.atan2_fast_near_with in H.
+destruct (DyadicAtan.fast_atan2_near false y x) eqn:F; cbv iota in H.
+{ injection H as <-. exact (fast_atan2_near_correct false y x _ Fy Fx Y0 X0 F). }
+apply (ziv_near_strict_correct (DyadicAtan.ev_atan2 y x) 1%nat); [|exact H].
+intros n a Hn Ha. exact (ev_atan2_correct y x n a Hn Fy Fx Y0 X0 Ha).
+Qed.
+
+(** Where [atan2_fast_near_with ziv_near_strict] returns,
+    [atan2_fast_near_with Dyadic.ziv_near] returns the same. *)
+Local Lemma tn_atan2_fast_strict :
+  forall y x v,
+  DyadicAtan.atan2_fast_near_with ziv_near_strict y x = Some v ->
+  DyadicAtan.atan2_fast_near_with Dyadic.ziv_near y x = Some v.
+Proof.
+intros y x v. unfold DyadicAtan.atan2_fast_near_with.
+destruct (DyadicAtan.fast_atan2_near false y x); [exact (fun h => h) | apply ziv_near_strict_ziv].
 Qed.
 
 (** As [atan2_dir_post] of [DyAtan.v]: at [y = ±0] (so [x > 0]), [y],
@@ -344,12 +381,9 @@ destruct (gt x zero) eqn:Gx; cbv beta iota in H.
     destruct (lt (fabs q) DyadicExp.tiny_near) eqn:Tq; cbv iota in H.
     * injection H as <-. rewrite (Ratan2_pos_x _ _ G1), <- Vq.
       exact (tn_odd atan q atan_opp tn_atan Fq (tn_tiny q Fq Tq)).
-    * apply (ziv_near_strict_correct (DyadicAtan.ev_atan2 y x) 1%nat); [|exact H].
-      intros n a Hn Ha. exact (ev_atan2_correct y x n a Hn Fy Fx Z2 X2 Ha).
-  + apply (ziv_near_strict_correct (DyadicAtan.ev_atan2 y x) 1%nat); [|exact H].
-    intros n a Hn Ha. exact (ev_atan2_correct y x n a Hn Fy Fx Z2 X2 Ha).
-- apply (ziv_near_strict_correct (DyadicAtan.ev_atan2 y x) 1%nat); [|exact H].
-  intros n a Hn Ha. exact (ev_atan2_correct y x n a Hn Fy Fx Z2 X2 Ha).
+    * exact (tn_atan2_fast y x v Fy Fx Z2 X2 H).
+  + exact (tn_atan2_fast y x v Fy Fx Z2 X2 H).
+- exact (tn_atan2_fast y x v Fy Fx Z2 X2 H).
 Qed.
 
 Theorem atan_near_strict :
@@ -376,10 +410,10 @@ destruct (eq y infinity || eq y DyadicExp.neg_infinity); [apply pi_times_near_st
 destruct (eq x infinity); [exact (fun h => h)|].
 destruct (eq x DyadicExp.neg_infinity); [apply pi_times_near_strict|].
 destruct (eq x zero); [apply pi_times_near_strict|].
-destruct (gt x zero); [|apply ziv_near_strict_ziv].
+destruct (gt x zero); [|apply tn_atan2_fast_strict].
 destruct (DyadicAtan.midpoint_quotient y x) as [[f|]|];
   [exact (fun h => h) | | exact (fun h => h)].
 destruct (DyadicAtan.tiny_quotient y x) as [[q|]|];
-  [| apply ziv_near_strict_ziv | exact (fun h => h)].
-destruct (lt (fabs q) DyadicExp.tiny_near); [exact (fun h => h) | apply ziv_near_strict_ziv].
+  [| apply tn_atan2_fast_strict | exact (fun h => h)].
+destruct (lt (fabs q) DyadicExp.tiny_near); [exact (fun h => h) | apply tn_atan2_fast_strict].
 Qed.
