@@ -48,6 +48,8 @@ From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyD
   DyPointDec.
 From Inari Require RootReal RootRound DyIcbrt DyCbrt DyHypotExact DyHypotOdd DyHypot CrRoot.
 From Inari Require FastRound FastExpTables FastExpReduce FastExpCore FastExp.
+From Inari Require FastRoundErr FastDiv FastHypPoly FastCoshPoly FastHypPos FastCoshPos FastTanhPos
+  FastHyp.
 From Inari Require KahanMcDonald DyTrigPos SideTight SideTheorems DyPointSide.
 From Inari Require ExpQuadratic PowFactor ExpIrrational CosNiven CosIrrational DyExactDriver
   DyExactPoint DyTrigExact DyExpPoint DyExpExact DyLogSeries DyLogPoint DyLogExact DyAtanExact.
@@ -320,6 +322,34 @@ Print Assumptions FastExp.fast_exp10_dir_correct.
 Print Assumptions FastExp.fast_exp10_near_correct.
 Print Assumptions FastExp.fast_exp10_dir_fma.
 Print Assumptions FastExp.fast_exp10_near_fma.
+Print Assumptions FastRoundErr.two_sum_correct.
+Print Assumptions FastRoundErr.normalize_correct.
+Print Assumptions FastRoundErr.round_dir_err_correct.
+Print Assumptions FastRoundErr.round_near_err_correct.
+Print Assumptions FastDiv.dd_div_correct.
+Print Assumptions FastDiv.dd_div_fma.
+Print Assumptions FastHypPoly.sinh_poly_correct.
+Print Assumptions FastCoshPoly.cosh_poly_correct.
+Print Assumptions FastHypPoly.sinh_poly_fma.
+Print Assumptions FastCoshPoly.cosh_poly_fma.
+Print Assumptions FastHypPos.fast_sinh_pos_correct.
+Print Assumptions FastCoshPos.fast_cosh_pos_correct.
+Print Assumptions FastHypPos.fast_sinh_pos_fma.
+Print Assumptions FastCoshPos.fast_cosh_pos_fma.
+Print Assumptions FastTanhPos.fast_tanh_pos_correct.
+Print Assumptions FastTanhPos.fast_tanh_pos_fma.
+Print Assumptions FastHyp.fast_sinh_dir_correct.
+Print Assumptions FastHyp.fast_sinh_near_correct.
+Print Assumptions FastHyp.fast_sinh_dir_fma.
+Print Assumptions FastHyp.fast_sinh_near_fma.
+Print Assumptions FastHyp.fast_cosh_dir_correct.
+Print Assumptions FastHyp.fast_cosh_near_correct.
+Print Assumptions FastHyp.fast_cosh_dir_fma.
+Print Assumptions FastHyp.fast_cosh_near_fma.
+Print Assumptions FastHyp.fast_tanh_dir_correct.
+Print Assumptions FastHyp.fast_tanh_near_correct.
+Print Assumptions FastHyp.fast_tanh_dir_fma.
+Print Assumptions FastHyp.fast_tanh_near_fma.
 Print Assumptions DyExp.exp_dir_correct.
 Print Assumptions DyExp.exp_dir_side.
 Print Assumptions DyExp.exp_dir_strict.

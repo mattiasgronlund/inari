@@ -23,7 +23,7 @@
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN Mult_error.
 From Inari Require Import Model Mpfr Limbs Elementary ExpReal DyRound DyConv DyOps DyDriver
-  DyGrow DyExpCore DyExpRules DyHypRules DySinhTiny DyTanhTiny DyExp.
+  DyGrow DyExpCore DyExpRules DyHypRules DySinhTiny DyTanhTiny DyExp FastHyp.
 
 Open Scope Z_scope.
 
@@ -34,6 +34,8 @@ Open Scope Z_scope.
 Local Ltac dir_strict :=
   repeat match goal with
   | |- (if ?c then _ else _) = Some _ -> _ => destruct c; [exact (fun h => h)|]
+  | |- match ?c with Some _ => _ | None => _ end = Some _ -> _ =>
+      destruct c; [exact (fun h => h)|]
   end;
   apply ziv_strict_ziv.
 
@@ -323,6 +325,8 @@ destruct (le x (from_bits 0xc086380000000000)) eqn:G2; cbv iota in H.
 { injection H as <-. apply Hp. exact (sinh_overflow_neg_rule x up Fx G2). }
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G3; cbv iota in H.
 { injection H as <-. apply Hp. exact (sinh_tiny_rule x up Fx G3). }
+destruct (DyadicExp.fast_sinh_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp. exact (fast_sinh_dir_correct false x up _ Fx F). }
 apply (Hz (DyadicExp.ev_sinh x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_sinh_correct x n a Hn Ha).
 Qed.
@@ -359,6 +363,10 @@ destruct (ge (fabs x) (from_bits 0x4086380000000000)) eqn:G1; cbv iota in H.
 { injection H as <-. apply Hp. exact (cosh_overflow_rule x up Fx G1). }
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G3; cbv iota in H.
 { injection H as <-. apply Hp. exact (cosh_tiny_rule x up Fx G3). }
+destruct (DyadicExp.fast_cosh_dir false (fabs x) up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp. rewrite cosh_Rabs, <- hyp_fabs.
+  apply (fast_cosh_dir_correct false (fabs x) up _ Ft); [|exact F].
+  rewrite hyp_fabs. apply Rabs_pos. }
 apply (Hz (DyadicExp.ev_cosh (fabs x)) up 1%nat); [|exact H].
 intros n a Hn Ha. destruct (ev_cosh_correct _ n a Hn Ha) as (Oa & Ha').
 split; [exact Oa|].
@@ -401,6 +409,8 @@ destruct (le x (from_bits 0xc033000000000000)) eqn:G2; cbv iota in H.
 { injection H as <-. apply Hp. exact (tanh_big_neg_rule x up Fx G2). }
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G3; cbv iota in H.
 { injection H as <-. apply Hp. exact (tanh_tiny_rule x up Fx G3). }
+destruct (DyadicExp.fast_tanh_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp. exact (fast_tanh_dir_correct false x up _ Fx F). }
 apply (Hz (DyadicExp.ev_tanh x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_tanh_correct x n a Hn Ha).
 Qed.

@@ -78,10 +78,27 @@
 // `rocq/theories/FastExpProd.v` for its steps, `rocq/theories/FastRound.v` proves the rounding
 // tests, and `rocq/theories/FastExp.v` proves that the fast path returns e^x, 2^x and 10^x
 // rounded, with and without an FMA.
+//
+// sinh, cosh and tanh try fast paths in the same place (`fast_sinh_dir` and the others). They
+// call `fast_sinh_pos`, `fast_cosh_pos` and `fast_tanh_pos`, which compute the scaled result of
+// |x| from `fast_exp`, from a quotient in double-double (`dd_div`) or, for small |x|, from
+// Taylor polynomials, together with a bound on its error, from 2^-68 to 2^-63, that they pass
+// to the rounding tests `round_dir_err` and `round_near_err` of `src/dyadic/fast.rs`. sinh and
+// cosh at 709 < |x| < 711, beyond the range of `fast_exp`, still go to `ziv` and `ziv_near`.
+// `rocq/theories/FastRoundErr.v` proves those rounding tests, `rocq/theories/FastDiv.v`
+// `dd_div`, `rocq/theories/FastHypPoly.v` and `rocq/theories/FastCoshPoly.v` the Taylor
+// polynomials (with `rocq/theories/HypTaylor.v`, `rocq/theories/FastSinhHorner.v` and
+// `rocq/theories/FastSinhSteps.v`), `rocq/theories/FastHypPos.v`,
+// `rocq/theories/FastCoshPos.v` and `rocq/theories/FastTanhPos.v` the bounds of
+// `fast_sinh_pos` and the others, and `rocq/theories/FastHyp.v` proves that the fast paths
+// return sinh x, cosh x and tanh x rounded, with and without an FMA.
 
 use super::{
     consts::{ln10, ln2},
-    fast::{fast_two_sum, round_dir, round_near},
+    fast::{
+        dd_div, fast_two_sum, normalize, round_dir, round_dir_err, round_near, round_near_err,
+        two_sum,
+    },
     ziv, ziv_near, Dyadic, Encl, Eval,
 };
 use crate::simd::{two_prod_err, HAS_FMA};
@@ -400,6 +417,29 @@ const LN10: [u64; 2] = [0x40026bb1bbb55516, 0xbcaf48ad494ea3e9];
 // 1.5 * 2^52: for |t| < 2^51, (t + SHIFTER) - SHIFTER is t rounded to an integer.
 const SHIFTER: f64 = 6_755_399_441_055_744.0;
 
+// The coefficients of the Taylor polynomials of the fast paths of sinh, cosh and tanh, as the
+// bits of `f64`s: `SH<n>` = RN(1/n!) for the odd n from 5 to 15 and `CH<n>` = RN(1/n!) for the
+// even n from 4 to 12, and `SH3` is 1/6 in double-double, [RN(1/6), RN(1/6 - RN(1/6))], within
+// 2^-110 of it.
+const SH3: [u64; 2] = [0x3fc5555555555555, 0x3c65555555555555];
+const SH5: u64 = 0x3f81111111111111;
+const SH7: u64 = 0x3f2a01a01a01a01a;
+const SH9: u64 = 0x3ec71de3a556c734;
+const SH11: u64 = 0x3e5ae64567f544e4;
+const SH13: u64 = 0x3de6124613a86d09;
+const SH15: u64 = 0x3d6ae7f3e733b81f;
+const CH4: u64 = 0x3fa5555555555555;
+const CH6: u64 = 0x3f56c16c16c16c17;
+const CH8: u64 = 0x3efa01a01a01a01a;
+const CH10: u64 = 0x3e927e4fb7789f5c;
+const CH12: u64 = 0x3e21eed8eff8d898;
+
+// 2^-63, 2^-67 and 2^-68: the error bounds of the fast paths of sinh, cosh and tanh that are
+// not computed from an exponent.
+const ERR63: f64 = f64::EPSILON / 2048.0;
+const ERR67: f64 = f64::EPSILON / 32768.0;
+const ERR68: f64 = f64::EPSILON / 65536.0;
+
 // e^z for z = zh + zl, as (h, l, e) with e^z 2^-e within 2^-68 - 2^-72 of h + l, h = RN(h + l),
 // 1/2 < h < 2 and e in [-1021, 1022], for zh in [-707, 709] and |zl| <= 2^-40, and `None` for
 // any other zh, NaN included. The reduction and the tables are those of CORE-MATH's `exp`
@@ -489,6 +529,161 @@ fn fast_exp2_near(x: f64) -> Option<f64> {
 fn fast_exp10_near(x: f64) -> Option<f64> {
     let (h, l, e) = fast_exp_by(x, LN10)?;
     round_near(h, l, e)
+}
+
+// 2^e, for e in [-1022, 1023], from its bits.
+fn two_pow(e: i64) -> f64 {
+    f64::from_bits(((e + 1023) as u64) << 52)
+}
+
+// sinh t as sh + sl, with sh = RN(sh + sl), for t in [2^-27, 1/4), from the odd Taylor
+// polynomial t + t^3 (1/6 + u (1/5! + u (1/7! + ... + u 1/15!))) for u = t^2, whose
+// truncation is below 2^-80 sinh t. u = uh + ul exactly, and t^3 = t3h + t3l up to the roundings
+// of t ul and of its sum with the error of t uh, by `two_prod_err` [Dekker]; the tail after 1/6
+// is in plain `f64`, and 1/6 + u A in double-double, normalized by [Dekker]'s Fast2Sum as
+// 1/6 > u A.
+fn fast_sinh_poly(t: f64) -> (f64, f64) {
+    let uh = t * t;
+    let ul = two_prod_err::<HAS_FMA>(t, t, uh);
+    let a = f64::from_bits(SH5)
+        + uh * (f64::from_bits(SH7)
+            + uh * (f64::from_bits(SH9)
+                + uh * (f64::from_bits(SH11)
+                    + uh * (f64::from_bits(SH13) + uh * f64::from_bits(SH15)))));
+    let (bh, b0) = fast_two_sum(f64::from_bits(SH3[0]), uh * a);
+    let bl = b0 + f64::from_bits(SH3[1]);
+    let t3h = t * uh;
+    let t3l = two_prod_err::<HAS_FMA>(t, uh, t3h) + t * ul;
+    // t^3 (bh + bl), with the product of the low parts, below 2^-100 t, left out.
+    let ch = t3h * bh;
+    let cl = two_prod_err::<HAS_FMA>(t3h, bh, ch) + (t3h * bl + t3l * bh);
+    // ch is about sinh t - t < t^3 / 5 < t / 80, so t > ch and Fast2Sum applies, twice.
+    let (sh, s0) = fast_two_sum(t, ch);
+    fast_two_sum(sh, s0 + cl)
+}
+
+// cosh t as ch + cl, with |cl| <= 2^-52 ch, for t in [2^-27, 1/8), from
+// the even Taylor polynomial 1 + u / 2 + u^2 (1/4! + u (1/6! + ... + u 1/12!)) for u = t^2,
+// whose truncation is below 2^-78. u / 2 + u^2 A in double-double, then 1 + u / 2 + u^2 A, by
+// Fast2Sum [Dekker] as 1 > u / 2 > u^2 A. ch need not be RN(ch + cl): cl adds m0 + ul / 2 to
+// the error of 1 + mh, which can pass half an ulp of ch. `dd_div` needs only the bound on cl.
+fn fast_cosh_poly(t: f64) -> (f64, f64) {
+    let uh = t * t;
+    let ul = two_prod_err::<HAS_FMA>(t, t, uh);
+    let a = f64::from_bits(CH4)
+        + uh * (f64::from_bits(CH6)
+            + uh * (f64::from_bits(CH8) + uh * (f64::from_bits(CH10) + uh * f64::from_bits(CH12))));
+    let v = (uh * uh) * a;
+    let (mh, m0) = fast_two_sum(uh * 0.5, v);
+    let (ch, c0) = fast_two_sum(1.0, mh);
+    (ch, c0 + (m0 + ul * 0.5))
+}
+
+// sinh t for t >= 0 as (h, l, e, err), with sinh t 2^-e within err of h + l, h = RN(h + l),
+// e in [-1021, 1022] and err = 2^-p for an integer p in [55, 105], or `None`; the rounding
+// tests check 1/2 < h < 2. Below 1/4, the Taylor polynomial, scaled to [1, 2). From 1/4,
+// sinh t = (e^t - e^-t) / 2 with e^t = y 2^e from `fast_exp` and e^-t 2^-e = 2^-2e / y from
+// the quotient of `dd_div`; from 26 on, e^-t 2^-e < 2^-74 is left out.
+fn fast_sinh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
+    if t < TINY_NEAR {
+        return None;
+    }
+    if t < 0.25 {
+        let (sh, sl) = fast_sinh_poly(t);
+        let (h, l, k) = normalize(sh, sl);
+        return Some((h, l, k, ERR63));
+    }
+    let (h, l, e) = fast_exp(t, 0.0)?;
+    if t >= 26.0 {
+        return Some((h, l, e - 1, ERR68));
+    }
+    let (wh, wl) = dd_div(two_pow(-2 * e), 0.0, h, l);
+    // TwoSum [Knuth] for both sums: it needs no order of the terms, so the proof shows none.
+    let (s, s0) = two_sum(h, -wh);
+    let (h, l) = two_sum(s, (s0 + l) - wl);
+    Some((h, l, e - 1, ERR67))
+}
+
+// cosh t for t >= 0 as `fast_sinh_pos` returns sinh t, from (e^t + e^-t) / 2 for every t, as
+// the sum does not cancel, halved where it is 2 or more.
+fn fast_cosh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
+    let (h, l, e) = fast_exp(t, 0.0)?;
+    if t >= 26.0 {
+        return Some((h, l, e - 1, ERR68));
+    }
+    let (wh, wl) = dd_div(two_pow(-2 * e), 0.0, h, l);
+    let (s, s0) = two_sum(h, wh);
+    // s >= h > 1/2 and |(s0 + l) + wl| < 2^-50, so Fast2Sum applies.
+    let (h, l) = fast_two_sum(s, (s0 + l) + wl);
+    if h >= 2.0 {
+        Some((h * 0.5, l * 0.5, e, ERR67))
+    } else {
+        Some((h, l, e - 1, ERR67))
+    }
+}
+
+// tanh t for t >= 0 as `fast_sinh_pos` returns sinh t. Below 1/8, sinh t / cosh t from the
+// Taylor polynomials; from 1/8, (1 - w) / (1 + w) for w = e^-2t = wh + wl from `fast_exp`,
+// where 1 + wh and 1 - wh are exact in double-double by Fast2Sum [Dekker], as wh < 1. Both
+// scale the quotient to [1, 2), and err is 2^-63 below 1/8 and, from 1/8 on, the 2^-67 that
+// bounds the error of the unscaled quotient, scaled with it.
+fn fast_tanh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
+    if t < TINY_NEAR {
+        return None;
+    }
+    if t < 0.125 {
+        let (sh, sl) = fast_sinh_poly(t);
+        let (ch, cl) = fast_cosh_poly(t);
+        let (qh, ql) = dd_div(sh, sl, ch, cl);
+        let (h, l, k) = normalize(qh, ql);
+        return Some((h, l, k, ERR63));
+    }
+    let (h, l, e) = fast_exp(-2.0 * t, 0.0)?;
+    // w = (h + l) 2^e: h 2^e is exact, and l 2^e rounds only where it is subnormal.
+    let p = two_pow(e);
+    let (wh, wl) = (h * p, l * p);
+    let (dh, d0) = fast_two_sum(1.0, wh);
+    let (nh, n0) = fast_two_sum(1.0, -wh);
+    let (qh, ql) = dd_div(nh, n0 - wl, dh, d0 + wl);
+    let (h, l, k) = normalize(qh, ql);
+    Some((h, l, k, two_pow(-67 - k)))
+}
+
+// sinh x, cosh t for t = |x| and tanh x rounded toward +∞ if `up` and toward -∞ otherwise, and
+// to nearest, by the fast paths, or `None` where the rounding test fails or the argument is
+// out of their range. sinh and tanh are odd: for x < 0, f(x) rounded up is -f(-x) rounded down.
+fn fast_sinh_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l, e, err) = fast_sinh_pos(x.abs())?;
+    let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
+    Some(if x < 0.0 { -r } else { r })
+}
+
+fn fast_cosh_dir(t: f64, up: bool) -> Option<f64> {
+    let (h, l, e, err) = fast_cosh_pos(t)?;
+    round_dir_err(h, l, e, err, up)
+}
+
+fn fast_tanh_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l, e, err) = fast_tanh_pos(x.abs())?;
+    let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
+    Some(if x < 0.0 { -r } else { r })
+}
+
+fn fast_sinh_near(x: f64) -> Option<f64> {
+    let (h, l, e, err) = fast_sinh_pos(x.abs())?;
+    let r = round_near_err(h, l, e, err)?;
+    Some(if x < 0.0 { -r } else { r })
+}
+
+fn fast_cosh_near(t: f64) -> Option<f64> {
+    let (h, l, e, err) = fast_cosh_pos(t)?;
+    round_near_err(h, l, e, err)
+}
+
+fn fast_tanh_near(x: f64) -> Option<f64> {
+    let (h, l, e, err) = fast_tanh_pos(x.abs())?;
+    let r = round_near_err(h, l, e, err)?;
+    Some(if x < 0.0 { -r } else { r })
 }
 
 /// e^x rounded toward +∞ if `up` and toward -∞ otherwise.
@@ -639,6 +834,8 @@ pub(crate) fn sinh(x: f64, up: bool) -> f64 {
     } else if x.abs() < TINY_HYP {
         // x <= sinh x <= x + x^3 / 3 for x in [0, 1], and sinh is odd.
         away(x, up)
+    } else if let Some(r) = fast_sinh_dir(x, up) {
+        r
     } else {
         ziv(&Sinh(x), up, 1)
     }
@@ -655,6 +852,8 @@ pub(crate) fn sinh_near(x: f64) -> f64 {
     } else if x.abs() < TINY_NEAR {
         // x <= sinh x <= x + x^3 / 3 for x in [0, 1], and sinh is odd.
         x
+    } else if let Some(r) = fast_sinh_near(x) {
+        r
     } else {
         ziv_near(&Sinh(x), 1)
     }
@@ -671,6 +870,8 @@ pub(crate) fn cosh(x: f64, up: bool) -> f64 {
     } else if t < TINY_HYP {
         // 1 <= cosh t <= 1 + t^2 for t in [0, 1].
         near_one(t, up)
+    } else if let Some(r) = fast_cosh_dir(t, up) {
+        r
     } else {
         ziv(&Cosh(t), up, 1)
     }
@@ -686,6 +887,8 @@ pub(crate) fn cosh_near(x: f64) -> f64 {
     } else if t < TINY_NEAR {
         // 1 <= cosh t <= 1 + t^2 for t in [0, 1].
         1.0
+    } else if let Some(r) = fast_cosh_near(t) {
+        r
     } else {
         ziv_near(&Cosh(t), 1)
     }
@@ -715,6 +918,8 @@ pub(crate) fn tanh(x: f64, up: bool) -> f64 {
     } else if x.abs() < TINY_HYP {
         // x - x^3 / 3 <= tanh x <= x for x in [0, 1], and tanh is odd.
         toward_zero(x, up)
+    } else if let Some(r) = fast_tanh_dir(x, up) {
+        r
     } else {
         ziv(&Tanh(x), up, 1)
     }
@@ -733,6 +938,8 @@ pub(crate) fn tanh_near(x: f64) -> f64 {
     } else if x.abs() < TINY_NEAR {
         // x - x^3 / 3 <= tanh x <= x for x in [0, 1], and tanh is odd.
         x
+    } else if let Some(r) = fast_tanh_near(x) {
+        r
     } else {
         ziv_near(&Tanh(x), 1)
     }

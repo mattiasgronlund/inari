@@ -1706,7 +1706,9 @@ End DyadicConsts.
     test-only switch and counter ([set_fast_path], [fast_counts]), which
     only the tests compile and which change no result. The functions
     never panic, so their [option] is Rust's [Option]. [FastRound.v]
-    proves [round_dir] and [round_near]. *)
+    proves [round_dir] and [round_near], [FastRoundErr.v] [two_sum],
+    [normalize], [round_dir_err] and [round_near_err], and [FastDiv.v]
+    [dd_div]. *)
 Module Fast.
 
 (** [ERR], [NEAR1] and [NEAR0]: 2^-68, 2^-53 - 2^-68 and 2^-54 - 2^-68,
@@ -1741,6 +1743,50 @@ Definition round_near (h l : f64) (e : Z) : option f64 :=
   let above := if ge h one then near1 else near0 in
   let below := if gt h one then near1 else near0 in
   if lt l above && gt l (opp below) then Some (scale h e) else None.
+
+(** [GAP1] and [GAP0]: 2^-53 and 2^-54, and the literal [2.0]. *)
+Definition gap1 : f64 := from_bits 0x3ca0000000000000.
+Definition gap0 : f64 := from_bits 0x3c90000000000000.
+Definition two : f64 := from_bits 0x4000000000000000.
+
+(** [pub(crate) fn two_sum(a: f64, b: f64) -> (f64, f64)] *)
+Definition two_sum (a b : f64) : f64 * f64 :=
+  let s := add a b in
+  let a1 := sub s b in
+  let b1 := sub s a1 in
+  (s, add (sub a a1) (sub b b1)).
+
+(** [pub(crate) fn normalize(h: f64, l: f64) -> (f64, f64, i64)], where
+    [(h.to_bits() >> 52) as i64] is [Z.shiftr (to_bits h) 52]. *)
+Definition normalize (h l : f64) : f64 * f64 * Z :=
+  let k := Z.shiftr (to_bits h) 52 - 1023 in
+  (scale h (- k), scale l (- k), k).
+
+(** [pub(crate) fn dd_div(nh: f64, nl: f64, dh: f64, dl: f64) -> (f64,
+    f64)], where [fma] is [HAS_FMA], as in [DyadicExp.fast_exp]. *)
+Definition dd_div (fma : bool) (nh nl dh dl : f64) : f64 * f64 :=
+  let qh := div nh dh in
+  let p := mul qh dh in
+  let pe := Generic.two_prod_err fma qh dh p in
+  let r := sub (add (sub (sub nh p) pe) nl) (mul qh dl) in
+  fast_two_sum qh (div r dh).
+
+(** [pub(crate) fn round_dir_err(h: f64, l: f64, e: i64, err: f64, up:
+    bool) -> Option<f64>], where [h.to_bits() + 1] and [h.to_bits() - 1]
+    are as in [round_dir], for an [h] between 1/2 and 2, which the
+    function checks. *)
+Definition round_dir_err (h l : f64) (e : Z) (err : f64) (up : bool) : option f64 :=
+  if negb (gt h half && lt h two) then None
+  else if gt l err then Some (scale (if up then from_bits (to_bits h + 1) else h) e)
+  else if lt l (opp err) then Some (scale (if up then h else from_bits (to_bits h - 1)) e)
+  else None.
+
+(** [pub(crate) fn round_near_err(h: f64, l: f64, e: i64, err: f64) ->
+    Option<f64>] *)
+Definition round_near_err (h l : f64) (e : Z) (err : f64) : option f64 :=
+  let above := if ge h one then sub gap1 err else sub gap0 err in
+  let below := if gt h one then sub gap1 err else sub gap0 err in
+  if gt h half && lt h two && lt l above && gt l (opp below) then Some (scale h e) else None.
 
 End Fast.
 
@@ -2201,16 +2247,184 @@ Definition fast_exp2_near (fma : bool) (x : f64) : option f64 :=
 Definition fast_exp10_near (fma : bool) (x : f64) : option f64 :=
   match fast_exp_by fma x LN10 with Some (h, l, e) => Fast.round_near h l e | None => None end.
 
+(** [SH3], [SH5] to [SH15] and [CH4] to [CH12]: the coefficients of the
+    Taylor polynomials of the fast paths of [sinh], [cosh] and [tanh], as
+    the bits of [f64]s, with [c[0]] and [c[1]] of a [[u64; 2]] its [fst]
+    and [snd]. *)
+Definition SH3 : Z * Z := (0x3fc5555555555555, 0x3c65555555555555).
+Definition SH5 : Z := 0x3f81111111111111.
+Definition SH7 : Z := 0x3f2a01a01a01a01a.
+Definition SH9 : Z := 0x3ec71de3a556c734.
+Definition SH11 : Z := 0x3e5ae64567f544e4.
+Definition SH13 : Z := 0x3de6124613a86d09.
+Definition SH15 : Z := 0x3d6ae7f3e733b81f.
+Definition CH4 : Z := 0x3fa5555555555555.
+Definition CH6 : Z := 0x3f56c16c16c16c17.
+Definition CH8 : Z := 0x3efa01a01a01a01a.
+Definition CH10 : Z := 0x3e927e4fb7789f5c.
+Definition CH12 : Z := 0x3e21eed8eff8d898.
+
+(** [ERR63], [ERR67] and [ERR68]: 2^-63, 2^-67 and 2^-68. *)
+Definition err63 : f64 := from_bits 0x3c00000000000000.
+Definition err67 : f64 := from_bits 0x3bc0000000000000.
+Definition err68 : f64 := from_bits 0x3bb0000000000000.
+
+(** [fn two_pow(e: i64) -> f64], where [(e + 1023) as u64] is [(e + 1023)
+    mod 2^64], and [<< 52] drops the bits above 64. *)
+Definition two_pow (e : Z) : f64 := from_bits (Z.shiftl ((e + 1023) mod 2^64) 52 mod 2^64).
+
+(** [fn fast_sinh_poly(t: f64) -> (f64, f64)], where [fma] is [HAS_FMA],
+    as in [fast_exp]. [FastHypPoly.v] proves it. *)
+Definition fast_sinh_poly (fma : bool) (t : f64) : f64 * f64 :=
+  let uh := mul t t in
+  let ul := Generic.two_prod_err fma t t uh in
+  let a := add (from_bits SH5) (mul uh (add (from_bits SH7) (mul uh (add (from_bits SH9)
+             (mul uh (add (from_bits SH11) (mul uh (add (from_bits SH13)
+             (mul uh (from_bits SH15)))))))))) in
+  let '(bh, b0) := Fast.fast_two_sum (from_bits (fst SH3)) (mul uh a) in
+  let bl := add b0 (from_bits (snd SH3)) in
+  let t3h := mul t uh in
+  let t3l := add (Generic.two_prod_err fma t uh t3h) (mul t ul) in
+  let ch := mul t3h bh in
+  let cl := add (Generic.two_prod_err fma t3h bh ch) (add (mul t3h bl) (mul t3l bh)) in
+  let '(sh, s0) := Fast.fast_two_sum t ch in
+  Fast.fast_two_sum sh (add s0 cl).
+
+(** [fn fast_cosh_poly(t: f64) -> (f64, f64)]. [FastCoshPoly.v] proves
+    it. *)
+Definition fast_cosh_poly (fma : bool) (t : f64) : f64 * f64 :=
+  let uh := mul t t in
+  let ul := Generic.two_prod_err fma t t uh in
+  let a := add (from_bits CH4) (mul uh (add (from_bits CH6) (mul uh (add (from_bits CH8)
+             (mul uh (add (from_bits CH10) (mul uh (from_bits CH12)))))))) in
+  let v := mul (mul uh uh) a in
+  let '(mh, m0) := Fast.fast_two_sum (mul uh half) v in
+  let '(ch, c0) := Fast.fast_two_sum one mh in
+  (ch, add c0 (add m0 (mul ul half))).
+
+(** [fn fast_sinh_pos(t: f64) -> Option<(f64, f64, i64, f64)>], where [?]
+    is a [match], and the literals [0.25] and [26.0] are written with
+    [from_bits]. [FastHypPos.v] proves it. *)
+Definition fast_sinh_pos (fma : bool) (t : f64) : option (f64 * f64 * Z * f64) :=
+  if lt t tiny_near then None
+  else if lt t (from_bits 0x3fd0000000000000) (* 0.25 *) then
+    let '(sh, sl) := fast_sinh_poly fma t in
+    let '(h, l, k) := Fast.normalize sh sl in
+    Some (h, l, k, err63)
+  else
+    match fast_exp fma t zero with
+    | None => None
+    | Some (h, l, e) =>
+      if ge t (from_bits 0x403a000000000000) (* 26.0 *) then Some (h, l, e - 1, err68)
+      else
+        let '(wh, wl) := Fast.dd_div fma (two_pow (-2 * e)) zero h l in
+        let '(s, s0) := Fast.two_sum h (opp wh) in
+        let '(h', l') := Fast.two_sum s (sub (add s0 l) wl) in
+        Some (h', l', e - 1, err67)
+    end.
+
+(** [fn fast_cosh_pos(t: f64) -> Option<(f64, f64, i64, f64)>].
+    [FastCoshPos.v] proves it. *)
+Definition fast_cosh_pos (fma : bool) (t : f64) : option (f64 * f64 * Z * f64) :=
+  match fast_exp fma t zero with
+  | None => None
+  | Some (h, l, e) =>
+    if ge t (from_bits 0x403a000000000000) (* 26.0 *) then Some (h, l, e - 1, err68)
+    else
+      let '(wh, wl) := Fast.dd_div fma (two_pow (-2 * e)) zero h l in
+      let '(s, s0) := Fast.two_sum h wh in
+      let '(h', l') := Fast.fast_two_sum s (add (add s0 l) wl) in
+      if ge h' two then Some (mul h' half, mul l' half, e, err67)
+      else Some (h', l', e - 1, err67)
+  end.
+
+(** [fn fast_tanh_pos(t: f64) -> Option<(f64, f64, i64, f64)>], where
+    [-2.0 * t] is [mul m_two t], and the literal [0.125] is written with
+    [from_bits]. [FastTanhPos.v] proves it. *)
+Definition fast_tanh_pos (fma : bool) (t : f64) : option (f64 * f64 * Z * f64) :=
+  if lt t tiny_near then None
+  else if lt t (from_bits 0x3fc0000000000000) (* 0.125 *) then
+    let '(sh, sl) := fast_sinh_poly fma t in
+    let '(ch, cl) := fast_cosh_poly fma t in
+    let '(qh, ql) := Fast.dd_div fma sh sl ch cl in
+    let '(h, l, k) := Fast.normalize qh ql in
+    Some (h, l, k, err63)
+  else
+    match fast_exp fma (mul m_two t) zero with
+    | None => None
+    | Some (h, l, e) =>
+      let p := two_pow e in
+      let '(wh, wl) := (mul h p, mul l p) in
+      let '(dh, d0) := Fast.fast_two_sum one wh in
+      let '(nh, n0) := Fast.fast_two_sum one (opp wh) in
+      let '(qh, ql) := Fast.dd_div fma nh (sub n0 wl) dh (add d0 wl) in
+      let '(h', l', k) := Fast.normalize qh ql in
+      Some (h', l', k, two_pow (-67 - k))
+    end.
+
+(** [fn fast_sinh_dir(x: f64, up: bool) -> Option<f64>], the same for
+    [cosh] and [tanh], and [fn fast_sinh_near(x: f64) -> Option<f64>] and
+    the others, where [x.abs()] is [fabs x], and [up != (x < 0.0)] is
+    [xorb up (lt x zero)]. [FastHyp.v] proves them. *)
+Definition fast_sinh_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_sinh_pos fma (fabs x) with
+  | Some (h, l, e, err) =>
+    match Fast.round_dir_err h l e err (xorb up (lt x zero)) with
+    | Some r => Some (if lt x zero then opp r else r)
+    | None => None
+    end
+  | None => None
+  end.
+Definition fast_cosh_dir (fma : bool) (t : f64) (up : bool) : option f64 :=
+  match fast_cosh_pos fma t with
+  | Some (h, l, e, err) => Fast.round_dir_err h l e err up
+  | None => None
+  end.
+Definition fast_tanh_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_tanh_pos fma (fabs x) with
+  | Some (h, l, e, err) =>
+    match Fast.round_dir_err h l e err (xorb up (lt x zero)) with
+    | Some r => Some (if lt x zero then opp r else r)
+    | None => None
+    end
+  | None => None
+  end.
+Definition fast_sinh_near (fma : bool) (x : f64) : option f64 :=
+  match fast_sinh_pos fma (fabs x) with
+  | Some (h, l, e, err) =>
+    match Fast.round_near_err h l e err with
+    | Some r => Some (if lt x zero then opp r else r)
+    | None => None
+    end
+  | None => None
+  end.
+Definition fast_cosh_near (fma : bool) (t : f64) : option f64 :=
+  match fast_cosh_pos fma t with
+  | Some (h, l, e, err) => Fast.round_near_err h l e err
+  | None => None
+  end.
+Definition fast_tanh_near (fma : bool) (x : f64) : option f64 :=
+  match fast_tanh_pos fma (fabs x) with
+  | Some (h, l, e, err) =>
+    match Fast.round_near_err h l e err with
+    | Some r => Some (if lt x zero then opp r else r)
+    | None => None
+    end
+  | None => None
+  end.
+
 (** The functions of the file with [ziv] a parameter: [exp_dir_with ziv] is
     [exp] with [ziv] for [Dyadic.ziv], and [exp_dir] after the section is
     [exp_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
     returns only where a rounding test passes ([DyDriver.ziv_strict]).
 
-    [exp], [exp2] and [exp10] try the fast path before [ziv], and their
-    forms rounded to nearest before [ziv_near]. [HAS_FMA] depends on the
-    target. The fast path takes it as an argument, and the functions
-    below pass [false]: [FastExp.fast_exp_dir_fma] and the others show
-    that [true] gives the same result at every argument that reaches it. *)
+    [exp], [exp2], [exp10], [sinh], [cosh] and [tanh] try the fast path
+    before [ziv], and their forms rounded to nearest before [ziv_near].
+    [HAS_FMA] depends on the target. The fast path takes it as an
+    argument, and the functions below pass [false]:
+    [FastExp.fast_exp_dir_fma], [FastHyp.fast_sinh_dir_fma] and the others
+    show that [true] gives the same result at every argument that reaches
+    it. *)
 Section Driver.
 Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
 
@@ -2252,7 +2466,7 @@ Definition sinh_dir_with (x : f64) (up : bool) : option f64 :=
   else if ge x (from_bits 0x4086380000000000) (* 711.0 *) then Some (overflow up)
   else if le x (from_bits 0xc086380000000000) (* -711.0 *) then Some (opp (overflow (negb up)))
   else if lt (fabs x) tiny_hyp then Some (away x up)
-  else ziv (ev_sinh x) up 1.
+  else match fast_sinh_dir false x up with Some r => Some r | None => ziv (ev_sinh x) up 1 end.
 
 (** [pub(crate) fn cosh(x: f64, up: bool) -> f64] *)
 Definition cosh_dir_with (x : f64) (up : bool) : option f64 :=
@@ -2260,7 +2474,7 @@ Definition cosh_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan t || eq t infinity then Some t
   else if ge t (from_bits 0x4086380000000000) (* 711.0 *) then Some (overflow up)
   else if lt t tiny_hyp then Some (near_one t up)
-  else ziv (ev_cosh t) up 1.
+  else match fast_cosh_dir false t up with Some r => Some r | None => ziv (ev_cosh t) up 1 end.
 
 (** [pub(crate) fn tanh(x: f64, up: bool) -> f64] *)
 Definition tanh_dir_with (x : f64) (up : bool) : option f64 :=
@@ -2272,7 +2486,7 @@ Definition tanh_dir_with (x : f64) (up : bool) : option f64 :=
   else if le x (from_bits 0xc033000000000000) (* -19.0 *) then
     Some (if up then opp one_minus_ulp else m_one)
   else if lt (fabs x) tiny_hyp then Some (toward_zero x up)
-  else ziv (ev_tanh x) up 1.
+  else match fast_tanh_dir false x up with Some r => Some r | None => ziv (ev_tanh x) up 1 end.
 
 End Driver.
 
@@ -2330,7 +2544,7 @@ Definition sinh_near_with (x : f64) : option f64 :=
   else if ge x (from_bits 0x4086380000000000) (* 711.0 *) then Some infinity
   else if le x (from_bits 0xc086380000000000) (* -711.0 *) then Some neg_infinity
   else if lt (fabs x) tiny_near then Some x
-  else ziv_near (ev_sinh x) 1.
+  else match fast_sinh_near false x with Some r => Some r | None => ziv_near (ev_sinh x) 1 end.
 
 (** [pub(crate) fn cosh_near(x: f64) -> f64] *)
 Definition cosh_near_with (x : f64) : option f64 :=
@@ -2338,7 +2552,7 @@ Definition cosh_near_with (x : f64) : option f64 :=
   if is_nan t || eq t infinity then Some t
   else if ge t (from_bits 0x4086380000000000) (* 711.0 *) then Some infinity
   else if lt t tiny_near then Some one
-  else ziv_near (ev_cosh t) 1.
+  else match fast_cosh_near false t with Some r => Some r | None => ziv_near (ev_cosh t) 1 end.
 
 (** [pub(crate) fn tanh_near(x: f64) -> f64] *)
 Definition tanh_near_with (x : f64) : option f64 :=
@@ -2346,7 +2560,7 @@ Definition tanh_near_with (x : f64) : option f64 :=
   else if ge x (from_bits 0x4034000000000000) (* 20.0 *) then Some one
   else if le x (from_bits 0xc034000000000000) (* -20.0 *) then Some m_one
   else if lt (fabs x) tiny_near then Some x
-  else ziv_near (ev_tanh x) 1.
+  else match fast_tanh_near false x with Some r => Some r | None => ziv_near (ev_tanh x) 1 end.
 
 End DriverNear.
 

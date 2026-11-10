@@ -196,6 +196,17 @@ theories/FastExpTbl.v
 theories/FastExpProd.v
 theories/FastExpCore.v
 theories/FastExp.v
+theories/FastRoundErr.v
+theories/FastDiv.v
+theories/HypTaylor.v
+theories/FastSinhHorner.v
+theories/FastSinhSteps.v
+theories/FastHypPoly.v
+theories/FastCoshPoly.v
+theories/FastHypPos.v
+theories/FastCoshPos.v
+theories/FastTanhPos.v
+theories/FastHyp.v
 theories/DyExp.v
 theories/DyHyp.v
 theories/DyLogRules.v
