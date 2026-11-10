@@ -3454,10 +3454,13 @@ Definition log10_dir_with (x : f64) (up : bool) : option f64 :=
   match log_rules x with
   | Some r => Some r
   | None =>
-      match List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23) with
-      | Some k => Some (of_u64 (Z.of_nat k))
+      match fast_log10_dir false x up with
+      | Some r => Some r
       | None =>
-          match fast_log10_dir false x up with Some r => Some r | None => ziv (ev_log10 x) up 1 end
+          match List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23) with
+          | Some k => Some (of_u64 (Z.of_nat k))
+          | None => ziv (ev_log10 x) up 1
+          end
       end
   end.
 
@@ -3517,10 +3520,13 @@ Definition log10_near_with (x : f64) : option f64 :=
   match log_rules x with
   | Some r => Some r
   | None =>
-      match List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23) with
-      | Some k => Some (of_u64 (Z.of_nat k))
+      match fast_log10_near false x with
+      | Some r => Some r
       | None =>
-          match fast_log10_near false x with Some r => Some r | None => ziv_near (ev_log10 x) 1 end
+          match List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23) with
+          | Some k => Some (of_u64 (Z.of_nat k))
+          | None => ziv_near (ev_log10 x) 1
+          end
       end
   end.
 

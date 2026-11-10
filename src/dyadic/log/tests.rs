@@ -218,7 +218,8 @@ fn exact_enclosures() {
 // within an ulp of x, `TINY_NEAR`, below which `asinh_near` and `atanh_near` give x, 1 for
 // acosh and atanh, where their domains end, and for the logarithms the smallest positive `f64`,
 // below which come zero and the negative numbers, the smallest normal one, and the 4 largest
-// ones, below +∞. log10 also has the powers of 10 of `POW10`, which its rule takes.
+// ones, below +∞. log10 also has the powers of 10 of `POW10`, which its rule takes where the
+// fast path does not.
 #[test]
 fn rules_at_their_thresholds() {
     let smallest = f64::from_bits(1);
@@ -259,6 +260,34 @@ fn rules_at_their_thresholds() {
     }
     for &x in &POW10 {
         for x in around(x, 3) {
+            check(LOG10, x);
+        }
+    }
+}
+
+// log10 tries its fast path before the powers of 10 of `POW10`. At 10^k, log10 x = k is an
+// `f64`, so that the directed rounding tests cannot pass and the rule settles 10^k, and to
+// nearest the fast path may return k. At 10^k and the `f64` on each side of it, log10 gives the
+// same `f64`s with the fast path as without it, in all three roundings.
+#[test]
+fn pow10_after_the_fast_path() {
+    for (k, &p) in POW10.iter().enumerate() {
+        assert_eq!(fast_log10_dir(p, false), None, "log10(1e{k}) rounded down");
+        assert_eq!(fast_log10_dir(p, true), None, "log10(1e{k}) rounded up");
+        for x in around(p, 1) {
+            let fast = (log10(x, false), log10(x, true), log10_near(x));
+            crate::dyadic::fast::set_fast_path(false);
+            let kernel = (log10(x, false), log10(x, true), log10_near(x));
+            crate::dyadic::fast::set_fast_path(true);
+            assert!(
+                fast.0.to_bits() == kernel.0.to_bits()
+                    && fast.1.to_bits() == kernel.1.to_bits()
+                    && fast.2.to_bits() == kernel.2.to_bits(),
+                "log10({:e}): {:?} with the fast path != {:?} without it",
+                x,
+                fast,
+                kernel
+            );
             check(LOG10, x);
         }
     }

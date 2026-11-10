@@ -181,6 +181,21 @@ destruct (OfPointCore.round_f64_unique _ _ _ _ R R') as [E | (s & s' & _ & Ev)];
 exfalso. subst v. exact (Nv eq_refl).
 Qed.
 
+(** The same for [log10], which tries its fast path before the powers of
+    10. *)
+Local Lemma fast_log10_exact :
+  forall x up (v r : f64),
+  is_finite x = true -> 0 < B2R x -> is_finite v = true -> Rlog10 (B2R x) = B2R v ->
+  B2R v <> 0 -> DyadicLog.fast_log10_dir false x up = Some r -> r = v.
+Proof.
+intros x up v r Fx Hx Fv H Nv F.
+pose proof (fast_log10_dir_correct false x up r Fx Hx F) as R. unfold rounds in R. rewrite H in R.
+pose proof (DyExpRules.rnd_exact v (if up then RNDU else RNDD) (B2R v) Fv eq_refl) as R'.
+destruct (OfPointCore.round_f64_unique _ _ _ _ R R') as [E | (s & s' & _ & Ev)]; [exact E|].
+(* Both zeros: impossible, as [v <> 0]. *)
+exfalso. subst v. exact (Nv eq_refl).
+Qed.
+
 Theorem log2_dir_exact_with :
   forall z, driver_exact z -> driver_exact_zero z ->
   forall x (v : f64) (up : bool),
@@ -231,6 +246,14 @@ intros z x v up Fx Dx Fv H Hz.
 destruct (dle_log_int 10 ltac:(lra) pow10_rational x v Fx Fv Dx H) as (k & Vk & Xk).
 pose proof (f64_pow10 x k Fx Xk) as Rk.
 unfold DyadicLog.log10_dir_with. rewrite (log_rules_finite_pos x Fx Dx).
+destruct (DyadicLog.fast_log10_dir false x up) as [r |] eqn:F; cbv iota.
+{ (* The fast path returns [v] where it returns: at [x = 1], where
+     [v = 0], it returns [None]. *)
+  destruct (Z.eq_dec k 0) as [-> | Nk].
+  - exfalso. assert (X1 : B2R x = 1) by (rewrite Xk; reflexivity).
+    rewrite (dle_one x Fx X1) in F. destruct up; vm_compute in F; discriminate F.
+  - f_equal. apply (fast_log10_exact x up v r Fx Dx Fv H); [| exact F].
+    rewrite Vk. apply not_0_IZR. exact Nk. }
 destruct (List.find (fun k => Model.eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23))
   as [j |] eqn:Ef.
 - (* The rule finds [x = 10^j], so [v = log10 x = j], which [of_u64 j]

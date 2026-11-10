@@ -211,12 +211,12 @@ Lemma log10_dir_post :
 Proof.
 intros z post Hp Hz x up v Fx Dx H. unfold DyadicLog.log10_dir_with in H.
 rewrite (log_rules_finite_pos x Fx Dx) in H.
+destruct (DyadicLog.fast_log10_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp. exact (fast_log10_dir_correct false x up _ Fx Dx F). }
 destruct (List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23))
   as [k|] eqn:Ef.
 - injection H as <-. apply Hp. exact (log10_pow10_rule x up k Fx Ef).
-- destruct (DyadicLog.fast_log10_dir false x up) eqn:F; cbv iota in H.
-  { injection H as <-. apply Hp. exact (fast_log10_dir_correct false x up _ Fx Dx F). }
-  apply (Hz (DyadicLog.ev_log10 x) up 1%nat); [|exact H].
+- apply (Hz (DyadicLog.ev_log10 x) up 1%nat); [|exact H].
   intros n a Hn Ha. exact (ev_log10_correct x n a Hn Ha).
 Qed.
 
@@ -238,7 +238,7 @@ Theorem log10_dir_strict :
 Proof.
 intros x up v. unfold DyadicLog.log10_dir, DyadicLog.log10_dir_with.
 destruct (DyadicLog.log_rules x); [exact (fun h => h)|].
+destruct (DyadicLog.fast_log10_dir false x up); [exact (fun h => h)|].
 destruct (List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23));
-  [exact (fun h => h)|].
-destruct (DyadicLog.fast_log10_dir false x up); [exact (fun h => h)|apply ziv_strict_ziv].
+  [exact (fun h => h)|apply ziv_strict_ziv].
 Qed.
