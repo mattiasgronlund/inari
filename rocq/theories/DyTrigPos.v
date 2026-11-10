@@ -23,6 +23,7 @@ From Inari Require Import Model Mpfr Limbs Elementary LogReal DyRound DyConv DyO
   DyConst DyExpCore DyExpRules DyExp ExpReal DyHypRules DyLogRules DyLogCore DyLog DyLogHyp
   TrigSeries DyTrigTiny DyCosSmall DySinSmall DyTanSmall DyTrigReduce DyTrigCore MpfrRound DyTrig
   DyTrigSign DyTrigSeriesPos DyTrigZivSign.
+From Inari Require FastTrig.
 
 Open Scope Z_scope.
 
@@ -330,6 +331,9 @@ destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
 { injection H as <-. exact (proj1 (rnd_dn_neg _ _ (sin_tiny_rule x false Fx G)) L). }
 destruct (DyadicTrig.sin_small x false) as [w|] eqn:S; cbv iota in H.
 { injection H as <-. exact (proj1 (rnd_dn_neg _ _ (sin_small_rule x false w Fx S)) L). }
+destruct (DyadicTrig.fast_sin_dir false x false) eqn:F; cbv iota in H.
+{ injection H as <-. exact (proj1 (rnd_dn_neg _ _
+    (FastTrig.fast_sin_dir_correct false x false _ Fx (FastTrig.fast_arg_hyp x Fx G) F)) L). }
 (* The driver: [|x| >= 2^-26], so every enclosure excludes 0. *)
 assert (Hx : B2R x <> 0%R).
 { intros Z.
@@ -358,6 +362,11 @@ destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
 { injection H as <-. exact (proj1 (rnd_up_pos _ _ (cos_tiny_rule x true Fx G)) L). }
 destruct (DyadicTrig.cos_small (fabs x) true) as [w|] eqn:S; cbv iota in H.
 { injection H as <-. exact (proj1 (rnd_up_pos _ _ (cos_small_rule x true w Fx S)) L). }
+destruct (DyadicTrig.fast_cos_dir false (fabs x) true) eqn:F; cbv iota in H.
+{ injection H as <-.
+  destruct (FastTrig.fast_arg_fabs x (FastTrig.fast_arg_hyp x Fx G) Fx) as (Fa & Ga).
+  pose proof (FastTrig.fast_cos_dir_correct false (fabs x) true _ Fa Ga F) as R.
+  rewrite FastTrig.cos_fabs in R. exact (proj1 (rnd_up_pos _ _ R) L). }
 pose proof (ziv_sign (DyadicTrig.ev_cos (fabs x)) true 1%nat (cos (B2R x)) v) as Zc.
 cbv iota in Zc. refine (Zc _ H L).
 intros n a Hn Ha.

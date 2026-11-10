@@ -220,6 +220,14 @@ theories/FastLogByProd.v
 theories/FastLogLn.v
 theories/FastLogBy.v
 theories/FastLog.v
+theories/FastTrigTables.v
+theories/FastTrigReduce.v
+theories/FastTrigSC.v
+theories/FastTrigEval.v
+theories/FastTrigDiv.v
+theories/FastTrigRound.v
+theories/FastTrigCore.v
+theories/FastTrig.v
 theories/DyExp.v
 theories/DyHyp.v
 theories/DyLogRules.v

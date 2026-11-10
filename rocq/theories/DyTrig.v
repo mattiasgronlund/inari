@@ -31,6 +31,7 @@ From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary LogReal DyRound DyConv DyOps DyDriver DyGrow
   DyConst DyExpCore DyExpRules DyExp ExpReal DyHypRules DyLogRules DyLogCore DyLog DyLogHyp
   TrigSeries DyTrigTiny DyCosSmall DySinSmall DyTanSmall DyTrigReduce DyTrigCore MpfrRound.
+From Inari Require FastTrig.
 
 Open Scope Z_scope.
 
@@ -187,6 +188,9 @@ destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
 { injection H as <-. apply Hp. exact (sin_tiny_rule x up Fx G). }
 destruct (DyadicTrig.sin_small x up) as [w|] eqn:S; cbv iota in H.
 { injection H as <-. apply Hp. exact (sin_small_rule x up w Fx S). }
+destruct (DyadicTrig.fast_sin_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp.
+  exact (FastTrig.fast_sin_dir_correct false x up _ Fx (FastTrig.fast_arg_hyp x Fx G) F). }
 apply (Hz (DyadicTrig.ev_sin x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_sin_correct x n a Hn Fx Ha).
 Qed.
@@ -211,6 +215,7 @@ intros x up v. unfold DyadicTrig.sin_dir, DyadicTrig.sin_dir_with.
 destruct (negb (is_finite x)); [exact (fun h => h)|].
 destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|].
 destruct (DyadicTrig.sin_small x up); [exact (fun h => h)|].
+destruct (DyadicTrig.fast_sin_dir false x up); [exact (fun h => h)|].
 apply ziv_strict_ziv.
 Qed.
 
@@ -227,6 +232,10 @@ destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
 { injection H as <-. apply Hp. exact (cos_tiny_rule x up Fx G). }
 destruct (DyadicTrig.cos_small (fabs x) up) as [w|] eqn:S; cbv iota in H.
 { injection H as <-. apply Hp. exact (cos_small_rule x up w Fx S). }
+destruct (DyadicTrig.fast_cos_dir false (fabs x) up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp. rewrite <- FastTrig.cos_fabs.
+  destruct (FastTrig.fast_arg_fabs x (FastTrig.fast_arg_hyp x Fx G) Fx) as (Fa & Ga).
+  exact (FastTrig.fast_cos_dir_correct false (fabs x) up _ Fa Ga F). }
 apply (Hz (DyadicTrig.ev_cos (fabs x)) up 1%nat); [|exact H].
 intros n a Hn Ha.
 destruct (ev_cos_correct (fabs x) n a Hn (trg_fabs_finite x Fx) (trg_fabs_pos x) Ha)
@@ -256,6 +265,7 @@ intros x up v. unfold DyadicTrig.cos_dir, DyadicTrig.cos_dir_with. cbv zeta.
 destruct (negb (is_finite (fabs x))); [exact (fun h => h)|].
 destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|].
 destruct (DyadicTrig.cos_small (fabs x) up); [exact (fun h => h)|].
+destruct (DyadicTrig.fast_cos_dir false (fabs x) up); [exact (fun h => h)|].
 apply ziv_strict_ziv.
 Qed.
 
@@ -271,6 +281,9 @@ destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
 { injection H as <-. apply Hp. exact (tan_tiny_rule x up Fx G). }
 destruct (DyadicTrig.tan_small x up) as [w|] eqn:S; cbv iota in H.
 { injection H as <-. apply Hp. exact (tan_small_rule x up w Fx S). }
+destruct (DyadicTrig.fast_tan_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp.
+  exact (FastTrig.fast_tan_dir_correct false x up _ Fx (FastTrig.fast_arg_hyp x Fx G) F). }
 apply (Hz (DyadicTrig.ev_tan x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_tan_correct x n a Hn Fx Ha).
 Qed.
@@ -295,5 +308,6 @@ intros x up v. unfold DyadicTrig.tan_dir, DyadicTrig.tan_dir_with.
 destruct (negb (is_finite x)); [exact (fun h => h)|].
 destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|].
 destruct (DyadicTrig.tan_small x up); [exact (fun h => h)|].
+destruct (DyadicTrig.fast_tan_dir false x up); [exact (fun h => h)|].
 apply ziv_strict_ziv.
 Qed.

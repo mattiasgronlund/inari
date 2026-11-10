@@ -14,6 +14,7 @@ From Inari Require Import Model Mpfr Limbs Elementary LogReal DyRound DyConv DyO
   DyConst DyExpCore DyExpRules DyExp ExpReal DyHypRules DyLogRules DyLogCore DyLog DyLogHyp
   TrigSeries DyTrigTiny DyCosSmall DySinSmall DyTanSmall DyTrigReduce DyTrigCore DyTrig MpfrRound
   NearF64 NearCells DyDriverNear.
+From Inari Require FastTrig.
 
 Open Scope Z_scope.
 
@@ -140,6 +141,8 @@ Qed.
 Local Ltac near_strict :=
   repeat match goal with
   | |- (if ?c then _ else _) = Some _ -> _ => destruct c; [exact (fun h => h)|]
+  | |- match ?c with Some _ => _ | None => _ end = Some _ -> _ =>
+      destruct c; [exact (fun h => h)|]
   end;
   apply ziv_near_strict_ziv.
 
@@ -155,6 +158,9 @@ intros x v Fx H. unfold DyadicTrig.sin_near_with in H.
 rewrite Fx in H. cbv [negb] in H.
 destruct (lt (fabs x) DyadicExp.tiny_near) eqn:G; cbv iota in H.
 { injection H as <-. exact (tn_odd sin x sin_neg tn_sin Fx (tn_tiny x Fx G)). }
+destruct (DyadicTrig.fast_sin_near false x) eqn:F; cbv iota in H.
+{ injection H as <-.
+  exact (FastTrig.fast_sin_near_correct false x _ Fx (FastTrig.fast_arg_near x Fx G) F). }
 apply (ziv_near_strict_correct (DyadicTrig.ev_sin x) 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_sin_correct x n a Hn Fx Ha).
 Qed.
@@ -170,6 +176,10 @@ destruct (lt (fabs x) DyadicExp.tiny_near) eqn:G; cbv iota in H.
 { (* [cos x = cos |x|] with [|x| < 2^-27] is within [2^-54] of 1. *)
   injection H as <-. rewrite tn_cos_abs. apply near_one, tn_cos.
   split; [apply Rabs_pos | exact (tn_tiny x Fx G)]. }
+destruct (DyadicTrig.fast_cos_near false (fabs x)) eqn:F; cbv iota in H.
+{ injection H as <-. rewrite <- FastTrig.cos_fabs.
+  destruct (FastTrig.fast_arg_fabs x (FastTrig.fast_arg_near x Fx G) Fx) as (Fa & Ga).
+  exact (FastTrig.fast_cos_near_correct false (fabs x) _ Fa Ga F). }
 apply (ziv_near_strict_correct (DyadicTrig.ev_cos (fabs x)) 1%nat); [|exact H].
 intros n a Hn Ha.
 destruct (ev_cos_correct (fabs x) n a Hn (trg_fabs_finite x Fx) (trg_fabs_pos x) Ha)
@@ -187,6 +197,9 @@ intros x v Fx H. unfold DyadicTrig.tan_near_with in H.
 rewrite Fx in H. cbv [negb] in H.
 destruct (lt (fabs x) DyadicExp.tiny_near) eqn:G; cbv iota in H.
 { injection H as <-. exact (tn_odd tan x tan_neg tn_tan Fx (tn_tiny x Fx G)). }
+destruct (DyadicTrig.fast_tan_near false x) eqn:F; cbv iota in H.
+{ injection H as <-.
+  exact (FastTrig.fast_tan_near_correct false x _ Fx (FastTrig.fast_arg_near x Fx G) F). }
 apply (ziv_near_strict_correct (DyadicTrig.ev_tan x) 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_tan_correct x n a Hn Fx Ha).
 Qed.

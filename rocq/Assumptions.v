@@ -52,6 +52,8 @@ From Inari Require FastRoundErr FastDiv FastHypPoly FastCoshPoly FastHypPos Fast
   FastHyp.
 From Inari Require FastSign FastLogTables FastLogTaylor FastLogHorner FastLogPoly FastLogReduce
   FastLogCore FastLogNorm FastLogLn FastLogBy FastLog.
+From Inari Require FastTrigTables FastTrigReduce FastTrigSC FastTrigEval FastTrigDiv
+  FastTrigRound FastTrigCore FastTrig.
 From Inari Require KahanMcDonald DyTrigPos SideTight SideTheorems DyPointSide.
 From Inari Require ExpQuadratic PowFactor ExpIrrational CosNiven CosIrrational DyExactDriver
   DyExactPoint DyTrigExact DyExpPoint DyExpExact DyLogSeries DyLogPoint DyLogExact DyAtanExact.
@@ -390,6 +392,38 @@ Print Assumptions FastLog.fast_log10_dir_fma.
 Print Assumptions FastLog.fast_log10_near_fma.
 Print Assumptions FastLog.fast_ln_one.
 Print Assumptions FastLog.fast_log2_one.
+Print Assumptions FastTrigTables.sc1_correct.
+Print Assumptions FastTrigTables.sc2_correct.
+Print Assumptions FastTrigTables.fast_trig_consts.
+Print Assumptions FastTrigReduce.fast_reduce_correct.
+Print Assumptions FastTrigSC.fast_sc_correct.
+Print Assumptions FastTrigSC.fast_sc_fma.
+Print Assumptions FastTrigEval.fast_eval_correct.
+Print Assumptions FastTrigEval.fast_eval_fma.
+Print Assumptions FastTrigEval.fast_sin0_correct.
+Print Assumptions FastTrigEval.fast_cos0_correct.
+Print Assumptions FastTrigDiv.fast_div_correct.
+Print Assumptions FastTrigDiv.fast_div_fma.
+Print Assumptions FastTrigRound.fast_round_dir_correct.
+Print Assumptions FastTrigRound.fast_round_near_correct.
+Print Assumptions FastTrigCore.fast_sin_correct.
+Print Assumptions FastTrigCore.fast_cos_correct.
+Print Assumptions FastTrigCore.fast_tan_correct.
+Print Assumptions FastTrigCore.fast_sin_fma.
+Print Assumptions FastTrigCore.fast_cos_fma.
+Print Assumptions FastTrigCore.fast_tan_fma.
+Print Assumptions FastTrig.fast_sin_dir_correct.
+Print Assumptions FastTrig.fast_sin_near_correct.
+Print Assumptions FastTrig.fast_sin_dir_fma.
+Print Assumptions FastTrig.fast_sin_near_fma.
+Print Assumptions FastTrig.fast_cos_dir_correct.
+Print Assumptions FastTrig.fast_cos_near_correct.
+Print Assumptions FastTrig.fast_cos_dir_fma.
+Print Assumptions FastTrig.fast_cos_near_fma.
+Print Assumptions FastTrig.fast_tan_dir_correct.
+Print Assumptions FastTrig.fast_tan_near_correct.
+Print Assumptions FastTrig.fast_tan_dir_fma.
+Print Assumptions FastTrig.fast_tan_near_fma.
 Print Assumptions DyExp.exp_dir_correct.
 Print Assumptions DyExp.exp_dir_side.
 Print Assumptions DyExp.exp_dir_strict.

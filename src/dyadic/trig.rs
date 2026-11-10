@@ -64,17 +64,17 @@
 // scratch buffer of `reduce`, so it has to be updated along with them.
 // `rocq/theories/DyTrig.v` proves that each of the three functions, at finite arguments and
 // where it does not panic, returns a value on the side of its result that the rounding is on,
-// and, where a rule settles the argument or a rounding test of `ziv` passes, its result
-// rounded as `mpfr_round` in `rocq/theories/Mpfr.v` says. It builds on
+// and, where a rule settles the argument, the fast path below returns or a rounding test of
+// `ziv` passes, its result rounded as `mpfr_round` in `rocq/theories/Mpfr.v` says. It builds on
 // `rocq/theories/DyTrigReduce.v` for `reduce`, `rocq/theories/DyTrigCore.v` for `series` and
 // `sin_k`, `rocq/theories/TrigSeries.v` for the bounds of the series and the identities that
 // the evaluations use, `rocq/theories/DyTrigTiny.v` for the rules at tiny arguments, and
 // `rocq/theories/DyTrigSmall.v`, `rocq/theories/DyCosSmall.v`, `rocq/theories/DySinSmall.v`
 // and `rocq/theories/DyTanSmall.v` for those at small arguments. `rocq/theories/DyTrigNear.v`
 // proves that each of the three functions rounded to nearest, at a finite argument, where a
-// rule settles the argument or a rounding test of `ziv_near` passes, returns its result
-// rounded to nearest as `near_round` in `rocq/theories/NearF64.v` says, from the same
-// enclosures and bounds and the cells of `rocq/theories/NearCells.v`.
+// rule settles the argument, the fast path returns or a rounding test of `ziv_near` passes,
+// returns its result rounded to nearest as `near_round` in `rocq/theories/NearF64.v` says,
+// from the same enclosures and bounds and the cells of `rocq/theories/NearCells.v`.
 // `rocq/theories/DyTrigExact.v` proves that each of the three functions returns its result,
 // in both directions, at every finite argument at which it is an `f64`, which is only ±0,
 // where the rules of tiny arguments return it, with `cos_irrational` in
@@ -82,15 +82,51 @@
 // (I. Niven, Irrational Numbers, 1956, ch. 2). That no result is a midpoint is not stated in
 // the proofs. Other than that, it is not proved that a test passes by the cap of `ziv` or of
 // `ziv_near`, nor that the evaluations do not panic.
+//
+// sin, cos and tan try a fast path in double-double after their rules and before `ziv` and
+// `ziv_near` (`fast_sin`, `fast_cos` and `fast_tan`), with the rounding tests of
+// `src/dyadic/fast.rs`, which take a positive h, applied to |y| and the sign put back
+// (`fast_round_dir` and `fast_round_near`). Where a test fails, or the fast path declines the
+// argument, the function calls `ziv` or `ziv_near` as before. The fast path takes
+// |x| < 2^16 (`LIMIT`), reduces x to n u + ρ for u = π/4096 and |ρ| <= u/2 (1 + 2^-24), with u
+// in three parts as Cody and Waite do (`fast_reduce`), and, with n = 2048 q + i, so that x is
+// i u + ρ past q π/2, takes sin(i u + ρ) = sin(i u) cos ρ + cos(i u) sin ρ, with sin and cos of
+// i u from two tables (`fast_sc`) and the Taylor polynomials of cos ρ - 1 to degree 4 and of
+// sin ρ - ρ to degree 5 (`fast_eval`), and tan x as the quotient of the two (`fast_div`). At
+// n = 0, the Taylor polynomials of sin x and cos x themselves (`fast_sin0` and `fast_cos0`). It
+// declines x where i = 0 and n is not, as x is then within u/2 (1 + 2^-24) of a multiple of
+// π/2 other than 0, where sin x, cos x or tan x is close to 0 or has a pole, so that elsewhere
+// i u + ρ lies in [u/2 (1 - 2^-24), π/2 - u/2 (1 - 2^-24)], where sin and cos are above 2^-12,
+// and the error of the reduction is small relative to them. It also declines x where the
+// computed rh is 0, which the proof of `fast_eval` excludes. The shape, a reduction by a
+// multiple of a fraction of π, sin and cos of that multiple from two tables and short
+// polynomials of the remainder, is that of CORE-MATH's `sin` [CORE-MATH], whose fast path takes
+// multiples of π/2^14, two tables of 128 rows, minimax polynomials and a bound on the absolute
+// error.
+// `rocq/theories/FastTrigCore.v` bounds the error of `fast_sin`, `fast_cos` and `fast_tan`
+// relative to sin x, cos t and tan x by 2^-71, 2^-71 and 3 2^-71, from
+// `rocq/theories/FastTrigReduce.v` for the reduction, `rocq/theories/FastTrigTables.v` for
+// the tables and constants, and `rocq/theories/FastTrigSC.v`, `rocq/theories/FastTrigEval.v`
+// and `rocq/theories/FastTrigDiv.v` for the steps. `rocq/theories/FastTrigRound.v` proves the
+// tests with the sign, and `rocq/theories/FastTrig.v` proves that the fast path returns sin x,
+// cos t and tan x rounded, with and without an FMA. As those are correct roundings,
+// `sin_dir_sign` and `cos_dir_sign` hold where the fast path returns too.
+//
+// [CORE-MATH] P. Zimmermann et al., the CORE-MATH project, `src/binary64/sin/sin.c` (MIT
+// license); no constant or table is copied from it.
 
 use super::{
     consts::PI,
     exp::{away, near_one, toward_zero, TINY_HYP, TINY_NEAR},
+    fast::{fast_two_sum, round_dir, round_near},
     round, ziv, ziv_near, Dyadic, Encl, Eval,
 };
 use crate::limbs;
+use crate::simd::{two_prod_err, HAS_FMA};
 use std::cmp::Ordering;
+use tables::{SC1, SC2};
 
+mod tables;
 #[cfg(test)]
 mod tests;
 
@@ -381,6 +417,265 @@ fn tan_small(x: f64, up: bool) -> Option<f64> {
     Some(if neg { -v } else { v })
 }
 
+// The constants of the fast path, as the bits of `f64`s, since `f64::from_bits` is not `const`
+// before Rust 1.83. u = π/4096; `INV` = RN(1 / u); `U1` is u with its significand cut to 26
+// bits (25 significant bits, as the 26th is 0), so that n U1 is exact for |n| < 2^27, `U2` is
+// u - U1 cut to 26 bits (24 significant bits), so that n U2 is exact too, and
+// `U3` = RN(u - U1 - U2), with |u - U1 - U2 - U3| < 2^-120. `S3` = RN(1/6),
+// `S5` = RN(1/120) and `C4` = RN(1/24). `rocq/theories/FastTrigTables.v` proves that `INV` u is
+// within 2^-52 of 1 and U1 + U2 + U3 within 2^-119 of u (`fast_trig_consts`).
+const INV: u64 = 0x40945f306dc9c883;
+const U1: u64 = 0x3f4921fb50000000;
+const U2: u64 = 0x3da110b460000000;
+const U3: u64 = 0x3be1a62633145c07;
+const S3: u64 = 0x3fc5555555555555;
+const S5: u64 = 0x3f81111111111111;
+const C4: u64 = 0x3fa5555555555555;
+
+// 1.5 * 2^52: for |t| < 2^51, (t + SHIFTER) - SHIFTER is t rounded to an integer.
+const SHIFTER: f64 = 6_755_399_441_055_744.0;
+
+// 2^16: the fast path reduces |x| < LIMIT, and leaves the others to the kernel.
+const LIMIT: f64 = 65_536.0;
+
+// (n, rh, rl, rr) with x = n u + ρ, |ρ| <= u/2 (1 + 2^-24), |ρ - (rh + rl)| <= 2^-90 and
+// rr = RN(rh + rl), for |x| < `LIMIT`, and `None` for any other x, NaN included.
+// `rocq/theories/FastTrigReduce.v` proves these bounds (`fast_reduce_correct`).
+fn fast_reduce(x: f64) -> Option<(i64, f64, f64, f64)> {
+    if x.is_nan() || x.abs() >= LIMIT {
+        return None;
+    }
+    // n is x / u rounded to an integer up to the roundings of `INV` and of the product, and
+    // |n| < 2^27: |x INV| < 2^51, so adding and subtracting `SHIFTER` rounds RN(x INV) to an
+    // integer, within 1/2 of it.
+    let kf = (x * f64::from_bits(INV) + SHIFTER) - SHIFTER;
+    // rh = x - n U1 - n U2 exactly: both products are exact, and so are both differences. At
+    // n = 0 they subtract 0. Elsewhere |x| > 2^-12, so that x, n U1 and n U2 are multiples of
+    // 2^g, the smaller of the quantum of x and 2^-60, and both differences are below 2^-7 and
+    // below 2^(k + 1) for 2^k <= |x| < 2^(k + 1), so below 2^(g + 53) in magnitude. rl is
+    // -n U3 rounded once.
+    let (u1, u2) = (f64::from_bits(U1), f64::from_bits(U2));
+    let rh = (x - kf * u1) - kf * u2;
+    let rl = -(kf * f64::from_bits(U3));
+    Some((kf as i64, rh, rl, rh + rl))
+}
+
+// (ah + al) (bh + bl) as p + e, with p = RN(ah bh), from the exact error of that product
+// [Dekker] and the cross products. al bl is left out.
+fn fast_mul(ah: f64, al: f64, bh: f64, bl: f64) -> (f64, f64) {
+    let p = ah * bh;
+    (p, two_prod_err::<HAS_FMA>(ah, bh, p) + (ah * bl + al * bh))
+}
+
+// (sh, sl, ch, cl) with sh + sl and ch + cl sin and cos of i u, for i in [1, 2047], from the
+// tables at i = 64 i1 + i2 by sin(a + b) = sin a cos b + cos a sin b and
+// cos(a + b) = cos a cos b - sin a sin b. `rocq/theories/FastTrigSC.v` proves that they are
+// within 2^-88 of sin(i u) and cos(i u) relative to them (`fast_sc_correct`).
+fn fast_sc(i: i64) -> (f64, f64, f64, f64) {
+    let row = |r: [u64; 4]| {
+        (
+            f64::from_bits(r[0]),
+            f64::from_bits(r[1]),
+            f64::from_bits(r[2]),
+            f64::from_bits(r[3]),
+        )
+    };
+    let (s1h, s1l, c1h, c1l) = row(SC1[(i >> 6) as usize]);
+    let (s2h, s2l, c2h, c2l) = row(SC2[(i & 63) as usize]);
+    if i & 63 == 0 {
+        return (s1h, s1l, c1h, c1l);
+    }
+    if i >> 6 == 0 {
+        return (s2h, s2l, c2h, c2l);
+    }
+    // With a = i1 π/64 > b = i2 u, sin a cos b > cos a sin b, and with a + b < π/2,
+    // cos a cos b > sin a sin b, so that each `fast_two_sum` has its larger term first.
+    let (ps, es) = fast_mul(s1h, s1l, c2h, c2l);
+    let (qs, fs) = fast_mul(c1h, c1l, s2h, s2l);
+    let (sh, t) = fast_two_sum(ps, qs);
+    let (pc, ec) = fast_mul(c1h, c1l, c2h, c2l);
+    let (qc, fc) = fast_mul(s1h, s1l, s2h, s2l);
+    let (ch, w) = fast_two_sum(pc, -qc);
+    // Renormalized, so that |sl| <= 2^-53 sh and |cl| <= 2^-53 ch, as in the tables: near
+    // a + b = π/2, cos(a + b) is much smaller than pc, and ec - fc can be 2^-44 ch, which
+    // `fast_eval` would multiply by cos ρ - 1 if it were not folded into ch.
+    let (sh, sl) = fast_two_sum(sh, t + (es + fs));
+    let (ch, cl) = fast_two_sum(ch, w + (ec - fc));
+    (sh, sl, ch, cl)
+}
+
+// sin(j u + ρ) = S cos ρ + C sin ρ as h + l, h = RN(h + l), for S = sh + sl and C = ch + cl
+// near sin(j u) and cos(j u), j in [1, 2047], and ρ near rh + rl, rr = RN(rh + rl). The
+// Taylor polynomials of cos ρ - 1 to degree 4 and of sin ρ - ρ to degree 5 are evaluated in
+// plain `f64` from rr, and C ρ in double-double. `rocq/theories/FastTrigEval.v` bounds the
+// error (`fast_eval_correct`).
+fn fast_eval(sh: f64, sl: f64, ch: f64, cl: f64, rh: f64, rl: f64, rr: f64) -> (f64, f64) {
+    // ch rh exactly [Dekker], and ch rl + cl rr, which leaves out cl (rh + rl - rr).
+    let a = ch * rh;
+    let ae = two_prod_err::<HAS_FMA>(ch, rh, a) + (ch * rl + cl * rr);
+    let z = rr * rr;
+    let cm = z * (z * f64::from_bits(C4) - 0.5);
+    let s3 = rr * z * (z * f64::from_bits(S5) - f64::from_bits(S3));
+    // S + C rh is the largest part, and |C rh| < S: see `fast_two_sum`.
+    let (h, t) = fast_two_sum(sh, a);
+    let l = t + (((sl + ae) + sh * cm) + ch * s3);
+    fast_two_sum(h, l)
+}
+
+// sin x as h + l, h = RN(h + l), for 2^-27 <= |x| <= u/2 (1 + 2^-24), by the Taylor polynomial
+// of degree 5. `rocq/theories/FastTrigEval.v` bounds the error (`fast_sin0_correct`).
+fn fast_sin0(x: f64) -> (f64, f64) {
+    let z = x * x;
+    fast_two_sum(x, x * z * (z * f64::from_bits(S5) - f64::from_bits(S3)))
+}
+
+// cos x as h + l, h = RN(h + l), for |x| <= u/2 (1 + 2^-24), by the Taylor polynomial of
+// degree 4. `rocq/theories/FastTrigEval.v` bounds the error for 2^-27 <= |x|, the x that the
+// rules leave (`fast_cos0_correct`).
+fn fast_cos0(x: f64) -> (f64, f64) {
+    let z = x * x;
+    fast_two_sum(1.0, z * (z * f64::from_bits(C4) - 0.5))
+}
+
+// sin(x + s π/2) as h + l, from the reduction (n, rh, rl, rr) of x with n != 0, and `None`
+// where i = n mod 2048 is 0, where the result can be near 0, or where rh = 0. With
+// n = 2048 q + i, x + s π/2 = (q + s) π/2 + i u + ρ, and sin(i u + ρ) and
+// cos(i u + ρ) = sin((2048 - i) u - ρ) are both `fast_eval` with j in [1, 2047].
+fn fast_quad(n: i64, s: i64, rh: f64, rl: f64, rr: f64) -> Option<(f64, f64)> {
+    let i = n & 2047;
+    if i == 0 || rh == 0.0 {
+        return None;
+    }
+    let q = (n >> 11) + s;
+    let (sh, sl, ch, cl) = fast_sc(i);
+    let (h, l) = if q & 1 == 0 {
+        fast_eval(sh, sl, ch, cl, rh, rl, rr)
+    } else {
+        fast_eval(ch, cl, sh, sl, -rh, -rl, -rr)
+    };
+    Some(if q & 2 == 0 { (h, l) } else { (-h, -l) })
+}
+
+// sin x as h + l, h = RN(h + l), within 2^-71 |sin x| of it, for 2^-27 <= |x| < `LIMIT`, or
+// `None`. `rocq/theories/FastTrigCore.v` proves the bound (`fast_sin_correct`).
+fn fast_sin(x: f64) -> Option<(f64, f64)> {
+    let (n, rh, rl, rr) = fast_reduce(x)?;
+    if n == 0 {
+        Some(fast_sin0(x))
+    } else {
+        fast_quad(n, 0, rh, rl, rr)
+    }
+}
+
+// cos t as h + l, as `fast_sin` does sin x, for t = |x| (`fast_cos_correct`).
+fn fast_cos(t: f64) -> Option<(f64, f64)> {
+    let (n, rh, rl, rr) = fast_reduce(t)?;
+    if n == 0 {
+        Some(fast_cos0(t))
+    } else {
+        fast_quad(n, 1, rh, rl, rr)
+    }
+}
+
+// (nh + nl) / (dh + dl) as h + l, h = RN(h + l): qh = RN(nh / dh), and the remainder
+// nh - qh dh exactly [Dekker], with nl - qh dl, divided by dh. `rocq/theories/FastTrigDiv.v`
+// bounds the error (`fast_div_correct`).
+fn fast_div(nh: f64, nl: f64, dh: f64, dl: f64) -> (f64, f64) {
+    let qh = nh / dh;
+    let p = qh * dh;
+    let pe = two_prod_err::<HAS_FMA>(qh, dh, p);
+    fast_two_sum(qh, (((nh - p) - pe) + (nl - qh * dl)) / dh)
+}
+
+// tan x as h + l, as `fast_sin` does sin x: sin and cos from the same reduction and tables,
+// and their quotient, tan(i u + ρ) at an even q and -1 / tan(i u + ρ) at an odd one, within
+// 3 2^-71 |tan x| of tan x (`fast_tan_correct` in `rocq/theories/FastTrigCore.v`).
+fn fast_tan(x: f64) -> Option<(f64, f64)> {
+    let (n, rh, rl, rr) = fast_reduce(x)?;
+    if n == 0 {
+        let ((sh, sl), (ch, cl)) = (fast_sin0(x), fast_cos0(x));
+        return Some(fast_div(sh, sl, ch, cl));
+    }
+    let i = n & 2047;
+    if i == 0 || rh == 0.0 {
+        return None;
+    }
+    let (sh, sl, ch, cl) = fast_sc(i);
+    let (s, c) = (
+        fast_eval(sh, sl, ch, cl, rh, rl, rr),
+        fast_eval(ch, cl, sh, sl, -rh, -rl, -rr),
+    );
+    Some(if n & 2048 == 0 {
+        fast_div(s.0, s.1, c.0, c.1)
+    } else {
+        let (h, l) = fast_div(c.0, c.1, s.0, s.1);
+        (-h, -l)
+    })
+}
+
+// (h 2^-e, l 2^-e, e, false) for h > 0 and (-h 2^-e, -l 2^-e, e, true) for h < 0, with
+// 2^e <= |h| < 2^(e + 1), for a normal h: the scaled pair that the rounding tests of
+// `src/dyadic/fast.rs` take, whose h lies in [1, 2).
+fn fast_unscale(h: f64, l: f64) -> (f64, f64, i64, bool) {
+    let neg = h < 0.0;
+    let (h, l) = if neg { (-h, -l) } else { (h, l) };
+    let e = (h.to_bits() >> 52) as i64 - 1023;
+    let s = f64::from_bits(((1023 - e) as u64) << 52);
+    (h * s, l * s, e, neg)
+}
+
+// The rounding of y toward +∞ if `up` and toward -∞ otherwise, for h + l within 3 2^-71 |y| of
+// y, or `None` where the test of `round_dir` fails. A negative y is -|y|, and rounding |y|
+// the other way and negating rounds y.
+fn fast_round_dir(h: f64, l: f64, up: bool) -> Option<f64> {
+    let (h, l, e, neg) = fast_unscale(h, l);
+    let r = round_dir(h, l, e, up != neg)?;
+    Some(if neg { -r } else { r })
+}
+
+// The rounding of y to nearest, as `fast_round_dir`. `rocq/theories/FastTrigRound.v` proves
+// both (`fast_round_dir_correct` and `fast_round_near_correct`).
+fn fast_round_near(h: f64, l: f64) -> Option<f64> {
+    let (h, l, e, neg) = fast_unscale(h, l);
+    let r = round_near(h, l, e)?;
+    Some(if neg { -r } else { r })
+}
+
+// sin x, cos t and tan x rounded toward +∞ if `up` and toward -∞ otherwise, and to nearest, by
+// the fast path, or `None` where the argument is out of its range, where it declines the
+// argument, or where its rounding test fails.
+// `rocq/theories/FastTrig.v` proves that they return those roundings (`fast_sin_dir_correct`
+// and the others), and the same with and without an FMA (`fast_sin_dir_fma` and the others).
+fn fast_sin_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l) = fast_sin(x)?;
+    fast_round_dir(h, l, up)
+}
+
+fn fast_cos_dir(t: f64, up: bool) -> Option<f64> {
+    let (h, l) = fast_cos(t)?;
+    fast_round_dir(h, l, up)
+}
+
+fn fast_tan_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l) = fast_tan(x)?;
+    fast_round_dir(h, l, up)
+}
+
+fn fast_sin_near(x: f64) -> Option<f64> {
+    let (h, l) = fast_sin(x)?;
+    fast_round_near(h, l)
+}
+
+fn fast_cos_near(t: f64) -> Option<f64> {
+    let (h, l) = fast_cos(t)?;
+    fast_round_near(h, l)
+}
+
+fn fast_tan_near(x: f64) -> Option<f64> {
+    let (h, l) = fast_tan(x)?;
+    fast_round_near(h, l)
+}
+
 /// sin x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn sin(x: f64, up: bool) -> f64 {
     if !x.is_finite() {
@@ -389,7 +684,9 @@ pub(crate) fn sin(x: f64, up: bool) -> f64 {
         // x - x^3 / 6 <= sin x < x for x in (0, 1], and sin is odd.
         toward_zero(x, up)
     } else {
-        sin_small(x, up).unwrap_or_else(|| ziv(&Sin(x), up, 1))
+        sin_small(x, up)
+            .or_else(|| fast_sin_dir(x, up))
+            .unwrap_or_else(|| ziv(&Sin(x), up, 1))
     }
 }
 
@@ -403,7 +700,7 @@ pub(crate) fn sin_near(x: f64) -> f64 {
     } else {
         // No rule as `sin_small`, which only saves levels (the header says why `ziv_near`
         // does without one).
-        ziv_near(&Sin(x), 1)
+        fast_sin_near(x).unwrap_or_else(|| ziv_near(&Sin(x), 1))
     }
 }
 
@@ -417,7 +714,9 @@ pub(crate) fn cos(x: f64, up: bool) -> f64 {
         // t < 2^-26. cos 0 = 1.
         near_one(-t, up)
     } else {
-        cos_small(t, up).unwrap_or_else(|| ziv(&Cos(t), up, 1))
+        cos_small(t, up)
+            .or_else(|| fast_cos_dir(t, up))
+            .unwrap_or_else(|| ziv(&Cos(t), up, 1))
     }
 }
 
@@ -430,7 +729,7 @@ pub(crate) fn cos_near(x: f64) -> f64 {
         // 1 - 2^-55 < 1 - t^2 / 2 <= cos t <= 1.
         1.0
     } else {
-        ziv_near(&Cos(t), 1)
+        fast_cos_near(t).unwrap_or_else(|| ziv_near(&Cos(t), 1))
     }
 }
 
@@ -442,7 +741,9 @@ pub(crate) fn tan(x: f64, up: bool) -> f64 {
         // x < tan x < x + x^3 / 2 for x in (0, 2^-26), and tan is odd.
         away(x, up)
     } else {
-        tan_small(x, up).unwrap_or_else(|| ziv(&Tan(x), up, 1))
+        tan_small(x, up)
+            .or_else(|| fast_tan_dir(x, up))
+            .unwrap_or_else(|| ziv(&Tan(x), up, 1))
     }
 }
 
@@ -454,6 +755,6 @@ pub(crate) fn tan_near(x: f64) -> f64 {
         // x < tan x < x + x^3 / 2 for x in (0, 2^-26), and tan is odd.
         x
     } else {
-        ziv_near(&Tan(x), 1)
+        fast_tan_near(x).unwrap_or_else(|| ziv_near(&Tan(x), 1))
     }
 }

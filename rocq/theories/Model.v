@@ -3933,21 +3933,324 @@ Definition tan_small (x : f64) (up : bool) : option f64 :=
   let v := from_bits (b + j + Z.b2z (xorb up neg)) in
   Some (if neg then opp v else v).
 
+(** ** The fast path
+
+    The constants of [fn fast_reduce] and the others, as the bits of
+    [f64]s: [INV], [U1], [U2], [U3], [S3], [S5] and [C4], [SHIFTER], 1.5
+    * 2^52, and [LIMIT], 2^16. *)
+Import ListNotations.
+
+Definition INV : Z := 0x40945f306dc9c883.
+Definition U1 : Z := 0x3f4921fb50000000.
+Definition U2 : Z := 0x3da110b460000000.
+Definition U3 : Z := 0x3be1a62633145c07.
+Definition S3 : Z := 0x3fc5555555555555.
+Definition S5 : Z := 0x3f81111111111111.
+Definition C4 : Z := 0x3fa5555555555555.
+Definition shifter : f64 := from_bits 0x4338000000000000.
+Definition limit : f64 := from_bits 0x40f0000000000000.
+
+(** [SC1] and [SC2] of [src/dyadic/trig/tables.rs], sin and cos of i π/64
+    and of j π/4096 in double-double, each row [[sh, sl, ch, cl]] a
+    4-tuple, and [SC[i]] read with [f64::from_bits], for [i] in the
+    bounds of the table, where the index cannot be out of bounds. *)
+Definition SC1 : list (Z * Z * Z * Z) := [
+  (0x0000000000000000, 0x0000000000000000, 0x3ff0000000000000, 0x0000000000000000);
+  (0x3fa91f65f10dd814, 0xbc2912bd0d569a90, 0x3feff621e3796d7e, 0xbc6c57bc2e24aa15);
+  (0x3fb917a6bc29b42c, 0xbc3e2718d26ed688, 0x3fefd88da3d12526, 0xbc887df6378811c7);
+  (0x3fc2c8106e8e613a, 0x3c513000a89a11e0, 0x3fefa7557f08a517, 0xbc87a0a8ca13571f);
+  (0x3fc8f8b83c69a60b, 0xbc626d19b9ff8d82, 0x3fef6297cff75cb0, 0x3c7562172a361fd3);
+  (0x3fcf19f97b215f1b, 0xbc642deef11da2c4, 0x3fef0a7efb9230d7, 0x3c752c7adc6b4989);
+  (0x3fd294062ed59f06, 0xbc75d28da2c4612d, 0x3fee9f4156c62dda, 0x3c8760b1e2e3f81e);
+  (0x3fd58f9a75ab1fdd, 0xbc1efdc0d58cf620, 0x3fee212104f686e5, 0xbc8014c76c126527);
+  (0x3fd87de2a6aea963, 0xbc672cedd3d5a610, 0x3fed906bcf328d46, 0x3c7457e610231ac2);
+  (0x3fdb5d1009e15cc0, 0x3c65b362cb974183, 0x3feced7af43cc773, 0xbc5e7b6bb5ab58ae);
+  (0x3fde2b5d3806f63b, 0x3c5e0d891d3c6841, 0x3fec38b2f180bdb1, 0xbc76e0b1757c8d07);
+  (0x3fe073879922ffee, 0xbc8a5a014347406c, 0x3feb728345196e3e, 0xbc8bc69f324e6d61);
+  (0x3fe1c73b39ae68c8, 0x3c8b25dd267f6600, 0x3fea9b66290ea1a3, 0x3c39f630e8b6dac8);
+  (0x3fe30ff7fce17035, 0xbc6efcc626f74a6f, 0x3fe9b3e047f38741, 0xbc830ee286712474);
+  (0x3fe44cf325091dd6, 0x3c68076a2cfdc6b3, 0x3fe8bc806b151741, 0xbc82c5e12ed1336d);
+  (0x3fe57d69348ceca0, 0xbc875720992bfbb2, 0x3fe7b5df226aafaf, 0xbc70f537acdf0ad7);
+  (0x3fe6a09e667f3bcd, 0xbc8bdd3413b26456, 0x3fe6a09e667f3bcd, 0xbc8bdd3413b26456);
+  (0x3fe7b5df226aafaf, 0xbc70f537acdf0ad7, 0x3fe57d69348ceca0, 0xbc875720992bfbb2);
+  (0x3fe8bc806b151741, 0xbc82c5e12ed1336d, 0x3fe44cf325091dd6, 0x3c68076a2cfdc6b3);
+  (0x3fe9b3e047f38741, 0xbc830ee286712474, 0x3fe30ff7fce17035, 0xbc6efcc626f74a6f);
+  (0x3fea9b66290ea1a3, 0x3c39f630e8b6dac8, 0x3fe1c73b39ae68c8, 0x3c8b25dd267f6600);
+  (0x3feb728345196e3e, 0xbc8bc69f324e6d61, 0x3fe073879922ffee, 0xbc8a5a014347406c);
+  (0x3fec38b2f180bdb1, 0xbc76e0b1757c8d07, 0x3fde2b5d3806f63b, 0x3c5e0d891d3c6841);
+  (0x3feced7af43cc773, 0xbc5e7b6bb5ab58ae, 0x3fdb5d1009e15cc0, 0x3c65b362cb974183);
+  (0x3fed906bcf328d46, 0x3c7457e610231ac2, 0x3fd87de2a6aea963, 0xbc672cedd3d5a610);
+  (0x3fee212104f686e5, 0xbc8014c76c126527, 0x3fd58f9a75ab1fdd, 0xbc1efdc0d58cf620);
+  (0x3fee9f4156c62dda, 0x3c8760b1e2e3f81e, 0x3fd294062ed59f06, 0xbc75d28da2c4612d);
+  (0x3fef0a7efb9230d7, 0x3c752c7adc6b4989, 0x3fcf19f97b215f1b, 0xbc642deef11da2c4);
+  (0x3fef6297cff75cb0, 0x3c7562172a361fd3, 0x3fc8f8b83c69a60b, 0xbc626d19b9ff8d82);
+  (0x3fefa7557f08a517, 0xbc87a0a8ca13571f, 0x3fc2c8106e8e613a, 0x3c513000a89a11e0);
+  (0x3fefd88da3d12526, 0xbc887df6378811c7, 0x3fb917a6bc29b42c, 0xbc3e2718d26ed688);
+  (0x3feff621e3796d7e, 0xbc6c57bc2e24aa15, 0x3fa91f65f10dd814, 0xbc2912bd0d569a90)].
+
+Definition SC2 : list (Z * Z * Z * Z) := [
+  (0x0000000000000000, 0x0000000000000000, 0x3ff0000000000000, 0x0000000000000000);
+  (0x3f4921fb2aecb360, 0x3be876157e566b4c, 0x3fefffff62161a34, 0xbc6136dcb1f9b9c4);
+  (0x3f5921faaee6472e, 0xbbfee52e284a9df8, 0x3feffffd88586ee6, 0x3c81af64f173ae5b);
+  (0x3f62d97b6824b087, 0xbc09dae69dd4f97f, 0x3feffffa72c7105b, 0xbc8564ec4a452371);
+  (0x3f6921f8becca4ba, 0x3c02ba407bcab5b2, 0x3feffff621621d02, 0xbc76acfcebc82813);
+  (0x3f6f6a751d67d871, 0xbc066bdef183ff59, 0x3feffff09429bf7a, 0xbc8cabd3ded13a63);
+  (0x3f72d97822f996bc, 0x3c13e5a15ed6aa3e, 0x3fefffe9cb1e2e8d, 0xbc810f44663fd601);
+  (0x3f75fdb4fd35c8cb, 0xbc14b73d73e9b437, 0x3fefffe1c63fad33, 0x3c8429d08eb02c47);
+  (0x3f7921f0fe670071, 0x3bfab967fe6b7a9b, 0x3fefffd8858e8a92, 0x3c8359c71883bcf7);
+  (0x3f7c462c078bc41b, 0x3c19f6db9a6ada3c, 0x3fefffce090b21fc, 0xbc80389138f7e5ef);
+  (0x3f7f6a65f9a2a3c6, 0xbc1de8c48783f3ae, 0x3fefffc250b5daef, 0xbc813b48657081cd);
+  (0x3f81474f5ad51d17, 0xbc1a0fb850f9330d, 0x3fefffb55c8f2917, 0x3c86af540576eb51);
+  (0x3f82d96b0e509703, 0xbc01e9131ff52dc9, 0x3fefffa72c978c4f, 0xbc822cb000328f91);
+  (0x3f846b8607c31993, 0x3c291d1ac2a2ced6, 0x3fefff97c0cf909b, 0xbc6b418b1f88cf02);
+  (0x3f85fda037ac05e1, 0xbc2ff59bf4b574ee, 0x3fefff871937ce2f, 0xbc638dae49f0be32);
+  (0x3f878fb98e8ac4c8, 0xbc2555202816f3a5, 0x3fefff7535d0e96b, 0xbc7c5727ff41299b);
+  (0x3f8921d1fcdec784, 0x3c29878ebe836d9d, 0x3fefff62169b92db, 0x3c85dda3c81fbd0d);
+  (0x3f8ab3e973278849, 0x3c235b145a18353c, 0x3fefff4dbb98873a, 0x3c8857663dc92252);
+  (0x3f8c45ffe1e48ad9, 0x3c04060e4bd32e79, 0x3fefff3824c88f6f, 0xbc8ed820f3fe6980);
+  (0x3f8dd81539955d20, 0xbc2eaf6d880c7f01, 0x3fefff21522c808b, 0x3c7a190e2d2eaf6e);
+  (0x3f8f6a296ab997cb, 0xbc2f2943d8fe7033, 0x3fefff0943c53bd1, 0xbc847399f361d158);
+  (0x3f907e1e32e86f72, 0xbc3f40145dde0463, 0x3feffeeff993aeac, 0xbc599db334be163b);
+  (0x3f9147270dad7133, 0x3c08769e00e01800, 0x3feffed57398d2b7, 0xbc80bb0db6384cf3);
+  (0x3f92102f3debaf6f, 0xbc145a1ea37e10ea, 0x3feffeb9b1d5adb7, 0x3c8d5b363c2f4370);
+  (0x3f92d936bbe30efd, 0x3c2b5f91ee371d64, 0x3feffe9cb44b51a1, 0x3c75b43366df6670);
+  (0x3f93a23d7fd37b96, 0xbc3dd9e849a0a5d5, 0x3feffe7e7afadc94, 0xbc8db1225b06b02c);
+  (0x3f946b4381fce81b, 0x3c3ff9f89fb65be3, 0x3feffe5f05e578db, 0xbc7b71f7469ecc13);
+  (0x3f953448ba9f4eeb, 0x3c2e6adde30ec695, 0x3feffe3e550c5cf0, 0xbc858fb3ae72192e);
+  (0x3f95fd4d21fab226, 0xbc20c0a91c37851c, 0x3feffe1c6870cb77, 0x3c889aa14768323e);
+  (0x3f96c650b04f1bfe, 0x3ba53e382471fa0c, 0x3feffdf940141344, 0xbc8a63fc248c2dac);
+  (0x3f978f535ddc9f04, 0x3c2b194ad9b1aa97, 0x3feffdd4dbf78f52, 0x3c8216679a26323d);
+  (0x3f98585522e35674, 0xbc3d5a766c5894c1, 0x3feffdaf3c1ca6ce, 0xbc79c0f0834fa422);
+  (0x3f992155f7a3667e, 0xbbfb1d63091a0130, 0x3feffd886084cd0d, 0xbc81354d4556e4cb);
+  (0x3f99ea55d45cfc99, 0xbc14380f049217c4, 0x3feffd6049318192, 0xbc6dadcd42cc086c);
+  (0x3f9ab354b1504fca, 0xbc32ae47937cbdd3, 0x3feffd36f624500c, 0x3c7b6191df31aaa7);
+  (0x3f9b7c5286bda0f2, 0x3c0a7347031758bc, 0x3feffd0c675ed057, 0xbc7d8c4a886f4088);
+  (0x3f9c454f4ce53b1d, 0xbc3d63d7fef0e36c, 0x3feffce09ce2a679, 0xbc87bd62ab5ee228);
+  (0x3f9d0e4afc0773c9, 0x3c1d6f2e3f5072c4, 0x3feffcb396b182a5, 0xbc746c18e0826697);
+  (0x3f9dd7458c64ab3a, 0xbc3d653df3fcc281, 0x3feffc8554cd213a, 0x3c86905f147df63e);
+  (0x3f9ea03ef63d4cbe, 0xbc1d1e6ad55f6ea2, 0x3feffc55d7374ac4, 0xbc598384aaf2f006);
+  (0x3f9f693731d1cf01, 0xbbd3fe9bc66286c7, 0x3feffc251df1d3f8, 0x3c77a7d209f32d43);
+  (0x3fa019171bb15a2a, 0x3c4ea3784026d730, 0x3feffbf328fe9db9, 0x3c837804737702ac);
+  (0x3fa07d91ff984580, 0xbc3ae248da7a9007, 0x3feffbbff85f9515, 0x3c77044bd28b8d86);
+  (0x3fa0e20c40bdf6c3, 0x3c4b51fb3d682d2e, 0x3feffb8b8c16b345, 0x3c7dc75a8951fc30);
+  (0x3fa14685db42c17f, 0xbc42890d277cb974, 0x3feffb55e425fdae, 0x3c86da7ec781c225);
+  (0x3fa1aafecb46ffa8, 0xbc4eca89369659f4, 0x3feffb1f008f85e1, 0xbc7417369ee0f4e2);
+  (0x3fa20f770ceb11c7, 0xbc4ec1b9d46693b1, 0x3feffae6e1556998, 0x3c82f469e6a1bee4);
+  (0x3fa273ee9c4f5f1d, 0x3c4976649cb33947, 0x3feffaad8679d2bc, 0xbc8c65d217e50928);
+  (0x3fa2d865759455cd, 0x3c2686f65ba93ac0, 0x3feffa72effef75d, 0xbc88b4cdcdb25956);
+  (0x3fa33cdb94da6afc, 0xbb9967cdb33a1db5, 0x3feffa371de719b9, 0xbc8e61deaa9c55a1);
+  (0x3fa3a150f6421afc, 0x3c3f8a318ba775fd, 0x3feff9fa10348837, 0x3c84c80feaa95f8a);
+  (0x3fa405c595ebe972, 0xbc30a0c29ba18784, 0x3feff9bbc6e99d6c, 0xbc6051216f088f59);
+  (0x3fa46a396ff86179, 0x3c2136ac00fa2da9, 0x3feff97c4208c014, 0x3c652ab2b947e843);
+  (0x3fa4ceac808815cc, 0x3c4a5ee686b5da5d, 0x3feff93b81946318, 0x3c78b11b369083a8);
+  (0x3fa5331ec3bba0eb, 0x3c2442f2a9dac128, 0x3feff8f9858f058b, 0x3c83b02e15300cb4);
+  (0x3fa5979035b3a53f, 0x3c20aa4278ca77f7, 0x3feff8b64dfb32ab, 0xbc415436fc180dee);
+  (0x3fa5fc00d290cd43, 0x3c4a2669a693a8e1, 0x3feff871dadb81df, 0x3c78b1c676208aa4);
+  (0x3fa660709673cbaa, 0x3c4a35b814e9cf7f, 0x3feff82c2c3296ba, 0x3c7d3bc8d54e81d9);
+  (0x3fa6c4df7d7d5b84, 0xbc339c56a9bd0a9b, 0x3feff7e5420320f9, 0xbc89d34d3ec06613);
+  (0x3fa7294d83ce4063, 0x3c38efb8391d83d7, 0x3feff79d1c4fdc81, 0xbc6563eabf0069ac);
+  (0x3fa78dbaa5874686, 0xbc34a0ef4035c29c, 0x3feff753bb1b9164, 0xbc77c330129f56ef);
+  (0x3fa7f226dec942f9, 0x3c427ca987828443, 0x3feff7091e6913dc, 0xbc77916f8265d675);
+  (0x3fa856922bb513c1, 0x3c491adfd607cb2b, 0x3feff6bd463b444d, 0x3c7e5bfdfce09aea);
+  (0x3fa8bafc886b9fff, 0xbc4d1cc739f1016b, 0x3feff67032950f46, 0x3c62f75bfce143df)].
+
+Definition sc (t : list (Z * Z * Z * Z)) (i : Z) : f64 * f64 * f64 * f64 :=
+  let '(a, b, c, d) := nth (Z.to_nat i) t (0, 0, 0, 0) in
+  (from_bits a, from_bits b, from_bits c, from_bits d).
+
+(** [fn fast_reduce(x: f64) -> Option<(i64, f64, f64, f64)>], where
+    [x.abs()] is [fabs x] and [kf as i64] is [DyadicExp.to_i64 kf].
+    [FastTrigReduce.v] proves it. *)
+Definition fast_reduce (x : f64) : option (Z * f64 * f64 * f64) :=
+  if is_nan x || ge (fabs x) limit then None
+  else
+    let kf := sub (add (mul x (from_bits INV)) shifter) shifter in
+    let '(u1, u2) := (from_bits U1, from_bits U2) in
+    let rh := sub (sub x (mul kf u1)) (mul kf u2) in
+    let rl := opp (mul kf (from_bits U3)) in
+    Some (DyadicExp.to_i64 kf, rh, rl, add rh rl).
+
+(** [fn fast_mul(ah: f64, al: f64, bh: f64, bl: f64) -> (f64, f64)], where
+    [fma] is [HAS_FMA] (see the section [Driver]). *)
+Definition fast_mul (fma : bool) (ah al bh bl : f64) : f64 * f64 :=
+  let p := mul ah bh in
+  (p, add (Generic.two_prod_err fma ah bh p) (add (mul ah bl) (mul al bh))).
+
+(** [fn fast_sc(i: i64) -> (f64, f64, f64, f64)], where [i >> 6] and [i &
+    63] are [Z.shiftr] and [Z.land], and [-qc] is [opp qc].
+    [FastTrigSC.v] proves it. *)
+Definition fast_sc (fma : bool) (i : Z) : f64 * f64 * f64 * f64 :=
+  let '(s1h, s1l, c1h, c1l) := sc SC1 (Z.shiftr i 6) in
+  let '(s2h, s2l, c2h, c2l) := sc SC2 (Z.land i 63) in
+  if Z.land i 63 =? 0 then (s1h, s1l, c1h, c1l)
+  else if Z.shiftr i 6 =? 0 then (s2h, s2l, c2h, c2l)
+  else
+    let '(ps, es) := fast_mul fma s1h s1l c2h c2l in
+    let '(qs, fs) := fast_mul fma c1h c1l s2h s2l in
+    let '(sh, t) := Fast.fast_two_sum ps qs in
+    let '(pc, ec) := fast_mul fma c1h c1l c2h c2l in
+    let '(qc, fc) := fast_mul fma s1h s1l s2h s2l in
+    let '(ch, w) := Fast.fast_two_sum pc (opp qc) in
+    let '(sh, sl) := Fast.fast_two_sum sh (add t (add es fs)) in
+    let '(ch, cl) := Fast.fast_two_sum ch (add w (sub ec fc)) in
+    (sh, sl, ch, cl).
+
+(** [fn fast_eval(sh: f64, sl: f64, ch: f64, cl: f64, rh: f64, rl: f64,
+    rr: f64) -> (f64, f64)], where [0.5] is [half]. [FastTrigEval.v]
+    proves it. *)
+Definition fast_eval (fma : bool) (sh sl ch cl rh rl rr : f64) : f64 * f64 :=
+  let a := mul ch rh in
+  let ae := add (Generic.two_prod_err fma ch rh a) (add (mul ch rl) (mul cl rr)) in
+  let z := mul rr rr in
+  let cm := mul z (sub (mul z (from_bits C4)) half) in
+  let s3 := mul (mul rr z) (sub (mul z (from_bits S5)) (from_bits S3)) in
+  let '(h, t) := Fast.fast_two_sum sh a in
+  let l := add t (add (add (add sl ae) (mul sh cm)) (mul ch s3)) in
+  Fast.fast_two_sum h l.
+
+(** [fn fast_sin0(x: f64) -> (f64, f64)] and [fn fast_cos0(x: f64) ->
+    (f64, f64)], where [1.0] is [Fast.one]. [FastTrigEval.v] proves
+    them. *)
+Definition fast_sin0 (x : f64) : f64 * f64 :=
+  let z := mul x x in
+  Fast.fast_two_sum x (mul (mul x z) (sub (mul z (from_bits S5)) (from_bits S3))).
+
+Definition fast_cos0 (x : f64) : f64 * f64 :=
+  let z := mul x x in
+  Fast.fast_two_sum Fast.one (mul z (sub (mul z (from_bits C4)) half)).
+
+(** [fn fast_quad(n: i64, s: i64, rh: f64, rl: f64, rr: f64) ->
+    Option<(f64, f64)>], where [n & 2047], [n >> 11], [q & 1] and [q & 2]
+    are [Z.land] and [Z.shiftr] of the integers, which agree with Rust's
+    on negative [n], [(n >> 11) + s] cannot overflow, as [|n| < 2^27], and
+    [rh == 0.0] is [eq rh zero], true for both zeros. *)
+Definition fast_quad (fma : bool) (n s : Z) (rh rl rr : f64) : option (f64 * f64) :=
+  let i := Z.land n 2047 in
+  if (i =? 0) || eq rh zero then None
+  else
+    let q := Z.shiftr n 11 + s in
+    let '(sh, sl, ch, cl) := fast_sc fma i in
+    let '(h, l) :=
+      if Z.land q 1 =? 0 then fast_eval fma sh sl ch cl rh rl rr
+      else fast_eval fma ch cl sh sl (opp rh) (opp rl) (opp rr) in
+    Some (if Z.land q 2 =? 0 then (h, l) else (opp h, opp l)).
+
+(** [fn fast_sin(x: f64) -> Option<(f64, f64)>] and [fn fast_cos(t: f64) ->
+    Option<(f64, f64)>], where [?] is a [match]. [FastTrigCore.v] proves
+    them. *)
+Definition fast_sin (fma : bool) (x : f64) : option (f64 * f64) :=
+  match fast_reduce x with
+  | Some (n, rh, rl, rr) => if n =? 0 then Some (fast_sin0 x) else fast_quad fma n 0 rh rl rr
+  | None => None
+  end.
+
+Definition fast_cos (fma : bool) (t : f64) : option (f64 * f64) :=
+  match fast_reduce t with
+  | Some (n, rh, rl, rr) => if n =? 0 then Some (fast_cos0 t) else fast_quad fma n 1 rh rl rr
+  | None => None
+  end.
+
+(** [fn fast_div(nh: f64, nl: f64, dh: f64, dl: f64) -> (f64, f64)].
+    [FastTrigDiv.v] proves it. *)
+Definition fast_div (fma : bool) (nh nl dh dl : f64) : f64 * f64 :=
+  let qh := div nh dh in
+  let p := mul qh dh in
+  let pe := Generic.two_prod_err fma qh dh p in
+  Fast.fast_two_sum qh (div (add (sub (sub nh p) pe) (sub nl (mul qh dl))) dh).
+
+(** [fn fast_tan(x: f64) -> Option<(f64, f64)>], where [n & 2048] is
+    [Z.land n 2048], and the rest is as in [fast_quad]. [FastTrigCore.v]
+    proves it. *)
+Definition fast_tan (fma : bool) (x : f64) : option (f64 * f64) :=
+  match fast_reduce x with
+  | None => None
+  | Some (n, rh, rl, rr) =>
+    if n =? 0 then
+      let '(sh, sl) := fast_sin0 x in
+      let '(ch, cl) := fast_cos0 x in
+      Some (fast_div fma sh sl ch cl)
+    else
+      let i := Z.land n 2047 in
+      if (i =? 0) || eq rh zero then None
+      else
+        let '(sh, sl, ch, cl) := fast_sc fma i in
+        let '(s0, s1) := fast_eval fma sh sl ch cl rh rl rr in
+        let '(c0, c1) := fast_eval fma ch cl sh sl (opp rh) (opp rl) (opp rr) in
+        Some (if Z.land n 2048 =? 0 then fast_div fma s0 s1 c0 c1
+              else let '(h, l) := fast_div fma c0 c1 s0 s1 in (opp h, opp l))
+  end.
+
+(** [fn fast_unscale(h: f64, l: f64) -> (f64, f64, i64, bool)], where
+    [(h.to_bits() >> 52) as i64] is [Z.shiftr (to_bits h) 52], [(1023 -
+    e) as u64] is [(1023 - e) mod 2^64], and [<< 52] drops the bits
+    above 64, as in [Fast.scale]. *)
+Definition fast_unscale (h l : f64) : f64 * f64 * Z * bool :=
+  let neg := lt h zero in
+  let '(h, l) := if neg then (opp h, opp l) else (h, l) in
+  let e := Z.shiftr (to_bits h) 52 - 1023 in
+  let s := from_bits (Z.shiftl ((1023 - e) mod 2^64) 52 mod 2^64) in
+  (mul h s, mul l s, e, neg).
+
+(** [fn fast_round_dir(h: f64, l: f64, up: bool) -> Option<f64>], where
+    [up != neg] is [xorb up neg], and [fn fast_round_near(h: f64, l: f64)
+    -> Option<f64>]. [FastTrigRound.v] proves them. *)
+Definition fast_round_dir (h l : f64) (up : bool) : option f64 :=
+  let '(h, l, e, neg) := fast_unscale h l in
+  match Fast.round_dir h l e (xorb up neg) with
+  | Some r => Some (if neg then opp r else r)
+  | None => None
+  end.
+
+Definition fast_round_near (h l : f64) : option f64 :=
+  let '(h, l, e, neg) := fast_unscale h l in
+  match Fast.round_near h l e with
+  | Some r => Some (if neg then opp r else r)
+  | None => None
+  end.
+
+(** [fn fast_sin_dir(x: f64, up: bool) -> Option<f64>], the same for [cos]
+    (of [t]) and [tan], and [fn fast_sin_near(x: f64) -> Option<f64>] and
+    the others. [FastTrig.v] proves them. *)
+Definition fast_sin_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_sin fma x with Some (h, l) => fast_round_dir h l up | None => None end.
+Definition fast_cos_dir (fma : bool) (t : f64) (up : bool) : option f64 :=
+  match fast_cos fma t with Some (h, l) => fast_round_dir h l up | None => None end.
+Definition fast_tan_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_tan fma x with Some (h, l) => fast_round_dir h l up | None => None end.
+Definition fast_sin_near (fma : bool) (x : f64) : option f64 :=
+  match fast_sin fma x with Some (h, l) => fast_round_near h l | None => None end.
+Definition fast_cos_near (fma : bool) (t : f64) : option f64 :=
+  match fast_cos fma t with Some (h, l) => fast_round_near h l | None => None end.
+Definition fast_tan_near (fma : bool) (x : f64) : option f64 :=
+  match fast_tan fma x with Some (h, l) => fast_round_near h l | None => None end.
+
 (** The functions of the file with [ziv] a parameter: [sin_dir_with ziv] is
     [sin] with [ziv] for [Dyadic.ziv], and [sin_dir] after the section is
     [sin_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
-    returns only where a rounding test passes ([DyDriver.ziv_strict]). *)
+    returns only where a rounding test passes ([DyDriver.ziv_strict]).
+
+    [sin], [cos] and [tan] try the fast path after their rules and before
+    [ziv], and their forms rounded to nearest before [ziv_near]. [HAS_FMA]
+    depends on the target. The fast path takes it as an argument, and the
+    functions below pass [false]: [FastTrig.fast_sin_dir_fma] and the
+    others show that [true] gives the same result at every argument that
+    reaches it. *)
 Section Driver.
 Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
 
 (** [pub(crate) fn sin(x: f64, up: bool) -> f64], where [f64::NAN] is
-    [B754_nan], [x.abs()] is [fabs x], and [o.unwrap_or_else(|| e)] of
-    an [Option<f64>] [o] is [match o with Some v => Some v | None => e
-    end]. *)
+    [B754_nan], [x.abs()] is [fabs x], and, of an [Option<f64>] [o],
+    [o.or_else(|| p)] is [match o with Some v => Some v | None => p end]
+    and [o.unwrap_or_else(|| e)] is [match o with Some v => Some v | None
+    => e end]. *)
 Definition sin_dir_with (x : f64) (up : bool) : option f64 :=
   if negb (is_finite x) then Some B754_nan
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.toward_zero x up)
-  else match sin_small x up with Some v => Some v | None => ziv (ev_sin x) up 1 end.
+  else match sin_small x up with
+       | Some v => Some v
+       | None =>
+         match fast_sin_dir false x up with Some r => Some r | None => ziv (ev_sin x) up 1 end
+       end.
 
 (** [pub(crate) fn cos(x: f64, up: bool) -> f64], where [-t] is [opp t],
     and the rest is as in [sin_dir]. *)
@@ -3955,13 +4258,21 @@ Definition cos_dir_with (x : f64) (up : bool) : option f64 :=
   let t := fabs x in
   if negb (is_finite t) then Some B754_nan
   else if lt t DyadicExp.tiny_hyp then Some (DyadicExp.near_one (opp t) up)
-  else match cos_small t up with Some v => Some v | None => ziv (ev_cos t) up 1 end.
+  else match cos_small t up with
+       | Some v => Some v
+       | None =>
+         match fast_cos_dir false t up with Some r => Some r | None => ziv (ev_cos t) up 1 end
+       end.
 
 (** [pub(crate) fn tan(x: f64, up: bool) -> f64], as [sin_dir]. *)
 Definition tan_dir_with (x : f64) (up : bool) : option f64 :=
   if negb (is_finite x) then Some B754_nan
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.away x up)
-  else match tan_small x up with Some v => Some v | None => ziv (ev_tan x) up 1 end.
+  else match tan_small x up with
+       | Some v => Some v
+       | None =>
+         match fast_tan_dir false x up with Some r => Some r | None => ziv (ev_tan x) up 1 end
+       end.
 
 End Driver.
 
@@ -3978,20 +4289,20 @@ Variable ziv_near : (nat -> option Dyadic.encl) -> nat -> option f64.
 Definition sin_near_with (x : f64) : option f64 :=
   if negb (is_finite x) then Some B754_nan
   else if lt (fabs x) DyadicExp.tiny_near then Some x
-  else ziv_near (ev_sin x) 1.
+  else match fast_sin_near false x with Some r => Some r | None => ziv_near (ev_sin x) 1 end.
 
 (** [pub(crate) fn cos_near(x: f64) -> f64] *)
 Definition cos_near_with (x : f64) : option f64 :=
   let t := fabs x in
   if negb (is_finite t) then Some B754_nan
   else if lt t DyadicExp.tiny_near then Some DyadicExp.one
-  else ziv_near (ev_cos t) 1.
+  else match fast_cos_near false t with Some r => Some r | None => ziv_near (ev_cos t) 1 end.
 
 (** [pub(crate) fn tan_near(x: f64) -> f64] *)
 Definition tan_near_with (x : f64) : option f64 :=
   if negb (is_finite x) then Some B754_nan
   else if lt (fabs x) DyadicExp.tiny_near then Some x
-  else ziv_near (ev_tan x) 1.
+  else match fast_tan_near false x with Some r => Some r | None => ziv_near (ev_tan x) 1 end.
 
 End DriverNear.
 

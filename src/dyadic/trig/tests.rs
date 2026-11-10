@@ -8,6 +8,7 @@
 // so it runs only where the tests have MPFR.
 
 use super::*;
+use crate::dyadic::fast::{fast_counts, reset_fast_counts, set_fast_path};
 use crate::dyadic::tests::Rng;
 
 type Directed = fn(f64, bool) -> f64;
@@ -646,6 +647,275 @@ fn random_arguments() {
     }
 }
 
+// A random argument of the fast path: uniform in [-`LIMIT`, `LIMIT`) if `wide`, as
+// -2^16 + k 2^-36 for a k uniform in [0, 2^53), which is exact, and otherwise of an exponent
+// uniform in [-27, 15] and a random sign, so that 2^-27 <= |x| < 2^16.
+fn fast_arg(rng: &mut Rng, wide: bool) -> f64 {
+    if wide {
+        -LIMIT + rng.below(1 << 53) as f64 * pow2(-36)
+    } else {
+        random_sign(rng) * log_uniform(rng, -27, 15)
+    }
+}
+
+// The three roundings of the function `i` at `x`: down, up and to nearest.
+fn roundings(i: usize, x: f64) -> [f64; 3] {
+    let f = FUNCTIONS[i].1;
+    [f(x, false), f(x, true), NEAR[i](x)]
+}
+
+// The function `i` gives the same `f64`s at `x` in its three roundings with the fast path as with
+// it disabled, and those `f64`s are MPFR's where the tests have MPFR, as `check` checks them.
+fn check_fast(i: usize, x: f64) {
+    let fast = roundings(i, x);
+    set_fast_path(false);
+    let kernel = roundings(i, x);
+    set_fast_path(true);
+    assert!(
+        fast.iter()
+            .zip(&kernel)
+            .all(|(a, b)| a.to_bits() == b.to_bits()),
+        "{}({:e}): {:?} with the fast path != {:?} without it",
+        FUNCTIONS[i].0,
+        x,
+        fast,
+        kernel
+    );
+    check(i, x);
+}
+
+// sin, cos and tan give the same `f64`s, in both directions and to nearest, with the fast path
+// as with it disabled, on random arguments of its range, and most of its rounding tests pass.
+#[test]
+fn fast_path_agrees_with_kernel() {
+    let mut rng = Rng(90);
+    for i in [SIN, COS, TAN] {
+        reset_fast_counts();
+        for k in 0..4000 {
+            check_fast(i, fast_arg(&mut rng, k % 2 == 0));
+        }
+        let (passed, failed) = fast_counts();
+        assert!(
+            passed > 100 * failed && passed > 5000,
+            "{}: {passed} passed, {failed} failed",
+            FUNCTIONS[i].0
+        );
+    }
+}
+
+// sin, cos and tan on random arguments of the fast path, as `check` checks them (against MPFR
+// where the tests have it): uniform over its range, and of each exponent from -27 to 15. Most of
+// its rounding tests pass on both sets.
+#[test]
+fn fast_range_random() {
+    let mut rng = Rng(901);
+    for i in [SIN, COS, TAN] {
+        let mut counts = [(0, 0); 2];
+        for (wide, c) in [true, false].into_iter().zip(&mut counts) {
+            reset_fast_counts();
+            for _ in 0..20_000 {
+                check(i, fast_arg(&mut rng, wide));
+            }
+            *c = fast_counts();
+        }
+        assert!(
+            counts.iter().all(|&(p, f)| p > 100 * f && p > 20_000),
+            "{}: (passed, failed) = {:?} on uniform arguments and on the others",
+            FUNCTIONS[i].0,
+            counts
+        );
+    }
+}
+
+// u = π/4096, the step of the reduction of the fast path, rounded to an `f64`: RN(π)/4096 is
+// RN(π/4096), as 4096 is a power of 2.
+const STEP: f64 = std::f64::consts::PI / 4096.0;
+
+// The integer n of the reduction of the fast path at `x`, for |x| < `LIMIT`.
+fn reduced(x: f64) -> i64 {
+    fast_reduce(x).unwrap().0
+}
+
+// Whether the fast paths of sin, cos and tan all decline `x`, before any rounding test: cos at
+// |x|, as `cos` takes it.
+fn declined(x: f64) -> bool {
+    fast_sin(x).is_none() && fast_cos(x.abs()).is_none() && fast_tan(x).is_none()
+}
+
+// The n = 2048 q + i of items 1 and 2 of `reduction_edges`: q from 0 to 3 and on across the
+// range of the fast path, and i = 0 and next to the ends of [1, 2047], to the multiples of 64 and
+// to 1024, where (n + 1) u is below `LIMIT` too.
+fn edge_ns() -> Vec<i64> {
+    let mut qs: Vec<i64> = (0..4).chain((4..41_721).step_by(701)).collect();
+    qs.push(41_721);
+    let mut ns = vec![];
+    for q in qs {
+        for i in [
+            0, 1, 2, 63, 64, 65, 127, 128, 1024, 1983, 1984, 1985, 2046, 2047,
+        ] {
+            let n = 2048 * q + i;
+            if ((n + 1) as f64 * STEP) < LIMIT {
+                ns.push(n);
+            }
+        }
+    }
+    ns
+}
+
+// The (n, x) of item 3 of `reduction_edges`: x = n (U1 + U2) for n = m 2^k with m in
+// {1, 3, 5, 7}, where x is below `LIMIT`.
+fn exact_rh() -> Vec<(i64, f64)> {
+    let u12 = f64::from_bits(U1) + f64::from_bits(U2);
+    let mut v = vec![];
+    for m in [1, 3, 5, 7] {
+        for k in 0..27 {
+            let n: i64 = m << k;
+            let x = n as f64 * u12;
+            if x < LIMIT {
+                v.push((n, x));
+            }
+        }
+    }
+    v
+}
+
+// The fast path of the function `i` at `x`, before its rounding test: cos at |x|, as `cos` takes
+// it.
+fn fast_parts(i: usize, x: f64) -> Option<(f64, f64)> {
+    match i {
+        SIN => fast_sin(x),
+        COS => fast_cos(x.abs()),
+        _ => fast_tan(x),
+    }
+}
+
+// The reduction of the fast path at its edges, and sin, cos and tan there, both signs of each
+// argument, as `check_fast` checks them. The reduction writes x = n u + ρ, and with
+// n = 2048 q + i, x is i u + ρ past q π/2.
+// 1. At RN(n u) and the 2 `f64`s on each side of it, the reduction gives n, for q from 0 to 3
+//    and on across the range, and for i = 0 and next to the ends of [1, 2047] and to the
+//    multiples of 64, where `fast_sc` takes a row of `SC1` alone, a row of `SC2` alone or one of
+//    each, and at 1024, where i u = π/4. At i = 0 and n != 0, x is close to q π/2, where sin,
+//    cos or tan is close to 0 or has a pole, and the fast paths decline x.
+// 2. Next to RN((n + 1/2) u), where |ρ| is at its largest, u/2, the reduction gives n on one side
+//    and n + 1 on the other, and nothing else among the 8 `f64`s on each side of it. The n = 0
+//    of `fast_sin0` and `fast_cos0` meets n = 1 at u/2.
+// 3. At x = n (U1 + U2) for n = m 2^k with m in {1, 3, 5, 7}, an `f64`, as U1 + U2 is an odd
+//    multiple of 2^-60 below 2^-10 and m < 8, the reduction gives n and rh = x - n U1 - n U2 = 0,
+//    and the fast paths decline x.
+// 4. Around `LIMIT`, at and above which the fast paths leave x to the kernel.
+#[test]
+fn reduction_edges() {
+    for n in edge_ns() {
+        let x = n as f64 * STEP;
+        for y in around(x, 2) {
+            assert_eq!(reduced(y), n, "{y:e}");
+            assert_eq!(reduced(-y), -n, "{:e}", -y);
+            assert!(
+                n % 2048 != 0 || n == 0 || (declined(y) && declined(-y)),
+                "{y:e}"
+            );
+            for j in [SIN, COS, TAN] {
+                check_fast(j, y);
+                check_fast(j, -y);
+            }
+        }
+        let x = (n as f64 + 0.5) * STEP;
+        let ns: Vec<i64> = around(x, 8).into_iter().map(reduced).collect();
+        assert!(
+            ns.contains(&n) && ns.contains(&(n + 1)) && ns.iter().all(|&k| k == n || k == n + 1),
+            "around {x:e}: {ns:?}"
+        );
+        for y in around(x, 2) {
+            for j in [SIN, COS, TAN] {
+                check_fast(j, y);
+                check_fast(j, -y);
+            }
+        }
+    }
+    let u12 = f64::from_bits(U1) + f64::from_bits(U2);
+    assert_eq!(
+        u12 - f64::from_bits(U1),
+        f64::from_bits(U2),
+        "U1 + U2 is not exact"
+    );
+    for (n, x) in exact_rh() {
+        for y in [x, -x] {
+            let (got, rh, _, _) = fast_reduce(y).unwrap();
+            assert!(
+                got == if y > 0.0 { n } else { -n } && rh == 0.0 && declined(y),
+                "{y:e}: n = {got}, rh = {rh:e}"
+            );
+            for j in [SIN, COS, TAN] {
+                check_fast(j, y);
+            }
+        }
+    }
+    for x in [LIMIT, -LIMIT] {
+        assert!(fast_reduce(x).is_none() && declined(x), "{x:e}");
+        assert!(
+            fast_reduce(next_down(x.abs()).copysign(x)).is_some(),
+            "{x:e}"
+        );
+        for y in around(x, 3) {
+            for j in [SIN, COS, TAN] {
+                check_fast(j, y);
+            }
+        }
+    }
+}
+
+// 2^-68, the bound on the error of the scaled h + l that the rounding tests of
+// `src/dyadic/fast.rs` assume, and 2^-58, 2^10 times as large.
+const FAST_ERR: f64 = 1.0 / 295_147_905_179_352_825_856.0;
+const WIDE: f64 = 1.0 / 288_230_376_151_711_744.0;
+
+// sin, cos and tan where a rounding test of the fast path passes, but would fail with `WIDE` in
+// place of the bound 2^-68, as `widened` in `src/dyadic/exp/tests.rs` checks e^x: the h + l of
+// `fast_unscale`, with h in [1, 2), is within 2^-58 of h, which a directed rounding cannot cross,
+// or of a midpoint between h and the `f64` next to it, which the rounding to nearest cannot
+// cross. There an error in the bound would show first, so the fast path has to give the kernel's
+// `f64`s, and MPFR's, as `check_fast` checks them. A narrow pass of the directed tests counts
+// only where the rules of tiny and small arguments leave x to the fast path.
+#[test]
+fn widened() {
+    let mut rng = Rng(906);
+    for i in [SIN, COS, TAN] {
+        let (mut dir, mut near) = (0, 0);
+        for k in 0..4000 {
+            let x = fast_arg(&mut rng, k % 2 == 0);
+            let Some((h, l)) = fast_parts(i, x) else {
+                continue;
+            };
+            let (h, l, _, _) = fast_unscale(h, l);
+            // Half the gap between h and the next `f64` above it, and below it.
+            let above = f64::EPSILON / 2.0;
+            let below = if h > 1.0 {
+                f64::EPSILON / 2.0
+            } else {
+                f64::EPSILON / 4.0
+            };
+            let directed =
+                x.abs() >= TINY_HYP && small(i, x, false).is_none() && small(i, x, true).is_none();
+            let narrow_dir = directed && FAST_ERR < l.abs() && l.abs() <= WIDE;
+            let narrow_near = l < above - FAST_ERR
+                && l > -(below - FAST_ERR)
+                && (l >= above - WIDE || l <= -(below - WIDE));
+            if !narrow_dir && !narrow_near {
+                continue;
+            }
+            dir += usize::from(narrow_dir);
+            near += usize::from(narrow_near);
+            check_fast(i, x);
+        }
+        assert!(
+            dir >= 20 && near >= 20,
+            "{}: {dir} narrow passes of the directed tests and {near} of the test to nearest",
+            FUNCTIONS[i].0
+        );
+    }
+}
+
 #[cfg(all(
     target_pointer_width = "64",
     any(target_os = "linux", target_os = "macos")
@@ -653,6 +923,10 @@ fn random_arguments() {
 mod mpfr {
     use super::*;
     use crate::mpfr_calls::mpfr::*;
+    use rug::{
+        float::{Constant, Round},
+        Float,
+    };
 
     type Mpfr = fn(f64) -> f64;
 
@@ -702,7 +976,6 @@ mod mpfr {
     // to k π/2 unless that is as close to the midpoint of two `f64`s, and is next to it otherwise.
     #[test]
     fn nearest_to_multiples() {
-        use rug::{float::Constant, Float};
         const PREC: u32 = 1300;
         let half_pi = Float::with_val(PREC, Constant::Pi) / 2u32;
         let mut rng = Rng(732);
@@ -716,6 +989,257 @@ mod mpfr {
                 }
             }
         }
+    }
+
+    // The precision of the values that the tables, the constants and the results of the fast
+    // path are checked against, far above that of the bounds checked.
+    const PREC: u32 = 300;
+
+    // The bits `h` and `l` are those of RN(v) and RN(v - RN(v)), within 2^n of v, with
+    // |l| <= 2^-53 h.
+    fn check_double(name: &str, h: u64, l: u64, v: &Float, n: i32) {
+        let (h, l) = (f64::from_bits(h), f64::from_bits(l));
+        assert_eq!(h.to_bits(), v.to_f64().to_bits(), "{name}: {h:e} != RN(v)");
+        let rest = Float::with_val(PREC, v - h);
+        let mut err = Float::with_val(PREC, &rest - l);
+        err.abs_mut();
+        assert!(
+            l.to_bits() == rest.to_f64().to_bits() && err < pow2(n) && l.abs() <= pow2(-53) * h,
+            "{name}: {l:e} != RN(v - h) = {:e}, or |v - h - l| = {:e} is not below 2^{n}, or \
+             |l| > 2^-53 h",
+            rest.to_f64(),
+            err.to_f64()
+        );
+    }
+
+    // The tables and the constants of the fast path of `trig.rs` are what the comments on them
+    // say, with the bounds that `rocq/theories/FastTrigTables.v` proves (`sc1_correct`,
+    // `sc2_correct`, `fast_trig_consts`). π is to 300 bits, so that the angles and u = π/4096
+    // are within 2^-280 of theirs.
+    #[test]
+    fn fast_tables_and_constants() {
+        let pi = Float::with_val(PREC, Constant::Pi);
+        for (name, table, d) in [("SC1", &SC1[..], 64u32), ("SC2", &SC2[..], 4096)] {
+            for (i, row) in table.iter().enumerate() {
+                let a: Float = Float::with_val(PREC, &pi * u32::try_from(i).unwrap()) / d;
+                let (s, c) = (a.clone().sin(), a.cos());
+                check_double(&format!("{name}[{i}] sin"), row[0], row[1], &s, -104);
+                check_double(&format!("{name}[{i}] cos"), row[2], row[3], &c, -104);
+            }
+        }
+        let u = Float::with_val(PREC, &pi / 4096);
+        // `U1` and `U2` are cut toward 0 to 26 bits, so that their last 27 bits are 0.
+        let u1 = Float::with_val_round(26, &u, Round::Zero).0.to_f64();
+        assert_eq!(U1, u1.to_bits(), "U1: {:e} != {u1:e}", f64::from_bits(U1));
+        let rest = Float::with_val(PREC, &u - u1);
+        let u2 = Float::with_val_round(26, &rest, Round::Zero).0.to_f64();
+        assert_eq!(U2, u2.to_bits(), "U2: {:e} != {u2:e}", f64::from_bits(U2));
+        for b in [U1, U2] {
+            assert_eq!(b & ((1 << 27) - 1), 0, "{b:x}");
+        }
+        let rest = rest - u2;
+        let u3 = f64::from_bits(U3);
+        assert_eq!(U3, rest.to_f64().to_bits(), "U3: {u3:e} != RN(u - U1 - U2)");
+        let mut err = rest - u3;
+        err.abs_mut();
+        assert!(err < pow2(-120), "|u - U1 - U2 - U3| = {:e}", err.to_f64());
+        let inv = Float::with_val(PREC, 4096) / &pi;
+        assert_eq!(INV, inv.to_f64().to_bits(), "INV");
+        let mut err = Float::with_val(PREC, &u * f64::from_bits(INV)) - 1u32;
+        err.abs_mut();
+        assert!(err <= pow2(-52), "|INV u - 1| = {:e}", err.to_f64());
+        for (name, bits, d) in [("S3", S3, 6), ("S5", S5, 120), ("C4", C4, 24)] {
+            let want = Float::with_val(PREC, d).recip().to_f64();
+            assert_eq!(bits, want.to_bits(), "{name}: {:e}", f64::from_bits(bits));
+        }
+        assert_eq!(SHIFTER, 1.5 * pow2(52));
+        assert_eq!(LIMIT, pow2(16));
+    }
+
+    // The function `i` at `x`, to `PREC` bits.
+    fn value(i: usize, x: f64) -> Float {
+        let x = Float::with_val(PREC, x);
+        match i {
+            SIN => x.sin(),
+            COS => x.cos(),
+            _ => x.tan(),
+        }
+    }
+
+    // The fast path of the function `i` at `x`, before its rounding test, at x itself for cos
+    // too: its core takes either sign.
+    fn core(i: usize, x: f64) -> Option<(f64, f64)> {
+        match i {
+            SIN => fast_sin(x),
+            COS => fast_cos(x),
+            _ => fast_tan(x),
+        }
+    }
+
+    // The positive arguments below `LIMIT` of `reduction_edges`: RN(n u) and RN((n + 1/2) u) and
+    // the 2 `f64`s on each side of each, for each n of `edge_ns`, the x of `exact_rh`, and the 3
+    // `f64`s below `LIMIT`. Those around 0 include 0 and negative subnormals.
+    fn edge_args() -> Vec<f64> {
+        let mut v = vec![];
+        for n in edge_ns() {
+            v.extend(around(n as f64 * STEP, 2));
+            v.extend(around((n as f64 + 0.5) * STEP, 2));
+        }
+        v.extend(exact_rh().into_iter().map(|(_, x)| x));
+        let mut x = LIMIT;
+        for _ in 0..3 {
+            x = next_down(x);
+            v.push(x);
+        }
+        v
+    }
+
+    // The arguments of the bound tests of the fast path: those of `edge_args`, and 4,000 of
+    // `fast_arg`, half of them uniform over its range, with the negations of all of them.
+    fn bound_args() -> Vec<f64> {
+        let mut rng = Rng(905);
+        let mut v = edge_args();
+        for k in 0..4000 {
+            v.push(fast_arg(&mut rng, k % 2 == 0));
+        }
+        let negated: Vec<f64> = v.iter().map(|x| -x).collect();
+        v.extend(negated);
+        v
+    }
+
+    // `fast_reduce(x)` meets the conjuncts of `fast_reduce_correct` in
+    // `rocq/theories/FastTrigReduce.v` on the arguments of `bound_args`: for ρ = x - n u, with
+    // u = π/4096, |n| < 2^27, rh, rl and rr are finite, rr = RN(rh + rl),
+    // |ρ - (rh + rl)| <= 2^-90, |ρ| <= u/2 (1 + 2^-24), |rl| <= 2^-37, and |rh| >= 2^-65 where n
+    // and rh are not 0. The computed ρ is within 2^-283 of it, the rounding of n u to `PREC` bits
+    // for |n u| < 2^17.
+    #[test]
+    fn fast_reduce_bound() {
+        let u = Float::with_val(PREC, Constant::Pi) / 4096u32;
+        let mut half = Float::with_val(PREC, &u * (1.0 + pow2(-24)));
+        half >>= 1;
+        for x in bound_args() {
+            let (n, rh, rl, rr) = fast_reduce(x).unwrap();
+            let mut nu = Float::with_val(PREC, n);
+            nu *= &u;
+            let rho = x - nu;
+            let mut err = Float::with_val(PREC, &rho - rh);
+            err -= rl;
+            err.abs_mut();
+            let mut size = rho.clone();
+            size.abs_mut();
+            assert!(
+                n.abs() < 1 << 27
+                    && rh.is_finite()
+                    && rl.is_finite()
+                    && rr.is_finite()
+                    && rr.to_bits() == (rh + rl).to_bits()
+                    && err <= pow2(-90)
+                    && size <= half
+                    && rl.abs() <= pow2(-37)
+                    && (n == 0 || rh == 0.0 || rh.abs() >= pow2(-65)),
+                "fast_reduce({x:e}) = ({n}, {rh:e}, {rl:e}, {rr:e}), with ρ = {:e} and \
+                 |ρ - (rh + rl)| = {:e}",
+                rho.to_f64(),
+                err.to_f64()
+            );
+        }
+    }
+
+    // (h, l), from the fast path at an argument where the function has the value y, have
+    // h = RN(h + l), 2^-1000 <= |h| <= 2^1000, and |y - (h + l)| <= k 2^-71 |y|.
+    fn check_core(what: &str, y: &Float, (h, l): (f64, f64), k: u32) {
+        let mut d = Float::with_val(PREC, y - h);
+        d -= l;
+        d.abs_mut();
+        let mut bound = Float::with_val(PREC, y * k);
+        bound.abs_mut();
+        bound >>= 71;
+        assert!(
+            h + l == h && pow2(-1000) <= h.abs() && h.abs() <= pow2(1000) && d <= bound,
+            "{what}: ({h:e}, {l:e}), with |y - (h + l)| = 2^{:.2} |y|",
+            (d.to_f64() / y.to_f64().abs()).log2()
+        );
+    }
+
+    // The core of the function `i` meets the bound of `fast_<f>_correct` in
+    // `rocq/theories/FastTrigCore.v`, with k 2^-71, on the arguments of `bound_args` with
+    // |x| >= 2^-27 that it takes. Those include the n = 0 of `fast_sin0` and `fast_cos0`,
+    // |x| <= u/2 (1 + 2^-24), and negative arguments of cos, which `cos` does not pass but its
+    // core takes.
+    fn check_cores(i: usize, k: u32) {
+        let (mut taken, mut at_zero) = (0, 0);
+        for x in bound_args() {
+            if x.abs() < pow2(-27) {
+                continue;
+            }
+            if let Some(parts) = core(i, x) {
+                let what = format!("fast {}({x:e})", FUNCTIONS[i].0);
+                check_core(&what, &value(i, x), parts, k);
+                taken += 1;
+                at_zero += usize::from(reduced(x) == 0);
+            }
+        }
+        assert!(
+            taken > 10_000 && at_zero > 500,
+            "{}: {taken} arguments, {at_zero} of them with n = 0",
+            FUNCTIONS[i].0
+        );
+    }
+
+    // `fast_sin` and `fast_cos` are within 2^-71 |f(x)| of sin x and cos x
+    // (`fast_sin_correct`, `fast_cos_correct`).
+    #[test]
+    fn fast_sin_cos_bound() {
+        check_cores(SIN, 1);
+        check_cores(COS, 1);
+    }
+
+    // `fast_tan` is within 3 2^-71 |tan x| of tan x (`fast_tan_correct`).
+    #[test]
+    fn fast_tan_bound() {
+        check_cores(TAN, 3);
+    }
+
+    // The directed rounding tests of the fast path fail at the arguments of `HARD_CASES` and
+    // `SMALL_FALL_THROUGH`, and their negations, with 2^-27 <= |x| < `LIMIT` and y = f(x) within
+    // 2^-72 |y| of an `f64` g. The bound of the core puts h + l within (2^-72 + 3 2^-71) |y| of
+    // g, which is below 2^-68 after the scaling of `fast_unscale` to h in [1, 2), so that h is g
+    // and |l| is below 2^-68, where neither direction passes.
+    #[test]
+    fn hard_cases_fall_through() {
+        let mut reached = 0;
+        for &(i, x) in HARD_CASES.iter().chain(&SMALL_FALL_THROUGH) {
+            for x in [x, -x] {
+                if x.abs() < pow2(-27) || x.abs() >= LIMIT {
+                    continue;
+                }
+                let y = value(i, x);
+                let mut d = Float::with_val(PREC, &y - y.to_f64());
+                d.abs_mut();
+                let mut bound = y.clone();
+                bound.abs_mut();
+                bound >>= 72;
+                if d > bound {
+                    continue;
+                }
+                for up in [false, true] {
+                    let r = match i {
+                        SIN => fast_sin_dir(x, up),
+                        COS => fast_cos_dir(x, up),
+                        _ => fast_tan_dir(x, up),
+                    };
+                    assert!(
+                        r.is_none(),
+                        "{}({x:e}): the fast path rounds it {} to {r:?}",
+                        FUNCTIONS[i].0,
+                        if up { "up" } else { "down" }
+                    );
+                }
+                reached += usize::from(core(i, x).is_some());
+            }
+        }
+        assert!(reached >= 16, "{reached} hard cases reach a rounding test");
     }
 }
 
