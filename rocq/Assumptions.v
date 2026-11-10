@@ -50,6 +50,8 @@ From Inari Require RootReal RootRound DyIcbrt DyCbrt DyHypotExact DyHypotOdd DyH
 From Inari Require FastRound FastExpTables FastExpReduce FastExpCore FastExp.
 From Inari Require FastRoundErr FastDiv FastHypPoly FastCoshPoly FastHypPos FastCoshPos FastTanhPos
   FastHyp.
+From Inari Require FastSign FastLogTables FastLogTaylor FastLogHorner FastLogPoly FastLogReduce
+  FastLogCore FastLogNorm FastLogLn FastLogBy FastLog.
 From Inari Require KahanMcDonald DyTrigPos SideTight SideTheorems DyPointSide.
 From Inari Require ExpQuadratic PowFactor ExpIrrational CosNiven CosIrrational DyExactDriver
   DyExactPoint DyTrigExact DyExpPoint DyExpExact DyLogSeries DyLogPoint DyLogExact DyAtanExact.
@@ -350,6 +352,44 @@ Print Assumptions FastHyp.fast_tanh_dir_correct.
 Print Assumptions FastHyp.fast_tanh_near_correct.
 Print Assumptions FastHyp.fast_tanh_dir_fma.
 Print Assumptions FastHyp.fast_tanh_near_fma.
+Print Assumptions FastSign.round_dir_signed_correct.
+Print Assumptions FastSign.round_near_signed_correct.
+Print Assumptions FastLogTables.ln2h_exact.
+Print Assumptions FastLogTables.ln2_split_correct.
+Print Assumptions FastLogTables.lg2h_exact.
+Print Assumptions FastLogTables.lg2_split_correct.
+Print Assumptions FastLogTables.c2_correct.
+Print Assumptions FastLogTables.c10_correct.
+Print Assumptions FastLogTables.ltbl_correct.
+Print Assumptions FastLogTaylor.log1p_taylor.
+Print Assumptions FastLogTaylor.log1p_shift.
+Print Assumptions FastLogHorner.log1p_horner_correct.
+Print Assumptions FastLogPoly.log1p_poly_correct.
+Print Assumptions FastLogPoly.log1p_poly_fma.
+Print Assumptions FastLogReduce.ln_split_correct.
+Print Assumptions FastLogReduce.ln_z_exact.
+Print Assumptions FastLogReduce.ln_z_fma.
+Print Assumptions FastLogCore.ln_core_correct.
+Print Assumptions FastLogCore.ln_core_fma.
+Print Assumptions FastLogNorm.normalize_correct.
+Print Assumptions FastLogNorm.ln_f64_ne1.
+Print Assumptions FastLogLn.fast_ln_correct.
+Print Assumptions FastLogBy.fast_log2_correct.
+Print Assumptions FastLogBy.fast_log10_correct.
+Print Assumptions FastLog.fast_ln_dir_correct.
+Print Assumptions FastLog.fast_ln_near_correct.
+Print Assumptions FastLog.fast_ln_dir_fma.
+Print Assumptions FastLog.fast_ln_near_fma.
+Print Assumptions FastLog.fast_log2_dir_correct.
+Print Assumptions FastLog.fast_log2_near_correct.
+Print Assumptions FastLog.fast_log2_dir_fma.
+Print Assumptions FastLog.fast_log2_near_fma.
+Print Assumptions FastLog.fast_log10_dir_correct.
+Print Assumptions FastLog.fast_log10_near_correct.
+Print Assumptions FastLog.fast_log10_dir_fma.
+Print Assumptions FastLog.fast_log10_near_fma.
+Print Assumptions FastLog.fast_ln_one.
+Print Assumptions FastLog.fast_log2_one.
 Print Assumptions DyExp.exp_dir_correct.
 Print Assumptions DyExp.exp_dir_side.
 Print Assumptions DyExp.exp_dir_strict.

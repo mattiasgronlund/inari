@@ -13,7 +13,7 @@ From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary LogReal DyRound DyConv DyOps DyDriver
   DyGrow DyConst DyExpCore DyExpRules DyExp ExpReal DyHyp DyLogRules DyLogTiny DyLogCore DyLog
-  DyLogHyp NearF64 NearCells DyDriverNear.
+  DyLogHyp NearF64 NearCells DyDriverNear FastLog.
 From Inari Require AtanhSeries DySinhTiny Decompose.
 
 Open Scope Z_scope.
@@ -225,6 +225,8 @@ Theorem ln_near_correct :
 Proof.
 intros x v Fx Dx H. unfold DyadicLog.ln_near_with in H.
 rewrite (log_rules_finite_pos x Fx Dx) in H.
+destruct (DyadicLog.fast_ln_near false x) eqn:F; cbv iota in H.
+{ injection H as <-. exact (fast_ln_near_correct false x _ Fx Dx F). }
 apply (ziv_near_strict_correct (DyadicLog.ev_ln x) 1%nat _ v); [|exact H].
 intros n a Hn Ha. exact (ev_ln_correct x n a Hn Ha).
 Qed.
@@ -236,6 +238,8 @@ Theorem log2_near_correct :
 Proof.
 intros x v Fx Dx H. unfold DyadicLog.log2_near_with in H.
 rewrite (log_rules_finite_pos x Fx Dx) in H.
+destruct (DyadicLog.fast_log2_near false x) eqn:F; cbv iota in H.
+{ injection H as <-. exact (fast_log2_near_correct false x _ Fx Dx F). }
 apply (ziv_near_strict_correct (DyadicLog.ev_log2 x) 1%nat _ v); [|exact H].
 intros n a Hn Ha. exact (ev_log2_correct x n a Hn Ha).
 Qed.
@@ -250,7 +254,9 @@ rewrite (log_rules_finite_pos x Fx Dx) in H.
 destruct (List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23))
   as [k|] eqn:Ef.
 - injection H as <-. exact (log10_pow10_near x k Fx Ef).
-- apply (ziv_near_strict_correct (DyadicLog.ev_log10 x) 1%nat _ v); [|exact H].
+- destruct (DyadicLog.fast_log10_near false x) eqn:F; cbv iota in H.
+  { injection H as <-. exact (fast_log10_near_correct false x _ Fx Dx F). }
+  apply (ziv_near_strict_correct (DyadicLog.ev_log10 x) 1%nat _ v); [|exact H].
   intros n a Hn Ha. exact (ev_log10_correct x n a Hn Ha).
 Qed.
 
@@ -312,14 +318,16 @@ Theorem ln_near_strict :
   forall x v, DyadicLog.ln_near_with ziv_near_strict x = Some v -> DyadicLog.ln_near x = Some v.
 Proof.
 intros x v. unfold DyadicLog.ln_near, DyadicLog.ln_near_with.
-destruct (DyadicLog.log_rules x); [exact (fun h => h)|apply ziv_near_strict_ziv].
+destruct (DyadicLog.log_rules x); [exact (fun h => h)|].
+destruct (DyadicLog.fast_ln_near false x); [exact (fun h => h)|apply ziv_near_strict_ziv].
 Qed.
 
 Theorem log2_near_strict :
   forall x v, DyadicLog.log2_near_with ziv_near_strict x = Some v -> DyadicLog.log2_near x = Some v.
 Proof.
 intros x v. unfold DyadicLog.log2_near, DyadicLog.log2_near_with.
-destruct (DyadicLog.log_rules x); [exact (fun h => h)|apply ziv_near_strict_ziv].
+destruct (DyadicLog.log_rules x); [exact (fun h => h)|].
+destruct (DyadicLog.fast_log2_near false x); [exact (fun h => h)|apply ziv_near_strict_ziv].
 Qed.
 
 Theorem log10_near_strict :
@@ -329,7 +337,8 @@ Proof.
 intros x v. unfold DyadicLog.log10_near, DyadicLog.log10_near_with.
 destruct (DyadicLog.log_rules x); [exact (fun h => h)|].
 destruct (List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23));
-  [exact (fun h => h)|apply ziv_near_strict_ziv].
+  [exact (fun h => h)|].
+destruct (DyadicLog.fast_log10_near false x); [exact (fun h => h)|apply ziv_near_strict_ziv].
 Qed.
 
 Theorem asinh_near_strict :

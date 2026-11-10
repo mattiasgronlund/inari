@@ -25,7 +25,8 @@ From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary LogReal DyRound DyConv DyOps DyDriver
   DyGrow DyConst DyExpCore DyExpRules DyExp DyHyp DyLogRules DyLogTiny DyLogCore DyLog DyLogHyp
-  DyPowExact DyPown DyExactDriver PowFactor ExpIrrational ExpQuadratic DyTrigExact DyLogPoint.
+  DyPowExact DyPown DyExactDriver PowFactor ExpIrrational ExpQuadratic DyTrigExact DyLogPoint
+  FastLog.
 
 Open Scope R_scope.
 
@@ -152,7 +153,7 @@ destruct Hz as [Hz | ->]; [contradiction |].
    [ev_ln 1], which encloses 0 by the point 0 at every level
    ([ev_ln_one]). *)
 unfold DyadicLog.ln_dir_with.
-rewrite (log_rules_finite_pos DyadicExp.one (proj1 one_B2R) Dx).
+rewrite (log_rules_finite_pos DyadicExp.one (proj1 one_B2R) Dx), fast_ln_one.
 apply Hz0; [lia | exact ev_ln_one].
 Qed.
 
@@ -163,6 +164,21 @@ Theorem ln_dir_exact :
   DyadicLog.ln_dir x up = Some v.
 Proof.
 intros x v up. apply ln_dir_exact_with. exact ziv_exact_zero.
+Qed.
+
+(** Where the fast path of [log2] returns at an [x] whose [log2 x] is a
+    nonzero [f64] [v], it returns [v]. *)
+Lemma fast_log2_exact :
+  forall x up (v r : f64),
+  is_finite x = true -> 0 < B2R x -> is_finite v = true -> Rlog2 (B2R x) = B2R v ->
+  B2R v <> 0 -> DyadicLog.fast_log2_dir false x up = Some r -> r = v.
+Proof.
+intros x up v r Fx Hx Fv H Nv F.
+pose proof (fast_log2_dir_correct false x up r Fx Hx F) as R. unfold rounds in R. rewrite H in R.
+pose proof (DyExpRules.rnd_exact v (if up then RNDU else RNDD) (B2R v) Fv eq_refl) as R'.
+destruct (OfPointCore.round_f64_unique _ _ _ _ R R') as [E | (s & s' & _ & Ev)]; [exact E|].
+(* Both zeros: impossible, as [v <> 0]. *)
+exfalso. subst v. exact (Nv eq_refl).
 Qed.
 
 Theorem log2_dir_exact_with :
@@ -183,8 +199,13 @@ pose proof (f64_pow2 x k Fx Xk) as Rk.
 unfold DyadicLog.log2_dir_with. rewrite (log_rules_finite_pos x Fx Dx).
 destruct (Z.eq_dec k 0) as [-> | Nk].
 - destruct Hz as [Hz | ->]; [contradiction |].
+  assert (F : DyadicLog.fast_log2_dir false x up = None).
+  { rewrite (dle_one x Fx ltac:(rewrite Xk; reflexivity)). apply fast_log2_one. }
+  rewrite F. cbv iota.
   apply Hz0; [lia |]. intros n Hn. exact (ev_log2_exact x 0 n Fx Xk Rk Hn).
 - assert (Nv : B2R v <> 0) by (rewrite Vk; apply not_0_IZR; exact Nk).
+  destruct (DyadicLog.fast_log2_dir false x up) eqn:F; cbv iota.
+  { f_equal. exact (fast_log2_exact x up v _ Fx Dx Fv H Nv F). }
   apply Hz1; [exact Fv | exact Nv | lia |].
   intros n Hn. rewrite Vk. exact (ev_log2_exact x k n Fx Xk Rk Hn).
 Qed.

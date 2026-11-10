@@ -21,7 +21,7 @@
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary LogReal DyRound DyConv DyOps DyDriver
-  DyGrow DyConst DyExpCore DyExpRules DyExp ExpReal DyLogRules DyLogCore.
+  DyGrow DyConst DyExpCore DyExpRules DyExp ExpReal DyLogRules DyLogCore FastLog.
 
 Open Scope Z_scope.
 
@@ -141,6 +141,8 @@ Lemma ln_dir_post :
 Proof.
 intros z post Hp Hz x up v Fx Dx H. unfold DyadicLog.ln_dir_with in H.
 rewrite (log_rules_finite_pos x Fx Dx) in H.
+destruct (DyadicLog.fast_ln_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp. exact (fast_ln_dir_correct false x up _ Fx Dx F). }
 apply (Hz (DyadicLog.ev_ln x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_ln_correct x n a Hn Ha).
 Qed.
@@ -162,7 +164,8 @@ Theorem ln_dir_strict :
   DyadicLog.ln_dir_with ziv_strict x up = Some v -> DyadicLog.ln_dir x up = Some v.
 Proof.
 intros x up v. unfold DyadicLog.ln_dir, DyadicLog.ln_dir_with.
-destruct (DyadicLog.log_rules x); [exact (fun h => h)|apply ziv_strict_ziv].
+destruct (DyadicLog.log_rules x); [exact (fun h => h)|].
+destruct (DyadicLog.fast_ln_dir false x up); [exact (fun h => h)|apply ziv_strict_ziv].
 Qed.
 
 Lemma log2_dir_post :
@@ -173,6 +176,8 @@ Lemma log2_dir_post :
 Proof.
 intros z post Hp Hz x up v Fx Dx H. unfold DyadicLog.log2_dir_with in H.
 rewrite (log_rules_finite_pos x Fx Dx) in H.
+destruct (DyadicLog.fast_log2_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp. exact (fast_log2_dir_correct false x up _ Fx Dx F). }
 apply (Hz (DyadicLog.ev_log2 x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_log2_correct x n a Hn Ha).
 Qed.
@@ -194,7 +199,8 @@ Theorem log2_dir_strict :
   DyadicLog.log2_dir_with ziv_strict x up = Some v -> DyadicLog.log2_dir x up = Some v.
 Proof.
 intros x up v. unfold DyadicLog.log2_dir, DyadicLog.log2_dir_with.
-destruct (DyadicLog.log_rules x); [exact (fun h => h)|apply ziv_strict_ziv].
+destruct (DyadicLog.log_rules x); [exact (fun h => h)|].
+destruct (DyadicLog.fast_log2_dir false x up); [exact (fun h => h)|apply ziv_strict_ziv].
 Qed.
 
 Lemma log10_dir_post :
@@ -208,7 +214,9 @@ rewrite (log_rules_finite_pos x Fx Dx) in H.
 destruct (List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23))
   as [k|] eqn:Ef.
 - injection H as <-. apply Hp. exact (log10_pow10_rule x up k Fx Ef).
-- apply (Hz (DyadicLog.ev_log10 x) up 1%nat); [|exact H].
+- destruct (DyadicLog.fast_log10_dir false x up) eqn:F; cbv iota in H.
+  { injection H as <-. apply Hp. exact (fast_log10_dir_correct false x up _ Fx Dx F). }
+  apply (Hz (DyadicLog.ev_log10 x) up 1%nat); [|exact H].
   intros n a Hn Ha. exact (ev_log10_correct x n a Hn Ha).
 Qed.
 
@@ -231,5 +239,6 @@ Proof.
 intros x up v. unfold DyadicLog.log10_dir, DyadicLog.log10_dir_with.
 destruct (DyadicLog.log_rules x); [exact (fun h => h)|].
 destruct (List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23));
-  [exact (fun h => h)|apply ziv_strict_ziv].
+  [exact (fun h => h)|].
+destruct (DyadicLog.fast_log10_dir false x up); [exact (fun h => h)|apply ziv_strict_ziv].
 Qed.

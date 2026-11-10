@@ -2,7 +2,8 @@
 // normalization of a double-double (`normalize`) and its quotient (`dd_div`), the rounding tests
 // of an approximation in double-double, with the error bound 2^-68 or one given as an argument
 // (`round_dir_err`, `round_near_err`), and the scaling of their results. `src/dyadic/exp.rs`
-// uses it for e^x, 2^x, 10^x, sinh, cosh and tanh.
+// uses it for e^x, 2^x, 10^x, sinh, cosh and tanh, and `src/dyadic/log.rs` for ln x, log2 x
+// and log10 x, whose results can be negative (`round_dir_signed`, `round_near_signed`).
 //
 // A fast path computes a scaled result y = f(x) 2^-e, for an integer e in [-1021, 1022], as an
 // unevaluated sum h + l of two `f64`s with h = RN(h + l), 1/2 < h < 2, and a proved bound
@@ -25,7 +26,8 @@
 // counter (`set_fast_path`, `fast_counts`), so it has to be updated along with it.
 // `rocq/theories/FastRound.v` proves `round_dir` and `round_near` correct,
 // `rocq/theories/FastRoundErr.v` `two_sum`, `normalize`, `round_dir_err` and `round_near_err`,
-// and `rocq/theories/FastDiv.v` `dd_div`.
+// `rocq/theories/FastDiv.v` `dd_div`, and `rocq/theories/FastSign.v` `round_dir_signed` and
+// `round_near_signed`.
 //
 // References:
 //
@@ -255,5 +257,26 @@ pub(crate) fn round_near_err(h: f64, l: f64, e: i64, err: f64) -> Option<f64> {
         Some(scale(h, e))
     } else {
         None
+    }
+}
+
+/// `round_dir` for an h of either sign, with 1/2 < |h| < 2: where h < 0, the rounding of y 2^e
+/// is the negative of the rounding of -y 2^e in the other direction, which `round_dir` decides
+/// from -h and -l.
+pub(crate) fn round_dir_signed(h: f64, l: f64, e: i64, up: bool) -> Option<f64> {
+    if h < 0.0 {
+        round_dir(-h, -l, e, !up).map(|r| -r)
+    } else {
+        round_dir(h, l, e, up)
+    }
+}
+
+/// `round_near` for an h of either sign, with 1/2 < |h| < 2: where h < 0, the rounding of y 2^e
+/// to nearest is the negative of that of -y 2^e.
+pub(crate) fn round_near_signed(h: f64, l: f64, e: i64) -> Option<f64> {
+    if h < 0.0 {
+        round_near(-h, -l, e).map(|r| -r)
+    } else {
+        round_near(h, l, e)
     }
 }

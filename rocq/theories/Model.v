@@ -1788,6 +1788,19 @@ Definition round_near_err (h l : f64) (e : Z) (err : f64) : option f64 :=
   let below := if gt h one then sub gap1 err else sub gap0 err in
   if gt h half && lt h two && lt l above && gt l (opp below) then Some (scale h e) else None.
 
+(** [pub(crate) fn round_dir_signed(h: f64, l: f64, e: i64, up: bool) ->
+    Option<f64>] and [pub(crate) fn round_near_signed(h: f64, l: f64, e:
+    i64) -> Option<f64>], where [.map(|r| -r)] is the [match].
+    [FastSign.v] proves them. *)
+Definition round_dir_signed (h l : f64) (e : Z) (up : bool) : option f64 :=
+  if lt h zero then
+    match round_dir (opp h) (opp l) e (negb up) with Some r => Some (opp r) | None => None end
+  else round_dir h l e up.
+Definition round_near_signed (h l : f64) (e : Z) : option f64 :=
+  if lt h zero then
+    match round_near (opp h) (opp l) e with Some r => Some (opp r) | None => None end
+  else round_near h l e.
+
 End Fast.
 
 (** ** The exponential and hyperbolic functions of the dyadic kernel
@@ -2741,20 +2754,528 @@ Definition log_rules (x : f64) : option f64 :=
   else if lt x zero then Some B754_nan
   else None.
 
+(** ** The fast path
+
+    The constants of the fast path, as the bits of [f64]s: [LN2H],
+    [LN2L], [LG2], [ONE], [C2], [C10], [Q3], [Q5], [Q6] and [Q7], with
+    [c[0]] and [c[1]] of a [[u64; 2]] its [fst] and [snd]; [TWO52]
+    (2^52) and [FRAC]; and the literals [-0.25], [-0.125] and [-0.5]. *)
+Import ListNotations.
+
+Definition LN2H : Z := 0x3fe62e42fefa3800.
+Definition LN2L : Z := 0x3d2ef35793c76730.
+Definition LG2 : Z * Z := (0x3fd34413509f7800, 0x3d1fef311f12b358).
+Definition ONE : Z * Z := (0x3ff0000000000000, 0).
+Definition C2 : Z * Z := (0x3ff71547652b82fe, 0x3c7777d0ffda0d24).
+Definition C10 : Z * Z := (0x3fdbcb7b1526e50e, 0x3c695355baaafad3).
+Definition Q3 : Z := 0x3fd5555555555555.
+Definition Q5 : Z := 0x3fc999999999999a.
+Definition Q6 : Z := 0xbfc5555555555555.
+Definition Q7 : Z := 0x3fc2492492492492.
+Definition two52 : f64 := from_bits 0x4330000000000000.
+Definition frac : Z := 0x000fffffffffffff.
+Definition neg_quarter : f64 := from_bits 0xbfd0000000000000.
+Definition neg_eighth : f64 := from_bits 0xbfc0000000000000.
+Definition neg_half : f64 := from_bits 0xbfe0000000000000.
+
+(** [LOG_TABLE] of [src/dyadic/log/tables.rs], [r] and -ln r in
+    double-double for [i] in [0, 361], and [LOG_TABLE[i]] read with
+    [f64::from_bits], where the index cannot be out of bounds. *)
+Definition LOG_TABLE : list (Z * Z * Z) := [
+  (0x3ff6993f349cc726, 0xbfd61965cdb02c1e, 0x3c7deb01e24472de);
+  (0x3ff68954dd2390ba, 0xbfd5ec433d5c35ae, 0x3c2bdbac5d0228da);
+  (0x3ff67980e0bf08c7, 0xbfd5bf406b543db1, 0x3c755f5b44c0df7f);
+  (0x3ff669c31075ab40, 0xbfd5925d2b112a59, 0x3c6eb4f4ade67242);
+  (0x3ff65a1b3dd13357, 0xbfd565995069514c, 0xbc7eb4aeb71dce60);
+  (0x3ff64a893adcd25f, 0xbfd538f4af8f72fc, 0xbc705722aa3e6cea);
+  (0x3ff63b0cda236e1c, 0xbfd50c6f1d11b97b, 0xbc1205f60f4fb3a9);
+  (0x3ff62ba5eeade65e, 0xbfd4e0086dd8bacc, 0x3c72aa1e447883d3);
+  (0x3ff61c544c0161c5, 0xbfd4b3c077267e9a, 0x3c7eda0414ae7af8);
+  (0x3ff60d17c61da198, 0xbfd487970e958771, 0x3c7a7b9a30da0b3a);
+  (0x3ff5fdf0317b5c6f, 0xbfd45b8c0a17df12, 0xbc7f7e305eaf5a20);
+  (0x3ff5eedd630a9fb3, 0xbfd42f9f3ff62641, 0x3c5dfc20b32aeeb8);
+  (0x3ff5dfdf303137b6, 0xbfd403d086cea79b, 0xbc6dae890e61064b);
+  (0x3ff5d0f56ec91e57, 0xbfd3d81fb5946dbc, 0x3c75a154e9bd1c94);
+  (0x3ff5c21ff51ef005, 0xbfd3ac8ca38e5c5d, 0xbc6b843fd41b5821);
+  (0x3ff5b35e99f06714, 0xbfd3811728564cb2, 0x3c70249d0381591b);
+  (0x3ff5a4b1346add2b, 0xbfd355bf1bd82c8b, 0x3c48e2593c3a036f);
+  (0x3ff596179c29d2ce, 0xbfd32a84565120a9, 0x3c7d2fd8ca1453af);
+  (0x3ff58791a9357cce, 0xbfd2ff66b04ea9d5, 0x3c75a541e6e2e36c);
+  (0x3ff5791f34015792, 0xbfd2d46602adccef, 0x3c7eeee6aa0cadf1);
+  (0x3ff56ac0156ac015, 0xbfd2a982269a3dbe, 0xbc4e6aa35e8c481e);
+  (0x3ff55c7426b79286, 0xbfd27ebaf58d8c9c, 0xbc723ffa5a12c9b5);
+  (0x3ff54e3b4194ce66, 0xbfd25410494e56c8, 0x3c6da7e21101b5ad);
+  (0x3ff5401540154015, 0xbfd22981fbef797a, 0xbc6b53ed4fe4c507);
+  (0x3ff53201fcb02fb1, 0xbfd1ff0fe7cf47a9, 0x3c6a15d801e7d762);
+  (0x3ff5240152401524, 0xbfd1d4b9e796c245, 0xbc7233e2172b6715);
+  (0x3ff516131c015161, 0xbfd1aa7fd638d33e, 0xbc6529616f79ff4e);
+  (0x3ff508373590ec9c, 0xbfd180618ef18ade, 0x3c47e4369c72b404);
+  (0x3ff4fa6d7aeb597c, 0xbfd1565eed455fc2, 0xbc7829024aa2ed78);
+  (0x3ff4ecb5c86b3d24, 0xbfd12c77cd00713c, 0xbc71522847de5d12);
+  (0x3ff4df0ffac83c01, 0xbfd102ac0a35cc1b, 0xbc594404052f3458);
+  (0x3ff4d17bef15cb4e, 0xbfd0d8fb813eb1ef, 0xbc75a21d4fe8d42a);
+  (0x3ff4c3f982c20723, 0xbfd0af660eb9e278, 0x3c6440ad727f641b);
+  (0x3ff4b68893948d1c, 0xbfd085eb8f8ae799, 0x3c63d8174030ad14);
+  (0x3ff4a928ffad5b5c, 0xbfd05c8be0d9635a, 0xbc5a38ef996b0c96);
+  (0x3ff49bdaa583b401, 0xbfd03346e0106062, 0x3c79475699c6a38e);
+  (0x3ff48e9d63e504d1, 0xbfd00a1c6adda472, 0xbc505a22e785ea23);
+  (0x3ff4817119f3d325, 0xbfcfc218be620a5f, 0x3c5be438c2581880);
+  (0x3ff47455a726abf2, 0xbfcf702d36777df0, 0xbc58ae998c1dd664);
+  (0x3ff4674aeb4717e9, 0xbfcf1e75fadf9bde, 0xbc559b44f8126332);
+  (0x3ff45a50c670938f, 0xbfceccf2c8fe920b, 0xbc5217062a6fe69f);
+  (0x3ff44d67190f8b43, 0xbfce7ba35eb77e2a, 0xbc6ec7721b26dd59);
+  (0x3ff4408dc3e05b22, 0xbfce2a877a6b2c0f, 0x3c66d10f1efcca1b);
+  (0x3ff433c4a7ee52b4, 0xbfcdd99edaf6d7e9, 0xbc44cb1c548a6ce6);
+  (0x3ff4270ba692bc4d, 0xbfcd88e93fb2f451, 0xbc6f7fb96815e081);
+  (0x3ff41a62a173e821, 0xbfcd38666871f467, 0x3c34b38932bc0bed);
+  (0x3ff40dc97a843ae8, 0xbfcce816157f1985, 0x3c66ba2099514bdb);
+  (0x3ff4014014014014, 0xbfcc97f8079d44ec, 0xbc641a8c6e6c4ee7);
+  (0x3ff3f4c65072bf74, 0xbfcc480c0005cccf, 0xbc649abc89ceca67);
+  (0x3ff3e85c12a9d651, 0xbfcbf851c067555c, 0x3c5c9302152b2212);
+  (0x3ff3dc013dc013dc, 0xbfcba8c90ae4ad19, 0xbc6afe88865b42bd);
+  (0x3ff3cfb5b51698eb, 0xbfcb5971a213acd9, 0x3c535f155b885f1f);
+  (0x3ff3c3795c553afb, 0xbfcb0a4b48fc1b44, 0x3c56ab87331d9cbf);
+  (0x3ff3b74c1769aa5c, 0xbfcabb55c31693ae, 0xbc4a9a875993ea8a);
+  (0x3ff3ab2dca869b81, 0xbfca6c90d44b704c, 0x3c667e06f618b545);
+  (0x3ff39f1e5a22f36e, 0xbfca1dfc40f1b7f1, 0x3c6ce009e6f018ff);
+  (0x3ff3931daaf8f721, 0xbfc9cf97cdce0ec1, 0x3c4e779df58e47dd);
+  (0x3ff3872ba2057e04, 0xbfc981634011aa74, 0x3c664c2df743bd5a);
+  (0x3ff37b4824872744, 0xbfc9335e5d594985, 0xbc6d8757a8fb3347);
+  (0x3ff36f7317fd9212, 0xbfc8e588ebac2dc1, 0xbc5d2acb445001d8);
+  (0x3ff363ac622898b1, 0xbfc897e2b17b19a6, 0x3c64f380cbe9dbe8);
+  (0x3ff357f3e9078e5b, 0xbfc84a6b759f512d, 0x3c46156fc3047cf8);
+  (0x3ff34c4992d87fd9, 0xbfc7fd22ff599d4c, 0x3c55bf457b7d1812);
+  (0x3ff340ad461776d3, 0xbfc7b0091651528b, 0xbc510d3e606a318f);
+  (0x3ff3351ee97dbfc6, 0xbfc7631d82935a84, 0x3c68dc7c5f3e101c);
+  (0x3ff3299e6401329a, 0xbfc716600c914055, 0xbc4855f3b0e0e1cd);
+  (0x3ff31e2b9cd37dc2, 0xbfc6c9d07d203fc4, 0x3c1fafd9b2dc9d46);
+  (0x3ff312c67b6173ee, 0xbfc67d6e9d785770, 0x3c40185383697ee2);
+  (0x3ff3076ee7525c2c, 0xbfc6313a37335d76, 0xbc5cab0de1592fb0);
+  (0x3ff2fc24c8874486, 0xbfc5e533144c1718, 0xbc6b8189ade2b075);
+  (0x3ff2f0e8071a5703, 0xbfc59958ff1d52f4, 0x3c5e65da72814af4);
+  (0x3ff2e5b88b5e3104, 0xbfc54dabc26105d3, 0x3c542346e5e4fa23);
+  (0x3ff2da963ddd3cfb, 0xbfc5022b292f6a45, 0xbc40ff9b512dbc1d);
+  (0x3ff2cf8107590e67, 0xbfc4b6d6fefe22a5, 0xbc5fcf56e7951abb);
+  (0x3ff2c478d0c9c013, 0xbfc46baf0f9f5db8, 0xbc6717c37bdf2e08);
+  (0x3ff2b97d835d548e, 0xbfc420b32740fdd6, 0xbc68e9bd2fbbdd69);
+  (0x3ff2ae8f087718d0, 0xbfc3d5e3126bc281, 0x3c6e83d7b49da757);
+  (0x3ff2a3ad49af0907, 0xbfc38b3e9e027477, 0x3c698a8b82ff1eb3);
+  (0x3ff298d830d13780, 0xbfc340c59741142d, 0xbc418413163ccbcf);
+  (0x3ff28e0fa7dd35a3, 0xbfc2f677cbbc0a98, 0xbc342160f40d56bb);
+  (0x3ff2835399057efd, 0xbfc2ac55095f5c5b, 0x3c62b68636453e34);
+  (0x3ff278a3eeaee650, 0xbfc2625d1e6ddf55, 0xbc44e87b0e13f0a5);
+  (0x3ff26e009370049c, 0xbfc2188fd9807266, 0xbc6a3015e71fdb2b);
+  (0x3ff263697210aa18, 0xbfc1ceed09853755, 0xbc0e3736a838a6b8);
+  (0x3ff258de75895121, 0xbfc185747dbecf34, 0x3c51ee90992dcbab);
+  (0x3ff24e5f89029305, 0xbfc13c2605c398bf, 0xbc6da26b09af7476);
+  (0x3ff243ec97d49eae, 0xbfc0f301717cf0fb, 0x3c6f8835d0d8979f);
+  (0x3ff239858d86b11f, 0xbfc0aa06912675d5, 0xbc568a3f37b5ce5a);
+  (0x3ff22f2a55ce8fc5, 0xbfc06135354d4b19, 0x3c5575f2fc45ac69);
+  (0x3ff224dadc900489, 0xbfc0188d2ecf613e, 0xbc4451cff9dfe3fb);
+  (0x3ff21a970ddc5ba7, 0xbfbfa01c9db57ce7, 0xbc31c0b6eb19fd48);
+  (0x3ff2105ed5f1e336, 0xbfbf0f70cdd992e4, 0xbc59db09cb07729c);
+  (0x3ff20632213b6c6d, 0xbfbe7f1691a32d3a, 0xbc57990e21019877);
+  (0x3ff1fc10dc4fce8b, 0xbfbdef0d8d466dbb, 0xbc50efb45962e028);
+  (0x3ff1f1faf3f16b64, 0xbfbd5f55659210e1, 0x3c4b19f3d5cb5706);
+  (0x3ff1e7f0550db594, 0xbfbccfedbfee13a8, 0xbc332fe71255a574);
+  (0x3ff1ddf0ecbcb841, 0xbfbc40d6425a5cb4, 0xbc5987464c3722b2);
+  (0x3ff1d3fca840a074, 0xbfbbb20e936d6976, 0xbc1f2ae991c88432);
+  (0x3ff1ca13750547fe, 0xbfbb23965a52ff04, 0x3c5e9dd426e0f27b);
+  (0x3ff1c035409fc1df, 0xbfba956d3ecade60, 0x3c5cacff4ed42aa4);
+  (0x3ff1b661f8cde833, 0xbfba0792e9277cad, 0xbc5fc9b2957205c6);
+  (0x3ff1ac998b75eb90, 0xbfb97a07024cbe6e, 0x3c282e641279cfb5);
+  (0x3ff1a2dbe6a5e3e4, 0xbfb8ecc933aeb6e2, 0x3c29be67f7aa7546);
+  (0x3ff19928f89362b7, 0xbfb85fd927506a46, 0x3c10665c3071db3d);
+  (0x3ff18f80af9b06dc, 0xbfb7d33687c293c8, 0x3c50f063e63e7076);
+  (0x3ff185e2fa401186, 0xbfb746e100226edb, 0x3c44b70f10e93174);
+  (0x3ff17c4fc72bfcb9, 0xbfb6bad83c1883ba, 0xbc5ae60449356c12);
+  (0x3ff172c7052e1316, 0xbfb62f1be7d7774a, 0x3c05fb58f1376e6e);
+  (0x3ff16948a33b08fa, 0xbfb5a3abb01ade21, 0xbc4e4f357d0bf567);
+  (0x3ff15fd4906c96f1, 0xbfb5188742261311, 0xbc3996258b3d8a77);
+  (0x3ff1566abc011567, 0xbfb48dae4bc3101d, 0xbc4b90461005f525);
+  (0x3ff14d0b155b19ae, 0xbfb403207b414b79, 0xbc5a95502af7fe71);
+  (0x3ff143b58c01143b, 0xbfb378dd7f74970f, 0x3c32d70e0535f54f);
+  (0x3ff13a6a0f9cf01e, 0xbfb2eee507b402ff, 0x3c4a1228837a052d);
+  (0x3ff131288ffbb3b6, 0xbfb26536c3d8c36c, 0x3c5c9fb41d22e910);
+  (0x3ff127f0fd0d2295, 0xbfb1dbd2643d1913, 0x3c5fc9a20edb0203);
+  (0x3ff11ec346e36092, 0xbfb152b799bb3cd0, 0x3c4e90703082910c);
+  (0x3ff1159f5db29606, 0xbfb0c9e615ac4e19, 0x3c50fed164d13b5b);
+  (0x3ff10c8531d0952e, 0xbfb0415d89e7444b, 0xbc440b9e3aea6c39);
+  (0x3ff10374b3b480aa, 0xbfaf723b517fc51f, 0x3c4c6eab08695901);
+  (0x3ff0fa6dd3f67322, 0xbfae624c4a0b5e15, 0x3c4a3a33b3446795);
+  (0x3ff0f170834f27fa, 0xbfad52ed6405d87a, 0x3c14a8a6ef59ba39);
+  (0x3ff0e87cb297a51e, 0xbfac441e06f72a93, 0x3c445b3d79755aa4);
+  (0x3ff0df9252c8e5e6, 0xbfab35dd9b58baa8, 0x3c094985538de795);
+  (0x3ff0d6b154fb86f9, 0xbfaa282b8a936174, 0x3c38c077e47149d6);
+  (0x3ff0cdd9aa677344, 0xbfa91b073efd7314, 0x3bf4fddb2a56c208);
+  (0x3ff0c50b446391f3, 0xbfa80e7023d8ccc8, 0x3c4ab7945fa2720b);
+  (0x3ff0bc4614657569, 0xbfa70265a550e77b, 0xbc4e3b80a8c6332f);
+  (0x3ff0b38a0c010b39, 0xbfa5f6e73078efc3, 0xbc1affdb6d68f1fb);
+  (0x3ff0aad71ce84d16, 0xbfa4ebf43349e26a, 0xbc4fc23106232514);
+  (0x3ff0a22d38eaf2bf, 0xbfa3e18c1ca0ae99, 0xbc227edc6f1c907e);
+  (0x3ff0998c51f624d5, 0xbfa2d7ae5c3c5bb7, 0xbc415d312cc97c03);
+  (0x3ff090f45a1430aa, 0xbfa1ce5a62bc3540, 0x3c4839390333b61e);
+  (0x3ff08865436c3cf7, 0xbfa0c58fa19dfaab, 0x3c362b162f225e0b);
+  (0x3ff07fdf0041ff7c, 0xbf9f7a9b16782855, 0xbc3c938df3eb88aa);
+  (0x3ff0776182f57386, 0xbf9d6b272597981f, 0xbc295e5c8f8f355e);
+  (0x3ff06eecbe029155, 0xbf9b5cc258b718e7, 0x3c3791d41005f9a7);
+  (0x3ff06680a4010668, 0xbf994f6b99a24473, 0x3bf0693080ae9e8a);
+  (0x3ff05e1d27a3ee9c, 0xbf974321d3d006d2, 0xbc3690fe9477840c);
+  (0x3ff055c23bb98e2a, 0xbf9537e3f45f354e, 0x3c3b169406d66a7b);
+  (0x3ff04d6fd32b0c7b, 0xbf932db0ea132e10, 0x3c3e767bb50221ff);
+  (0x3ff04525e0fc2fcb, 0xbf912487a5507f68, 0x3c1804ad31b5f952);
+  (0x3ff03ce4584b19a0, 0xbf8e38ce30333100, 0x3c2147b45033e1b4);
+  (0x3ff034ab2c50040d, 0xbf8a2a9c6c17044d, 0x3bd35b4d1c8470b4);
+  (0x3ff02c7a505cffbf, 0xbf861e77e8b53f9f, 0xbc2a2a0e2a1967ef);
+  (0x3ff02451b7ddb2d2, 0xbf82145e939ef1bc, 0xbc247189d3ff66bf);
+  (0x3ff01c315657186b, 0xbf7c189cbb0e283f, 0xbc1bb69dea7ecc2c);
+  (0x3ff014191f674111, 0xbf740c8a7478788d, 0x3c1e20f8fffe770a);
+  (0x3ff00c0906c513cf, 0xbf6809048289860a, 0x3be6958f3f3b017b);
+  (0x3ff0000000000000, 0x0000000000000000, 0x0000000000000000);
+  (0x3ff0000000000000, 0x0000000000000000, 0x0000000000000000);
+  (0x3fefe811f28a186e, 0x3f67f7047d798388, 0xbbe762979b7ec596);
+  (0x3fefd831c1cdbed1, 0x3f73f38a60f064c7, 0xbc116c36c8b6bf9d);
+  (0x3fefc86155aa1659, 0x3f7be79c70058ebb, 0x3bf9a6c04043f52d);
+  (0x3fefb8a096acfacc, 0x3f81ebde2d1997d3, 0x3c18016e479344eb);
+  (0x3fefa8ef6d92aca5, 0x3f85e1f703ecbe5f, 0xbc1029e89792d888);
+  (0x3fef994dc3455e8d, 0x3f89d61aadc6bd7a, 0x3c10c9ed095b4d7e);
+  (0x3fef89bb80dcc421, 0x3f8dc84b191237f6, 0xbc21f0e2d267d812);
+  (0x3fef7a388f9da20f, 0x3f90dc4518afcc90, 0xbc359c0189fdfe76);
+  (0x3fef6ac4d8f95f7a, 0x3f92d36cefb557d2, 0x3c3f341706c37cca);
+  (0x3fef5b60468d989f, 0x3f94c99e04901de4, 0x3c3b977d7d292f97);
+  (0x3fef4c0ac223b2bc, 0x3f96bed948d1b7da, 0xbc282c1487ef36eb);
+  (0x3fef3cc435b0713c, 0x3f98b31faca9b017, 0x3c2ead236d37b3be);
+  (0x3fef2d8c8b538c0f, 0x3f9aa6721ee8359d, 0x3c275c5af493a9e9);
+  (0x3fef1e63ad57473c, 0x3f9c98d18d00c805, 0x3c3d7d3b10786d27);
+  (0x3fef0f4986300ba6, 0x3f9e8a3ee30cdca3, 0x3c2dc21ac7002cea);
+  (0x3fef003e007c00f8, 0x3fa03d5d85e73eef, 0x3c3960ed29ceb076);
+  (0x3feef1410702a8bc, 0x3fa13523785971ec, 0xbc38edc7e966c184);
+  (0x3feee25284b47a92, 0x3fa22c71bcea83a9, 0xbc49383c03bb87d5);
+  (0x3feed37264aa8191, 0x3fa32348c7001692, 0x3c4fe42c7927ca60);
+  (0x3feec4a09225fab6, 0x3fa419a9095936bd, 0x3c3067d48ea7376f);
+  (0x3feeb5dcf88ff47c, 0x3fa50f92f60f996a, 0xbc453d5b80073e8c);
+  (0x3feea7278378ef7a, 0x3fa60506fe98da8a, 0xbc4240ca701b0da1);
+  (0x3fee98801e98801f, 0x3fa6fa0593c7b67c, 0xbc0df14e5afb8bfe);
+  (0x3fee89e6b5ccf172, 0x3fa7ee8f25cd4181, 0xbc4d08d2e0f46f97);
+  (0x3fee7b5b351ae8e7, 0x3fa8e2a4243a1b97, 0xbc347f5ecdb7e497);
+  (0x3fee6cdd88ad0b2c, 0x3fa9d644fdffa279, 0xbc43d632dc62533a);
+  (0x3fee5e6d9cd3a20c, 0x3faac97221711f8b, 0xbc210fecddd39fd4);
+  (0x3fee500b5e044342, 0x3fabbc2bfc44f410, 0x3c4d2dd7d04a1e13);
+  (0x3fee41b6b8d97851, 0x3facae72fb95c210, 0xbc352025b1be7e18);
+  (0x3fee336f9a126758, 0x3fada0478be39253, 0xbc284e0901faa51c);
+  (0x3fee2535ee927cd2, 0x3fae91aa1914f861, 0xbc4801dcc6a75e3b);
+  (0x3fee1709a3611655, 0x3faf829b0e783302, 0xbc0c1c0fb0e10dd3);
+  (0x3fee08eaa5a92e3a, 0x3fb0398d6b62254c, 0x3c5580d00cc0086c);
+  (0x3fedfad8e2b90833, 0x3fb0b194ee0d1663, 0x3c5b13da7b72e5e7);
+  (0x3fedecd44801decd, 0x3fb129644402e2af, 0xbc5c5d46a9dcdf76);
+  (0x3feddedcc31791da, 0x3fb1a0fba1bf8a54, 0xbc55679cc5247c87);
+  (0x3fedd0f241b055b9, 0x3fb2185b3b75a1cc, 0x3c30070cdcfc4d5e);
+  (0x3fedc314b1a46384, 0x3fb28f83450eda90, 0x3c2b54232ed12521);
+  (0x3fedb54400edaa20, 0x3fb30673f22c8a65, 0x3c48a773c2e94d10);
+  (0x3feda7801da7801e, 0x3fb37d2d762831cd, 0xbc54536ffe2b86c3);
+  (0x3fed99c8f60e567d, 0x3fb3f3b0041400f4, 0x3c35a566fe76259e);
+  (0x3fed8c1e787f6c43, 0x3fb469fbcebb5b6a, 0xbc506c36a39b1a06);
+  (0x3fed7e80937882e1, 0x3fb4e01108a35ae9, 0xbc3e20d3a51b6eb1);
+  (0x3fed70ef35979370, 0x3fb555efe40b50b1, 0xbc521cde5c772a18);
+  (0x3fed636a4d9a84b5, 0x3fb5cb9892ed45ef, 0xbc3cd66c0eb42190);
+  (0x3fed55f1ca5ee1fa, 0x3fb6410b46fe7ab0, 0x3c5e0c34272ec18f);
+  (0x3fed48859ae192a5, 0x3fb6b64831afe40e, 0x3c5ffb22085b7ee5);
+  (0x3fed3b25ae3e929d, 0x3fb72b4f842ea8f8, 0x3c4c9ff9b1169b8e);
+  (0x3fed2dd1f3b0ab6d, 0x3fb7a0216f649e14, 0xbbf5e7be70082a30);
+  (0x3fed208a5a912e32, 0x3fb814be23f8c033, 0xbc467e257d02037b);
+  (0x3fed134ed257ae3a, 0x3fb88925d24fae28, 0x3c53aec111fe6112);
+  (0x3fed061f4a99bc6e, 0x3fb8fd58aa8c2111, 0x3c49f21a46d26dff);
+  (0x3fecf8fbb30aa36c, 0x3fb97156dc8f63e4, 0xbc2335fb72f6b7e2);
+  (0x3fecebe3fb7b2461, 0x3fb9e52097f9c9ad, 0x3c4e2d4b7413ed7d);
+  (0x3fecded813d9348e, 0x3fba58b60c2b2320, 0x3c5a28e8d835867e);
+  (0x3fecd1d7ec2fbb8e, 0x3fbacc17684332a9, 0xbc3dd05bfd25e3b0);
+  (0x3fecc4e374a65243, 0x3fbb3f44db221fd1, 0x3c40ec6f04d74d63);
+  (0x3fecb7fa9d810278, 0x3fbbb23e9368e973, 0x3c4be553123a9554);
+  (0x3fecab1d5720072b, 0x3fbc2504bf79d716, 0xbc4a97885a91fa8a);
+  (0x3fec9e4b91ff8d87, 0x3fbc97978d78e91e, 0x3c545a20b9df18d7);
+  (0x3fec91853eb77684, 0x3fbd09f72b4c4822, 0xbc5dfff956399f93);
+  (0x3fec84ca4dfb192d, 0x3fbd7c23c69cb343, 0xbc591ba650ee112d);
+  (0x3fec781ab099058f, 0x3fbdee1d8cd5ed76, 0x3c5f6358401dcced);
+  (0x3fec6b76577ac845, 0x3fbe5fe4ab272a08, 0xbc5cfdd3ff934503);
+  (0x3fec5edd33a4aea8, 0x3fbed1794e83780c, 0xbc503749d0483dca);
+  (0x3fec524f36358b9e, 0x3fbf42dba3a22ceb, 0x3c3ccd2093f31bad);
+  (0x3fec45cc50667d05, 0x3fbfb40bd6ff4e03, 0xbc53e909589497fc);
+  (0x3fec3954738ab1b9, 0x3fc012850a6dfcaf, 0x3c5deb7fa406c718);
+  (0x3fec2ce7910f3035, 0x3fc04aeb449f66be, 0xbc517346659470a2);
+  (0x3fec20859a7a9dc6, 0x3fc08338affa282c, 0xbc6bea6fb83b1db9);
+  (0x3fec142e816d065d, 0x3fc0bb6d6247aaa1, 0x3c5a4f33412cbae1);
+  (0x3fec07e2379fa4e6, 0x3fc0f3897134b130, 0x3c3a176c2939e6bd);
+  (0x3febfba0aee4ac45, 0x3fc12b8cf2518a46, 0xbc6e7d87ebe086ba);
+  (0x3febef69d92710ce, 0x3fc16377fb124192, 0xbc21502fa2707aa6);
+  (0x3febe33da86a525b, 0x3fc19b4aa0ced13c, 0x3c602d3bd98e9d69);
+  (0x3febd71c0eca46e8, 0x3fc1d304f8c352c9, 0xbc629be8a2084b5a);
+  (0x3febcb04fe7ae5ba, 0x3fc20aa718102f97, 0xbc64f96f55a034ce);
+  (0x3febbef869c81313, 0x3fc2423113ba50e4, 0x3c6630e22c4c81b3);
+  (0x3febb2f643156c6a, 0x3fc279a300ab4f7c, 0x3c60d6646a20ffc1);
+  (0x3feba6fe7cde152c, 0x3fc2b0fcf3b1a2ef, 0xbc47839eb4c2b4a5);
+  (0x3feb9b1109b483fd, 0x3fc2e83f0180d07c, 0xbc5630a138739c4f);
+  (0x3feb8f2ddc425086, 0x3fc31f693eb19968, 0xbc53dcb472df68df);
+  (0x3feb8354e74801b8, 0x3fc3567bbfc22929, 0x3c684a732343d9a1);
+  (0x3feb77861d9cdc98, 0x3fc38d7699164308, 0x3c5e59e39bb706d6);
+  (0x3feb6bc1722eb385, 0x3fc3c459def76f70, 0x3c6b1ed6e1a66b2d);
+  (0x3feb6006d801b600, 0x3fc3fb25a59528cd, 0xbc5065329c022934);
+  (0x3feb5456423040e8, 0x3fc431da01050826, 0xbc6f0f923f8de92b);
+  (0x3feb48afa3eaaf37, 0x3fc468770542f13e, 0x3c6580e55ef03f34);
+  (0x3feb3d12f0772b33, 0x3fc49efcc6313e6e, 0x3c685982aaa35580);
+  (0x3feb31801b31801b, 0x3fc4d56b5798ec04, 0xbc65bd4ad3555276);
+  (0x3feb25f7178aec46, 0x3fc50bc2cd29c35d, 0x3c603946dc6a7609);
+  (0x3feb1a77d909f3b8, 0x3fc542033a7a85a3, 0x3c688ed855f0e09d);
+  (0x3feb0f02534a3328, 0x3fc5782cb3091630, 0xbc6a6a2f288836ae);
+  (0x3feb039679fc337f, 0x3fc5ae3f4a3aa47a, 0xbc5cc1fdaae8e653);
+  (0x3feaf83440e53dbc, 0x3fc5e43b135bd5e3, 0x3c6866224c79df41);
+  (0x3feaecdb9bdf2f54, 0x3fc61a2021a0eeef, 0xbc695c8418646a46);
+  (0x3feae18c7ed84ef7, 0x3fc64fee8825fc49, 0x3c6654531109517a);
+  (0x3fead646ddd321c2, 0x3fc685a659eefb81, 0x3c3749f7e6f5dd22);
+  (0x3feacb0aace640e4, 0x3fc6bb47a9e8033e, 0xbc6c96e0ae6b4c1d);
+  (0x3feabfd7e03c2fa6, 0x3fc6f0d28ae56b4a, 0x3c6179266e7b466e);
+  (0x3feab4ae6c1331dd, 0x3fc726470fa3f447, 0x3c645e3178b766db);
+  (0x3feaa98e44bd22c9, 0x3fc75ba54ac8eeef, 0x3c67717894f7fb0e);
+  (0x3fea9e775e9f4c52, 0x3fc790ed4ee26335, 0x3c54d4e7746f585b);
+  (0x3fea9369ae323eb4, 0x3fc7c61f2e6736e2, 0x3c6d499c82e3fa39);
+  (0x3fea88652801a886, 0x3fc7fb3afbb75414, 0xbc6b248c13aae9cc);
+  (0x3fea7d69c0ac2f2f, 0x3fc83040c91bcf30, 0xbc6887233219bcc4);
+  (0x3fea72776ce347b2, 0x3fc86530a8c70cc7, 0x3c669969d47c620c);
+  (0x3fea678e216b0fe2, 0x3fc89a0aacd4e704, 0x3c6b3da8f5a71f5f);
+  (0x3fea5cadd31a27f4, 0x3fc8cecee74ad2d4, 0x3c6ceab7ac896805);
+  (0x3fea51d676d98c71, 0x3fc9037d6a1804c2, 0xbc426a0f8dc9a181);
+  (0x3fea470801a47080, 0x3fc938164715959d, 0x3c6852b8b8c4ea69);
+  (0x3fea3c4268881898, 0x3fc96c999006a6a5, 0xbc68a6344bad3a0a);
+  (0x3fea3185a0a3b583, 0x3fc9a10756988594, 0xbc6fddbd32f67a3a);
+  (0x3fea26d19f283fbf, 0x3fc9d55fac62d05b, 0xbc3ffc3b5bc284f9);
+  (0x3fea1c265958533a, 0x3fca09a2a2e79888, 0x3c60a32beedcc821);
+  (0x3fea1183c4880b68, 0x3fca3dd04b93865e, 0xbc5fd9323a74b0aa);
+  (0x3fea06e9d61cdfab, 0x3fca71e8b7bdfbbf, 0x3c651910facdd139);
+  (0x3fe9fc58838d801a, 0x3fcaa5ebf8a936b0, 0xbc69a6d2a351df62);
+  (0x3fe9f1cfc261b292, 0x3fcad9da1f8273c0, 0x3c6586ff81f5f290);
+  (0x3fe9e74f8832302a, 0x3fcb0db33d620ff8, 0xbc6ff8e2a8df385f);
+  (0x3fe9dcd7caa882ee, 0x3fcb4177634baaaf, 0xbc6a55333f2c1bd3);
+  (0x3fe9d2687f7ee3f6, 0x3fcb7526a22e4701, 0x3c0cb9e1523f62a9);
+  (0x3fe9c8019c8019c8, 0x3fcba8c10ae46d19, 0x3c6e53ddd3b097ac);
+  (0x3fe9bda317875714, 0x3fcbdc46ae344b10, 0x3c698047aca0acf0);
+  (0x3fe9b34ce68019b3, 0x3fcc0fb79ccfd5c9, 0x3c6fccc2eb550e3b);
+  (0x3fe9a8feff660a06, 0x3fcc4313e754e93d, 0xbc3d8b35282a0a50);
+  (0x3fe99eb95844da92, 0x3fcc765b9e4d68d6, 0x3c61e6d2eded87ef);
+  (0x3fe9947be73827f8, 0x3fcca98ed22f5f4b, 0x3c607ce6bbec6f2a);
+  (0x3fe98a46a26b5931, 0x3fccdcad935d1e5e, 0x3c6b7f2cd96ee374);
+  (0x3fe980198019801a, 0x3fcd0fb7f2255e4e, 0x3c55a6fce626b67b);
+  (0x3fe975f4768d3a48, 0x3fcd42adfec35d15, 0xbc6e07ec021393f6);
+  (0x3fe96bd77c20922c, 0x3fcd758fc95efd4c, 0x3c64aba5f4eaafdb);
+  (0x3fe961c2873ce079, 0x3fcda85d620ce4fe, 0x3c59182d98fd7ea4);
+  (0x3fe957b58e5aadd6, 0x3fcddb16d8ce9c20, 0x3c5968efb47441bf);
+  (0x3fe94db0880194db, 0x3fce0dbc3d92aac9, 0x3c613e0a537e20f5);
+  (0x3fe943b36ac82451, 0x3fce404da034b73e, 0xbc661c1344f31f29);
+  (0x3fe939be2d53c1b9, 0x3fce72cb107da3bd, 0xbc54b320ab8e46c7);
+  (0x3fe92fd0c6588c1a, 0x3fcea5349e23ac0e, 0xbc66167186696831);
+  (0x3fe925eb2c993f11, 0x3fced78a58ca82df, 0xbc641643663c128a);
+  (0x3fe91c0d56e7162b, 0x3fcf09cc50036ecf, 0x3c470c6ccced9878);
+  (0x3fe912373c21b07a, 0x3fcf3bfa934d6769, 0xbc435b211bf1285b);
+  (0x3fe90868d336f476, 0x3fcf6e15321531b3, 0x3c6590a762717035);
+  (0x3fe8fea21322f417, 0x3fcfa01c3bb57cba, 0x3c623028f143d1ec);
+  (0x3fe8f4e2f2efd135, 0x3fcfd20fbf76fdc6, 0x3c6fe469c80c826b);
+  (0x3fe8eb2b69b5a22a, 0x3fd001f7e648462b, 0x3c7db40c9abbc22f);
+  (0x3fe8e17b6e9a56b2, 0x3fd01ade39139ef7, 0xbc7c033370548252);
+  (0x3fe8d7d2f8d19d04, 0x3fd033badfa740e2, 0xbc7207d6f48401a1);
+  (0x3fe8ce31ff9cc738, 0x3fd04c8de1841e02, 0xbc79e944b3ae19cf);
+  (0x3fe8c4987a4ab0dc, 0x3fd0655746227089, 0x3c54fda4346b4d1c);
+  (0x3fe8bb066037a4ce, 0x3fd07e1714f1c842, 0xbc7324f384bd4c50);
+  (0x3fe8b17ba8cd4354, 0x3fd096cd555917e6, 0x3c66a40aa1461ddc);
+  (0x3fe8a7f84b826867, 0x3fd0af7a0eb6c27a, 0x3c70ea4a2d6d699d);
+  (0x3fe89e7c3fdb1246, 0x3fd0c81d4860a868, 0x3c532ff8ba33b45f);
+  (0x3fe895077d684836, 0x3fd0e0b709a434a7, 0x3c7dca7862f29b43);
+  (0x3fe88b99fbc80189, 0x3fd0f94759c669ab, 0xbc73f7f0818b6577);
+  (0x3fe88233b2a50cd4, 0x3fd111ce4003ee4d, 0x3c70a3da52d2526b);
+  (0x3fe878d499b6f766, 0x3fd12a4bc3911a95, 0xbc551851cc9628bd);
+  (0x3fe86f7ca8c1f4ed, 0x3fd142bfeb9a0475, 0xbc620f494eac33db);
+  (0x3fe8662bd796c763, 0x3fd15b2abf428c4e, 0x3c442d92759387c3);
+  (0x3fe85ce21e12a71d, 0x3fd1738c45a6698f, 0xbc7a30032c175e8b);
+  (0x3fe8539f741f2b24, 0x3fd18be485d93706, 0x3c7a76f3604ab4c2);
+  (0x3fe84a63d1b231b8, 0x3fd1a43386e67f43, 0x3c7c5f3963eaa7cf);
+  (0x3fe8412f2ecdc90c, 0x3fd1bc794fd1c8cd, 0x3c52e2e116107b7b);
+  (0x3fe8380183801838, 0x3fd1d4b5e796a245, 0x3c73de8cbdd6118d);
+  (0x3fe82edac7e3485c, 0x3fd1ece95528ae7c, 0xbc786c26d28ee01e);
+  (0x3fe825baf41d6dfc, 0x3fd205139f73b05b, 0x3c5f785827829124);
+  (0x3fe81ca200607288, 0x3fd21d34cd5b96d5, 0x3c73fb28bada994d);
+  (0x3fe8138fe4e9fe1e, 0x3fd2354ce5bc88a3, 0x3c36f9fd599ce4db);
+  (0x3fe80a849a03617b, 0x3fd24d5bef6aeff8, 0xbc79980fc9fabdcd);
+  (0x3fe8018018018018, 0x3fd26561f133862d, 0x3c630cdf548bd15c);
+  (0x3fe7f8825744ba86, 0x3fd27d5ef1db5f36, 0x3c5f5c39a9b06182);
+  (0x3fe7ef8b5038d8eb, 0x3fd29552f81ff523, 0xbc4af4471dfc120b);
+  (0x3fe7e69afb54f5bb, 0x3fd2ad3e0ab73373, 0xbc75adbb9e530591);
+  (0x3fe7ddb1511b689a, 0x3fd2c520304f8260, 0x3c51518685e71f07);
+  (0x3fe7d4ce4a19b16e, 0x3fd2dcf96f8fd218, 0xbc752b8e61b1913c);
+  (0x3fe7cbf1dee863a6, 0x3fd2f4c9cf17a5c8, 0xbc68ed9168f091a5);
+  (0x3fe7c31c082b11a3, 0x3fd30c91557f1ebd, 0xbc5a0a1451754a60);
+  (0x3fe7ba4cbe90385a, 0x3fd324500957074b, 0x3c379bdae59d4bff);
+  (0x3fe7b183fad12b21, 0x3fd33c05f128dda9, 0x3c6ddc7f1e582cfd);
+  (0x3fe7a8c1b5b1ffa1, 0x3fd353b31376dece, 0xbc5f7e6c26d9b4bd);
+  (0x3fe7a005e8017a00, 0x3fd36b5776bc1118, 0xbc7a1e958f770385);
+  (0x3fe797508a98f92e, 0x3fd382f3216c4efb, 0xbc7a087469fdb292);
+  (0x3fe78ea1965c6362, 0x3fd39a8619f4518e, 0x3c630c9b9aa7a4e8);
+  (0x3fe785f9043a12bf, 0x3fd3b21066b9bb0f, 0xbc6173022ac1cf80);
+  (0x3fe77d56cd2ac228, 0x3fd3c9920e1b2142, 0xbc6cbaacbfa44dc6);
+  (0x3fe774baea317a3a, 0x3fd3e10b167017d0, 0xbc734ebabd63901e);
+  (0x3fe76c25545b7e72, 0x3fd3f87b86093a88, 0xbc7d354589888a8f);
+  (0x3fe7639604c03a79, 0x3fd40fe363303797, 0xbc00c307d1cf05b4);
+  (0x3fe75b0cf4812fa0, 0x3fd42742b427d99d, 0x3c718fd47d98aad9);
+  (0x3fe7528a1cc9e27c, 0x3fd43e997f2c11c3, 0xbc73b6fcef97f054);
+  (0x3fe74a0d76cfc8b0, 0x3fd455e7ca7201ae, 0xbc5b9c99d6512fd2);
+  (0x3fe74196fbd236df, 0x3fd46d2d9c280566, 0x3c5a57d9fdd68594);
+  (0x3fe73926a51a4ebe, 0x3fd4846afa75bd38, 0xbc7c571bcc6e6ca3);
+  (0x3fe730bc6bfaed57, 0x3fd49b9feb7c176a, 0x3c7b658ab60d731c);
+  (0x3fe7285849d0996b, 0x3fd4b2cc755559fd, 0xbc64b8f17f4953b4);
+  (0x3fe71ffa38017200, 0x3fd4c9f09e152c3b, 0x3c710c78fe91038b);
+  (0x3fe717a22ffd1d0c, 0x3fd4e10c6bc8a060, 0xbc6081d3921f3e0d);
+  (0x3fe70f502b3cb651, 0x3fd4f81fe4763d01, 0xbc7b521a7f84694b);
+  (0x3fe707042342be56, 0x3fd50f2b0e1e0682, 0x3c72c8c47b8d7e11);
+  (0x3fe6febe119b0985, 0x3fd5262deeb9887a, 0x3c7b68f76b5ff3e9);
+  (0x3fe6f67defdaaf73, 0x3fd53d288c3bdef0, 0xbc6eff5b6fd62a6d);
+  (0x3fe6ee43b79ffa44, 0x3fd5541aec91bfa1, 0xbc6255b8e5dd72fe);
+  (0x3fe6e60f6292563a, 0x3fd56b0515a18325, 0x3c7d1de2511fe3c0);
+  (0x3fe6dde0ea624162, 0x3fd581e70d4b2e0e, 0x3c58e4ed270e3792);
+  (0x3fe6d5b848c93b68, 0x3fd598c0d96879e8, 0x3c68d1e4d24b886b);
+  (0x3fe6cd957789b589, 0x3fd5af927fccde3f, 0xbc6abfaffe3bcc93);
+  (0x3fe6c578706f02ab, 0x3fd5c65c06459981, 0xbc5c00603b99422b);
+  (0x3fe6bd612d4d4798, 0x3fd5dd1d7299b9d5, 0xbc623102b9c2d668);
+  (0x3fe6b54fa8016b55, 0x3fd5f3d6ca8a25ec, 0xbc672e3cc671541c);
+  (0x3fe6ad43da71079e, 0x3fd60a8813d1a5bb, 0x3c2b90f35ea9d552);
+  (0x3fe6a53dbe8a5985, 0x3fd621315424eb20, 0xbc604954d0cd1285)].
+
+Definition ltbl (i : Z) : f64 * f64 * f64 :=
+  let '(r, h, l) := nth (Z.to_nat i) LOG_TABLE (0, 0, 0) in (from_bits r, from_bits h, from_bits l).
+
+(** [k as f64] for an [i64] [k], which rounds to nearest, ties to even,
+    as [DyadicPow.of_i64] below. *)
+Definition of_i64 (k : Z) : f64 := binary_normalize 53 1024 _ _ mode_NE k 0 false.
+
+(** [fn ln_split(x: f64) -> (i64, f64, usize)], where the shifts, masks
+    and [|] of the [u64] [b] are those of the integer [b], which is in
+    [[0, 2^64)], [(j >= 212) as u64] is [c], and the subtractions do not
+    wrap, as [j >= 212] where [c = 1]. [FastLogReduce.v] proves it. *)
+Definition ln_split (x : f64) : Z * f64 * Z :=
+  let '(b, e0) :=
+    if Z.ltb (to_bits x) (2 ^ 52) then (to_bits (mul x two52), (-52)%Z) else (to_bits x, 0%Z) in
+  let j := Z.land (Z.shiftr b 43) 0x1ff in
+  let c := if Z.leb 212 j then 1%Z else 0%Z in
+  (e0 + (Z.shiftr b 52 - 1023 + c),
+   from_bits (Z.lor (Z.land b frac) (Z.shiftl (1023 - c) 52)),
+   if Z.eqb c 1 then Z.shiftr j 1 - 106 else j + 150).
+
+(** [fn log1p_poly(z1: f64, z2: f64) -> (f64, f64)], where [fma] is
+    [HAS_FMA] (see the section [Driver]). [FastLogPoly.v] proves it. *)
+Definition log1p_poly (fma : bool) (z1 z2 : f64) : f64 * f64 :=
+  let sh := mul z1 z1 in
+  let sl := Generic.two_prod_err fma z1 z1 sh in
+  let q :=
+    mul (mul z1 sh)
+      (add (from_bits Q3)
+         (mul z1 (add neg_quarter
+            (mul z1 (add (from_bits Q5)
+               (mul z1 (add (from_bits Q6) (mul z1 (add (from_bits Q7) (mul z1 neg_eighth)))))))))) in
+  let '(ah, al) := Fast.fast_two_sum z1 (mul neg_half sh) in
+  (ah, add al (add (sub q (mul half sl)) (mul z2 (sub DyadicExp.one z1)))).
+
+(** [fn ln_core(x: f64) -> (i64, f64, f64)]. [FastLogCore.v] proves it. *)
+Definition ln_core (fma : bool) (x : f64) : Z * f64 * f64 :=
+  let '(e, m, i) := ln_split x in
+  let '(r, th, tl) := ltbl i in
+  let p := mul r m in
+  let pe := Generic.two_prod_err fma r m p in
+  let '(z1, z2) := Fast.fast_two_sum (sub p DyadicExp.one) pe in
+  let '(ah, pl) := log1p_poly fma z1 z2 in
+  let '(u, v) := Fast.fast_two_sum th ah in
+  let '(a_h, a_l) := Fast.fast_two_sum u (add v (add tl pl)) in
+  (e, a_h, a_l).
+
+(** [fn normalize(h: f64, l: f64) -> Option<(f64, f64, i64)>], where
+    [((1023 - k) as u64) << 52] is [Z.shiftl ((1023 - k) mod 2^64) 52 mod
+    2^64], as in [Fast.scale]. [FastLogNorm.v] proves it. *)
+Definition normalize (h l : f64) : option (f64 * f64 * Z) :=
+  if eq h zero then None
+  else
+    let k := Z.land (Z.shiftr (to_bits h) 52) 0x7ff - 1023 in
+    let s := from_bits (Z.shiftl ((1023 - k) mod 2 ^ 64) 52 mod 2 ^ 64) in
+    Some (mul h s, mul l s, k).
+
+(** [fn fast_ln(x: f64) -> Option<(f64, f64, i64)>] and [fn
+    fast_log_by(x: f64, c: [u64; 2], d: [u64; 2]) -> Option<(f64, f64,
+    i64)>], where [e as f64] is [of_i64 e]. [FastLogLn.v] and
+    [FastLogBy.v] prove them. *)
+Definition fast_ln (fma : bool) (x : f64) : option (f64 * f64 * Z) :=
+  let '(e, a_h, a_l) := ln_core fma x in
+  let ef := of_i64 e in
+  let '(s, t) := Fast.fast_two_sum (mul ef (from_bits LN2H)) a_h in
+  let '(h, l) := Fast.fast_two_sum s (add t (add a_l (mul ef (from_bits LN2L)))) in
+  normalize h l.
+
+Definition fast_log_by (fma : bool) (x : f64) (c d : Z * Z) : option (f64 * f64 * Z) :=
+  let '(e, a_h, a_l) := ln_core fma x in
+  let ef := of_i64 e in
+  let '(ch, cl) := (from_bits (fst c), from_bits (snd c)) in
+  let '(dh, dl) := (from_bits (fst d), from_bits (snd d)) in
+  let ph := mul a_h ch in
+  let pl := add (Generic.two_prod_err fma a_h ch ph) (add (mul a_h cl) (mul a_l ch)) in
+  let '(s, t) := Fast.fast_two_sum (mul ef dh) ph in
+  let '(h, l) := Fast.fast_two_sum s (add t (add pl (mul ef dl))) in
+  normalize h l.
+
+(** [fn fast_ln_dir(x: f64, up: bool) -> Option<f64>], the same for
+    [log2] and [log10], and [fn fast_ln_near(x: f64) -> Option<f64>] and
+    the others, where [?] is a [match]. [FastLog.v] proves them. *)
+Definition fast_ln_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_ln fma x with Some (h, l, k) => Fast.round_dir_signed h l k up | None => None end.
+Definition fast_log2_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_log_by fma x C2 ONE with
+  | Some (h, l, k) => Fast.round_dir_signed h l k up
+  | None => None
+  end.
+Definition fast_log10_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_log_by fma x C10 LG2 with
+  | Some (h, l, k) => Fast.round_dir_signed h l k up
+  | None => None
+  end.
+Definition fast_ln_near (fma : bool) (x : f64) : option f64 :=
+  match fast_ln fma x with Some (h, l, k) => Fast.round_near_signed h l k | None => None end.
+Definition fast_log2_near (fma : bool) (x : f64) : option f64 :=
+  match fast_log_by fma x C2 ONE with Some (h, l, k) => Fast.round_near_signed h l k | None => None end.
+Definition fast_log10_near (fma : bool) (x : f64) : option f64 :=
+  match fast_log_by fma x C10 LG2 with
+  | Some (h, l, k) => Fast.round_near_signed h l k
+  | None => None
+  end.
+
 (** The functions of the file with [ziv] a parameter: [ln_dir_with ziv] is
     [ln] with [ziv] for [Dyadic.ziv], and [ln_dir] after the section is
     [ln_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
-    returns only where a rounding test passes ([DyDriver.ziv_strict]). *)
+    returns only where a rounding test passes ([DyDriver.ziv_strict]).
+
+    [ln], [log2] and [log10] try the fast path after their rules and
+    before [ziv], and their forms rounded to nearest before [ziv_near].
+    [HAS_FMA] depends on the target. The fast path takes it as an
+    argument, and the functions below pass [false]: [FastLog.fast_ln_dir_fma]
+    and the others show that [true] gives the same result at every
+    argument that reaches it. *)
 Section Driver.
 Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
 
 (** [pub(crate) fn ln(x: f64, up: bool) -> f64] *)
 Definition ln_dir_with (x : f64) (up : bool) : option f64 :=
-  match log_rules x with Some r => Some r | None => ziv (ev_ln x) up 1 end.
+  match log_rules x with
+  | Some r => Some r
+  | None => match fast_ln_dir false x up with Some r => Some r | None => ziv (ev_ln x) up 1 end
+  end.
 
 (** [pub(crate) fn log2(x: f64, up: bool) -> f64] *)
 Definition log2_dir_with (x : f64) (up : bool) : option f64 :=
-  match log_rules x with Some r => Some r | None => ziv (ev_log2 x) up 1 end.
+  match log_rules x with
+  | Some r => Some r
+  | None =>
+      match fast_log2_dir false x up with Some r => Some r | None => ziv (ev_log2 x) up 1 end
+  end.
 
 (** [pub(crate) fn log10(x: f64, up: bool) -> f64], where
     [POW10.iter().position(|&p| p == x)] is the first [k] of [0, ..., 22]
@@ -2765,7 +3286,8 @@ Definition log10_dir_with (x : f64) (up : bool) : option f64 :=
   | None =>
       match List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23) with
       | Some k => Some (of_u64 (Z.of_nat k))
-      | None => ziv (ev_log10 x) up 1
+      | None =>
+          match fast_log10_dir false x up with Some r => Some r | None => ziv (ev_log10 x) up 1 end
       end
   end.
 
@@ -2807,11 +3329,18 @@ Variable ziv_near : (nat -> option Dyadic.encl) -> nat -> option f64.
 
 (** [pub(crate) fn ln_near(x: f64) -> f64] *)
 Definition ln_near_with (x : f64) : option f64 :=
-  match log_rules x with Some r => Some r | None => ziv_near (ev_ln x) 1 end.
+  match log_rules x with
+  | Some r => Some r
+  | None => match fast_ln_near false x with Some r => Some r | None => ziv_near (ev_ln x) 1 end
+  end.
 
 (** [pub(crate) fn log2_near(x: f64) -> f64] *)
 Definition log2_near_with (x : f64) : option f64 :=
-  match log_rules x with Some r => Some r | None => ziv_near (ev_log2 x) 1 end.
+  match log_rules x with
+  | Some r => Some r
+  | None =>
+      match fast_log2_near false x with Some r => Some r | None => ziv_near (ev_log2 x) 1 end
+  end.
 
 (** [pub(crate) fn log10_near(x: f64) -> f64], as [log10_dir_with]. *)
 Definition log10_near_with (x : f64) : option f64 :=
@@ -2820,7 +3349,8 @@ Definition log10_near_with (x : f64) : option f64 :=
   | None =>
       match List.find (fun k => eq (DyadicExp.pow10 (Z.of_nat k)) x) (List.seq 0 23) with
       | Some k => Some (of_u64 (Z.of_nat k))
-      | None => ziv_near (ev_log10 x) 1
+      | None =>
+          match fast_log10_near false x with Some r => Some r | None => ziv_near (ev_log10 x) 1 end
       end
   end.
 

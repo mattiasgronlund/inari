@@ -37,8 +37,8 @@
 // to be updated along with them. `rocq/theories/DyLog.v` and `rocq/theories/DyLogHyp.v` prove
 // that each of the six functions, at a finite argument in its domain and where it does not
 // panic, returns a value on the side of its result that the rounding is on, and, where a rule
-// settles the argument or a rounding test of `ziv` passes, its result rounded as `mpfr_round`
-// in `rocq/theories/Mpfr.v` says. They build on `rocq/theories/DyLogCore.v` for
+// or the fast path settles the argument or a rounding test of `ziv` passes, its result rounded
+// as `mpfr_round` in `rocq/theories/Mpfr.v` says. They build on `rocq/theories/DyLogCore.v` for
 // `atanh_series`, `reduce`, `ln_dy` and `ln_encl`, `rocq/theories/DyLogRules.v` for the
 // identities that the evaluations use and the rules of `log_rules` and of the powers of 10,
 // and `rocq/theories/DyLogTiny.v` for the rules of asinh and atanh at tiny arguments.
@@ -57,13 +57,34 @@
 // `rocq/theories/ExpIrrational.v`. Other than that, it is not proved that a test passes by the
 // cap of `ziv` or of `ziv_near`, nor that the evaluations do not panic, nor that no result is
 // a midpoint.
+//
+// ln x, log2 x and log10 x try a fast path in double-double after their rules, and log10 x
+// after the powers of 10, before `ziv` and `ziv_near` (`fast_ln` and `fast_log_by`). It
+// computes the result times 2^-k, for an integer k, as h + l within 2^-68 with 1 <= |h| < 2,
+// and rounds it with the tests of `src/dyadic/fast.rs`, or returns `None` at x = 1, where the
+// result is 0, and where a test fails, and then the function calls `ziv` or `ziv_near` as
+// before. At x = 2^n other than 1, where log2 x = n is an `f64`, the fast path computes n
+// exactly, with l = 0, so that the directed test fails, as for 2^x in `src/dyadic/exp.rs`, and
+// the exact enclosures settle x as above, and the test rounded to nearest passes and returns
+// n. asinh, acosh and atanh do not have a fast path. `rocq/theories/FastLogCore.v` bounds the
+// error of `ln_core`, from `rocq/theories/FastLogReduce.v` for its reduction,
+// `rocq/theories/FastLogTables.v` for its table and constants, and
+// `rocq/theories/FastLogPoly.v` for its polynomial, `rocq/theories/FastLogLn.v` and
+// `rocq/theories/FastLogBy.v` bound those of `fast_ln` and `fast_log_by`,
+// `rocq/theories/FastSign.v` proves the rounding tests for a negative h, and
+// `rocq/theories/FastLog.v` proves that the fast path returns ln x, log2 x and log10 x
+// rounded, with and without an FMA.
 
 use super::{
     consts::{ln10, ln2},
     exp::{away, mul_int, toward_zero, POW10, TINY_HYP, TINY_NEAR},
+    fast::{fast_two_sum, round_dir_signed, round_near_signed},
     ziv, ziv_near, Dyadic, Encl, Eval,
 };
+use crate::simd::{two_prod_err, HAS_FMA};
+use tables::LOG_TABLE;
 
+mod tables;
 #[cfg(test)]
 mod tests;
 
@@ -260,11 +281,179 @@ fn log_rules(x: f64) -> Option<f64> {
     }
 }
 
+// The constants of the fast path, as the bits of `f64`s, since `f64::from_bits` is not `const`
+// before Rust 1.83. `LN2H` is ln 2 with its significand cut to 42 bits, so that e LN2H is exact
+// for |e| < 2^11, and `LN2L` = RN(ln 2 - LN2H); `LG2` is log10(2) cut and rounded the same way,
+// [LG2H, LG2L], and `ONE` is [1, 0]. `C2` and `C10` are 1/ln 2 and 1/ln 10 in double-double,
+// [RN(v), RN(v - RN(v))]. `Q3`, `Q5`, `Q6` and `Q7` are RN(1/3), RN(1/5), RN(-1/6) and RN(1/7),
+// the coefficients of the Taylor polynomial of ln(1 + z) that are not powers of 2.
+const LN2H: u64 = 0x3fe62e42fefa3800;
+const LN2L: u64 = 0x3d2ef35793c76730;
+const LG2: [u64; 2] = [0x3fd34413509f7800, 0x3d1fef311f12b358];
+const ONE: [u64; 2] = [0x3ff0000000000000, 0];
+const C2: [u64; 2] = [0x3ff71547652b82fe, 0x3c7777d0ffda0d24];
+const C10: [u64; 2] = [0x3fdbcb7b1526e50e, 0x3c695355baaafad3];
+const Q3: u64 = 0x3fd5555555555555;
+const Q5: u64 = 0x3fc999999999999a;
+const Q6: u64 = 0xbfc5555555555555;
+const Q7: u64 = 0x3fc2492492492492;
+
+// 2^52, which scales a subnormal `f64` to a normal one exactly, and the mask of the fraction
+// field of an `f64`.
+const TWO52: f64 = 4_503_599_627_370_496.0;
+const FRAC: u64 = 0x000f_ffff_ffff_ffff;
+
+// (e, m, i) with x = 2^e m exactly, m in [(362 + i) / 512, (363 + i) / 512) and i in [0, 361],
+// for a finite x > 0. Then m is in [0.707, 1.415) and e in [-1074, 1024].
+// `rocq/theories/FastLogReduce.v` proves it (`ln_split_correct`).
+fn ln_split(x: f64) -> (i64, f64, usize) {
+    let (mut b, mut e) = (x.to_bits(), 0);
+    if b < 1 << 52 {
+        // A subnormal x: x 2^52 is exact and normal.
+        b = (x * TWO52).to_bits();
+        e = -52;
+    }
+    // x = 2^e M with M in [1, 2), whose top 9 fraction bits are j, so that M is in
+    // [1 + j / 512, 1 + (j + 1) / 512). Where M >= 1 + 212/512, m = M / 2, so that
+    // floor(512 m) = 256 + j / 2, and otherwise m = M, so that floor(512 m) = 512 + j.
+    let j = (b >> 43) & 0x1ff;
+    let c = (j >= 212) as u64;
+    e += (b >> 52) as i64 - 1023 + c as i64;
+    let m = f64::from_bits((b & FRAC) | ((1023 - c) << 52));
+    let i = if c == 1 { (j >> 1) - 106 } else { j + 150 };
+    (e, m, i as usize)
+}
+
+// ln(1 + z) for z = z1 + z2 with |z1| <= 2^-9 and |z2| <= 2^-53 |z1|, as ah + pl: the Taylor
+// polynomial z - z^2/2 + z^3/3 - ... - z^8/8 at z1, with z1 - z1^2/2 in double-double, as z1^2 is
+// exact as sh + sl (`two_prod_err`) and Fast2Sum is exact as |sh / 2| < |z1| [Dekker], the
+// terms of degree 3 to 8 by Horner's scheme in `f64`, and z2 (1 - z1), the term of ln(1 + z) of
+// first order in z2. `rocq/theories/FastLogPoly.v` proves the bound (`log1p_poly_correct`).
+fn log1p_poly(z1: f64, z2: f64) -> (f64, f64) {
+    let sh = z1 * z1;
+    let sl = two_prod_err::<HAS_FMA>(z1, z1, sh);
+    let (q3, q5, q6, q7) = (
+        f64::from_bits(Q3),
+        f64::from_bits(Q5),
+        f64::from_bits(Q6),
+        f64::from_bits(Q7),
+    );
+    let q = z1 * sh * (q3 + z1 * (-0.25 + z1 * (q5 + z1 * (q6 + z1 * (q7 + z1 * -0.125)))));
+    let (ah, al) = fast_two_sum(z1, -0.5 * sh);
+    (ah, al + ((q - 0.5 * sl) + z2 * (1.0 - z1)))
+}
+
+// ln x = e ln 2 + a_h + a_l up to 3 * 2^-71 |ln m|, for a finite x > 0, as (e, a_h, a_l), with
+// m = x / 2^e and a_h = RN(a_h + a_l). The reduction and the size of the table are those of
+// CORE-MATH's `log` [CORE-MATH]: ln m = -ln r + ln(1 + z) for z = r m - 1 and the r of
+// `LOG_TABLE` for the interval of m, with |z| <= 3/2048, or z = m - 1 with |z| <= 2^-9 for the
+// two intervals around 1, where r = 1. Unlike CORE-MATH, r has 53 bits and z is computed exactly
+// with `two_prod_err`, and the polynomial is the Taylor polynomial of degree 8 rather than a
+// minimax one. `rocq/theories/FastLogCore.v` proves the bound (`ln_core_correct`), from
+// `rocq/theories/FastLogReduce.v` for the reduction and z, `rocq/theories/FastLogTables.v` for
+// the table and `rocq/theories/FastLogPoly.v` for the polynomial.
+//
+// [CORE-MATH] P. Zimmermann et al., the CORE-MATH project, `src/binary64/log/log.c` (MIT
+// license); no constant or table is copied from it.
+fn ln_core(x: f64) -> (i64, f64, f64) {
+    let (e, m, i) = ln_split(x);
+    let [r, th, tl] = LOG_TABLE[i];
+    let (r, th, tl) = (f64::from_bits(r), f64::from_bits(th), f64::from_bits(tl));
+    // z = r m - 1 = z1 + z2 exactly: p = RN(r m) is within 2^-8 of 1, so p - 1 is exact
+    // (Sterbenz), pe = r m - p exactly (`two_prod_err`), and |pe| <= ulp(p) / 2 <= |p - 1|
+    // unless p = 1, so Fast2Sum is exact. [Dekker]
+    let p = r * m;
+    let pe = two_prod_err::<HAS_FMA>(r, m, p);
+    let (z1, z2) = fast_two_sum(p - 1.0, pe);
+    let (ah, pl) = log1p_poly(z1, z2);
+    // ln m = th + tl + ah + pl, where |th| >= 2^-9 > |ah| unless r = 1 and th = tl = 0.
+    let (u, v) = fast_two_sum(th, ah);
+    let (a_h, a_l) = fast_two_sum(u, v + (tl + pl));
+    (e, a_h, a_l)
+}
+
+// (h 2^-k, l 2^-k, k) for the exponent k of h, so that 1 <= |h 2^-k| < 2, or `None` if h = 0.
+// The fast paths below pass 2^-56 <= |h| < 2^11, so k is in [-56, 10], h 2^-k is exact and
+// l 2^-k is exact unless it is below 2^-1022. `rocq/theories/FastLogNorm.v` proves the bound
+// (`normalize_correct`).
+fn normalize(h: f64, l: f64) -> Option<(f64, f64, i64)> {
+    if h == 0.0 {
+        return None;
+    }
+    let k = ((h.to_bits() >> 52) & 0x7ff) as i64 - 1023;
+    let s = f64::from_bits(((1023 - k) as u64) << 52);
+    Some((h * s, l * s, k))
+}
+
+// ln x as (h, l, k) with |ln x 2^-k - (h + l)| <= 2^-68, h = RN(h + l) and 1 <= |h| < 2, for a
+// finite x > 0, or `None` for x = 1, where ln x = 0. e LN2H is exact, and |e LN2H| > 1/2 > |a_h|
+// unless e = 0. `rocq/theories/FastLogLn.v` proves it, with 1/2 < |h| < 2, which the rounding
+// tests take (`fast_ln_correct`).
+fn fast_ln(x: f64) -> Option<(f64, f64, i64)> {
+    let (e, a_h, a_l) = ln_core(x);
+    let ef = e as f64;
+    let (s, t) = fast_two_sum(ef * f64::from_bits(LN2H), a_h);
+    let (h, l) = fast_two_sum(s, t + (a_l + ef * f64::from_bits(LN2L)));
+    normalize(h, l)
+}
+
+// The same for e (dh + dl) + (a_h + a_l) (ch + cl), with c and d given as the bits [ch, cl] and
+// [dh, dl]: log2 x for c = 1/ln 2 (`C2`) and d = 1 (`ONE`), and log10 x for c = 1/ln 10 (`C10`)
+// and d = log10(2) (`LG2`). a_h ch is exact as ph + `two_prod_err`, e dh is exact, and
+// |e dh| > |ph| unless e = 0, as |a_h| < 0.35. `rocq/theories/FastLogBy.v` proves it for log2
+// and log10, with 1/2 < |h| < 2 as for ln (`fast_log2_correct`, `fast_log10_correct`).
+fn fast_log_by(x: f64, c: [u64; 2], d: [u64; 2]) -> Option<(f64, f64, i64)> {
+    let (e, a_h, a_l) = ln_core(x);
+    let ef = e as f64;
+    let (ch, cl) = (f64::from_bits(c[0]), f64::from_bits(c[1]));
+    let (dh, dl) = (f64::from_bits(d[0]), f64::from_bits(d[1]));
+    let ph = a_h * ch;
+    let pl = two_prod_err::<HAS_FMA>(a_h, ch, ph) + (a_h * cl + a_l * ch);
+    let (s, t) = fast_two_sum(ef * dh, ph);
+    let (h, l) = fast_two_sum(s, t + (pl + ef * dl));
+    normalize(h, l)
+}
+
+// ln x, log2 x and log10 x rounded toward +∞ if `up` and toward -∞ otherwise, and to nearest,
+// by the fast path, or `None` where its rounding test fails or x = 1.
+fn fast_ln_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l, k) = fast_ln(x)?;
+    round_dir_signed(h, l, k, up)
+}
+
+fn fast_log2_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l, k) = fast_log_by(x, C2, ONE)?;
+    round_dir_signed(h, l, k, up)
+}
+
+fn fast_log10_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l, k) = fast_log_by(x, C10, LG2)?;
+    round_dir_signed(h, l, k, up)
+}
+
+fn fast_ln_near(x: f64) -> Option<f64> {
+    let (h, l, k) = fast_ln(x)?;
+    round_near_signed(h, l, k)
+}
+
+fn fast_log2_near(x: f64) -> Option<f64> {
+    let (h, l, k) = fast_log_by(x, C2, ONE)?;
+    round_near_signed(h, l, k)
+}
+
+fn fast_log10_near(x: f64) -> Option<f64> {
+    let (h, l, k) = fast_log_by(x, C10, LG2)?;
+    round_near_signed(h, l, k)
+}
+
 /// ln x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn ln(x: f64, up: bool) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => ziv(&Ln(x), up, 1),
+        None => match fast_ln_dir(x, up) {
+            Some(r) => r,
+            None => ziv(&Ln(x), up, 1),
+        },
     }
 }
 
@@ -272,7 +461,10 @@ pub(crate) fn ln(x: f64, up: bool) -> f64 {
 pub(crate) fn ln_near(x: f64) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => ziv_near(&Ln(x), 1),
+        None => match fast_ln_near(x) {
+            Some(r) => r,
+            None => ziv_near(&Ln(x), 1),
+        },
     }
 }
 
@@ -280,7 +472,10 @@ pub(crate) fn ln_near(x: f64) -> f64 {
 pub(crate) fn log2(x: f64, up: bool) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => ziv(&Log2(x), up, 1),
+        None => match fast_log2_dir(x, up) {
+            Some(r) => r,
+            None => ziv(&Log2(x), up, 1),
+        },
     }
 }
 
@@ -288,7 +483,10 @@ pub(crate) fn log2(x: f64, up: bool) -> f64 {
 pub(crate) fn log2_near(x: f64) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => ziv_near(&Log2(x), 1),
+        None => match fast_log2_near(x) {
+            Some(r) => r,
+            None => ziv_near(&Log2(x), 1),
+        },
     }
 }
 
@@ -299,7 +497,10 @@ pub(crate) fn log10(x: f64, up: bool) -> f64 {
         None => match POW10.iter().position(|&p| p == x) {
             // log10(10^k) = k.
             Some(k) => k as f64,
-            None => ziv(&Log10(x), up, 1),
+            None => match fast_log10_dir(x, up) {
+                Some(r) => r,
+                None => ziv(&Log10(x), up, 1),
+            },
         },
     }
 }
@@ -311,7 +512,10 @@ pub(crate) fn log10_near(x: f64) -> f64 {
         None => match POW10.iter().position(|&p| p == x) {
             // log10(10^k) = k.
             Some(k) => k as f64,
-            None => ziv_near(&Log10(x), 1),
+            None => match fast_log10_near(x) {
+                Some(r) => r,
+                None => ziv_near(&Log10(x), 1),
+            },
         },
     }
 }

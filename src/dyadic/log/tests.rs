@@ -543,6 +543,231 @@ fn random_arguments() {
     }
 }
 
+// ln x, log2 x and log10 x give the same `f64`s, in both directions and to nearest, with the fast
+// path as with it disabled, and agree with MPFR, on random arguments of every exponent and near
+// 1, and most of its rounding tests pass.
+#[test]
+fn fast_path_agrees_with_kernel() {
+    let mut rng = Rng(88);
+    for i in [LN, LOG2, LOG10] {
+        crate::dyadic::fast::reset_fast_counts();
+        for n in 0..3000 {
+            let x = if n % 2 == 0 {
+                // Any positive finite `f64`, subnormals included.
+                f64::from_bits(1 + rng.below(0x7fef_ffff_ffff_ffff))
+            } else {
+                // Within 2^-8 of 1.
+                1.0 + (rng.below(1 << 53) as f64 / (1u64 << 53) as f64 - 0.5) / 128.0
+            };
+            let fast = (
+                FUNCTIONS[i].1(x, false),
+                FUNCTIONS[i].1(x, true),
+                NEAR[i](x),
+            );
+            crate::dyadic::fast::set_fast_path(false);
+            let kernel = (
+                FUNCTIONS[i].1(x, false),
+                FUNCTIONS[i].1(x, true),
+                NEAR[i](x),
+            );
+            crate::dyadic::fast::set_fast_path(true);
+            assert!(
+                fast.0.to_bits() == kernel.0.to_bits()
+                    && fast.1.to_bits() == kernel.1.to_bits()
+                    && fast.2.to_bits() == kernel.2.to_bits(),
+                "{}({:e}): {:?} with the fast path != {:?} without it",
+                FUNCTIONS[i].0,
+                x,
+                fast,
+                kernel
+            );
+            check(i, x);
+        }
+        let (passed, failed) = crate::dyadic::fast::fast_counts();
+        assert!(
+            passed > 100 * failed,
+            "{}: {passed} passed, {failed} failed",
+            FUNCTIONS[i].0
+        );
+    }
+}
+
+// (h, l, k) of the fast path of ln, log2 or log10 (the function `i`) at a finite x > 0, as the
+// function computes them, or `None` at x = 1.
+fn fast_parts(i: usize, x: f64) -> Option<(f64, f64, i64)> {
+    match i {
+        LN => fast_ln(x),
+        LOG2 => fast_log_by(x, C2, ONE),
+        LOG10 => fast_log_by(x, C10, LG2),
+        _ => unreachable!(),
+    }
+}
+
+// A random positive finite `f64`, subnormals included, from uniform bits, so that its exponent
+// is about uniform.
+fn any_positive(rng: &mut Rng) -> f64 {
+    f64::from_bits(1 + rng.below(0x7fef_ffff_ffff_ffff))
+}
+
+// 1 + d or 1 - d, rounded, for a random d with an exponent in [lo, hi] and a random significand.
+fn near_one(rng: &mut Rng, lo: i32, hi: i32) -> f64 {
+    let e = lo + rng.below(u64::try_from(hi - lo + 1).unwrap()) as i32;
+    let d = (1.0 + rng.below(1 << 52) as f64 / (1u64 << 52) as f64) * pow2(e);
+    if rng.below(2) == 0 {
+        1.0 + d
+    } else {
+        1.0 - d
+    }
+}
+
+// ln x, log2 x and log10 x on random arguments of the fast path: of any exponent, subnormals
+// included, and 1 ± d for d with an exponent in [-30, -9], which the two intervals of the table
+// around 1 take, where r = 1. Most of its rounding tests pass on both. Closer to 1, 1 ± d for d
+// with an exponent in [-53, -31], are only checked: there z = x - 1 has few bits, so that for
+// the smallest d, z - z^2/2 is often an `f64`, from which ln x differs by about |z|^3/3, less
+// than 2^-68 relative, so that the directed tests of ln fail at some of them.
+#[test]
+fn fast_range_random() {
+    let mut rng = Rng(881);
+    for i in [LN, LOG2, LOG10] {
+        crate::dyadic::fast::reset_fast_counts();
+        for _ in 0..2000 {
+            check(i, any_positive(&mut rng));
+        }
+        let (passed, failed) = crate::dyadic::fast::fast_counts();
+        crate::dyadic::fast::reset_fast_counts();
+        for _ in 0..2000 {
+            check(i, near_one(&mut rng, -30, -9));
+        }
+        let (near_passed, near_failed) = crate::dyadic::fast::fast_counts();
+        for _ in 0..1000 {
+            check(i, near_one(&mut rng, -53, -31));
+        }
+        assert!(
+            passed > 100 * failed && near_passed > 100 * near_failed,
+            "{}: {passed} passed, {failed} failed on arguments of any exponent, {near_passed} \
+             passed, {near_failed} failed near 1",
+            FUNCTIONS[i].0
+        );
+    }
+}
+
+// The exponents k of the arguments of `table_and_reduction_edges`: the ends, those of the
+// subnormals at which (1 + j/512) 2^k is exact, those around 2^-1022 and 1, and every 51st in
+// between.
+fn edge_exponents() -> Vec<i32> {
+    [
+        -1065, -1064, -1053, -1052, -1023, -1022, -1021, -2, -1, 0, 1, 2, 1022, 1023,
+    ]
+    .into_iter()
+    .chain((-1020..=1020).step_by(51))
+    .collect()
+}
+
+// ln x, log2 x and log10 x next to the edges of the table and of the reduction of the fast path:
+// x = (1 + j/512) 2^k, at which j, the top 9 bits of the significand, and with them the index of
+// `LOG_TABLE`, change, for every j in [0, 511]. From j = 211 to 212, the index wraps from 361 to
+// 0 and m from M to M / 2, and for k = -1 and 0, 511/512 and 513/512 are the ends of the two
+// intervals around 1, where r = 1. Then 1 ± n ulp for n up to 64, the smallest subnormals and
+// the largest `f64`s. The fast path computes (h, l, k) at all of them but 1.
+#[test]
+fn table_and_reduction_edges() {
+    let mut args = vec![];
+    for k in edge_exponents() {
+        for j in 0..512 {
+            args.extend(around((1.0 + f64::from(j) / 512.0) * pow2(k), 1));
+        }
+    }
+    args.extend(around(1.0, 64));
+    args.extend((1..=64).map(f64::from_bits));
+    let mut x = f64::MAX;
+    for _ in 0..64 {
+        args.push(x);
+        x = next_down(x);
+    }
+    for i in [LN, LOG2, LOG10] {
+        for &x in &args {
+            check(i, x);
+            assert_eq!(
+                fast_parts(i, x).is_some(),
+                x != 1.0,
+                "{}({:e})",
+                FUNCTIONS[i].0,
+                x
+            );
+        }
+    }
+}
+
+// 2^-68, the bound on |y - (h + l)| that the rounding tests of `src/dyadic/fast.rs` assume, and
+// 2^-58, 2^10 times as large.
+const FAST_ERR: f64 = 1.0 / 295_147_905_179_352_825_856.0;
+const WIDE: f64 = 1.0 / 288_230_376_151_711_744.0;
+
+// ln x, log2 x and log10 x where a rounding test of the fast path passes, but would fail with
+// `WIDE` in place of the bound 2^-68: h + l is within 2^-58 of h, which a directed rounding
+// cannot cross, or of a midpoint between h and the next `f64`, which the rounding to nearest
+// cannot cross. There an error in the bound would show first, so the fast path has to give the
+// same `f64`s as the kernel, and as MPFR. The arguments are of the two kinds that
+// `fast_range_random` counts.
+#[test]
+fn widened() {
+    let mut rng = Rng(882);
+    for i in [LN, LOG2, LOG10] {
+        let (mut dir, mut near) = (0, 0);
+        for n in 0..8000 {
+            let x = if n % 2 == 0 {
+                any_positive(&mut rng)
+            } else {
+                near_one(&mut rng, -30, -9)
+            };
+            let Some((h, l, _)) = fast_parts(i, x) else {
+                continue;
+            };
+            // |h| and l with the sign of h, which `round_dir_signed` and `round_near_signed`
+            // pass to the rounding tests. 1 <= |h| < 2, so that half the gap between |h| and the
+            // next `f64` above it is 2^-53, and below it 2^-53 too, or 2^-54 at |h| = 1.
+            let (h, l) = if h < 0.0 { (-h, -l) } else { (h, l) };
+            let above = f64::EPSILON / 2.0;
+            let below = if h > 1.0 {
+                f64::EPSILON / 2.0
+            } else {
+                f64::EPSILON / 4.0
+            };
+            let narrow_dir = FAST_ERR < l.abs() && l.abs() <= WIDE;
+            let narrow_near = l < above - FAST_ERR
+                && l > -(below - FAST_ERR)
+                && (l >= above - WIDE || l <= -(below - WIDE));
+            if !narrow_dir && !narrow_near {
+                continue;
+            }
+            dir += usize::from(narrow_dir);
+            near += usize::from(narrow_near);
+            let f = FUNCTIONS[i].1;
+            let fast = (f(x, false), f(x, true), NEAR[i](x));
+            crate::dyadic::fast::set_fast_path(false);
+            let kernel = (f(x, false), f(x, true), NEAR[i](x));
+            crate::dyadic::fast::set_fast_path(true);
+            assert!(
+                fast.0.to_bits() == kernel.0.to_bits()
+                    && fast.1.to_bits() == kernel.1.to_bits()
+                    && fast.2.to_bits() == kernel.2.to_bits(),
+                "{}({:e}): {:?} with the fast path != {:?} without it",
+                FUNCTIONS[i].0,
+                x,
+                fast,
+                kernel
+            );
+            check(i, x);
+        }
+        assert!(
+            dir >= 20 && near >= 20,
+            "{}: {dir} narrow passes of the directed tests and {near} of the test to nearest",
+            FUNCTIONS[i].0
+        );
+    }
+}
+
 #[cfg(all(
     target_pointer_width = "64",
     any(target_os = "linux", target_os = "macos")
@@ -550,6 +775,10 @@ fn random_arguments() {
 mod mpfr {
     use super::*;
     use crate::mpfr_calls::mpfr::*;
+    use rug::{
+        float::{Constant, Round},
+        Float,
+    };
 
     type Mpfr = fn(f64) -> f64;
 
@@ -593,6 +822,178 @@ mod mpfr {
             near,
             want
         );
+    }
+
+    // The precision of the values that the table, the constants and the results of the fast path
+    // are checked against, far above that of the bounds checked.
+    const PREC: u32 = 300;
+
+    // `l` = RN(v - h) and |v - h - l| < 2^n.
+    fn check_low(name: &str, v: &Float, h: f64, l: f64, n: i32) {
+        let rest = Float::with_val(PREC, v - h);
+        let mut err = Float::with_val(PREC, &rest - l);
+        err.abs_mut();
+        assert!(
+            l.to_bits() == rest.to_f64().to_bits() && err < pow2(n),
+            "{name}: {l:e} != RN(v - h) = {:e}, or |v - h - l| = {:e} is not below 2^{n}",
+            rest.to_f64(),
+            err.to_f64()
+        );
+    }
+
+    // `pair` is the bits of [RN(v), RN(v - RN(v))], within 2^n of v.
+    fn check_pair(name: &str, pair: [u64; 2], v: &Float, n: i32) {
+        let h = f64::from_bits(pair[0]);
+        assert_eq!(h.to_bits(), v.to_f64().to_bits(), "{name}: {h:e} != RN(v)");
+        check_low(name, v, h, f64::from_bits(pair[1]), n);
+    }
+
+    // The table and the constants of the fast path of `log.rs` are what the comments on them
+    // say, with the bounds that `ltbl_correct` and the theorems on the constants in
+    // `rocq/theories/FastLogTables.v` prove.
+    #[test]
+    fn fast_log_table_and_constants() {
+        for (i, &[r, th, tl]) in LOG_TABLE.iter().enumerate() {
+            let name = format!("LOG_TABLE[{i}]");
+            let i = u32::try_from(i).unwrap();
+            let (rf, h, l) = (f64::from_bits(r), f64::from_bits(th), f64::from_bits(tl));
+            if i == 149 || i == 150 {
+                assert!(
+                    rf == 1.0 && th == 0 && tl == 0,
+                    "{name}: [{rf:e}, {h:e}, {l:e}] != [1, 0, 0]"
+                );
+                continue;
+            }
+            // r = RN(1024 / (725 + 2 i)), with 1024 / (725 + 2 i) not a midpoint.
+            let want = Float::with_val(PREC, 1024) / (725 + 2 * i);
+            assert_eq!(r, want.to_f64().to_bits(), "{name}: r");
+            let mut v = Float::with_val(PREC, rf);
+            v.ln_mut();
+            v = -v;
+            check_pair(&name, [th, tl], &v, -104);
+            assert!(
+                pow2(-9) <= h.abs() && h.abs() <= 0.375 && l.abs() <= pow2(-53) * h.abs(),
+                "{name}: [{h:e}, {l:e}]"
+            );
+            // |r m - 1| <= 3/2048 at both ends of the interval of m, and so on all of it.
+            for end in [362 + i, 363 + i] {
+                let mut z = Float::with_val(PREC, rf) * end;
+                z /= 512;
+                z -= 1;
+                z.abs_mut();
+                assert!(
+                    z <= 3.0 / 2048.0,
+                    "{name}: |r {end}/512 - 1| = {:e}",
+                    z.to_f64()
+                );
+            }
+        }
+        let ln2 = Float::with_val(PREC, Constant::Log2);
+        // `LN2H` is ln 2 with its significand cut to 42 bits, and `LG2[0]` log10(2).
+        let lnh = Float::with_val_round(42, &ln2, Round::Zero).0.to_f64();
+        assert_eq!(
+            LN2H,
+            lnh.to_bits(),
+            "LN2H: {:e} != {lnh:e}",
+            f64::from_bits(LN2H)
+        );
+        check_low("LN2L", &ln2, lnh, f64::from_bits(LN2L), -100);
+        let lg2 = Float::with_val(PREC, 2).log10();
+        let lgh = Float::with_val_round(42, &lg2, Round::Zero).0.to_f64();
+        assert_eq!(
+            LG2[0],
+            lgh.to_bits(),
+            "LG2[0]: {:e}",
+            f64::from_bits(LG2[0])
+        );
+        check_low("LG2[1]", &lg2, lgh, f64::from_bits(LG2[1]), -100);
+        assert_eq!(ONE, [1.0f64.to_bits(), 0], "ONE");
+        check_pair("C2", C2, &Float::with_val(PREC, ln2.recip_ref()), -104);
+        let ln10 = Float::with_val(PREC, 10).ln();
+        check_pair("C10", C10, &Float::with_val(PREC, ln10.recip_ref()), -104);
+        for (name, q, k) in [("Q3", Q3, 3), ("Q5", Q5, 5), ("Q6", Q6, -6), ("Q7", Q7, 7)] {
+            let want = Float::with_val(PREC, k).recip().to_f64();
+            assert_eq!(
+                q,
+                want.to_bits(),
+                "{name}: {:e} != {want:e}",
+                f64::from_bits(q)
+            );
+        }
+        assert_eq!(TWO52, pow2(52), "TWO52");
+        assert_eq!(FRAC, (1 << 52) - 1, "FRAC");
+    }
+
+    // `ln_core(x)` meets the bounds of `ln_core_correct` in `rocq/theories/FastLogCore.v`:
+    // a_h = RN(a_h + a_l), e in [-1074, 1024], and |ln m| <= 7/20 and
+    // |ln m - (a_h + a_l)| <= 3 2^-71 |ln m| for m = 2^-e x. And the fast paths of ln, log2 and
+    // log10 (`fast_parts`) give (h, l, k) with h = RN(h + l), 1 <= |h| < 2, k in [-1021, 1022]
+    // and |y 2^-k - (h + l)| <= 2^-69 |h| for y = ln x, log2 x and log10 x, which is what the
+    // design of the fast path aims at, below the 2^-68 that the theorems of
+    // `rocq/theories/FastLogLn.v` and `FastLogBy.v` state. The arguments are those of
+    // `table_and_reduction_edges`, on fewer exponents, and random ones as in
+    // `fast_range_random`, closer to 1 too.
+    #[test]
+    fn fast_ln_bound() {
+        let mut rng = Rng(883);
+        let mut args = vec![];
+        for k in edge_exponents().into_iter().step_by(4) {
+            for j in 0..512 {
+                args.extend(around((1.0 + f64::from(j) / 512.0) * pow2(k), 1));
+            }
+        }
+        args.extend(around(1.0, 64));
+        args.extend((1..=64).map(f64::from_bits));
+        args.push(f64::MAX);
+        for _ in 0..2000 {
+            args.push(any_positive(&mut rng));
+            args.push(near_one(&mut rng, -53, -9));
+        }
+        for x in args {
+            let (e, ah, al) = ln_core(x);
+            // m = 2^-e x is exact in 300 bits.
+            let mut lm = Float::with_val(PREC, x) >> i32::try_from(e).unwrap();
+            lm.ln_mut();
+            let mut d = Float::with_val(PREC, &lm - ah);
+            d -= al;
+            d.abs_mut();
+            assert!(
+                ah + al == ah
+                    && (-1074..=1024).contains(&e)
+                    && lm.clone().abs() <= 0.35
+                    && d <= lm.clone().abs() * 3 * pow2(-71),
+                "ln_core({x:e}): ({e}, {ah:e}, {al:e}), with |ln m - (a_h + a_l)| = {:e} and \
+                 ln m = {:e}",
+                d.to_f64(),
+                lm.to_f64()
+            );
+            for i in [LN, LOG2, LOG10] {
+                let Some((h, l, k)) = fast_parts(i, x) else {
+                    assert_eq!(x, 1.0, "{}({x:e}): no fast path", FUNCTIONS[i].0);
+                    continue;
+                };
+                let mut y = Float::with_val(PREC, x);
+                match i {
+                    LN => y.ln_mut(),
+                    LOG2 => y.log2_mut(),
+                    _ => y.log10_mut(),
+                }
+                let mut d = y >> i32::try_from(k).unwrap();
+                d -= h;
+                d -= l;
+                d.abs_mut();
+                assert!(
+                    h + l == h
+                        && 1.0 <= h.abs()
+                        && h.abs() < 2.0
+                        && (-1021..=1022).contains(&k)
+                        && d <= pow2(-69) * h.abs(),
+                    "{}({x:e}): ({h:e}, {l:e}, {k}), with |y 2^-k - (h + l)| = {:e}",
+                    FUNCTIONS[i].0,
+                    d.to_f64()
+                );
+            }
+        }
     }
 }
 
