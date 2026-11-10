@@ -693,7 +693,7 @@ fn random_arguments() {
 // Every function of `FUNCTIONS` gives the same `f64`s, in both directions and to nearest, with
 // the fast paths as with them disabled, on random arguments uniform in [-a, a), and most of
 // their rounding tests pass. a is beyond the range of the fast path: 800 for e^x, 2^x and 10^x,
-// 712 for sinh and cosh, whose fast paths stop at 709, and 21 for tanh, whose rules settle
+// 712 for sinh and cosh, whose fast paths stop near 710.48, and 21 for tanh, whose rules settle
 // |x| >= 20.
 #[test]
 fn fast_path_agrees_with_kernel() {
@@ -752,6 +752,17 @@ fn fast_parts(i: usize, x: f64) -> Option<(f64, f64, i64)> {
         EXP => fast_exp(x, 0.0),
         EXP2 => fast_exp_by(x, LN2),
         EXP10 => fast_exp_by(x, LN10),
+        _ => unreachable!(),
+    }
+}
+
+// (h, l, e) of the fast path of exp, exp2 or exp10 (the function `i`) at an `x` beyond the
+// range of `fast_parts`, from `fast_exp_edge`, as the function computes them.
+fn edge_parts(i: usize, x: f64) -> Option<(f64, f64, i64)> {
+    match i {
+        EXP => fast_exp_edge(x, 0.0),
+        EXP2 => fast_exp_by_edge(x, LN2),
+        EXP10 => fast_exp_by_edge(x, LN10),
         _ => unreachable!(),
     }
 }
@@ -840,6 +851,105 @@ fn range_ends() {
     }
 }
 
+// Asserts that the function `i` gives the same `f64`s at `x`, in both directions and to
+// nearest, with the fast paths as with them disabled.
+fn same_without_fast_path(i: usize, x: f64) {
+    let f = FUNCTIONS[i].1;
+    let fast = (f(x, false), f(x, true), NEAR[i](x));
+    crate::dyadic::fast::set_fast_path(false);
+    let kernel = (f(x, false), f(x, true), NEAR[i](x));
+    crate::dyadic::fast::set_fast_path(true);
+    assert!(
+        fast.0.to_bits() == kernel.0.to_bits()
+            && fast.1.to_bits() == kernel.1.to_bits()
+            && fast.2.to_bits() == kernel.2.to_bits(),
+        "{}({:e}): {:?} with the fast path != {:?} without it",
+        FUNCTIONS[i].0,
+        x,
+        fast,
+        kernel
+    );
+}
+
+// e^x, 2^x, 10^x, sinh and cosh on random arguments beyond the range of `fast_exp`, which
+// `fast_exp_edge` covers: results below about 2^-1020, subnormal ones included, and above
+// about 2^1022.87. Most of the rounding tests pass, and the results are the same with the fast
+// paths disabled. 2^x also at the integers from -1076 to -1019 and from 1022 to 1024, where it
+// is a power of 2, a subnormal `f64` from -1074 to -1023, and at the `f64`s next to them.
+#[test]
+fn edges_random() {
+    let mut rng = Rng(931);
+    for (i, a, b) in [
+        (EXP, -745.9, -707.0),
+        (EXP, 709.0, 709.78),
+        (EXP2, -1075.0, -1020.0),
+        (EXP2, 1022.87, 1023.99),
+        (EXP10, -323.9, -307.05),
+        (EXP10, 307.92, 308.25),
+        (SINH, 709.0, 710.47),
+        (SINH, -710.47, -709.0),
+        (COSH, 709.0, 710.47),
+    ] {
+        crate::dyadic::fast::reset_fast_counts();
+        for _ in 0..2000 {
+            let x = uniform(&mut rng, a, b);
+            check(i, x);
+            same_without_fast_path(i, x);
+        }
+        let (passed, failed) = crate::dyadic::fast::fast_counts();
+        assert!(
+            passed > 100 * failed,
+            "{} on [{a}, {b}]: {passed} passed, {failed} failed",
+            FUNCTIONS[i].0
+        );
+    }
+    for n in (-1076..=-1019).chain(1022..=1024) {
+        for x in around(f64::from(n), 2) {
+            check(EXP2, x);
+            same_without_fast_path(EXP2, x);
+        }
+    }
+}
+
+// e^x, 2^x, 10^x, sinh and cosh at the edges that `fast_exp_edge` and the tests of
+// `round_dir_wide` and `round_near_wide` meet, and at the 4 `f64`s on each side of each: where
+// the result crosses 2^-1022, 2^-1074, 2^-1075 and 2^1024, at the rules' thresholds next to
+// them, at the ends -707 and 709 of the range of `fast_exp`, and, for sinh and cosh, at 709,
+// 1025 ln 2 and the rule at 711. 1025 ln 2 - ln 2 / 8192 and the like are where the results
+// below 2^1024 that go to the kernel start, as there the exponent of `fast_exp_edge` is 1024
+// (1025 for sinh and cosh). The results are the same with the fast paths disabled.
+#[test]
+fn edge_points() {
+    let mut points = vec![];
+    for (i, c) in [(EXP, LN_2), (EXP2, 1.0), (EXP10, LOG10_2)] {
+        for n in [-1022.0, -1074.0, -1075.0, 1024.0 - 1.0 / 8192.0, 1024.0] {
+            points.push((i, n * c));
+        }
+        let z = SCALES[i];
+        points.push((i, -707.0 / z));
+        points.push((i, 709.0 / z));
+    }
+    points.extend([
+        (EXP, -746.0),
+        (EXP, 710.0),
+        (EXP2, -1076.0),
+        (EXP10, -324.0),
+        (EXP10, 309.0),
+    ]);
+    for i in [SINH, COSH] {
+        for t in [709.0, 1025.0 * LN_2 - LN_2 / 8192.0, 1025.0 * LN_2, 711.0] {
+            points.push((i, t));
+            points.push((i, -t));
+        }
+    }
+    for (i, x) in points {
+        for x in around(x, 4) {
+            check(i, x);
+            same_without_fast_path(i, x);
+        }
+    }
+}
+
 // 2^-68, the bound on |y - (h + l)| that the rounding tests of `src/dyadic/fast.rs` assume, and
 // 2^-58, 2^10 times as large.
 const FAST_ERR: f64 = 1.0 / 295_147_905_179_352_825_856.0;
@@ -861,21 +971,7 @@ fn widened() {
             let Some((h, l, _)) = fast_parts(i, x) else {
                 continue;
             };
-            // Half the gap between h and the next `f64` above it, and below it.
-            let above = if h >= 1.0 {
-                f64::EPSILON / 2.0
-            } else {
-                f64::EPSILON / 4.0
-            };
-            let below = if h > 1.0 {
-                f64::EPSILON / 2.0
-            } else {
-                f64::EPSILON / 4.0
-            };
-            let narrow_dir = FAST_ERR < l.abs() && l.abs() <= WIDE;
-            let narrow_near = l < above - FAST_ERR
-                && l > -(below - FAST_ERR)
-                && (l >= above - WIDE || l <= -(below - WIDE));
+            let (narrow_dir, narrow_near) = narrow(h, l);
             if !narrow_dir && !narrow_near {
                 continue;
             }
@@ -906,17 +1002,102 @@ fn widened() {
     }
 }
 
+// Whether a directed test of `round_dir` and the test of `round_near` pass narrowly at (h, l),
+// as `widened` says.
+fn narrow(h: f64, l: f64) -> (bool, bool) {
+    // Half the gap between h and the next `f64` above it, and below it.
+    let above = if h >= 1.0 {
+        f64::EPSILON / 2.0
+    } else {
+        f64::EPSILON / 4.0
+    };
+    let below = if h > 1.0 {
+        f64::EPSILON / 2.0
+    } else {
+        f64::EPSILON / 4.0
+    };
+    (
+        FAST_ERR < l.abs() && l.abs() <= WIDE,
+        l < above - FAST_ERR
+            && l > -(below - FAST_ERR)
+            && (l >= above - WIDE || l <= -(below - WIDE)),
+    )
+}
+
+// `widened` beyond the range of `fast_exp`, on the ranges of e^x, 2^x and 10^x of
+// `edges_random`. Where `round_dir_wide` and `round_near_wide` round C + y on the grid of the
+// `f64`s in [C, 2C] (`round_dir_sub` and `round_near_sub`), with s + t = C + h, they compare
+// |u| for u = RN(t + l) with 2^-67 C in the directions, and with 2^-53 C, half the gap at s,
+// less 2^-67 C to nearest. A pass there is narrow where 2^-57 C, 2^10 times as much, in place
+// of 2^-67 C would make it fail. Elsewhere, narrow is as in `widened`. About 1 random argument
+// in 8 is such a narrow pass on the ranges of the results below 2^-1020, and 1 in 16 on the
+// others.
+#[test]
+fn edges_widened() {
+    let mut rng = Rng(933);
+    for (i, a, b) in [
+        (EXP, -745.9, -707.0),
+        (EXP, 709.0, 709.78),
+        (EXP2, -1075.0, -1020.0),
+        (EXP2, 1022.87, 1023.99),
+        (EXP10, -323.9, -307.05),
+        (EXP10, 307.92, 308.25),
+    ] {
+        let (mut dir, mut near) = (0, 0);
+        for _ in 0..4000 {
+            let x = uniform(&mut rng, a, b);
+            if fast_parts(i, x).is_some() {
+                continue;
+            }
+            let Some((h, l, e)) = edge_parts(i, x) else {
+                continue;
+            };
+            let (narrow_dir, narrow_near) = if e < -1022 || (e == -1022 && h <= 1.0) {
+                let c = pow2(-1022 - i32::try_from(e).unwrap());
+                let (s, t) = fast_two_sum(c, h);
+                let u = (t + l).abs();
+                // 2^-67 C, 2^-57 C and 2^-53 C.
+                let (err, wide, half) =
+                    (2.0 * FAST_ERR * c, 2.0 * WIDE * c, f64::EPSILON / 2.0 * c);
+                (
+                    s < 2.0 * c && err < u && u <= wide,
+                    s < 2.0 * c && u < half - err && u >= half - wide,
+                )
+            } else {
+                narrow(h, l)
+            };
+            if !narrow_dir && !narrow_near {
+                continue;
+            }
+            dir += usize::from(narrow_dir);
+            near += usize::from(narrow_near);
+            same_without_fast_path(i, x);
+            check(i, x);
+        }
+        assert!(
+            dir >= 20 && near >= 20,
+            "{} on [{a}, {b}]: {dir} narrow passes of the directed tests and {near} of the test \
+             to nearest",
+            FUNCTIONS[i].0
+        );
+    }
+}
+
 // The branches of the fast paths of sinh, cosh and tanh, as (function, a, b) for the arguments
 // t = |x| in [a, b) of each: the Taylor polynomials of sinh below 1/4 and of tanh below 1/8,
 // e^t with e^-t up to 26 (sinh and cosh), e^-2t up to 20 (tanh, whose rules settle |x| >= 19
-// in the directions and |x| >= 20 to nearest), and e^t alone from 26 to 709, where `fast_exp`
-// stops. Below `TINY_NEAR` (and `TINY_HYP` in the directions), the rules settle all three.
-const HYP_BRANCHES: [(usize, f64, f64); 7] = [
+// in the directions and |x| >= 20 to nearest), e^t alone from 26 to 709, where `fast_exp`
+// stops, and e^t from `fast_exp_edge` from 709 to 710.47, near the end of the fast paths of
+// sinh and cosh at about 710.47578. Below `TINY_NEAR` (and `TINY_HYP` in the directions), the
+// rules settle all three.
+const HYP_BRANCHES: [(usize, f64, f64); 9] = [
     (SINH, TINY_NEAR, 0.25),
     (SINH, 0.25, 26.0),
     (SINH, 26.0, 709.0),
+    (SINH, 709.0, 710.47),
     (COSH, TINY_NEAR, 26.0),
     (COSH, 26.0, 709.0),
+    (COSH, 709.0, 710.47),
     (TANH, TINY_NEAR, 0.125),
     (TANH, 0.125, 20.0),
 ];
@@ -981,8 +1162,8 @@ fn fast_hyp_range_random() {
 // paths, with both signs: the tiny arguments' rules at 2^-27 (to nearest) and 2^-26
 // (directions), the polynomials' ends at 1/8 and 1/4, tanh's rules at 19 and 20, the end of
 // the reciprocal at 26, the end of `fast_exp` at 709 and the overflow rules at 711. At 709,
-// the fast paths of sinh and cosh take 709 and the `f64`s below it, and leave those above it to
-// the kernel.
+// the fast paths of sinh and cosh take 709 and the `f64`s on both sides of it: `fast_exp_edge`
+// continues `fast_exp` above it.
 #[test]
 fn hyp_thresholds() {
     let thresholds = [
@@ -998,12 +1179,7 @@ fn hyp_thresholds() {
     }
     for t in around(709.0, 4) {
         for i in [SINH, COSH] {
-            assert_eq!(
-                hyp_parts(i, t).is_some(),
-                t <= 709.0,
-                "{}({t:e})",
-                FUNCTIONS[i].0
-            );
+            assert!(hyp_parts(i, t).is_some(), "{}({t:e})", FUNCTIONS[i].0);
         }
     }
 }
@@ -1088,6 +1264,7 @@ mod mpfr {
         float::{Constant, Round},
         Float,
     };
+    use std::ops::RangeInclusive;
 
     type Mpfr = fn(f64) -> f64;
 
@@ -1191,15 +1368,21 @@ mod mpfr {
         check_pair("LN10", LN10, &Float::with_val(PREC, 10).ln(), -105);
     }
 
-    // (h, l, e), from the fast path at z, have h = RN(h + l), 1/2 < h < 2, e in [-1021, 1022],
-    // and |y 2^-e - (h + l)| <= `bound` for y = e^z.
-    fn check_parts(what: &str, y: Float, (h, l, e): (f64, f64, i64), bound: f64) {
+    // (h, l, e), from the fast path at z, have h = RN(h + l), 1/2 < h < 2, e in `es`, and
+    // |y 2^-e - (h + l)| <= `bound` for y = e^z.
+    fn check_parts(
+        what: &str,
+        y: Float,
+        (h, l, e): (f64, f64, i64),
+        es: RangeInclusive<i64>,
+        bound: f64,
+    ) {
         let mut d = y >> i32::try_from(e).unwrap();
         d -= h;
         d -= l;
         d.abs_mut();
         assert!(
-            h + l == h && 0.5 < h && h < 2.0 && (-1021..=1022).contains(&e) && d <= bound,
+            h + l == h && 0.5 < h && h < 2.0 && es.contains(&e) && d <= bound,
             "{what}: ({h:e}, {l:e}, {e}), with |e^z 2^-e - (h + l)| = {:e}",
             d.to_f64()
         );
@@ -1244,6 +1427,7 @@ mod mpfr {
                 &format!("fast_exp({zh:e}, {zl:e})"),
                 y,
                 fast_exp(zh, zl).unwrap(),
+                -1021..=1022,
                 pow2(-68) - pow2(-72),
             );
         }
@@ -1268,8 +1452,61 @@ mod mpfr {
                         let mut y = Float::with_val(PREC, k * x);
                         y.exp_mut();
                         let what = format!("fast_exp_by({x:e}) of {}", FUNCTIONS[i].0);
-                        check_parts(&what, y, parts, pow2(-68));
+                        check_parts(&what, y, parts, -1021..=1022, pow2(-68));
                     }
+                }
+            }
+        }
+    }
+
+    // `fast_exp_edge(zh, zl)` meets the bounds of `fast_exp_edge_correct` in
+    // `rocq/theories/FastExpEdge.v`, with |e^z 2^-e - (h + l)| <= 2^-68 - 2^-73 and e in
+    // [-1085, 1026] for z = zh + zl, on random zh in [-745.9, -707] and [709, 711.5], beyond the
+    // range of `fast_exp`, with |zl| <= 3 2^-42, and next to their ends, where |zh| >= 2^9 as
+    // the theorem assumes; and `fast_exp_by_edge(x, LN2)` and
+    // `fast_exp_by_edge(x, LN10)` meet those of `fe_by_edge_correct` in
+    // `rocq/theories/FastExpByEdge.v`, the same for e^(x k), k = ln 2 and ln 10, on random x
+    // beyond the range of `fast_exp_by` that the rules leave.
+    #[test]
+    fn fast_exp_edge_bound() {
+        let mut rng = Rng(875);
+        let tiny = 3.0 * pow2(-42);
+        let mut args = vec![];
+        for zh in [-745.9, -707.0, 709.0, 710.0, 711.5] {
+            for x in around(zh, 4) {
+                args.push((x, 0.0));
+            }
+        }
+        for _ in 0..4000 {
+            for (a, b) in [(-745.9, -707.0), (709.0, 711.5)] {
+                args.push((uniform(&mut rng, a, b), uniform(&mut rng, -tiny, tiny)));
+            }
+        }
+        for (zh, zl) in args {
+            let what = format!("fast_exp_edge({zh:e}, {zl:e})");
+            let parts = fast_exp_edge(zh, zl).expect(&what);
+            // zh + zl is exact in 300 bits.
+            let mut y = Float::with_val(PREC, zh) + zl;
+            y.exp_mut();
+            check_parts(&what, y, parts, -1085..=1026, pow2(-68) - pow2(-73));
+        }
+        let ln2 = Float::with_val(PREC, Constant::Log2);
+        let ln10 = Float::with_val(PREC, 10).ln();
+        for (i, c, k, ranges) in [
+            (EXP2, LN2, &ln2, [(-1075.0, -1019.0), (1022.0, 1024.0)]),
+            (EXP10, LN10, &ln10, [(-324.0, -307.0), (307.0, 309.0)]),
+        ] {
+            for (a, b) in ranges {
+                for _ in 0..2000 {
+                    let x = uniform(&mut rng, a, b);
+                    if fast_exp_by(x, c).is_some() {
+                        continue;
+                    }
+                    let parts = fast_exp_by_edge(x, c).unwrap();
+                    let mut y = Float::with_val(PREC, k * x);
+                    y.exp_mut();
+                    let what = format!("fast_exp_by_edge({x:e}) of {}", FUNCTIONS[i].0);
+                    check_parts(&what, y, parts, -1085..=1026, pow2(-68) - pow2(-73));
                 }
             }
         }
@@ -1324,10 +1561,10 @@ mod mpfr {
     }
 
     // (h, l, e, err), from the fast path of the function `i` at t >= 0, are finite, with
-    // h = RN(h + l), e in [-1021, 1022], err = 2^-p for an integer p in [55, 105], and
-    // |f(t) 2^-e - (h + l)| <= err, as `fast_sinh_pos_correct` in `rocq/theories/FastHypPos.v`,
-    // `fast_cosh_pos_correct` in `FastCoshPos.v` and `fast_tanh_pos_correct` in `FastTanhPos.v`
-    // state.
+    // h = RN(h + l), e in [-1021, 1023] ([-1021, 1022] for tanh), err = 2^-p for an integer p
+    // in [55, 105], and |f(t) 2^-e - (h + l)| <= err, as `fast_sinh_pos_correct` in
+    // `rocq/theories/FastHypPos.v`, `fast_cosh_pos_correct` in `FastCoshPos.v` and
+    // `fast_tanh_pos_correct` in `FastTanhPos.v` state.
     // Returns |f(t) 2^-e - (h + l)| / err.
     fn check_hyp_parts(i: usize, t: f64, (h, l, e, err): (f64, f64, i64, f64)) -> f64 {
         let mut d = hyp(i, t) >> i32::try_from(e).unwrap();
@@ -1341,7 +1578,7 @@ mod mpfr {
             h.is_finite()
                 && l.is_finite()
                 && h + l == h
-                && (-1021..=1022).contains(&e)
+                && (-1021..=if i == TANH { 1022 } else { 1023 }).contains(&e)
                 && pow2_err
                 && (55..=105).contains(&p)
                 && d <= err,
@@ -1355,11 +1592,13 @@ mod mpfr {
 
     // `fast_sinh_pos`, `fast_cosh_pos` and `fast_tanh_pos` meet their bounds (`check_hyp_parts`)
     // on random arguments of each branch of `HYP_BRANCHES`, uniform and of any exponent in it,
-    // around the thresholds of the branches and rules, and, for tanh, on [20, 353.5], where
-    // the rules of `tanh` and `tanh_near` take over but the bound still holds. The fast paths
-    // take every t from `TINY_NEAR` (sinh and tanh) or 0 (cosh) to 709 (sinh and cosh) or
-    // 353.5 (tanh, where -2t reaches the end -707 of `fast_exp`), and none beyond. With
-    // `--nocapture`, prints the largest error found in each branch, as a fraction of err.
+    // around the thresholds of the branches and rules, and, for tanh, on [20, 353.5], where the
+    // rules of `tanh` and `tanh_near` take over but the bound still holds. The fast paths take
+    // every t from `TINY_NEAR` (sinh and tanh) or 0 (cosh) to about 710.47578 (sinh and cosh,
+    // whose results reach 2^1024 near 710.48) or 353.5 (tanh, where -2t reaches the end -707 of
+    // `fast_exp`), and none beyond: for sinh and cosh, the test checks that they take the t it
+    // tries up to 710.47, and none above 710.5. With `--nocapture`, prints the largest error
+    // found in each branch, as a fraction of err.
     #[test]
     fn fast_hyp_bound() {
         let mut rng = Rng(923);
@@ -1386,17 +1625,19 @@ mod mpfr {
         ]
         .into_iter()
         .chain([0.125, 0.25, 1.0, 19.0, 20.0, 26.0, 353.5, 709.0, 711.0])
+        .chain([1025.0 * LN_2 - LN_2 / 8192.0, 1025.0 * LN_2])
         .flat_map(|x| around(x, 4))
         .filter(|&t| t >= 0.0)
         {
-            for (i, start, end) in [
-                (SINH, TINY_NEAR, 709.0),
-                (COSH, 0.0, 709.0),
-                (TANH, TINY_NEAR, 353.5),
+            // The fast path takes every t in [start, end] and none above `last`.
+            for (i, start, end, last) in [
+                (SINH, TINY_NEAR, 710.47, 710.5),
+                (COSH, 0.0, 710.47, 710.5),
+                (TANH, TINY_NEAR, 353.5, 353.5),
             ] {
                 match hyp_parts(i, t) {
                     Some(parts) => {
-                        assert!(start <= t && t <= end, "{}({t:e})", FUNCTIONS[i].0);
+                        assert!(start <= t && t <= last, "{}({t:e})", FUNCTIONS[i].0);
                         check_hyp_parts(i, t, parts);
                     }
                     None => assert!(t < start || t > end, "{}({t:e})", FUNCTIONS[i].0),

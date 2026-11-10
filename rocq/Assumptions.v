@@ -58,6 +58,8 @@ From Inari Require FastPowTaylor FastPowHorner FastPowCube FastPowPoly FastPowCo
   FastPow.
 From Inari Require FastDdSqrt FastLogDd FastAhypAsinh FastAhypAcosh FastAhypAtanh FastAhyp.
 From Inari Require FastAtanTables FastAtanPoly FastAtanCore FastAtan FastAsin.
+From Inari Require FastRoundSubBits FastRoundSubCommon FastRoundSub FastRoundWide FastExpEdge
+  FastExpByEdge.
 From Inari Require KahanMcDonald DyTrigPos SideTight SideTheorems DyPointSide.
 From Inari Require ExpQuadratic PowFactor ExpIrrational CosNiven CosIrrational DyExactDriver
   DyExactPoint DyTrigExact DyExpPoint DyExpExact DyLogSeries DyLogPoint DyLogExact DyAtanExact.
@@ -334,6 +336,17 @@ Print Assumptions FastRoundErr.two_sum_correct.
 Print Assumptions FastRoundErr.normalize_correct.
 Print Assumptions FastRoundErr.round_dir_err_correct.
 Print Assumptions FastRoundErr.round_near_err_correct.
+Print Assumptions FastRoundSub.round_dir_sub_correct.
+Print Assumptions FastRoundSub.round_near_sub_correct.
+Print Assumptions FastRoundWide.round_dir_wide_correct.
+Print Assumptions FastRoundWide.round_near_wide_correct.
+Print Assumptions FastRoundWide.round_dir_err_wide_correct.
+Print Assumptions FastRoundWide.round_near_err_wide_correct.
+Print Assumptions FastExpEdge.fast_exp_edge_in.
+Print Assumptions FastExpEdge.fast_exp_edge_correct.
+Print Assumptions FastExpEdge.fast_exp_edge_fma.
+Print Assumptions FastExpByEdge.fe_by_edge_correct.
+Print Assumptions FastExpByEdge.fe_by_edge_fma.
 Print Assumptions FastDiv.dd_div_correct.
 Print Assumptions FastDiv.dd_div_fma.
 Print Assumptions FastHypPoly.sinh_poly_correct.

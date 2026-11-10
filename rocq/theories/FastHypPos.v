@@ -3,9 +3,14 @@
     [DyadicExp.fast_sinh_pos] of [Model.v] returns, for [t >= 0], an
     unevaluated sum [h + l] with [h] the rounding of [h + l] to nearest,
     an exponent [e] and a bound [err = 2^-p] with [|sinh t 2^-e - (h +
-    l)| <= err], which the tests of [FastRoundErr.v] take
-    ([fast_sinh_pos_correct]):
-    - [t >= 26]: [e^t / 2] from [fast_exp_correct] of [FastExpCore.v],
+    l)| <= err], which the tests of [FastRoundErr.v] take, proved at [e =
+    1023] too in [FastRoundWide.v] ([fast_sinh_pos_correct]):
+    - [t > 709], where [fast_exp] returns [None]: [e^t / 2] from
+      [fast_exp_edge_correct] of [FastExpEdge.v], with [err = 2^-68], where
+      the term [e^-t / 2] it drops is at most [2^-73] once scaled and fits
+      the room [2^-73] that [fast_exp_edge_correct] leaves below [2^-68]
+      ([edge_facts]); it returns [None] where [e] would pass [1023];
+    - [26 <= t <= 709]: [e^t / 2] from [fast_exp_correct] of [FastExpCore.v],
       where the term [e^-t / 2] it drops is below [2^-74] once scaled, and
       fits the room [2^-72] that [fast_exp_correct] leaves below [2^-68];
     - [1/4 <= t < 26]: [(E - 1/E) / 2] for [E = e^t] from
@@ -20,7 +25,7 @@ From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN Plus_error Mult_error.
 From Inari Require Import Model Mpfr Encoding Elementary TwoSum TwoProduct MulRuTiny DyDriver
   NearF64 FastRound FastExpTables FastExpCore FastRoundErr FastDiv FastHypPoly.
-From Inari Require DyExpRules CancelLanes SqrtSlow.
+From Inari Require DyExpRules CancelLanes SqrtSlow FastExpEdge.
 
 Open Scope R_scope.
 
@@ -347,6 +352,107 @@ assert (T0 : 0 <= exp (- B2R t) * bpow radix2 (- e))
 apply Rabs_le. lra.
 Qed.
 
+(** ** The range [t > 709] *)
+
+(** Where [fast_exp t 0] returns [None] for a finite [t >= 0], its range
+    test [-707 <= t <= 709] failed, so [t > 709]. *)
+Lemma fe_none :
+  forall fma t, is_finite t = true -> 0 <= B2R t ->
+  DyadicExp.fast_exp fma t zero = None -> 709 < B2R t.
+Proof.
+intros fma t Ft Ht H.
+assert (F1 : is_finite (from_bits 0xc086180000000000) = true) by (vm_compute; reflexivity).
+assert (F2 : is_finite (from_bits 0x4086280000000000) = true) by (vm_compute; reflexivity).
+assert (L1 : B2R (from_bits 0xc086180000000000) = -707)
+  by (lit_B2R; cbn [bpow radix_val radix2]; lra).
+assert (L2 : B2R (from_bits 0x4086280000000000) = 709)
+  by (lit_B2R; cbn [bpow radix_val radix2]; lra).
+assert (G1 : Model.le (from_bits 0xc086180000000000) t = true).
+{ unfold Model.le. rewrite Bleb_correct by assumption. apply Rle_bool_true. lra. }
+destruct (Model.le t (from_bits 0x4086280000000000)) eqn:G2.
+- (* In range, [fast_exp] returns [Some]. *)
+  exfalso. unfold DyadicExp.fast_exp in H. rewrite G1, G2 in H.
+  cbv beta iota zeta delta [negb andb Fast.fast_two_sum] in H.
+  match type of H with context [DyadicExp.tbl DyadicExp.T1 ?i] =>
+    destruct (DyadicExp.tbl DyadicExp.T1 i) end.
+  match type of H with context [DyadicExp.tbl DyadicExp.T2 ?i] =>
+    destruct (DyadicExp.tbl DyadicExp.T2 i) end.
+  cbv beta iota in H. discriminate H.
+- unfold Model.le in G2. rewrite Bleb_correct in G2 by assumption.
+  destruct (Rle_bool_spec (B2R t) (B2R (from_bits 0x4086280000000000))); [discriminate | lra].
+Qed.
+
+(** For [x >= 52], the term [e^-x 2^-e] that the range [t > 709] drops
+    is at most [3 / 2^148 <= 2^-73], as [e^(2 x) >= 2^148]. *)
+Lemma tail_tiny :
+  forall x P, 52 <= x -> 0 <= P -> exp x * P <= 3 -> exp (- x) * P <= bpow radix2 (-73).
+Proof.
+intros x P Hx HP H3.
+assert (E74 : bpow radix2 74 <= exp x)
+  by (apply Rle_trans with (exp 52); [apply exp_52 | apply exp_le; lra]).
+assert (E148 : bpow radix2 148 <= exp x * exp x).
+{ replace (bpow radix2 148) with (bpow radix2 74 * bpow radix2 74)
+    by (rewrite <- bpow_plus; reflexivity).
+  apply Rmult_le_compat; [apply bpow_ge_0 | apply bpow_ge_0 | exact E74 | exact E74]. }
+assert (Ex : 0 < exp x) by apply exp_pos.
+assert (Ex' : exp x <> 0) by (apply Rgt_not_eq; exact Ex).
+rewrite exp_Ropp.
+replace (/ exp x * P) with ((exp x * P) * / (exp x * exp x)) by (field; exact Ex').
+apply Rle_trans with (3 * / bpow radix2 148).
+- apply Rmult_le_compat; [apply Rmult_le_pos; lra | | exact H3 |].
+  + left. apply Rinv_0_lt_compat. apply Rmult_lt_0_compat; exact Ex.
+  + apply Rinv_le_contravar; [apply bpow_gt_0 | exact E148].
+- rewrite <- bpow_opp. cbn [bpow radix_val radix2 Z.opp]. lra.
+Qed.
+
+(** Where [fast_exp t 0] returns [None] and [fast_exp_edge t 0] returns
+    [(h, l, e)] with [e <= 1024], for a finite [t >= 0]: [t > 709]
+    ([fe_none]), so [h + l] is [e^t 2^-e] within [2^-68 - 2^-73]
+    ([fast_exp_edge_correct] for [a = t]), [e >= -1] as [e^t >= 1] and
+    [e^t 2^-e < 3], and the term [e^-t 2^-e] that [sinh] and [cosh] drop
+    is at most [2^-73] ([tail_tiny]). *)
+Lemma edge_facts :
+  forall fma t h l e,
+  is_finite t = true -> 0 <= B2R t ->
+  DyadicExp.fast_exp fma t zero = None ->
+  DyadicExp.fast_exp_edge fma t zero = Some (h, l, e) ->
+  (1024 <? e)%Z = false ->
+  is_finite h = true /\ is_finite l = true /\ B2R h = RN (B2R h + B2R l) /\
+  (-1021 <= e - 1 <= 1023)%Z /\
+  Rabs (exp (B2R t) * bpow radix2 (- e) - (B2R h + B2R l))
+    <= bpow radix2 (-68) - bpow radix2 (-73) /\
+  0 <= exp (- B2R t) * bpow radix2 (- e) <= bpow radix2 (-73).
+Proof.
+intros fma t h l e Ft Ht H0 H Hb.
+pose proof (fe_none fma t Ft Ht H0) as T.
+assert (Z9 : bpow radix2 9 <= Rabs (B2R t)).
+{ rewrite Rabs_pos_eq by exact Ht. cbn [bpow radix_val radix2]. lra. }
+assert (Z0 : Rabs (B2R zero) <= 3 * bpow radix2 (-42)).
+{ change (B2R zero) with 0. rewrite Rabs_R0. apply Rmult_le_pos; [lra | apply bpow_ge_0]. }
+assert (A0 : Rabs (B2R t - (B2R t + B2R zero)) <= bpow radix2 (-92)).
+{ change (B2R zero) with 0. replace (B2R t - (B2R t + 0)) with 0 by ring.
+  rewrite Rabs_R0. apply bpow_ge_0. }
+destruct (FastExpEdge.fast_exp_edge_correct fma t zero (B2R t) h l e Ft eq_refl Z9 Z0 A0 H)
+  as (Fh & Fl & Eh & Hh & _ & Herr).
+pose proof (low53 h l Fh Eh Hh) as Hl.
+assert (E1 : 1 <= exp (B2R t)) by (rewrite <- exp_0; apply exp_le; exact Ht).
+assert (K : bpow radix2 (-53) <= / 4 /\ bpow radix2 (-68) <= / 4 /\ 0 < bpow radix2 (-73))
+  by (cbn [bpow radix_val radix2]; repeat split; lra).
+assert (He1 : (-1 <= e)%Z).
+{ destruct (Z_lt_le_dec e (-1)) as [Hlt|Hge]; [exfalso | exact Hge].
+  assert (P4 : 4 <= bpow radix2 (- e)) by (change 4 with (bpow radix2 2); apply bpow_le; lia).
+  assert (EP : 1 * 4 <= exp (B2R t) * bpow radix2 (- e)) by (apply Rmult_le_compat; lra).
+  apply Rabs_le_inv in Herr. apply Rabs_le_inv in Hl. lra. }
+apply Z.ltb_ge in Hb.
+assert (He : (-1021 <= e - 1 <= 1023)%Z) by lia.
+refine (conj Fh (conj Fl (conj Eh (conj He (conj Herr _))))).
+pose proof (bpow_gt_0 radix2 (- e)) as HP.
+assert (E3 : exp (B2R t) * bpow radix2 (- e) <= 3).
+{ apply Rabs_le_inv in Herr. apply Rabs_le_inv in Hl. lra. }
+split; [apply Rmult_le_pos; [apply Rlt_le, exp_pos | lra]|].
+apply (tail_tiny (B2R t) (bpow radix2 (- e))); lra.
+Qed.
+
 (** ** The range [1/4 <= t < 26] *)
 
 (** With [E = e^t], [P = 2^-e] and [y = h + l] from [fast_exp], [wh + wl]
@@ -547,7 +653,7 @@ Theorem fast_sinh_pos_correct :
   is_finite t = true -> 0 <= B2R t ->
   DyadicExp.fast_sinh_pos fma t = Some (h, l, e, err) ->
   is_finite h = true /\ is_finite l = true /\ B2R h = RN (B2R h + B2R l) /\
-  (-1021 <= e <= 1022)%Z /\
+  (-1021 <= e <= 1023)%Z /\
   exists p, (55 <= p <= 105)%Z /\ B2R err = bpow radix2 (- p) /\
     Rabs (sinh (B2R t) * bpow radix2 (- e) - (B2R h + B2R l)) <= bpow radix2 (- p).
 Proof.
@@ -565,17 +671,27 @@ destruct (lt t (from_bits 0x3fd0000000000000)) eqn:L2.
   destruct (Fast.normalize sh sl) as [[h1 l1] k] eqn:Hn. cbv beta iota in H.
   injection H as <- <- <- <-.
   destruct (sinh_small_core fma t sh sl h1 l1 k Ft (conj T1 T2) Hp Hn) as (F1 & F2 & R & Hk & B).
-  refine (conj F1 (conj F2 (conj R (conj Hk _)))).
+  refine (conj F1 (conj F2 (conj R (conj _ _)))); [lia|].
   exists 63%Z. split; [lia|]. split; [exact lit_err63 | exact B].
 - pose proof (lt_false _ _ Ft Fq L2) as T2. rewrite lit_quarter in T2.
   change (bpow radix2 (-2)) with (/ 4) in T2.
-  destruct (DyadicExp.fast_exp fma t zero) as [[[h0 l0] e0]|] eqn:Hfe; [|discriminate H].
+  destruct (DyadicExp.fast_exp fma t zero) as [[[h0 l0] e0]|] eqn:Hfe.
+  2:{ (* [t > 709]: [e^t / 2] from [fast_exp_edge], below [2^1024]. *)
+    cbv beta iota in H.
+    destruct (DyadicExp.fast_exp_edge fma t zero) as [[[h0 l0] e0]|] eqn:Hed; [|discriminate H].
+    cbv beta iota in H.
+    destruct (1024 <? e0)%Z eqn:Hb; [discriminate H|].
+    cbv beta iota in H. injection H as <- <- <- <-.
+    destruct (edge_facts fma t h0 l0 e0 Ft Ht Hfe Hed Hb) as (F1 & F2 & R & Hk & B & T).
+    refine (conj F1 (conj F2 (conj R (conj Hk _)))).
+    exists 68%Z. split; [lia|]. split; [exact lit_err68|].
+    rewrite sinh_scale. cbn [Z.opp]. apply Rabs_le_inv in B. apply Rabs_le. lra. }
   cbv beta iota in H.
   destruct (ge t (from_bits 0x403a000000000000)) eqn:Hge.
   + pose proof (ge_true _ _ Ft F26 Hge) as T3. rewrite lit_26 in T3.
     injection H as <- <- <- <-.
     destruct (sinh_large_core fma t h0 l0 e0 Ft T3 Hfe) as (F1 & F2 & R & Hk & B).
-    refine (conj F1 (conj F2 (conj R (conj Hk _)))).
+    refine (conj F1 (conj F2 (conj R (conj _ _)))); [lia|].
     exists 68%Z. split; [lia|]. split; [exact lit_err68 | exact B].
   + pose proof (ge_false _ _ Ft F26 Hge) as T3. rewrite lit_26 in T3.
     destruct (Fast.dd_div fma (DyadicExp.two_pow (-2 * e0)) zero h0 l0) as [wh wl] eqn:Hdd.
@@ -585,7 +701,7 @@ destruct (lt t (from_bits 0x3fd0000000000000)) eqn:L2.
     injection H as <- <- <- <-.
     destruct (sinh_mid_core fma t h0 l0 e0 wh wl s s0 h1 l1 Ft (conj T2 T3) Hfe Hdd Hs1 Hs2)
       as (F1 & F2 & R & Hk & B).
-    refine (conj F1 (conj F2 (conj R (conj Hk _)))).
+    refine (conj F1 (conj F2 (conj R (conj _ _)))); [lia|].
     exists 67%Z. split; [lia|]. split; [exact lit_err67 | exact B].
 Qed.
 
@@ -609,7 +725,8 @@ destruct (lt t (from_bits 0x3fd0000000000000)) eqn:L2.
 - pose proof (lt_false _ _ Ft Fq L2) as T2. rewrite lit_quarter in T2.
   change (bpow radix2 (-2)) with (/ 4) in T2.
   rewrite fast_exp_fma.
-  destruct (DyadicExp.fast_exp false t zero) as [[[h0 l0] e0]|] eqn:Hfe; [|reflexivity].
+  destruct (DyadicExp.fast_exp false t zero) as [[[h0 l0] e0]|] eqn:Hfe;
+    [|rewrite FastExpEdge.fast_exp_edge_fma; reflexivity].
   cbv beta iota.
   destruct (ge t (from_bits 0x403a000000000000)) eqn:Hge; [reflexivity|].
   pose proof (ge_false _ _ Ft F26 Hge) as T3. rewrite lit_26 in T3.

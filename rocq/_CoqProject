@@ -195,6 +195,12 @@ theories/FastExpPoly.v
 theories/FastExpTbl.v
 theories/FastExpProd.v
 theories/FastExpCore.v
+theories/FastRoundSubBits.v
+theories/FastRoundSubCommon.v
+theories/FastRoundSub.v
+theories/FastRoundWide.v
+theories/FastExpEdge.v
+theories/FastExpByEdge.v
 theories/FastExp.v
 theories/FastRoundErr.v
 theories/FastDiv.v

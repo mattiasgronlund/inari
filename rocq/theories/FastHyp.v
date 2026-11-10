@@ -14,7 +14,7 @@ From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Elementary ExpReal TwoSum DyDriver NearF64 NearCells
   FastRound FastRoundErr FastDiv FastHypPos FastCoshPos FastTanhPos.
-From Inari Require DyExp DyPown.
+From Inari Require DyExp DyPown FastRoundWide.
 
 Open Scope R_scope.
 
@@ -26,9 +26,17 @@ Local Definition pos_bound (f : R -> R) (pos : f64 -> option (f64 * f64 * Z * f6
   forall t h l e err,
   is_finite t = true -> 0 <= B2R t -> pos t = Some (h, l, e, err) ->
   is_finite h = true /\ is_finite l = true /\ B2R h = RN (B2R h + B2R l) /\
-  (-1021 <= e <= 1022)%Z /\
+  (-1021 <= e <= 1023)%Z /\
   exists p, (55 <= p <= 105)%Z /\ B2R err = bpow radix2 (- p) /\
     Rabs (f (B2R t) * bpow radix2 (- e) - (B2R h + B2R l)) <= bpow radix2 (- p).
+
+(** [fast_tanh_pos_correct] bounds [e] by [1022], within [pos_bound]. *)
+Local Lemma tanh_bound : forall fma, pos_bound tanh (DyadicExp.fast_tanh_pos fma).
+Proof.
+intros fma t h l e err Ft Ht E.
+destruct (fast_tanh_pos_correct fma t h l e err Ft Ht E) as (Fh & Fl & Eh & He & R).
+refine (conj Fh (conj Fl (conj Eh (conj _ R)))). lia.
+Qed.
 
 Local Lemma fabs_facts :
   forall x, is_finite x = true ->
@@ -58,7 +66,7 @@ intros f pos t up v P Ft Ht H.
 destruct (pos t) as [[[[h l] e] err]|] eqn:E; [|discriminate H].
 destruct (P t h l e err Ft Ht E) as (Fh & Fl & Eh & He & p & Hp & Herr & Hb).
 rewrite (scale_back (f (B2R t)) e).
-exact (round_dir_err_correct h l e err p up v _ Fh Fl Eh He Hp Herr Hb H).
+exact (FastRoundWide.round_dir_err_wide_correct h l e err p up v _ Fh Fl Eh He Hp Herr Hb H).
 Qed.
 
 Local Lemma pos_near :
@@ -74,7 +82,7 @@ intros f pos t v P Ft Ht H.
 destruct (pos t) as [[[[h l] e] err]|] eqn:E; [|discriminate H].
 destruct (P t h l e err Ft Ht E) as (Fh & Fl & Eh & He & p & Hp & Herr & Hb).
 rewrite (scale_back (f (B2R t)) e).
-exact (round_near_err_correct h l e err p v _ Fh Fl Eh He Hp Herr Hb H).
+exact (FastRoundWide.round_near_err_wide_correct h l e err p v _ Fh Fl Eh He Hp Herr Hb H).
 Qed.
 
 (** An odd [f] at [x < 0] is [-f(|x|)]: rounding [f(|x|)] in the other
@@ -169,7 +177,7 @@ Theorem fast_tanh_dir_correct :
   rounds up (tanh (B2R x)) v.
 Proof.
 intros fma x up v Fx H.
-exact (odd_dir tanh _ x up v (fast_tanh_pos_correct fma) tanh_odd Fx H).
+exact (odd_dir tanh _ x up v (tanh_bound fma) tanh_odd Fx H).
 Qed.
 
 (** ** Rounded to nearest *)
@@ -198,7 +206,7 @@ Theorem fast_tanh_near_correct :
   near_round (tanh (B2R x)) v.
 Proof.
 intros fma x v Fx H.
-exact (odd_near tanh _ x v (fast_tanh_pos_correct fma) tanh_odd Fx H).
+exact (odd_near tanh _ x v (tanh_bound fma) tanh_odd Fx H).
 Qed.
 
 (** ** With and without an FMA *)

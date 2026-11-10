@@ -14,6 +14,7 @@ From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Elementary TwoSum TwoProduct MulRuTiny DyDriver NearF64
   FastRound FastExpTables FastExpCore.
+From Inari Require FastRoundWide FastExpEdge FastExpByEdge.
 
 Open Scope R_scope.
 
@@ -347,6 +348,52 @@ destruct (Rlt_bool_spec (B2R (fabs x)) (B2R DyadicExp.tiny_exp10)); [discriminat
 unfold fabs in *. rewrite B2R_Babs in *. lra.
 Qed.
 
+(** Where [fast_exp] returns [None] for a finite [zh], [zh] is outside
+    [[-707, 709]], so [|zh| >= 2^9], as [fast_exp_edge_correct] needs. *)
+Lemma fe_none :
+  forall fma zh zl, is_finite zh = true -> DyadicExp.fast_exp fma zh zl = None ->
+  bpow radix2 9 <= Rabs (B2R zh).
+Proof.
+intros fma zh zl Fz E.
+assert (G : in_range zh = false).
+{ destruct (in_range zh) eqn:G; [|reflexivity].
+  unfold DyadicExp.fast_exp in E. rewrite G in E.
+  cbv beta iota zeta delta [negb Fast.fast_two_sum] in E.
+  repeat match type of E with context [DyadicExp.tbl ?t ?i] => destruct (DyadicExp.tbl t i) end.
+  discriminate E. }
+assert (B9 : bpow radix2 9 = 512) by (cbn [bpow radix_val radix2]; lra).
+destruct (Rle_or_lt (Rabs (B2R zh)) 707) as [Hs|Hs]; [|lra].
+apply Rabs_le_inv in Hs.
+assert (L1 : B2R (from_bits 0xc086180000000000) = -707)
+  by (lit_B2R; cbn [bpow radix_val radix2]; lra).
+assert (L2 : B2R (from_bits 0x4086280000000000) = 709)
+  by (lit_B2R; cbn [bpow radix_val radix2]; lra).
+unfold Model.le in G. rewrite !Bleb_correct in G by first [exact Fz | vm_compute; reflexivity].
+rewrite L1, L2, !Rle_bool_true in G by lra. discriminate G.
+Qed.
+
+(** Where [fast_exp x 0] returns [None] and [fast_exp_edge x 0] returns,
+    its [h + l] is [e^x 2^-e] within [2^-68] ([fast_exp_edge_correct]
+    with [a = x]). *)
+Lemma fe_edge :
+  forall fma x h l e,
+  is_finite x = true -> DyadicExp.fast_exp fma x zero = None ->
+  DyadicExp.fast_exp_edge fma x zero = Some (h, l, e) ->
+  is_finite h = true /\ is_finite l = true /\ B2R h = RN (B2R h + B2R l) /\
+  / 2 < B2R h < 2 /\ (-1085 <= e)%Z /\
+  Rabs (exp (B2R x) * bpow radix2 (- e) - (B2R h + B2R l)) <= bpow radix2 (-68).
+Proof.
+intros fma x h l e Fx E E2.
+assert (Z1 : Rabs (B2R zero) <= 3 * bpow radix2 (-42))
+  by (change (B2R zero) with 0; rewrite Rabs_R0; pose proof (bpow_ge_0 radix2 (-42)); lra).
+assert (Z2 : Rabs (B2R x - (B2R x + B2R zero)) <= bpow radix2 (-92))
+  by (change (B2R zero) with 0; rewrite Rplus_0_r, Rminus_diag, Rabs_R0; apply bpow_ge_0).
+destruct (FastExpEdge.fast_exp_edge_correct fma x zero (B2R x) h l e Fx eq_refl
+  (fe_none fma x zero Fx E) Z1 Z2 E2) as (Fh & Fl & Eh & Hh & He & Herr).
+do 4 (split; [assumption|]). split; [lia|].
+pose proof (bpow_gt_0 radix2 (-73)). lra.
+Qed.
+
 (** ** Rounded toward -inf and +inf *)
 
 Theorem fast_exp_dir_correct :
@@ -355,7 +402,13 @@ Theorem fast_exp_dir_correct :
   rounds up (exp (B2R x)) v.
 Proof.
 intros fma x up v Fx H. unfold DyadicExp.fast_exp_dir in H.
-destruct (DyadicExp.fast_exp fma x zero) as [[[h l] e]|] eqn:E; [|discriminate H].
+destruct (DyadicExp.fast_exp fma x zero) as [[[h l] e]|] eqn:E.
+2: { destruct (DyadicExp.fast_exp_edge fma x zero) as [[[h l] e]|] eqn:E2; [|discriminate H].
+     destruct (fe_edge fma x h l e Fx E E2) as (Fh & Fl & Eh & Hh & He & Herr).
+     replace (exp (B2R x)) with (exp (B2R x) * bpow radix2 (- e) * bpow radix2 e).
+     2: { rewrite Rmult_assoc, <- bpow_plus, Z.add_opp_diag_l. change (bpow radix2 0) with 1.
+          ring. }
+     exact (FastRoundWide.round_dir_wide_correct h l e up v _ Fh Fl Eh Hh He Herr H). }
 assert (Z0 : Rabs (B2R zero) <= bpow radix2 (-40))
   by (change (B2R zero) with 0; rewrite Rabs_R0; apply bpow_ge_0).
 destruct (fast_exp_correct fma x zero h l e Fx eq_refl Z0 E) as (Fh & Fl & Eh & Hh & He & Herr).
@@ -373,10 +426,19 @@ Theorem fast_exp2_dir_correct :
   rounds up (Rexp2 (B2R x)) v.
 Proof.
 intros fma x up v Fx Hx H. unfold DyadicExp.fast_exp2_dir in H.
-destruct (DyadicExp.fast_exp_by fma x DyadicExp.LN2) as [[[h l] e]|] eqn:E; [|discriminate H].
 destruct fe_ln2 as (Fc & Fl & Hc & Hl & Hk).
 assert (Hx' : bpow radix2 (-56) <= Rabs (B2R x))
   by (apply Rle_trans with (bpow radix2 (-54)); [apply bpow_le; lia | exact Hx]).
+destruct (DyadicExp.fast_exp_by fma x DyadicExp.LN2) as [[[h l] e]|] eqn:E.
+2: { destruct (DyadicExp.fast_exp_by_edge fma x DyadicExp.LN2) as [[[h l] e]|] eqn:E2;
+       [|discriminate H].
+     destruct (FastExpByEdge.fe_by_edge_correct fma x _ (ln 2) h l e Fc Fl Hc Hl Hk Fx Hx' E E2)
+       as (Fh & Fl' & Eh & Hh & He & Herr).
+     replace (Rexp2 (B2R x)) with (exp (B2R x * ln 2) * bpow radix2 (- e) * bpow radix2 e).
+     2: { rewrite Rmult_assoc, <- bpow_plus, Z.add_opp_diag_l. change (bpow radix2 0) with 1.
+          rewrite Rmult_1_r. reflexivity. }
+     apply (FastRoundWide.round_dir_wide_correct h l e up v _ Fh Fl' Eh Hh); [lia | | exact H].
+     pose proof (bpow_gt_0 radix2 (-73)). lra. }
 destruct (fe_by_correct fma x _ (ln 2) h l e Fc Fl Hc Hl Hk Fx Hx' E)
   as (Fh & Fl' & Eh & Hh & He & Herr).
 replace (Rexp2 (B2R x)) with (exp (B2R x * ln 2) * bpow radix2 (- e) * bpow radix2 e).
@@ -392,8 +454,17 @@ Theorem fast_exp10_dir_correct :
   rounds up (Rexp10 (B2R x)) v.
 Proof.
 intros fma x up v Fx Hx H. unfold DyadicExp.fast_exp10_dir in H.
-destruct (DyadicExp.fast_exp_by fma x DyadicExp.LN10) as [[[h l] e]|] eqn:E; [|discriminate H].
 destruct fe_ln10 as (Fc & Fl & Hc & Hl & Hk).
+destruct (DyadicExp.fast_exp_by fma x DyadicExp.LN10) as [[[h l] e]|] eqn:E.
+2: { destruct (DyadicExp.fast_exp_by_edge fma x DyadicExp.LN10) as [[[h l] e]|] eqn:E2;
+       [|discriminate H].
+     destruct (FastExpByEdge.fe_by_edge_correct fma x _ (ln 10) h l e Fc Fl Hc Hl Hk Fx Hx E E2)
+       as (Fh & Fl' & Eh & Hh & He & Herr).
+     replace (Rexp10 (B2R x)) with (exp (B2R x * ln 10) * bpow radix2 (- e) * bpow radix2 e).
+     2: { rewrite Rmult_assoc, <- bpow_plus, Z.add_opp_diag_l. change (bpow radix2 0) with 1.
+          rewrite Rmult_1_r. reflexivity. }
+     apply (FastRoundWide.round_dir_wide_correct h l e up v _ Fh Fl' Eh Hh); [lia | | exact H].
+     pose proof (bpow_gt_0 radix2 (-73)). lra. }
 destruct (fe_by_correct fma x _ (ln 10) h l e Fc Fl Hc Hl Hk Fx Hx E)
   as (Fh & Fl' & Eh & Hh & He & Herr).
 replace (Rexp10 (B2R x)) with (exp (B2R x * ln 10) * bpow radix2 (- e) * bpow radix2 e).
@@ -410,7 +481,13 @@ Theorem fast_exp_near_correct :
   near_round (exp (B2R x)) v.
 Proof.
 intros fma x v Fx H. unfold DyadicExp.fast_exp_near in H.
-destruct (DyadicExp.fast_exp fma x zero) as [[[h l] e]|] eqn:E; [|discriminate H].
+destruct (DyadicExp.fast_exp fma x zero) as [[[h l] e]|] eqn:E.
+2: { destruct (DyadicExp.fast_exp_edge fma x zero) as [[[h l] e]|] eqn:E2; [|discriminate H].
+     destruct (fe_edge fma x h l e Fx E E2) as (Fh & Fl & Eh & Hh & He & Herr).
+     replace (exp (B2R x)) with (exp (B2R x) * bpow radix2 (- e) * bpow radix2 e).
+     2: { rewrite Rmult_assoc, <- bpow_plus, Z.add_opp_diag_l. change (bpow radix2 0) with 1.
+          ring. }
+     exact (FastRoundWide.round_near_wide_correct h l e v _ Fh Fl Eh Hh He Herr H). }
 assert (Z0 : Rabs (B2R zero) <= bpow radix2 (-40))
   by (change (B2R zero) with 0; rewrite Rabs_R0; apply bpow_ge_0).
 destruct (fast_exp_correct fma x zero h l e Fx eq_refl Z0 E) as (Fh & Fl & Eh & Hh & He & Herr).
@@ -428,10 +505,19 @@ Theorem fast_exp2_near_correct :
   near_round (Rexp2 (B2R x)) v.
 Proof.
 intros fma x v Fx Hx H. unfold DyadicExp.fast_exp2_near in H.
-destruct (DyadicExp.fast_exp_by fma x DyadicExp.LN2) as [[[h l] e]|] eqn:E; [|discriminate H].
 destruct fe_ln2 as (Fc & Fl & Hc & Hl & Hk).
 assert (Hx' : bpow radix2 (-56) <= Rabs (B2R x))
   by (apply Rle_trans with (bpow radix2 (-54)); [apply bpow_le; lia | exact Hx]).
+destruct (DyadicExp.fast_exp_by fma x DyadicExp.LN2) as [[[h l] e]|] eqn:E.
+2: { destruct (DyadicExp.fast_exp_by_edge fma x DyadicExp.LN2) as [[[h l] e]|] eqn:E2;
+       [|discriminate H].
+     destruct (FastExpByEdge.fe_by_edge_correct fma x _ (ln 2) h l e Fc Fl Hc Hl Hk Fx Hx' E E2)
+       as (Fh & Fl' & Eh & Hh & He & Herr).
+     replace (Rexp2 (B2R x)) with (exp (B2R x * ln 2) * bpow radix2 (- e) * bpow radix2 e).
+     2: { rewrite Rmult_assoc, <- bpow_plus, Z.add_opp_diag_l. change (bpow radix2 0) with 1.
+          rewrite Rmult_1_r. reflexivity. }
+     apply (FastRoundWide.round_near_wide_correct h l e v _ Fh Fl' Eh Hh); [lia | | exact H].
+     pose proof (bpow_gt_0 radix2 (-73)). lra. }
 destruct (fe_by_correct fma x _ (ln 2) h l e Fc Fl Hc Hl Hk Fx Hx' E)
   as (Fh & Fl' & Eh & Hh & He & Herr).
 replace (Rexp2 (B2R x)) with (exp (B2R x * ln 2) * bpow radix2 (- e) * bpow radix2 e).
@@ -447,8 +533,17 @@ Theorem fast_exp10_near_correct :
   near_round (Rexp10 (B2R x)) v.
 Proof.
 intros fma x v Fx Hx H. unfold DyadicExp.fast_exp10_near in H.
-destruct (DyadicExp.fast_exp_by fma x DyadicExp.LN10) as [[[h l] e]|] eqn:E; [|discriminate H].
 destruct fe_ln10 as (Fc & Fl & Hc & Hl & Hk).
+destruct (DyadicExp.fast_exp_by fma x DyadicExp.LN10) as [[[h l] e]|] eqn:E.
+2: { destruct (DyadicExp.fast_exp_by_edge fma x DyadicExp.LN10) as [[[h l] e]|] eqn:E2;
+       [|discriminate H].
+     destruct (FastExpByEdge.fe_by_edge_correct fma x _ (ln 10) h l e Fc Fl Hc Hl Hk Fx Hx E E2)
+       as (Fh & Fl' & Eh & Hh & He & Herr).
+     replace (Rexp10 (B2R x)) with (exp (B2R x * ln 10) * bpow radix2 (- e) * bpow radix2 e).
+     2: { rewrite Rmult_assoc, <- bpow_plus, Z.add_opp_diag_l. change (bpow radix2 0) with 1.
+          rewrite Rmult_1_r. reflexivity. }
+     apply (FastRoundWide.round_near_wide_correct h l e v _ Fh Fl' Eh Hh); [lia | | exact H].
+     pose proof (bpow_gt_0 radix2 (-73)). lra. }
 destruct (fe_by_correct fma x _ (ln 10) h l e Fc Fl Hc Hl Hk Fx Hx E)
   as (Fh & Fl' & Eh & Hh & He & Herr).
 replace (Rexp10 (B2R x)) with (exp (B2R x * ln 10) * bpow radix2 (- e) * bpow radix2 e).
@@ -462,7 +557,8 @@ Qed.
 Theorem fast_exp_dir_fma :
   forall x up, DyadicExp.fast_exp_dir true x up = DyadicExp.fast_exp_dir false x up.
 Proof.
-intros x up. unfold DyadicExp.fast_exp_dir. rewrite fast_exp_fma. reflexivity.
+intros x up. unfold DyadicExp.fast_exp_dir.
+rewrite fast_exp_fma, FastExpEdge.fast_exp_edge_fma. reflexivity.
 Qed.
 
 Theorem fast_exp2_dir_fma :
@@ -472,6 +568,8 @@ Proof.
 intros x up Hx. unfold DyadicExp.fast_exp2_dir.
 destruct fe_ln2 as (Fc & _ & Hc & _).
 rewrite (fe_by_fma x _ Fc Hc) by (apply Rle_trans with (bpow radix2 (-54)); [apply bpow_le; lia | exact Hx]).
+rewrite (FastExpByEdge.fe_by_edge_fma x _ Fc Hc)
+  by (apply Rle_trans with (bpow radix2 (-54)); [apply bpow_le; lia | exact Hx]).
 reflexivity.
 Qed.
 
@@ -481,13 +579,14 @@ Theorem fast_exp10_dir_fma :
 Proof.
 intros x up Hx. unfold DyadicExp.fast_exp10_dir.
 destruct fe_ln10 as (Fc & _ & Hc & _).
-rewrite (fe_by_fma x _ Fc Hc Hx). reflexivity.
+rewrite (fe_by_fma x _ Fc Hc Hx), (FastExpByEdge.fe_by_edge_fma x _ Fc Hc Hx). reflexivity.
 Qed.
 
 Theorem fast_exp_near_fma :
   forall x, DyadicExp.fast_exp_near true x = DyadicExp.fast_exp_near false x.
 Proof.
-intros x. unfold DyadicExp.fast_exp_near. rewrite fast_exp_fma. reflexivity.
+intros x. unfold DyadicExp.fast_exp_near.
+rewrite fast_exp_fma, FastExpEdge.fast_exp_edge_fma. reflexivity.
 Qed.
 
 Theorem fast_exp2_near_fma :
@@ -497,6 +596,8 @@ Proof.
 intros x Hx. unfold DyadicExp.fast_exp2_near.
 destruct fe_ln2 as (Fc & _ & Hc & _).
 rewrite (fe_by_fma x _ Fc Hc) by (apply Rle_trans with (bpow radix2 (-54)); [apply bpow_le; lia | exact Hx]).
+rewrite (FastExpByEdge.fe_by_edge_fma x _ Fc Hc)
+  by (apply Rle_trans with (bpow radix2 (-54)); [apply bpow_le; lia | exact Hx]).
 reflexivity.
 Qed.
 
@@ -506,5 +607,5 @@ Theorem fast_exp10_near_fma :
 Proof.
 intros x Hx. unfold DyadicExp.fast_exp10_near.
 destruct fe_ln10 as (Fc & _ & Hc & _).
-rewrite (fe_by_fma x _ Fc Hc Hx). reflexivity.
+rewrite (fe_by_fma x _ Fc Hc Hx), (FastExpByEdge.fe_by_edge_fma x _ Fc Hc Hx). reflexivity.
 Qed.

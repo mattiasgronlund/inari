@@ -77,15 +77,28 @@
 // `rocq/theories/FastExpPoly.v`, `rocq/theories/FastExpTbl.v` and
 // `rocq/theories/FastExpProd.v` for its steps, `rocq/theories/FastRound.v` proves the rounding
 // tests, and `rocq/theories/FastExp.v` proves that the fast path returns e^x, 2^x and 10^x
-// rounded, with and without an FMA.
+// rounded, with and without an FMA. Beyond the range [-707, 709] of `fast_exp`, where the
+// results are below about 2^-1020 or above about 2^1022.87, `fast_exp_edge` shifts z by
+// 64 ln 2 or -4 ln 2 into that range, and the rounding tests `round_dir_wide` and
+// `round_near_wide` round its result once, on the grid of the subnormals where it is below
+// 2^-1021, and return `None` where its exponent is above 1023. Besides the arguments at which
+// a test fails, `ziv` and `ziv_near` then get only those that the rules leave whose results
+// are 2^1024 or more, or less than 2^-13 below it, relative: e^x for x in about
+// (709.78263, 710), 2^x in about (1023.99988, 1024) and 10^x in about (308.25468, 309), where
+// the exponent of `fast_exp_edge` is 1024 or more. `rocq/theories/FastExpEdge.v`
+// bounds the error of `fast_exp_edge`, `rocq/theories/FastExpByEdge.v` that of its argument
+// for 2^x and 10^x, and `rocq/theories/FastRoundSub.v` and `rocq/theories/FastRoundWide.v`
+// prove its rounding tests.
 //
 // sinh, cosh and tanh try fast paths in the same place (`fast_sinh_dir` and the others). They
 // call `fast_sinh_pos`, `fast_cosh_pos` and `fast_tanh_pos`, which compute the scaled result of
 // |x| from `fast_exp`, from a quotient in double-double (`dd_div`) or, for small |x|, from
 // Taylor polynomials, together with a bound on its error, from 2^-68 to 2^-63, that they pass
-// to the rounding tests `round_dir_err` and `round_near_err` of `src/dyadic/fast.rs`. sinh and
-// cosh at 709 < |x| < 711, beyond the range of `fast_exp`, still go to `ziv` and `ziv_near`.
-// `rocq/theories/FastRoundErr.v` proves those rounding tests, `rocq/theories/FastDiv.v`
+// to the rounding tests `round_dir_err` and `round_near_err` of `src/dyadic/fast.rs`. Above
+// |x| = 709, beyond the range of `fast_exp`, sinh and cosh take e^|x| from `fast_exp_edge`, up
+// to about 710.47578, just below 1025 ln 2, where e^|x| / 2 reaches 2^1024; from there to the
+// rule at 711 they go to `ziv` and `ziv_near`. `rocq/theories/FastRoundErr.v` proves those
+// rounding tests, `rocq/theories/FastRoundWide.v` them at e = 1023, `rocq/theories/FastDiv.v`
 // `dd_div`, `rocq/theories/FastHypPoly.v` and `rocq/theories/FastCoshPoly.v` the Taylor
 // polynomials (with `rocq/theories/HypTaylor.v`, `rocq/theories/FastSinhHorner.v` and
 // `rocq/theories/FastSinhSteps.v`), `rocq/theories/FastHypPos.v`,
@@ -99,8 +112,8 @@
 use super::{
     consts::{ln10, ln2},
     fast::{
-        dd_div, fast_two_sum, normalize, round_dir, round_dir_err, round_near, round_near_err,
-        two_sum,
+        dd_div, fast_two_sum, normalize, round_dir, round_dir_err, round_dir_wide, round_near,
+        round_near_err, round_near_wide, two_sum,
     },
     ziv, ziv_near, Dyadic, Encl, Eval,
 };
@@ -417,6 +430,13 @@ const P4: u64 = 0x3fa5555555555555;
 const LN2: [u64; 2] = [0x3fe62e42fefa39ef, 0x3c7abc9e3b39803f];
 const LN10: [u64; 2] = [0x40026bb1bbb55516, 0xbcaf48ad494ea3e9];
 
+// 64 ln 2 and 4 ln 2 as [SH, SL], the bits of `f64`s, for `fast_exp_edge`: SH is m LN2[0]
+// rounded to a multiple of 2^-43, so that zh + SH and zh - SH are exact where zh and the result
+// are in [512, 1024) in magnitude, and SL = RN(m LN2[0] - SH + m LN2[1]), with
+// |SH + SL - m ln 2| < 2^-98 and |SL| < 2^-46.
+const LN2_64: [u64; 2] = [0x40462e42fefa39f0, 0xbcf950d871319ff0];
+const LN2_4: [u64; 2] = [0x40062e42fefa3a00, 0xbd00ca86c3898d00];
+
 // 1.5 * 2^52: for |t| < 2^51, (t + SHIFTER) - SHIFTER is t rounded to an integer.
 pub(super) const SHIFTER: f64 = 6_755_399_441_055_744.0;
 
@@ -502,36 +522,98 @@ fn fast_exp_by(x: f64, c: [u64; 2]) -> Option<(f64, f64, i64)> {
     fast_exp(zh, zl)
 }
 
+// e^z as `fast_exp` returns it, with e in [-1085, 1026], for the zh below -707 and above 709
+// that the rules leave, from e^z = 2^-64 e^(z + 64 ln 2) and e^z = 2^4 e^(z - 4 ln 2), which
+// `fast_exp` covers: zh is a multiple of 2^-43 there, so zh + SH and zh - SH are exact, and the
+// shift moves z by less than 2^-91, the error of SH + SL and of RN(zl + SL), which moves the
+// scaled result by less than 2^-87 (`rocq/theories/FastExpEdge.v`).
+// Always inlined, as is `fast_exp_by_edge`: out of line, the call made `exp`, `exp2` and
+// `fast_cosh_pos` set up a stack frame on every call, also where x never comes here, which
+// cost 3 to 5 instructions per call on the arguments of the normal range (cachegrind).
+#[inline(always)]
+fn fast_exp_edge(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
+    if zh < 0.0 {
+        let (h, l, e) = fast_exp(
+            zh + f64::from_bits(LN2_64[0]),
+            zl + f64::from_bits(LN2_64[1]),
+        )?;
+        Some((h, l, e - 64))
+    } else {
+        let (h, l, e) = fast_exp(zh - f64::from_bits(LN2_4[0]), zl - f64::from_bits(LN2_4[1]))?;
+        Some((h, l, e + 4))
+    }
+}
+
+// `fast_exp_by` with `fast_exp_edge` in place of `fast_exp`, always inlined as it is.
+#[inline(always)]
+fn fast_exp_by_edge(x: f64, c: [u64; 2]) -> Option<(f64, f64, i64)> {
+    let (ch, cl) = (f64::from_bits(c[0]), f64::from_bits(c[1]));
+    let zh = x * ch;
+    let zl = two_prod_err::<HAS_FMA>(x, ch, zh) + x * cl;
+    fast_exp_edge(zh, zl)
+}
+
 // e^x, 2^x and 10^x rounded toward +∞ if `up` and toward -∞ otherwise, and to nearest, by the
-// fast path, or `None` where its rounding test fails or x is out of its range.
+// fast path, or `None` where its rounding test fails or x is out of its range; outside the
+// range of `fast_exp`, by `fast_exp_edge` with `round_dir_wide` and `round_near_wide`.
 fn fast_exp_dir(x: f64, up: bool) -> Option<f64> {
-    let (h, l, e) = fast_exp(x, 0.0)?;
-    round_dir(h, l, e, up)
+    match fast_exp(x, 0.0) {
+        Some((h, l, e)) => round_dir(h, l, e, up),
+        None => {
+            let (h, l, e) = fast_exp_edge(x, 0.0)?;
+            round_dir_wide(h, l, e, up)
+        }
+    }
 }
 
 fn fast_exp2_dir(x: f64, up: bool) -> Option<f64> {
-    let (h, l, e) = fast_exp_by(x, LN2)?;
-    round_dir(h, l, e, up)
+    match fast_exp_by(x, LN2) {
+        Some((h, l, e)) => round_dir(h, l, e, up),
+        None => {
+            let (h, l, e) = fast_exp_by_edge(x, LN2)?;
+            round_dir_wide(h, l, e, up)
+        }
+    }
 }
 
 fn fast_exp10_dir(x: f64, up: bool) -> Option<f64> {
-    let (h, l, e) = fast_exp_by(x, LN10)?;
-    round_dir(h, l, e, up)
+    match fast_exp_by(x, LN10) {
+        Some((h, l, e)) => round_dir(h, l, e, up),
+        None => {
+            let (h, l, e) = fast_exp_by_edge(x, LN10)?;
+            round_dir_wide(h, l, e, up)
+        }
+    }
 }
 
 fn fast_exp_near(x: f64) -> Option<f64> {
-    let (h, l, e) = fast_exp(x, 0.0)?;
-    round_near(h, l, e)
+    match fast_exp(x, 0.0) {
+        Some((h, l, e)) => round_near(h, l, e),
+        None => {
+            let (h, l, e) = fast_exp_edge(x, 0.0)?;
+            round_near_wide(h, l, e)
+        }
+    }
 }
 
 fn fast_exp2_near(x: f64) -> Option<f64> {
-    let (h, l, e) = fast_exp_by(x, LN2)?;
-    round_near(h, l, e)
+    match fast_exp_by(x, LN2) {
+        Some((h, l, e)) => round_near(h, l, e),
+        None => {
+            let (h, l, e) = fast_exp_by_edge(x, LN2)?;
+            round_near_wide(h, l, e)
+        }
+    }
 }
 
 fn fast_exp10_near(x: f64) -> Option<f64> {
-    let (h, l, e) = fast_exp_by(x, LN10)?;
-    round_near(h, l, e)
+    match fast_exp_by(x, LN10) {
+        Some((h, l, e)) => round_near(h, l, e),
+        None => {
+            let (h, l, e) = fast_exp_by_edge(x, LN10)?;
+            round_near_wide(h, l, e)
+        }
+    }
 }
 
 // 2^e, for e in [-1022, 1023], from its bits.
@@ -583,7 +665,7 @@ fn fast_cosh_poly(t: f64) -> (f64, f64) {
 }
 
 // sinh t for t >= 0 as (h, l, e, err), with sinh t 2^-e within err of h + l, h = RN(h + l),
-// e in [-1021, 1022] and err = 2^-p for an integer p in [55, 105], or `None`; the rounding
+// e in [-1021, 1023] and err = 2^-p for an integer p in [55, 105], or `None`; the rounding
 // tests check 1/2 < h < 2. Below 1/4, the Taylor polynomial, scaled to [1, 2). From 1/4,
 // sinh t = (e^t - e^-t) / 2 with e^t = y 2^e from `fast_exp` and e^-t 2^-e = 2^-2e / y from
 // the quotient of `dd_div`; from 26 on, e^-t 2^-e < 2^-74 is left out.
@@ -596,7 +678,19 @@ fn fast_sinh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
         let (h, l, k) = normalize(sh, sl);
         return Some((h, l, k, ERR63));
     }
-    let (h, l, e) = fast_exp(t, 0.0)?;
+    let (h, l, e) = match fast_exp(t, 0.0) {
+        Some(r) => r,
+        None => {
+            // t > 709: e^t from `fast_exp_edge`, with e^-t 2^-e left out as from 26 on, and
+            // `None` where e - 1 would be above 1023.
+            let (h, l, e) = fast_exp_edge(t, 0.0)?;
+            return if e > 1024 {
+                None
+            } else {
+                Some((h, l, e - 1, ERR68))
+            };
+        }
+    };
     if t >= 26.0 {
         return Some((h, l, e - 1, ERR68));
     }
@@ -610,7 +704,18 @@ fn fast_sinh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
 // cosh t for t >= 0 as `fast_sinh_pos` returns sinh t, from (e^t + e^-t) / 2 for every t, as
 // the sum does not cancel, halved where it is 2 or more.
 fn fast_cosh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
-    let (h, l, e) = fast_exp(t, 0.0)?;
+    let (h, l, e) = match fast_exp(t, 0.0) {
+        Some(r) => r,
+        None => {
+            // t > 709, as in `fast_sinh_pos`.
+            let (h, l, e) = fast_exp_edge(t, 0.0)?;
+            return if e > 1024 {
+                None
+            } else {
+                Some((h, l, e - 1, ERR68))
+            };
+        }
+    };
     if t >= 26.0 {
         return Some((h, l, e - 1, ERR68));
     }

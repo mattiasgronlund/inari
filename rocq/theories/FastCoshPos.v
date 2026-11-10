@@ -3,9 +3,13 @@
     [DyadicExp.fast_cosh_pos] of [Model.v] returns, for [t >= 0], an
     unevaluated sum [h + l] with [h] the rounding of [h + l] to nearest,
     an exponent [e] and a bound [err = 2^-p] with [|cosh t 2^-e - (h +
-    l)| <= err], which the tests of [FastRoundErr.v] take
-    ([fast_cosh_pos_correct]):
-    - [t >= 26]: [e^t / 2] from [fast_exp_correct] of [FastExpCore.v],
+    l)| <= err], which the tests of [FastRoundErr.v] take, proved at [e =
+    1023] too in [FastRoundWide.v] ([fast_cosh_pos_correct]):
+    - [t > 709], where [fast_exp] returns [None]: [e^t / 2] from
+      [fast_exp_edge_correct] of [FastExpEdge.v], with [err = 2^-68], as
+      for [sinh] ([edge_facts] of [FastHypPos.v]); it returns [None] where
+      [e] would pass [1023];
+    - [26 <= t <= 709]: [e^t / 2] from [fast_exp_correct] of [FastExpCore.v],
       where the term [e^-t / 2] it drops is below [2^-74] once scaled, and
       fits the room [2^-72] that [fast_exp_correct] leaves below [2^-68];
     - [t < 26]: [(E + 1/E) / 2] for [E = e^t] from [fast_exp_correct] and
@@ -18,7 +22,7 @@ From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN Plus_error Mult_error.
 From Inari Require Import Model Mpfr Encoding Elementary TwoSum TwoProduct MulRuTiny DyDriver
   NearF64 FastRound FastExpTables FastExpCore FastRoundErr FastDiv FastHypPos.
-From Inari Require DyExpRules CancelLanes SqrtSlow.
+From Inari Require DyExpRules CancelLanes SqrtSlow FastExpEdge.
 
 Open Scope R_scope.
 
@@ -256,13 +260,23 @@ Theorem fast_cosh_pos_correct :
   is_finite t = true -> 0 <= B2R t ->
   DyadicExp.fast_cosh_pos fma t = Some (h, l, e, err) ->
   is_finite h = true /\ is_finite l = true /\ B2R h = RN (B2R h + B2R l) /\
-  (-1021 <= e <= 1022)%Z /\
+  (-1021 <= e <= 1023)%Z /\
   exists p, (55 <= p <= 105)%Z /\ B2R err = bpow radix2 (- p) /\
     Rabs (cosh (B2R t) * bpow radix2 (- e) - (B2R h + B2R l)) <= bpow radix2 (- p).
 Proof.
 intros fma t h l e err Ft Ht H.
 unfold DyadicExp.fast_cosh_pos in H.
-destruct (DyadicExp.fast_exp fma t zero) as [[[h0 l0] e0]|] eqn:Hfe; [|discriminate H].
+destruct (DyadicExp.fast_exp fma t zero) as [[[h0 l0] e0]|] eqn:Hfe.
+2:{ (* [t > 709]: [e^t / 2] from [fast_exp_edge], below [2^1024]. *)
+  cbv beta iota in H.
+  destruct (DyadicExp.fast_exp_edge fma t zero) as [[[h0 l0] e0]|] eqn:Hed; [|discriminate H].
+  cbv beta iota in H.
+  destruct (1024 <? e0)%Z eqn:Hb; [discriminate H|].
+  cbv beta iota in H. injection H as <- <- <- <-.
+  destruct (edge_facts fma t h0 l0 e0 Ft Ht Hfe Hed Hb) as (F1 & F2 & R & Hk & B & T).
+  refine (conj F1 (conj F2 (conj R (conj Hk _)))).
+  exists 68%Z. split; [lia|]. split; [exact lit_err68|].
+  rewrite cosh_scale. cbn [Z.opp]. apply Rabs_le_inv in B. apply Rabs_le. lra. }
 cbv beta iota in H.
 destruct (fe_facts fma t h0 l0 e0 Ft Ht Hfe) as (Fh0 & Fl0 & Eh0 & Hh0 & He0 & Hl0 & Herr0).
 assert (F26 : is_finite (from_bits 0x403a000000000000) = true) by (vm_compute; reflexivity).
@@ -321,7 +335,8 @@ intros t Ft Ht.
 unfold DyadicExp.fast_cosh_pos.
 assert (F26 : is_finite (from_bits 0x403a000000000000) = true) by (vm_compute; reflexivity).
 rewrite fast_exp_fma.
-destruct (DyadicExp.fast_exp false t zero) as [[[h0 l0] e0]|] eqn:Hfe; [|reflexivity].
+destruct (DyadicExp.fast_exp false t zero) as [[[h0 l0] e0]|] eqn:Hfe;
+  [|rewrite FastExpEdge.fast_exp_edge_fma; reflexivity].
 cbv beta iota.
 destruct (ge t (from_bits 0x403a000000000000)) eqn:Hge; [reflexivity|].
 pose proof (ge_false _ _ Ft F26 Hge) as T3. rewrite lit_26 in T3.

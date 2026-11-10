@@ -25,12 +25,25 @@
 //   `NEAR1` = 2^-53 - 2^-68 (or `NEAR0` = 2^-54 - 2^-68) and above the negative of the bound
 //   on its side. The inequalities are strict, so a midpoint of two `f64`s never passes.
 //
+// `round_dir_wide` and `round_near_wide` take an e in [-1085, 1023] instead, for the results of
+// e^x, 2^x, 10^x, sinh and cosh that are below 2^-1021, subnormal ones included, or in the last
+// finite binade, and return `None` for a larger e. Where e < -1022, or e = -1022 and h <= 1, so
+// that h 2^e <= 2^-1022, they round C + y once, on the grid of the `f64`s in [C, 2C] for
+// C = 2^(-1022 - e), instead of rounding h and scaling it, which would round a second time
+// (`round_dir_sub`, `round_near_sub`). Elsewhere `round_dir` and
+// `round_near` are right, at e = 1023 too: there the scaling of the `f64` after h = 2 - 2^-52 is
+// +∞, the rounding up of a y 2^1023 above the largest `f64`. `round_dir_err` and
+// `round_near_err` are right at e = 1023 in the same way.
+//
 // `rocq/theories/Model.v` transcribes this file except its tests and the test-only switch and
 // counter (`set_fast_path`, `fast_counts`), so it has to be updated along with it.
 // `rocq/theories/FastRound.v` proves `round_dir` and `round_near` correct,
 // `rocq/theories/FastRoundErr.v` `two_sum`, `normalize`, `round_dir_err` and `round_near_err`,
-// `rocq/theories/FastDiv.v` `dd_div`, `rocq/theories/FastDdSqrt.v` `dd_sqrt`, and
-// `rocq/theories/FastSign.v` `round_dir_signed` and `round_near_signed`.
+// `rocq/theories/FastDiv.v` `dd_div`, `rocq/theories/FastDdSqrt.v` `dd_sqrt`,
+// `rocq/theories/FastSign.v` `round_dir_signed` and `round_near_signed`,
+// `rocq/theories/FastRoundSub.v` `round_dir_sub` and `round_near_sub`, and
+// `rocq/theories/FastRoundWide.v` `round_dir_wide` and `round_near_wide`, and `round_dir_err`
+// and `round_near_err` at e = 1023.
 //
 // References:
 //
@@ -260,6 +273,117 @@ pub(crate) fn round_near_err(h: f64, l: f64, e: i64, err: f64) -> Option<f64> {
         Some(scale(h, e))
     } else {
         None
+    }
+}
+
+// 2^-67 and 2^-53 - 2^-67: the bounds of `round_dir_sub` and `round_near_sub` on u, in units of
+// C. 2^-67 C bounds `ERR` and the rounding of u together, as C >= 1, and 2^-53 C is half the gap
+// between the `f64`s in [C, 2C].
+const SUB_ERR: f64 = f64::EPSILON / 32768.0;
+const SUB_NEAR: f64 = 16_383.0 / 147_573_952_589_676_412_928.0;
+
+// C = 2^(-1022 - e), for an e in [-2045, -1022], from its bits.
+fn sub_unit(e: i64) -> f64 {
+    f64::from_bits(((1 - e) as u64) << 52)
+}
+
+// `round_dir` for an e in [-1085, -1022], where y 2^e is below 2^-1021 and can be subnormal, so
+// that scaling a rounded h by 2^e would round a second time. It rounds C + y instead, for
+// C = 2^(-1022 - e) >= 1: the `f64`s in [C, 2C] are g = 2^-52 C apart, which is 2^-1074 in units
+// of 2^-e, the gap between the `f64`s from 0 to 2^-1021. s + t = C + h exactly by Fast2Sum
+// [Dekker], as C >= h where s < 2C, and u = RN(t + l) is within 2^-54 g of t + l, as
+// |t + l| <= 3g/4, so C + y is within 2^-67 C (`SUB_ERR`) of s + u. The comparisons of
+// `round_dir` then decide the rounding r of C + y, where s < 2C, and the rounding of y 2^e is
+// (r - C) 2^e = (r - C) / g 2^-1074, whose bits are those of r less those of C: the `f64`s in
+// [C, 2C] have consecutive bits, and so do those from 0 to 2^-1022. s = C never needs the `f64`
+// before it: then t = h, and u = RN(h + l) > 0.
+fn round_dir_sub(h: f64, l: f64, e: i64, up: bool) -> Option<f64> {
+    #[cfg(test)]
+    if !fast_enabled() {
+        return None;
+    }
+    let c = sub_unit(e);
+    let (s, t) = fast_two_sum(c, h);
+    let u = t + l;
+    // C 2^-67, exact as C is a power of 2.
+    let b = c * SUB_ERR;
+    let r = if s >= 2.0 * c {
+        // The gap above s is 2g, or C < h.
+        #[cfg(test)]
+        record_fast(false);
+        return None;
+    } else if u > b {
+        // s < C + y < the `f64` after s.
+        if up {
+            f64::from_bits(s.to_bits() + 1)
+        } else {
+            s
+        }
+    } else if u < -b {
+        // The `f64` before s < C + y < s.
+        if up {
+            s
+        } else {
+            f64::from_bits(s.to_bits() - 1)
+        }
+    } else {
+        #[cfg(test)]
+        record_fast(false);
+        return None;
+    };
+    #[cfg(test)]
+    record_fast(true);
+    Some(f64::from_bits(r.to_bits() - c.to_bits()))
+}
+
+// `round_near` for an e as in `round_dir_sub`: C + y rounds to s where |u| < 2^-53 C - 2^-67 C,
+// and y 2^e to (s - C) 2^e. The comparisons are strict, so a midpoint never passes. Where C + h
+// is itself a midpoint of two `f64`s, Fast2Sum rounds it to the even one, s, and |t| = 2^-53 C,
+// so the test passes only where l brings u back toward s by more than 2^-67 C: where y is on
+// the other side of that midpoint, the kernel decides.
+fn round_near_sub(h: f64, l: f64, e: i64) -> Option<f64> {
+    #[cfg(test)]
+    if !fast_enabled() {
+        return None;
+    }
+    let c = sub_unit(e);
+    let (s, t) = fast_two_sum(c, h);
+    let u = t + l;
+    let b = c * SUB_NEAR;
+    let passed = s < 2.0 * c && u < b && u > -b;
+    #[cfg(test)]
+    record_fast(passed);
+    if passed {
+        Some(f64::from_bits(s.to_bits() - c.to_bits()))
+    } else {
+        None
+    }
+}
+
+/// `round_dir` for an e in [-1085, 1023], where y 2^e can be subnormal or above the largest
+/// `f64`, and `None` for a larger e. Where e < -1022, or e = -1022 and h <= 1, it rounds as
+/// `round_dir_sub`; elsewhere `round_dir` is right: at e = -1022 with h > 1 the `f64`s next to h
+/// are in [1, 2] and their scaling is exact, and at e = 1023 the scaling of the `f64` after
+/// h = 2 - 2^-52 is +∞, the rounding up of a y 2^1023 above the largest `f64`.
+pub(crate) fn round_dir_wide(h: f64, l: f64, e: i64, up: bool) -> Option<f64> {
+    if e > 1023 {
+        None
+    } else if e < -1022 || (e == -1022 && h <= 1.0) {
+        round_dir_sub(h, l, e, up)
+    } else {
+        round_dir(h, l, e, up)
+    }
+}
+
+/// `round_near` for an e in [-1085, 1023], as `round_dir_wide`. At e = 1023, h passes only where
+/// y < 2 - 2^-53, so y 2^1023 is below 2^1024 - 2^970 and rounds to h 2^1023.
+pub(crate) fn round_near_wide(h: f64, l: f64, e: i64) -> Option<f64> {
+    if e > 1023 {
+        None
+    } else if e < -1022 || (e == -1022 && h <= 1.0) {
+        round_near_sub(h, l, e)
+    } else {
+        round_near(h, l, e)
     }
 }
 

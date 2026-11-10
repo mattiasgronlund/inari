@@ -1708,7 +1708,9 @@ End DyadicConsts.
     never panic, so their [option] is Rust's [Option]. [FastRound.v]
     proves [round_dir] and [round_near], [FastRoundErr.v] [two_sum],
     [normalize], [round_dir_err] and [round_near_err], [FastDiv.v]
-    [dd_div], and [FastDdSqrt.v] [dd_sqrt]. *)
+    [dd_div], [FastDdSqrt.v] [dd_sqrt], [FastRoundSub.v] [round_dir_sub]
+    and [round_near_sub], and [FastRoundWide.v] [round_dir_wide] and
+    [round_near_wide]. *)
 Module Fast.
 
 (** [ERR], [NEAR1] and [NEAR0]: 2^-68, 2^-53 - 2^-68 and 2^-54 - 2^-68,
@@ -1787,6 +1789,53 @@ Definition round_near_err (h l : f64) (e : Z) (err : f64) : option f64 :=
   let above := if ge h one then sub gap1 err else sub gap0 err in
   let below := if gt h one then sub gap1 err else sub gap0 err in
   if gt h half && lt h two && lt l above && gt l (opp below) then Some (scale h e) else None.
+
+(** [SUB_ERR] and [SUB_NEAR]: 2^-67 and 2^-53 - 2^-67. *)
+Definition sub_err : f64 := from_bits 0x3bc0000000000000.
+Definition sub_near : f64 := from_bits 0x3c9fff8000000000.
+
+(** [fn sub_unit(e: i64) -> f64], where [(1 - e) as u64] is
+    [(1 - e) mod 2^64], and [<< 52] drops the bits above 64. *)
+Definition sub_unit (e : Z) : f64 := from_bits (Z.shiftl ((1 - e) mod 2^64) 52 mod 2^64).
+
+(** [fn round_dir_sub(h: f64, l: f64, e: i64, up: bool) -> Option<f64>],
+    where [s.to_bits() + 1], [s.to_bits() - 1] and [r.to_bits() -
+    c.to_bits()] are [to_bits s + 1], [to_bits s - 1] and [to_bits r -
+    to_bits c]: they stay within [u64] for the [h] and [e] that
+    [FastRoundSub.round_dir_sub_correct] assumes. *)
+Definition round_dir_sub (h l : f64) (e : Z) (up : bool) : option f64 :=
+  let c := sub_unit e in
+  let '(s, t) := fast_two_sum c h in
+  let u := add t l in
+  let b := mul c sub_err in
+  let r := if ge s (mul two c) then None
+    else if gt u b then Some (if up then from_bits (to_bits s + 1) else s)
+    else if lt u (opp b) then Some (if up then s else from_bits (to_bits s - 1))
+    else None in
+  match r with Some r => Some (from_bits (to_bits r - to_bits c)) | None => None end.
+
+(** [fn round_near_sub(h: f64, l: f64, e: i64) -> Option<f64>], where
+    [s.to_bits() - c.to_bits()] is as in [round_dir_sub]. *)
+Definition round_near_sub (h l : f64) (e : Z) : option f64 :=
+  let c := sub_unit e in
+  let '(s, t) := fast_two_sum c h in
+  let u := add t l in
+  let b := mul c sub_near in
+  if lt s (mul two c) && lt u b && gt u (opp b) then Some (from_bits (to_bits s - to_bits c))
+  else None.
+
+(** [pub(crate) fn round_dir_wide(h: f64, l: f64, e: i64, up: bool) ->
+    Option<f64>] and [pub(crate) fn round_near_wide(h: f64, l: f64, e:
+    i64) -> Option<f64>]. [FastRoundSub.v] proves [round_dir_sub] and
+    [round_near_sub], and [FastRoundWide.v] these two. *)
+Definition round_dir_wide (h l : f64) (e : Z) (up : bool) : option f64 :=
+  if (1023 <? e)%Z then None
+  else if (e <? -1022)%Z || ((e =? -1022)%Z && le h one) then round_dir_sub h l e up
+  else round_dir h l e up.
+Definition round_near_wide (h l : f64) (e : Z) : option f64 :=
+  if (1023 <? e)%Z then None
+  else if (e <? -1022)%Z || ((e =? -1022)%Z && le h one) then round_near_sub h l e
+  else round_near h l e.
 
 (** [pub(crate) fn round_dir_signed(h: f64, l: f64, e: i64, up: bool) ->
     Option<f64>] and [pub(crate) fn round_near_signed(h: f64, l: f64, e:
@@ -2080,6 +2129,10 @@ Definition LN2 : Z * Z := (0x3fe62e42fefa39ef, 0x3c7abc9e3b39803f).
 Definition LN10 : Z * Z := (0x40026bb1bbb55516, 0xbcaf48ad494ea3e9).
 Definition shifter : f64 := from_bits 0x4338000000000000.
 
+(** [LN2_64] and [LN2_4], the constants of [fn fast_exp_edge], as [LN2]. *)
+Definition LN2_64 : Z * Z := (0x40462e42fefa39f0, 0xbcf950d871319ff0).
+Definition LN2_4 : Z * Z := (0x40062e42fefa3a00, 0xbd00ca86c3898d00).
+
 (** [T1] and [T2] of [src/dyadic/exp/tables.rs], 2^(i/4096) and 2^(j/64)
     in double-double, and [T[i]] read with [f64::from_bits], for [i] in
     [0, 63], where the index cannot be out of bounds. *)
@@ -2254,21 +2307,85 @@ Definition fast_exp_by (fma : bool) (x : f64) (c : Z * Z) : option (f64 * f64 * 
   let zl := add (Generic.two_prod_err fma x ch zh) (mul x cl) in
   fast_exp fma zh zl.
 
+(** [fn fast_exp_edge(zh: f64, zl: f64) -> Option<(f64, f64, i64)>],
+    where [?] is a [match]. [FastExpEdge.v] proves it. *)
+Definition fast_exp_edge (fma : bool) (zh zl : f64) : option (f64 * f64 * Z) :=
+  if lt zh zero then
+    match fast_exp fma (add zh (from_bits (fst LN2_64))) (add zl (from_bits (snd LN2_64))) with
+    | Some (h, l, e) => Some (h, l, e - 64)
+    | None => None
+    end
+  else
+    match fast_exp fma (sub zh (from_bits (fst LN2_4))) (sub zl (from_bits (snd LN2_4))) with
+    | Some (h, l, e) => Some (h, l, e + 4)
+    | None => None
+    end.
+
+(** [fn fast_exp_by_edge(x: f64, c: [u64; 2]) -> Option<(f64, f64, i64)>].
+    [FastExpByEdge.v] proves it. *)
+Definition fast_exp_by_edge (fma : bool) (x : f64) (c : Z * Z) : option (f64 * f64 * Z) :=
+  let '(ch, cl) := (from_bits (fst c), from_bits (snd c)) in
+  let zh := mul x ch in
+  let zl := add (Generic.two_prod_err fma x ch zh) (mul x cl) in
+  fast_exp_edge fma zh zl.
+
 (** [fn fast_exp_dir(x: f64, up: bool) -> Option<f64>], the same for
     [exp2] and [exp10], and [fn fast_exp_near(x: f64) -> Option<f64>] and
     the others, where [?] is a [match]. [FastExp.v] proves them. *)
 Definition fast_exp_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
-  match fast_exp fma x zero with Some (h, l, e) => Fast.round_dir h l e up | None => None end.
+  match fast_exp fma x zero with
+  | Some (h, l, e) => Fast.round_dir h l e up
+  | None =>
+    match fast_exp_edge fma x zero with
+    | Some (h, l, e) => Fast.round_dir_wide h l e up
+    | None => None
+    end
+  end.
 Definition fast_exp2_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
-  match fast_exp_by fma x LN2 with Some (h, l, e) => Fast.round_dir h l e up | None => None end.
+  match fast_exp_by fma x LN2 with
+  | Some (h, l, e) => Fast.round_dir h l e up
+  | None =>
+    match fast_exp_by_edge fma x LN2 with
+    | Some (h, l, e) => Fast.round_dir_wide h l e up
+    | None => None
+    end
+  end.
 Definition fast_exp10_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
-  match fast_exp_by fma x LN10 with Some (h, l, e) => Fast.round_dir h l e up | None => None end.
+  match fast_exp_by fma x LN10 with
+  | Some (h, l, e) => Fast.round_dir h l e up
+  | None =>
+    match fast_exp_by_edge fma x LN10 with
+    | Some (h, l, e) => Fast.round_dir_wide h l e up
+    | None => None
+    end
+  end.
 Definition fast_exp_near (fma : bool) (x : f64) : option f64 :=
-  match fast_exp fma x zero with Some (h, l, e) => Fast.round_near h l e | None => None end.
+  match fast_exp fma x zero with
+  | Some (h, l, e) => Fast.round_near h l e
+  | None =>
+    match fast_exp_edge fma x zero with
+    | Some (h, l, e) => Fast.round_near_wide h l e
+    | None => None
+    end
+  end.
 Definition fast_exp2_near (fma : bool) (x : f64) : option f64 :=
-  match fast_exp_by fma x LN2 with Some (h, l, e) => Fast.round_near h l e | None => None end.
+  match fast_exp_by fma x LN2 with
+  | Some (h, l, e) => Fast.round_near h l e
+  | None =>
+    match fast_exp_by_edge fma x LN2 with
+    | Some (h, l, e) => Fast.round_near_wide h l e
+    | None => None
+    end
+  end.
 Definition fast_exp10_near (fma : bool) (x : f64) : option f64 :=
-  match fast_exp_by fma x LN10 with Some (h, l, e) => Fast.round_near h l e | None => None end.
+  match fast_exp_by fma x LN10 with
+  | Some (h, l, e) => Fast.round_near h l e
+  | None =>
+    match fast_exp_by_edge fma x LN10 with
+    | Some (h, l, e) => Fast.round_near_wide h l e
+    | None => None
+    end
+  end.
 
 (** [SH3], [SH5] to [SH15] and [CH4] to [CH12]: the coefficients of the
     Taylor polynomials of the fast paths of [sinh], [cosh] and [tanh], as
@@ -2336,7 +2453,11 @@ Definition fast_sinh_pos (fma : bool) (t : f64) : option (f64 * f64 * Z * f64) :
     Some (h, l, k, err63)
   else
     match fast_exp fma t zero with
-    | None => None
+    | None =>
+      match fast_exp_edge fma t zero with
+      | Some (h, l, e) => if (1024 <? e)%Z then None else Some (h, l, e - 1, err68)
+      | None => None
+      end
     | Some (h, l, e) =>
       if ge t (from_bits 0x403a000000000000) (* 26.0 *) then Some (h, l, e - 1, err68)
       else
@@ -2350,7 +2471,11 @@ Definition fast_sinh_pos (fma : bool) (t : f64) : option (f64 * f64 * Z * f64) :
     [FastCoshPos.v] proves it. *)
 Definition fast_cosh_pos (fma : bool) (t : f64) : option (f64 * f64 * Z * f64) :=
   match fast_exp fma t zero with
-  | None => None
+  | None =>
+    match fast_exp_edge fma t zero with
+    | Some (h, l, e) => if (1024 <? e)%Z then None else Some (h, l, e - 1, err68)
+    | None => None
+    end
   | Some (h, l, e) =>
     if ge t (from_bits 0x403a000000000000) (* 26.0 *) then Some (h, l, e - 1, err68)
     else
