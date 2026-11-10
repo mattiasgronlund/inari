@@ -543,13 +543,17 @@ fn random_arguments() {
     }
 }
 
-// ln x, log2 x and log10 x give the same `f64`s, in both directions and to nearest, with the fast
-// path as with it disabled, and agree with MPFR, on random arguments of every exponent and near
-// 1, and most of its rounding tests pass.
+// ln x, log2 x, log10 x, asinh x, acosh x and atanh x give the same `f64`s, in both directions
+// and to nearest, with the fast path as with it disabled, and agree with MPFR, on random
+// arguments of every exponent and near 1, with a random sign for asinh and atanh, and most of
+// the rounding tests of each fast path pass. Most arguments of every exponent are out of the
+// domain of atanh, and half of them out of that of acosh, so that its arguments near 1 do most
+// of the testing there. The logarithms come first, as they did before the inverse hyperbolic
+// functions had fast paths, so that their arguments stay the same.
 #[test]
 fn fast_path_agrees_with_kernel() {
     let mut rng = Rng(88);
-    for i in [LN, LOG2, LOG10] {
+    for i in [LN, LOG2, LOG10, ASINH, ACOSH, ATANH] {
         crate::dyadic::fast::reset_fast_counts();
         for n in 0..3000 {
             let x = if n % 2 == 0 {
@@ -558,6 +562,11 @@ fn fast_path_agrees_with_kernel() {
             } else {
                 // Within 2^-8 of 1.
                 1.0 + (rng.below(1 << 53) as f64 / (1u64 << 53) as f64 - 0.5) / 128.0
+            };
+            let x = if (i == ASINH || i == ATANH) && rng.below(2) == 0 {
+                -x
+            } else {
+                x
             };
             let fast = (
                 FUNCTIONS[i].1(x, false),
@@ -765,6 +774,231 @@ fn widened() {
             "{}: {dir} narrow passes of the directed tests and {near} of the test to nearest",
             FUNCTIONS[i].0
         );
+    }
+}
+
+// The branches of the fast paths of asinh, acosh and atanh, as (function, a, b) for the
+// arguments t = |x| in [a, b) of each, and in (1, b) for the first of acosh: ln(1 + u) by
+// `log1p_small` for asinh below `AHYP_SMALL` = 2^-11, acosh below 1 + `ACOSH_SMALL` =
+// 1 + 2^-22 and atanh below `ATANH_SMALL` = 2^-12, ln 2 + ln(t ± 1/(4t)) for asinh and acosh
+// from `AHYP_LARGE` = 2^26 on, and `fast_ln_dd` of t + √(t^2 ± 1) and of (1 + t) / (1 - t) in
+// between. Below `TINY_NEAR` = 2^-27 (and `TINY_HYP` = 2^-26 in the directions), the rules
+// settle asinh and atanh.
+const AHYP_BRANCHES: [(usize, f64, f64); 8] = [
+    (ASINH, TINY_NEAR, AHYP_SMALL),
+    (ASINH, AHYP_SMALL, AHYP_LARGE),
+    (ASINH, AHYP_LARGE, f64::MAX),
+    (ACOSH, 1.0, 1.0 + ACOSH_SMALL),
+    (ACOSH, 1.0 + ACOSH_SMALL, AHYP_LARGE),
+    (ACOSH, AHYP_LARGE, f64::MAX),
+    (ATANH, TINY_NEAR, ATANH_SMALL),
+    (ATANH, ATANH_SMALL, 1.0),
+];
+
+// (h, l, k) of the fast path of asinh, acosh or atanh (the function `i`) at x, as the function
+// computes them, or `None` at x = 1 for acosh.
+fn ahyp_parts(i: usize, x: f64) -> Option<(f64, f64, i64)> {
+    match i {
+        ASINH => fast_asinh(x),
+        ACOSH => fast_acosh(x),
+        ATANH => fast_atanh(x),
+        _ => unreachable!(),
+    }
+}
+
+// A random `f64` in [a, b), for 2^-1022 <= a < b: uniform if `log` is false, and otherwise with
+// an exponent uniform over those of [a, b] and a random significand.
+fn in_range(rng: &mut Rng, a: f64, b: f64, log: bool) -> f64 {
+    let exponent = |x: f64| (x.to_bits() >> 52) as i32 - 1023;
+    loop {
+        let t = if log {
+            let n = u64::try_from(exponent(b) - exponent(a) + 1).unwrap();
+            let e = exponent(a) + rng.below(n) as i32;
+            (1.0 + rng.below(1 << 52) as f64 / (1u64 << 52) as f64) * pow2(e)
+        } else {
+            a + (b - a) * (rng.below(1 << 53) as f64 / (1u64 << 53) as f64)
+        };
+        if a <= t && t < b {
+            return t;
+        }
+    }
+}
+
+// A random t in the branch [a, b) of `AHYP_BRANCHES`, of a kind that n picks: uniform over the
+// branch, of any exponent in it, or, for the last branch of atanh, which ends at 1, 1 - d for a
+// d of any exponent. The first branch of acosh, whose arguments all have the exponent of 1,
+// takes 1 + d for a d uniform or of any exponent in [2^-52, 2^-22) instead.
+fn ahyp_arg(rng: &mut Rng, a: f64, b: f64, n: usize) -> f64 {
+    let log = n % 3 != 0;
+    loop {
+        let t = if a == 1.0 {
+            1.0 + in_range(rng, pow2(-52), b - 1.0, log)
+        } else if b == 1.0 && n % 3 == 2 {
+            1.0 - in_range(rng, pow2(-53), 1.0 - a, true)
+        } else {
+            in_range(rng, a, b, log)
+        };
+        // 1 ± d can round to the end of the branch.
+        if a <= t && t < b {
+            return t;
+        }
+    }
+}
+
+// The argument x with |x| = t of the function `i`: t for acosh, and t or -t at random for asinh
+// and atanh, which are odd.
+fn ahyp_sign(rng: &mut Rng, i: usize, t: f64) -> f64 {
+    if i != ACOSH && rng.below(2) == 0 {
+        -t
+    } else {
+        t
+    }
+}
+
+// asinh, acosh and atanh on random arguments of each branch of their fast paths
+// (`AHYP_BRANCHES`), of the kinds that `ahyp_arg` draws, with either sign for asinh and atanh,
+// in both directions and to nearest. Most of the rounding tests pass in each branch.
+#[test]
+fn fast_ahyp_range_random() {
+    let mut rng = Rng(942);
+    for (i, a, b) in AHYP_BRANCHES {
+        crate::dyadic::fast::reset_fast_counts();
+        for n in 0..3000 {
+            let t = ahyp_arg(&mut rng, a, b, n);
+            check(i, ahyp_sign(&mut rng, i, t));
+        }
+        let (passed, failed) = crate::dyadic::fast::fast_counts();
+        assert!(
+            passed > 100 * failed,
+            "{} on [{a:e}, {b:e}): {passed} passed, {failed} failed",
+            FUNCTIONS[i].0
+        );
+    }
+}
+
+// The thresholds of the rules of asinh, acosh and atanh and of the branches of their fast paths,
+// with 4 `f64`s on each side: the rules of the tiny arguments at 2^-27 (to nearest) and 2^-26
+// (directions), the ends of `log1p_small` at 2^-12 (atanh), 2^-11 (asinh) and 1 + 2^-22
+// (acosh), t = 1/2 and 3/4, at which the power of 2 that scales 1 - t in atanh changes, 2,
+// below which acosh takes x - 1 as exact, and 2^26, where asinh and acosh switch to
+// ln 2 + ln(t ± 1/(4t)). Then 1 with 32 `f64`s on each side, where atanh and acosh end, 64
+// arguments from 2^25.5 to 2^26, below that switch, with 2 `f64`s on each side, and the 16
+// largest `f64`s.
+fn ahyp_threshold_args() -> Vec<f64> {
+    let mut args = vec![];
+    for x in [
+        TINY_NEAR,
+        TINY_HYP,
+        ATANH_SMALL,
+        AHYP_SMALL,
+        1.0 + ACOSH_SMALL,
+        0.5,
+        0.75,
+        2.0,
+        AHYP_LARGE,
+    ] {
+        args.extend(around(x, 4));
+    }
+    args.extend(around(1.0, 32));
+    // 2^25.5 rounded, and 63 steps of (2^26 - 2^25.5) / 64 above it.
+    let start = SQRT_2 * pow2(25);
+    for j in 0..64 {
+        let t = start + f64::from(j) * (AHYP_LARGE - start) / 64.0;
+        args.extend(around(t, 2));
+    }
+    let mut x = f64::MAX;
+    for _ in 0..16 {
+        args.push(x);
+        x = next_down(x);
+    }
+    args
+}
+
+// asinh, acosh and atanh at the arguments of `ahyp_threshold_args`, with both signs. The fast
+// paths compute (h, l, k) at every argument they take but acosh 1.
+#[test]
+fn ahyp_thresholds() {
+    for i in [ASINH, ACOSH, ATANH] {
+        for t in ahyp_threshold_args() {
+            for x in [t, -t] {
+                check(i, x);
+                // The arguments that the fast path takes.
+                let taken = match i {
+                    ACOSH => x >= 1.0,
+                    ATANH => TINY_NEAR <= x.abs() && x.abs() < 1.0,
+                    _ => TINY_NEAR <= x.abs(),
+                };
+                if taken {
+                    assert_eq!(
+                        ahyp_parts(i, x).is_some(),
+                        i != ACOSH || x != 1.0,
+                        "{}({x:e})",
+                        FUNCTIONS[i].0
+                    );
+                }
+            }
+        }
+    }
+}
+
+// asinh, acosh and atanh where a rounding test of their fast paths passes, but would fail with
+// `WIDE` in place of the bound 2^-68, as in `widened`: there an error in the bound would show
+// first, so the fast paths have to give the same `f64`s as the kernel, to which disabling them
+// falls through, and as MPFR. Each branch of `AHYP_BRANCHES` is sampled until it has 40 narrow
+// passes of the directed tests and 40 of the test to nearest. The directions take the fast path
+// from `TINY_HYP` on.
+#[test]
+fn ahyp_widened() {
+    let mut rng = Rng(941);
+    for (i, a, b) in AHYP_BRANCHES {
+        let (mut dir, mut near, mut n) = (0, 0, 0);
+        while dir < 40 || near < 40 {
+            n += 1;
+            assert!(
+                n <= 100_000,
+                "{} on [{a:e}, {b:e}): {dir} narrow passes of the directed tests and {near} of \
+                 the test to nearest in 100000 arguments",
+                FUNCTIONS[i].0
+            );
+            let t = ahyp_arg(&mut rng, a, b, n);
+            let x = ahyp_sign(&mut rng, i, t);
+            let Some((h, l, _)) = ahyp_parts(i, x) else {
+                continue;
+            };
+            // |h| and l with the sign of h, and half the gaps around |h|, as in `widened`.
+            let (h, l) = if h < 0.0 { (-h, -l) } else { (h, l) };
+            let above = f64::EPSILON / 2.0;
+            let below = if h > 1.0 {
+                f64::EPSILON / 2.0
+            } else {
+                f64::EPSILON / 4.0
+            };
+            let narrow_dir = t >= TINY_HYP && FAST_ERR < l.abs() && l.abs() <= WIDE;
+            let narrow_near = l < above - FAST_ERR
+                && l > -(below - FAST_ERR)
+                && (l >= above - WIDE || l <= -(below - WIDE));
+            if !narrow_dir && !narrow_near {
+                continue;
+            }
+            dir += usize::from(narrow_dir);
+            near += usize::from(narrow_near);
+            let f = FUNCTIONS[i].1;
+            let fast = (f(x, false), f(x, true), NEAR[i](x));
+            crate::dyadic::fast::set_fast_path(false);
+            let kernel = (f(x, false), f(x, true), NEAR[i](x));
+            crate::dyadic::fast::set_fast_path(true);
+            assert!(
+                fast.0.to_bits() == kernel.0.to_bits()
+                    && fast.1.to_bits() == kernel.1.to_bits()
+                    && fast.2.to_bits() == kernel.2.to_bits(),
+                "{}({:e}): {:?} with the fast path != {:?} without it",
+                FUNCTIONS[i].0,
+                x,
+                fast,
+                kernel
+            );
+            check(i, x);
+        }
     }
 }
 
@@ -1009,6 +1243,88 @@ mod mpfr {
                     d.to_f64()
                 );
             }
+        }
+    }
+
+    // The fast paths of asinh, acosh and atanh (`ahyp_parts`) give (h, l, k) with h = RN(h + l),
+    // 1 <= |h| < 2, k in [-1021, 1022] and |y 2^-k - (h + l)| <= 2^-68 for y = asinh x,
+    // acosh x and atanh x, the bound that `fast_asinh_pos_correct`, `fast_acosh_correct` and
+    // `fast_atanh_pos_correct` in `rocq/theories/FastAhypAsinh.v`, `FastAhypAcosh.v` and
+    // `FastAhypAtanh.v` state, with 1/2 < |h| < 2 there. The arguments are those of
+    // `ahyp_threshold_args` and random ones of each branch of `AHYP_BRANCHES`, with both signs
+    // for asinh and atanh.
+    #[test]
+    fn fast_ahyp_bound() {
+        let mut rng = Rng(943);
+        for (i, a, b) in AHYP_BRANCHES {
+            let mut args: Vec<f64> = (0..3000).map(|n| ahyp_arg(&mut rng, a, b, n)).collect();
+            args.extend(
+                ahyp_threshold_args()
+                    .into_iter()
+                    .filter(|&t| a <= t && t < b),
+            );
+            for t in args {
+                let x = ahyp_sign(&mut rng, i, t);
+                let Some((h, l, k)) = ahyp_parts(i, x) else {
+                    assert_eq!(x, 1.0, "{}({x:e}): no fast path", FUNCTIONS[i].0);
+                    continue;
+                };
+                let mut y = Float::with_val(PREC, x);
+                match i {
+                    ASINH => y.asinh_mut(),
+                    ACOSH => y.acosh_mut(),
+                    _ => y.atanh_mut(),
+                }
+                let mut d = y >> i32::try_from(k).unwrap();
+                d -= h;
+                d -= l;
+                d.abs_mut();
+                assert!(
+                    h + l == h
+                        && 1.0 <= h.abs()
+                        && h.abs() < 2.0
+                        && (-1021..=1022).contains(&k)
+                        && d <= pow2(-68),
+                    "{}({x:e}): ({h:e}, {l:e}, {k}), with |y 2^-k - (h + l)| = {:e}",
+                    FUNCTIONS[i].0,
+                    d.to_f64()
+                );
+            }
+        }
+    }
+
+    // `dd_sqrt(ah, al)` meets the bounds of `dd_sqrt_correct` in `rocq/theories/FastDdSqrt.v`,
+    // sh = RN(sh + sl) and sh + sl within 2^-100 of the square root s relatively, on random
+    // arguments with 2^-900 <= ah <= 2^900 and |al| <= 2^-52 ah, of any exponent in that range
+    // and at its ends, and on those with 1 <= ah < 2^52 that asinh and acosh pass to it.
+    #[test]
+    fn dd_sqrt_bound() {
+        let mut rng = Rng(944);
+        for n in 0..20000 {
+            let ah = match rng.below(8) {
+                0 => pow2(-900),
+                1 => pow2(900),
+                2 | 3 => in_range(&mut rng, 1.0, pow2(52), n % 2 == 1),
+                _ => in_range(&mut rng, pow2(-900), pow2(900), true),
+            };
+            // 0, ±2^-52 ah, or uniform in [-2^-52 ah, 2^-52 ah]. The product rounds to at most
+            // 2^-52 ah, which is exact.
+            let u = match rng.below(4) {
+                0 => 0.0,
+                1 => pow2(-52),
+                _ => rng.below(1 << 53) as f64 / (1u64 << 53) as f64 * pow2(-52),
+            };
+            let al = if rng.below(2) == 0 { ah * u } else { -(ah * u) };
+            let (sh, sl) = dd_sqrt(ah, al);
+            let s = (Float::with_val(PREC, ah) + al).sqrt();
+            let mut d = Float::with_val(PREC, &s - sh);
+            d -= sl;
+            d.abs_mut();
+            assert!(
+                sh + sl == sh && d <= s >> 100,
+                "dd_sqrt({ah:e}, {al:e}) = ({sh:e}, {sl:e}), with |s - (sh + sl)| = {:e}",
+                d.to_f64()
+            );
         }
     }
 

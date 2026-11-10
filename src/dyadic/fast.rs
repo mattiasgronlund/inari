@@ -1,11 +1,11 @@
 // The shared layer of the fast paths in front of the dyadic kernel: Fast2Sum and TwoSum, the
-// normalization of a double-double (`normalize`) and its quotient (`dd_div`), the rounding tests
-// of an approximation in double-double, with the error bound 2^-68 or one given as an argument
-// (`round_dir_err`, `round_near_err`), and the scaling of their results. `src/dyadic/exp.rs`
-// uses it for e^x, 2^x, 10^x, sinh, cosh and tanh, `src/dyadic/log.rs` for ln x, log2 x and
-// log10 x, whose results can be negative (`round_dir_signed`, `round_near_signed`),
-// `src/dyadic/trig.rs` for sin, cos and tan, which puts the sign back itself, and
-// `src/dyadic/pow.rs` for x^y and x^n.
+// normalization of a double-double (`normalize`), its quotient (`dd_div`) and its square root
+// (`dd_sqrt`), the rounding tests of an approximation in double-double, with the error bound
+// 2^-68 or one given as an argument (`round_dir_err`, `round_near_err`), and the scaling of their
+// results. `src/dyadic/exp.rs` uses it for e^x, 2^x, 10^x, sinh, cosh and tanh,
+// `src/dyadic/log.rs` for ln x, log2 x, log10 x, asinh, acosh and atanh, whose results can be
+// negative (`round_dir_signed`, `round_near_signed`), `src/dyadic/trig.rs` for sin, cos and tan,
+// which puts the sign back itself, and `src/dyadic/pow.rs` for x^y and x^n.
 //
 // A fast path computes a scaled result y = f(x) 2^-e, for an integer e in [-1021, 1022], as an
 // unevaluated sum h + l of two `f64`s with h = RN(h + l), 1/2 < h < 2, and a proved bound
@@ -28,8 +28,8 @@
 // counter (`set_fast_path`, `fast_counts`), so it has to be updated along with it.
 // `rocq/theories/FastRound.v` proves `round_dir` and `round_near` correct,
 // `rocq/theories/FastRoundErr.v` `two_sum`, `normalize`, `round_dir_err` and `round_near_err`,
-// `rocq/theories/FastDiv.v` `dd_div`, and `rocq/theories/FastSign.v` `round_dir_signed` and
-// `round_near_signed`.
+// `rocq/theories/FastDiv.v` `dd_div`, `rocq/theories/FastDdSqrt.v` `dd_sqrt`, and
+// `rocq/theories/FastSign.v` `round_dir_signed` and `round_near_signed`.
 //
 // References:
 //
@@ -281,4 +281,18 @@ pub(crate) fn round_near_signed(h: f64, l: f64, e: i64) -> Option<f64> {
     } else {
         round_near(h, l, e)
     }
+}
+
+/// The square root of ah + al in double-double, as (sh, sl) with sh = RN(sh + sl) and
+/// |sh + sl - √(ah + al)| <= 2^-100 √(ah + al), for 2^-900 <= ah <= 2^900 and |al| <= 2^-52 ah:
+/// s = RN(√ah) and one correction step. [Dekker]
+pub(crate) fn dd_sqrt(ah: f64, al: f64) -> (f64, f64) {
+    let s = ah.sqrt();
+    // ah - s^2 exactly: p + pe = s^2 exactly, ah - p is exact by Sterbenz's lemma, and the
+    // remainder ah - s^2 of a square root rounded to nearest is an `f64`, so (ah - p) - pe is
+    // exact too.
+    let p = s * s;
+    let pe = two_prod_err::<HAS_FMA>(s, s, p);
+    let c = (((ah - p) - pe) + al) / (2.0 * s);
+    fast_two_sum(s, c)
 }

@@ -237,6 +237,12 @@ theories/FastPowCore.v
 theories/FastPowLn.v
 theories/FastPowMul.v
 theories/FastPow.v
+theories/FastDdSqrt.v
+theories/FastLogDd.v
+theories/FastAhypAsinh.v
+theories/FastAhypAcosh.v
+theories/FastAhypAtanh.v
+theories/FastAhyp.v
 theories/DyExp.v
 theories/DyHyp.v
 theories/DyLogRules.v

@@ -43,17 +43,18 @@
 // identities that the evaluations use and the rules of `log_rules` and of the powers of 10,
 // and `rocq/theories/DyLogTiny.v` for the rules of asinh and atanh at tiny arguments.
 // `rocq/theories/DyLogNear.v` proves that each of the six functions rounded to nearest, at a
-// finite argument in its domain, where a rule settles the argument or a rounding test of
-// `ziv_near` passes, returns its result rounded to nearest as `near_round` in
+// finite argument in its domain, where a rule or the fast path settles the argument or a
+// rounding test of `ziv_near` passes, returns its result rounded to nearest as `near_round` in
 // `rocq/theories/NearF64.v` says, from the same enclosures and bounds and the cells of
 // `rocq/theories/NearCells.v`. `rocq/theories/DyLogExact.v` proves that each of the six
 // functions returns its result, in both directions, at every finite argument in its domain at
 // which it is an `f64`, asinh and acosh under the hypothesis `exp_not_quadratic` of
 // `rocq/theories/ExpQuadratic.v` that e^r, for a rational r other than 0, is not a root of a
 // nonzero polynomial of degree at most 2 with integer coefficients, so that these are the
-// arguments above: from `ev_ln_one`, `ev_log2_exact` and
-// `ev_acosh_one` in `rocq/theories/DyLogPoint.v` for the exact enclosures, `pow2_rational` and
-// `pow10_rational` in `rocq/theories/PowFactor.v` and `exp_irrational` in
+// arguments above: from `ev_ln_one`, `ev_log2_exact` and `ev_acosh_one` in
+// `rocq/theories/DyLogPoint.v` for the exact enclosures, `fast_acosh_one` in
+// `rocq/theories/FastAhyp.v`, that the fast path of acosh returns `None` at 1,
+// `pow2_rational` and `pow10_rational` in `rocq/theories/PowFactor.v` and `exp_irrational` in
 // `rocq/theories/ExpIrrational.v`. Other than that, it is not proved that a test passes by the
 // cap of `ziv` or of `ziv_near`, nor that the evaluations do not panic, nor that no result is
 // a midpoint.
@@ -66,14 +67,31 @@
 // before. At x = 2^n other than 1, where log2 x = n is an `f64`, the fast path computes n
 // exactly, with l = 0, so that the directed test fails, as for 2^x in `src/dyadic/exp.rs`, and
 // the exact enclosures settle x as above, and the test rounded to nearest passes and returns
-// n. asinh, acosh and atanh do not have a fast path. `rocq/theories/FastLogCore.v` bounds the
-// error of `ln_core`, from `rocq/theories/FastLogReduce.v` for its reduction,
-// `rocq/theories/FastLogTables.v` for its table and constants, and
-// `rocq/theories/FastLogPoly.v` for its polynomial, `rocq/theories/FastLogLn.v` and
-// `rocq/theories/FastLogBy.v` bound those of `fast_ln` and `fast_log_by`,
-// `rocq/theories/FastSign.v` proves the rounding tests for a negative h, and
+// n. `rocq/theories/FastLogCore.v` bounds the error of `ln_core`, from
+// `rocq/theories/FastLogReduce.v` for its reduction, `rocq/theories/FastLogTables.v` for its
+// table and constants, and `rocq/theories/FastLogPoly.v` for its polynomial,
+// `rocq/theories/FastLogLn.v` and `rocq/theories/FastLogBy.v` bound those of `fast_ln` and
+// `fast_log_by`, `rocq/theories/FastSign.v` proves the rounding tests for a negative h, and
 // `rocq/theories/FastLog.v` proves that the fast path returns ln x, log2 x and log10 x
 // rounded, with and without an FMA.
+//
+// asinh, acosh and atanh try a fast path in double-double after their rules, before `ziv` and
+// `ziv_near`, which computes the result times 2^-k as h + l within 2^-68 as for ln x and rounds
+// it with the same tests: asinh t = ln(t + √(1 + t^2)) for t = |x|, acosh x = ln(x + √(x^2 - 1))
+// and atanh t = ln((1 + t) / (1 - t)) / 2, with the sign of x put back for asinh and atanh,
+// which are odd. The square roots are `dd_sqrt` of 1 + t^2 and x^2 - 1 in double-double, and
+// the quotient is `dd_div`, both of `src/dyadic/fast.rs`. Where the argument of ln is 1 + u for
+// a u below 2^-10 (asinh t below 2^-11, acosh x below 1 + 2^-22 and atanh t below 2^-12),
+// `log1p_small` takes the polynomial `log1p_poly` of `ln_core` at u itself, so that its error
+// stays relative to the small result, and otherwise `fast_ln_dd` takes ln of a double-double
+// xh + xl as ln xh + xl / xh, with `ln_core` of xh. From 2^26 on, asinh t and acosh x are taken
+// as ln 2 + ln(t ± 1/(4t)), which needs no t^2 and so does not overflow. The fast path returns
+// `None` at acosh 1, where the result is 0, and where a test fails.
+// `rocq/theories/FastDdSqrt.v` bounds the error of `dd_sqrt`, `rocq/theories/FastLogDd.v` those
+// of `log1p_small` and `fast_ln_dd`, `rocq/theories/FastAhypAsinh.v`,
+// `rocq/theories/FastAhypAcosh.v` and `rocq/theories/FastAhypAtanh.v` those of the three
+// functions before the rounding, and `rocq/theories/FastAhyp.v` proves that the fast path
+// returns asinh x, acosh x and atanh x rounded, with and without an FMA.
 //
 // The fast path of x^y and x^n in `src/dyadic/pow.rs` takes ln x from `ln_acc`, which computes
 // it as `fast_ln` does, from the same `ln_split` and table, but with `ln_core_acc` and
@@ -87,7 +105,10 @@
 use super::{
     consts::{ln10, ln2},
     exp::{away, mul_int, toward_zero, POW10, TINY_HYP, TINY_NEAR},
-    fast::{fast_two_sum, round_dir_signed, round_near_signed},
+    fast::{
+        dd_div, dd_sqrt, fast_two_sum, normalize as normalize_pos, round_dir_signed,
+        round_near_signed, two_sum,
+    },
     ziv, ziv_near, Dyadic, Encl, Eval,
 };
 use crate::simd::{two_prod_err, HAS_FMA};
@@ -519,6 +540,156 @@ fn fast_log10_near(x: f64) -> Option<f64> {
     round_near_signed(h, l, k)
 }
 
+// The bounds of the fast paths of asinh, acosh and atanh: asinh t below `AHYP_SMALL` = 2^-11,
+// acosh x below 1 + `ACOSH_SMALL` = 1 + 2^-22 and atanh t below `ATANH_SMALL` = 2^-12 take
+// ln(1 + u) for a u below 2^-10 (`log1p_small`), and asinh t and acosh x from `AHYP_LARGE` = 2^26
+// on take ln 2 + ln(t ± 1/(4t)) (`fast_ln_dd`).
+const AHYP_SMALL: f64 = 1.0 / 2048.0;
+const ACOSH_SMALL: f64 = 1.0 / 4_194_304.0;
+const ATANH_SMALL: f64 = 1.0 / 4096.0;
+const AHYP_LARGE: f64 = 67_108_864.0;
+
+// ln(1 + u) for u = uh + ul with 2^-30 <= uh <= 2^-10 and |ul| <= 2^-53 uh, as (h, l, k) as for
+// `fast_ln`, from `log1p_poly`, whose error is below 0.3 2^-69 u for u <= 2^-10.
+// `rocq/theories/FastLogDd.v` proves it (`log1p_small_correct`).
+fn log1p_small(uh: f64, ul: f64) -> Option<(f64, f64, i64)> {
+    let (ah, pl) = log1p_poly(uh, ul);
+    let (h, l) = fast_two_sum(ah, pl);
+    normalize(h, l)
+}
+
+// e0 ln 2 + ln(xh + xl) as (h, l, k) as for `fast_ln`, for xh > 0, |xl| <= 2^-51 xh,
+// 0 <= e0 <= 64 and xh 2^e0 <= 2^1025: ln(xh + xl) = ln xh + ln(1 + xl / xh), where ln(1 + d)
+// is d within d^2 / (2 (1 - |d|)), below 2^-102 for |d| <= 2^-51, so that `ln_core` of xh
+// serves unchanged and xl / xh joins the low sum. `rocq/theories/FastLogDd.v` proves it where
+// the result is at least 2^-20 (`fast_ln_dd_correct`).
+fn fast_ln_dd(xh: f64, xl: f64, e0: i64) -> Option<(f64, f64, i64)> {
+    let (e, a_h, a_l) = ln_core(xh);
+    let ef = (e + e0) as f64;
+    let (s, t) = fast_two_sum(ef * f64::from_bits(LN2H), a_h);
+    let (h, l) = fast_two_sum(s, t + (a_l + (ef * f64::from_bits(LN2L) + xl / xh)));
+    normalize(h, l)
+}
+
+// asinh t as (h, l, k) as for `fast_ln`, for a finite t >= 2^-27: ln(t + c) with c = √(1 + t^2)
+// by `dd_sqrt`, as ln(1 + u) for u = t + (c - 1) below 2^-11, and as ln 2 + ln(t + 1/(4t)) from
+// 2^26 on, where 2 (t + 1/(4t)) is t + c within 1/(8 t^3), 2^-108 of it.
+// `rocq/theories/FastAhypAsinh.v` proves it (`fast_asinh_pos_correct`).
+fn fast_asinh_pos(t: f64) -> Option<(f64, f64, i64)> {
+    if t >= AHYP_LARGE {
+        return fast_ln_dd(t, 0.25 / t, 1);
+    }
+    // 1 + t^2 = ah + al + pl exactly (`two_prod_err`, TwoSum [Knuth]), and al + pl rounds by at
+    // most 2^-105 ah, as |al| and |pl| are at most half an ulp of ah.
+    let ph = t * t;
+    let pl = two_prod_err::<HAS_FMA>(t, t, ph);
+    let (ah, al) = two_sum(1.0, ph);
+    let (ch, cl) = dd_sqrt(ah, al + pl);
+    if t < AHYP_SMALL {
+        // ch - 1 is exact (Sterbenz) and below t, as c - 1 <= t^2 / 2.
+        let (s, w) = fast_two_sum(t, ch - 1.0);
+        let (uh, ul) = fast_two_sum(s, w + cl);
+        log1p_small(uh, ul)
+    } else {
+        let (xh, xl) = fast_two_sum(ch, t);
+        fast_ln_dd(xh, xl + cl, 0)
+    }
+}
+
+// asinh x as (h, l, k) as for `fast_ln`, for a finite x with |x| >= 2^-27: asinh is odd.
+fn fast_asinh(x: f64) -> Option<(f64, f64, i64)> {
+    let (h, l, k) = fast_asinh_pos(x.abs())?;
+    Some(if x < 0.0 { (-h, -l, k) } else { (h, l, k) })
+}
+
+// acosh x as (h, l, k) as for `fast_ln`, for a finite x >= 1, or `None` at x = 1, where the
+// result is 0: ln(x + r) with r = √(x^2 - 1) by `dd_sqrt`, as ln(1 + u) for u = (x - 1) + r below
+// x = 1 + 2^-22, and as ln 2 + ln(x - 1/(4x)) from 2^26 on, where 2 (x - 1/(4x)) is x + r within
+// 1/(4 x^3). `rocq/theories/FastAhypAcosh.v` proves it (`fast_acosh_correct`).
+fn fast_acosh(x: f64) -> Option<(f64, f64, i64)> {
+    if x <= 1.0 {
+        return None;
+    }
+    if x >= AHYP_LARGE {
+        return fast_ln_dd(x, -0.25 / x, 1);
+    }
+    // x^2 - 1 = ah + al exactly: x^2 = ph + pl (`two_prod_err`), ph - 1 is exact for
+    // 1 < ph < 2^53, and |pl| <= ulp(ph) / 2 <= |ph - 1|, so Fast2Sum is exact [Dekker].
+    let ph = x * x;
+    let pl = two_prod_err::<HAS_FMA>(x, x, ph);
+    let (ah, al) = fast_two_sum(ph - 1.0, pl);
+    let (rh, rl) = dd_sqrt(ah, al);
+    // x - 1 is exact (Sterbenz) below 2, and r > x - 1 there.
+    let d = x - 1.0;
+    if d < ACOSH_SMALL {
+        let (s, w) = fast_two_sum(rh, d);
+        let (uh, ul) = fast_two_sum(s, w + rl);
+        log1p_small(uh, ul)
+    } else {
+        let (xh, xl) = fast_two_sum(x, rh);
+        fast_ln_dd(xh, xl + rl, 0)
+    }
+}
+
+// atanh t as (h, l, k) as for `fast_ln`, for a finite t with 2^-27 <= t < 1, from
+// 2 atanh t = ln((1 + t) / (1 - t)) as (h, l, k + 1): as ln(1 + u) for u = 2t / (1 - t) below
+// t = 2^-12, and otherwise as -j ln 2 + ln q for the quotient q = (1 + t) / ((1 - t) 2^-j) by
+// `dd_div`, where `normalize` scales 1 - t into [1, 2) by 2^-j.
+// `rocq/theories/FastAhypAtanh.v` proves it (`fast_atanh_pos_correct`).
+fn fast_atanh_pos(t: f64) -> Option<(f64, f64, i64)> {
+    // 1 - t and 1 + t are exact as double-doubles (Fast2Sum [Dekker]).
+    let (dh, dl) = fast_two_sum(1.0, -t);
+    let (h, l, k) = if t < ATANH_SMALL {
+        let (qh, ql) = dd_div(t + t, 0.0, dh, dl);
+        log1p_small(qh, ql)?
+    } else {
+        let (nh, nl) = fast_two_sum(1.0, t);
+        let (dh, dl, j) = normalize_pos(dh, dl);
+        let (qh, ql) = dd_div(nh, nl, dh, dl);
+        fast_ln_dd(qh, ql, -j)?
+    };
+    Some((h, l, k - 1))
+}
+
+// atanh x as (h, l, k) as for `fast_ln`, for a finite x with 2^-27 <= |x| < 1: atanh is odd.
+fn fast_atanh(x: f64) -> Option<(f64, f64, i64)> {
+    let (h, l, k) = fast_atanh_pos(x.abs())?;
+    Some(if x < 0.0 { (-h, -l, k) } else { (h, l, k) })
+}
+
+// asinh x, acosh x and atanh x rounded toward +∞ if `up` and toward -∞ otherwise, and to
+// nearest, by the fast path, or `None` where its rounding test fails or acosh x = 0.
+// `rocq/theories/FastAhyp.v` proves them.
+fn fast_asinh_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l, k) = fast_asinh(x)?;
+    round_dir_signed(h, l, k, up)
+}
+
+fn fast_acosh_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l, k) = fast_acosh(x)?;
+    round_dir_signed(h, l, k, up)
+}
+
+fn fast_atanh_dir(x: f64, up: bool) -> Option<f64> {
+    let (h, l, k) = fast_atanh(x)?;
+    round_dir_signed(h, l, k, up)
+}
+
+fn fast_asinh_near(x: f64) -> Option<f64> {
+    let (h, l, k) = fast_asinh(x)?;
+    round_near_signed(h, l, k)
+}
+
+fn fast_acosh_near(x: f64) -> Option<f64> {
+    let (h, l, k) = fast_acosh(x)?;
+    round_near_signed(h, l, k)
+}
+
+fn fast_atanh_near(x: f64) -> Option<f64> {
+    let (h, l, k) = fast_atanh(x)?;
+    round_near_signed(h, l, k)
+}
+
 /// ln x rounded toward +∞ if `up` and toward -∞ otherwise.
 pub(crate) fn ln(x: f64, up: bool) -> f64 {
     match log_rules(x) {
@@ -601,7 +772,10 @@ pub(crate) fn asinh(x: f64, up: bool) -> f64 {
         // x - x^3 / 6 <= asinh x <= x for x in [0, 1], and asinh is odd.
         toward_zero(x, up)
     } else {
-        ziv(&Asinh(x), up, 1)
+        match fast_asinh_dir(x, up) {
+            Some(r) => r,
+            None => ziv(&Asinh(x), up, 1),
+        }
     }
 }
 
@@ -613,7 +787,10 @@ pub(crate) fn asinh_near(x: f64) -> f64 {
         // x - x^3 / 6 <= asinh x <= x for x in [0, 1], and asinh is odd.
         x
     } else {
-        ziv_near(&Asinh(x), 1)
+        match fast_asinh_near(x) {
+            Some(r) => r,
+            None => ziv_near(&Asinh(x), 1),
+        }
     }
 }
 
@@ -624,7 +801,10 @@ pub(crate) fn acosh(x: f64, up: bool) -> f64 {
     } else if x < 1.0 {
         f64::NAN
     } else {
-        ziv(&Acosh(x), up, 1)
+        match fast_acosh_dir(x, up) {
+            Some(r) => r,
+            None => ziv(&Acosh(x), up, 1),
+        }
     }
 }
 
@@ -635,7 +815,10 @@ pub(crate) fn acosh_near(x: f64) -> f64 {
     } else if x < 1.0 {
         f64::NAN
     } else {
-        ziv_near(&Acosh(x), 1)
+        match fast_acosh_near(x) {
+            Some(r) => r,
+            None => ziv_near(&Acosh(x), 1),
+        }
     }
 }
 
@@ -657,7 +840,10 @@ pub(crate) fn atanh(x: f64, up: bool) -> f64 {
         // x <= atanh x <= x + x^3 / (3 (1 - x^2)) for x in [0, 1), and atanh is odd.
         away(x, up)
     } else {
-        ziv(&Atanh(x), up, 1)
+        match fast_atanh_dir(x, up) {
+            Some(r) => r,
+            None => ziv(&Atanh(x), up, 1),
+        }
     }
 }
 
@@ -678,6 +864,9 @@ pub(crate) fn atanh_near(x: f64) -> f64 {
         // x <= atanh x <= x + x^3 / (3 (1 - x^2)) for x in [0, 1), and atanh is odd.
         x
     } else {
-        ziv_near(&Atanh(x), 1)
+        match fast_atanh_near(x) {
+            Some(r) => r,
+            None => ziv_near(&Atanh(x), 1),
+        }
     }
 }

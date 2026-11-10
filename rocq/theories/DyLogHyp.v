@@ -22,7 +22,8 @@
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary LogReal DyRound DyConv DyOps DyDriver
-  DyGrow DyExpCore DyExpRules DyExp DyHyp DyLogRules DyLogTiny DyLogCore.
+  DyGrow DyExpCore DyExpRules DyExp DyHyp DyLogRules DyLogTiny DyLogCore FastAhyp.
+From Inari Require DyHypRules.
 
 Open Scope Z_scope.
 
@@ -255,6 +256,19 @@ Qed.
 
 (** ** The directed functions *)
 
+(** Where the rule [|x| < 2^-26] fails, [|x| >= 2^-27], as the fast paths
+    of [asinh] and [atanh] take. *)
+Local Lemma fast_not_tiny :
+  forall x, is_finite x = true -> lt (fabs x) DyadicExp.tiny_hyp = false ->
+  (bpow radix2 (-27) <= Rabs (B2R x))%R.
+Proof.
+intros x Fx G. unfold lt in G.
+rewrite Bltb_correct in G by (first [unfold fabs; rewrite is_finite_Babs; exact Fx | reflexivity]).
+rewrite hyp_fabs, DyHypRules.hyp_lit_tiny in G.
+destruct (Rlt_bool_spec (Rabs (B2R x)) (bpow radix2 (-26))) as [_|L]; [discriminate G|].
+apply Rle_trans with (bpow radix2 (-26)); [apply bpow_le; lia | exact L].
+Qed.
+
 Lemma asinh_dir_post :
   forall z post, rounds_post post -> driver_post z post ->
   forall x up v,
@@ -265,6 +279,9 @@ intros z post Hp Hz x up v Fx H. unfold DyadicLog.asinh_dir_with in H.
 rewrite (fin_not_nan x Fx), (fin_neq_inf x Fx), (fin_neq_ninf x Fx) in H. cbn [orb] in H.
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G; cbv iota in H.
 { injection H as <-. apply Hp. exact (asinh_tiny_rule x up Fx G). }
+destruct (DyadicLog.fast_asinh_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp.
+  exact (fast_asinh_dir_correct false x up _ Fx (fast_not_tiny x Fx G) F). }
 apply (Hz (DyadicLog.ev_asinh x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_asinh_correct x n a Hn Ha).
 Qed.
@@ -288,7 +305,8 @@ Proof.
 intros x up v. unfold DyadicLog.asinh_dir, DyadicLog.asinh_dir_with.
 destruct (is_nan x || (eq x infinity || eq x DyadicExp.neg_infinity));
   [exact (fun h => h)|].
-destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|apply ziv_strict_ziv].
+destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|].
+destruct (DyadicLog.fast_asinh_dir false x up); [exact (fun h => h)|apply ziv_strict_ziv].
 Qed.
 
 (** [x < 1.0] is false on [acosh_dom]. *)
@@ -303,6 +321,8 @@ rewrite (fin_not_nan x Fx), (fin_neq_inf x Fx) in H. cbn [orb] in H.
 destruct (lt x DyadicExp.one) eqn:G; cbv iota in H.
 { exfalso. apply lt_R in G; [|exact Fx|reflexivity].
   rewrite dexp_one_R in G. unfold acosh_dom in Dx. lra. }
+destruct (DyadicLog.fast_acosh_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp. exact (fast_acosh_dir_correct false x up _ Fx Dx F). }
 apply (Hz (DyadicLog.ev_acosh x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_acosh_correct x n a Fx Dx Hn Ha).
 Qed.
@@ -325,7 +345,8 @@ Theorem acosh_dir_strict :
 Proof.
 intros x up v. unfold DyadicLog.acosh_dir, DyadicLog.acosh_dir_with.
 destruct (is_nan x || eq x infinity); [exact (fun h => h)|].
-destruct (lt x DyadicExp.one); [exact (fun h => h)|apply ziv_strict_ziv].
+destruct (lt x DyadicExp.one); [exact (fun h => h)|].
+destruct (DyadicLog.fast_acosh_dir false x up); [exact (fun h => h)|apply ziv_strict_ziv].
 Qed.
 
 (** [|x| > 1.0] and [|x| == 1.0] are false on [atanh_dom]. *)
@@ -350,6 +371,9 @@ destruct (eq (fabs x) DyadicExp.one) eqn:G2; cbv iota in H.
   destruct (Req_bool_spec (Rabs (B2R x)) 1); [lra | discriminate G2]. }
 destruct (lt (fabs x) DyadicExp.tiny_hyp) eqn:G3; cbv iota in H.
 { injection H as <-. apply Hp. exact (atanh_tiny_rule x up Fx G3). }
+destruct (DyadicLog.fast_atanh_dir false x up) eqn:F; cbv iota in H.
+{ injection H as <-. apply Hp.
+  exact (fast_atanh_dir_correct false x up _ Fx (conj (fast_not_tiny x Fx G3) A) F). }
 apply (Hz (DyadicLog.ev_atanh x) up 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_atanh_correct x n a Fx Dx Hn Ha).
 Qed.
@@ -374,5 +398,6 @@ intros x up v. unfold DyadicLog.atanh_dir, DyadicLog.atanh_dir_with. cbv zeta.
 destruct (is_nan x); [exact (fun h => h)|].
 destruct (gt (fabs x) DyadicExp.one); [exact (fun h => h)|].
 destruct (eq (fabs x) DyadicExp.one); [exact (fun h => h)|].
-destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|apply ziv_strict_ziv].
+destruct (lt (fabs x) DyadicExp.tiny_hyp); [exact (fun h => h)|].
+destruct (DyadicLog.fast_atanh_dir false x up); [exact (fun h => h)|apply ziv_strict_ziv].
 Qed.

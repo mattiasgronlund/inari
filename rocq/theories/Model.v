@@ -1707,8 +1707,8 @@ End DyadicConsts.
     only the tests compile and which change no result. The functions
     never panic, so their [option] is Rust's [Option]. [FastRound.v]
     proves [round_dir] and [round_near], [FastRoundErr.v] [two_sum],
-    [normalize], [round_dir_err] and [round_near_err], and [FastDiv.v]
-    [dd_div]. *)
+    [normalize], [round_dir_err] and [round_near_err], [FastDiv.v]
+    [dd_div], and [FastDdSqrt.v] [dd_sqrt]. *)
 Module Fast.
 
 (** [ERR], [NEAR1] and [NEAR0]: 2^-68, 2^-53 - 2^-68 and 2^-54 - 2^-68,
@@ -1800,6 +1800,16 @@ Definition round_near_signed (h l : f64) (e : Z) : option f64 :=
   if lt h zero then
     match round_near (opp h) (opp l) e with Some r => Some (opp r) | None => None end
   else round_near h l e.
+
+(** [pub(crate) fn dd_sqrt(ah: f64, al: f64) -> (f64, f64)], where
+    [ah.sqrt()] is [fsqrt ah] and [fma] is [HAS_FMA], as in [dd_div].
+    [FastDdSqrt.v] proves it. *)
+Definition dd_sqrt (fma : bool) (ah al : f64) : f64 * f64 :=
+  let s := fsqrt ah in
+  let p := mul s s in
+  let pe := Generic.two_prod_err fma s s p in
+  let c := div (add (sub (sub ah p) pe) al) (mul two s) in
+  fast_two_sum s c.
 
 End Fast.
 
@@ -3298,13 +3308,123 @@ Definition fast_log10_near (fma : bool) (x : f64) : option f64 :=
   | None => None
   end.
 
+(** [AHYP_SMALL], [ACOSH_SMALL], [ATANH_SMALL] and [AHYP_LARGE]: 2^-11,
+    2^-22, 2^-12 and 2^26, and the literal [0.25]. *)
+Definition ahyp_small : f64 := from_bits 0x3f40000000000000.
+Definition acosh_small : f64 := from_bits 0x3e90000000000000.
+Definition atanh_small : f64 := from_bits 0x3f30000000000000.
+Definition ahyp_large : f64 := from_bits 0x4190000000000000.
+Definition quarter : f64 := from_bits 0x3fd0000000000000.
+
+(** [fn log1p_small(uh: f64, ul: f64) -> Option<(f64, f64, i64)>] and
+    [fn fast_ln_dd(xh: f64, xl: f64, e0: i64) -> Option<(f64, f64,
+    i64)>], where [(e + e0) as f64] is [of_i64 (e + e0)]. [FastLogDd.v]
+    proves them. *)
+Definition log1p_small (fma : bool) (uh ul : f64) : option (f64 * f64 * Z) :=
+  let '(ah, pl) := log1p_poly fma uh ul in
+  let '(h, l) := Fast.fast_two_sum ah pl in
+  normalize h l.
+
+Definition fast_ln_dd (fma : bool) (xh xl : f64) (e0 : Z) : option (f64 * f64 * Z) :=
+  let '(e, a_h, a_l) := ln_core fma xh in
+  let ef := of_i64 (e + e0) in
+  let '(s, t) := Fast.fast_two_sum (mul ef (from_bits LN2H)) a_h in
+  let '(h, l) :=
+    Fast.fast_two_sum s (add t (add a_l (add (mul ef (from_bits LN2L)) (div xl xh)))) in
+  normalize h l.
+
+(** [fn fast_asinh_pos(t: f64)], [fn fast_asinh(x: f64)], [fn
+    fast_acosh(x: f64)], [fn fast_atanh_pos(t: f64)] and [fn
+    fast_atanh(x: f64)], each [-> Option<(f64, f64, i64)>], where [?] is
+    a [match], [x.abs()] is [fabs x], [-h] is [opp h], [0.25 / t] is
+    [div quarter t] and [-0.25 / x] is [div neg_quarter x].
+    [FastAhypAsinh.v], [FastAhypAcosh.v], [FastAhypAtanh.v] and
+    [FastAhyp.v] prove them. *)
+Definition fast_asinh_pos (fma : bool) (t : f64) : option (f64 * f64 * Z) :=
+  if ge t ahyp_large then fast_ln_dd fma t (div quarter t) 1
+  else
+    let ph := mul t t in
+    let pl := Generic.two_prod_err fma t t ph in
+    let '(ah, al) := Fast.two_sum DyadicExp.one ph in
+    let '(ch, cl) := Fast.dd_sqrt fma ah (add al pl) in
+    if lt t ahyp_small then
+      let '(s, w) := Fast.fast_two_sum t (sub ch DyadicExp.one) in
+      let '(uh, ul) := Fast.fast_two_sum s (add w cl) in
+      log1p_small fma uh ul
+    else
+      let '(xh, xl) := Fast.fast_two_sum ch t in
+      fast_ln_dd fma xh (add xl cl) 0.
+
+Definition fast_asinh (fma : bool) (x : f64) : option (f64 * f64 * Z) :=
+  match fast_asinh_pos fma (fabs x) with
+  | Some (h, l, k) => Some (if lt x zero then (opp h, opp l, k) else (h, l, k))
+  | None => None
+  end.
+
+Definition fast_acosh (fma : bool) (x : f64) : option (f64 * f64 * Z) :=
+  if le x DyadicExp.one then None
+  else if ge x ahyp_large then fast_ln_dd fma x (div neg_quarter x) 1
+  else
+    let ph := mul x x in
+    let pl := Generic.two_prod_err fma x x ph in
+    let '(ah, al) := Fast.fast_two_sum (sub ph DyadicExp.one) pl in
+    let '(rh, rl) := Fast.dd_sqrt fma ah al in
+    let d := sub x DyadicExp.one in
+    if lt d acosh_small then
+      let '(s, w) := Fast.fast_two_sum rh d in
+      let '(uh, ul) := Fast.fast_two_sum s (add w rl) in
+      log1p_small fma uh ul
+    else
+      let '(xh, xl) := Fast.fast_two_sum x rh in
+      fast_ln_dd fma xh (add xl rl) 0.
+
+Definition fast_atanh_pos (fma : bool) (t : f64) : option (f64 * f64 * Z) :=
+  let '(dh, dl) := Fast.fast_two_sum DyadicExp.one (opp t) in
+  match
+    if lt t atanh_small then
+      let '(qh, ql) := Fast.dd_div fma (add t t) zero dh dl in
+      log1p_small fma qh ql
+    else
+      let '(nh, nl) := Fast.fast_two_sum DyadicExp.one t in
+      let '(dh', dl', j) := Fast.normalize dh dl in
+      let '(qh, ql) := Fast.dd_div fma nh nl dh' dl' in
+      fast_ln_dd fma qh ql (- j)
+  with
+  | Some (h, l, k) => Some (h, l, k - 1)
+  | None => None
+  end.
+
+Definition fast_atanh (fma : bool) (x : f64) : option (f64 * f64 * Z) :=
+  match fast_atanh_pos fma (fabs x) with
+  | Some (h, l, k) => Some (if lt x zero then (opp h, opp l, k) else (h, l, k))
+  | None => None
+  end.
+
+(** [fn fast_asinh_dir(x: f64, up: bool) -> Option<f64>], the same for
+    [acosh] and [atanh], and [fn fast_asinh_near(x: f64) ->
+    Option<f64>] and the others, as [fast_ln_dir]. [FastAhyp.v] proves
+    them. *)
+Definition fast_asinh_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_asinh fma x with Some (h, l, k) => Fast.round_dir_signed h l k up | None => None end.
+Definition fast_acosh_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_acosh fma x with Some (h, l, k) => Fast.round_dir_signed h l k up | None => None end.
+Definition fast_atanh_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_atanh fma x with Some (h, l, k) => Fast.round_dir_signed h l k up | None => None end.
+Definition fast_asinh_near (fma : bool) (x : f64) : option f64 :=
+  match fast_asinh fma x with Some (h, l, k) => Fast.round_near_signed h l k | None => None end.
+Definition fast_acosh_near (fma : bool) (x : f64) : option f64 :=
+  match fast_acosh fma x with Some (h, l, k) => Fast.round_near_signed h l k | None => None end.
+Definition fast_atanh_near (fma : bool) (x : f64) : option f64 :=
+  match fast_atanh fma x with Some (h, l, k) => Fast.round_near_signed h l k | None => None end.
+
 (** The functions of the file with [ziv] a parameter: [ln_dir_with ziv] is
     [ln] with [ziv] for [Dyadic.ziv], and [ln_dir] after the section is
     [ln_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
     returns only where a rounding test passes ([DyDriver.ziv_strict]).
 
-    [ln], [log2] and [log10] try the fast path after their rules and
-    before [ziv], and their forms rounded to nearest before [ziv_near].
+    [ln], [log2], [log10], [asinh], [acosh] and [atanh] try the fast path
+    after their rules and before [ziv], and their forms rounded to nearest
+    before [ziv_near].
     [HAS_FMA] depends on the target. The fast path takes it as an
     argument, and the functions below pass [false]: [FastLog.fast_ln_dir_fma]
     and the others show that [true] gives the same result at every
@@ -3346,13 +3466,13 @@ Definition log10_dir_with (x : f64) (up : bool) : option f64 :=
 Definition asinh_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x || (eq x infinity || eq x DyadicExp.neg_infinity) then Some x
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.toward_zero x up)
-  else ziv (ev_asinh x) up 1.
+  else match fast_asinh_dir false x up with Some r => Some r | None => ziv (ev_asinh x) up 1 end.
 
 (** [pub(crate) fn acosh(x: f64, up: bool) -> f64] *)
 Definition acosh_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x || eq x infinity then Some x
   else if lt x DyadicExp.one then Some B754_nan
-  else ziv (ev_acosh x) up 1.
+  else match fast_acosh_dir false x up with Some r => Some r | None => ziv (ev_acosh x) up 1 end.
 
 (** [pub(crate) fn atanh(x: f64, up: bool) -> f64] *)
 Definition atanh_dir_with (x : f64) (up : bool) : option f64 :=
@@ -3361,7 +3481,7 @@ Definition atanh_dir_with (x : f64) (up : bool) : option f64 :=
   else if gt t DyadicExp.one then Some B754_nan
   else if eq t DyadicExp.one then Some (if gt x zero then infinity else DyadicExp.neg_infinity)
   else if lt t DyadicExp.tiny_hyp then Some (DyadicExp.away x up)
-  else ziv (ev_atanh x) up 1.
+  else match fast_atanh_dir false x up with Some r => Some r | None => ziv (ev_atanh x) up 1 end.
 
 End Driver.
 
@@ -3408,13 +3528,13 @@ Definition log10_near_with (x : f64) : option f64 :=
 Definition asinh_near_with (x : f64) : option f64 :=
   if is_nan x || (eq x infinity || eq x DyadicExp.neg_infinity) then Some x
   else if lt (fabs x) DyadicExp.tiny_near then Some x
-  else ziv_near (ev_asinh x) 1.
+  else match fast_asinh_near false x with Some r => Some r | None => ziv_near (ev_asinh x) 1 end.
 
 (** [pub(crate) fn acosh_near(x: f64) -> f64] *)
 Definition acosh_near_with (x : f64) : option f64 :=
   if is_nan x || eq x infinity then Some x
   else if lt x DyadicExp.one then Some B754_nan
-  else ziv_near (ev_acosh x) 1.
+  else match fast_acosh_near false x with Some r => Some r | None => ziv_near (ev_acosh x) 1 end.
 
 (** [pub(crate) fn atanh_near(x: f64) -> f64] *)
 Definition atanh_near_with (x : f64) : option f64 :=
@@ -3423,7 +3543,7 @@ Definition atanh_near_with (x : f64) : option f64 :=
   else if gt t DyadicExp.one then Some B754_nan
   else if eq t DyadicExp.one then Some (if gt x zero then infinity else DyadicExp.neg_infinity)
   else if lt t DyadicExp.tiny_near then Some x
-  else ziv_near (ev_atanh x) 1.
+  else match fast_atanh_near false x with Some r => Some r | None => ziv_near (ev_atanh x) 1 end.
 
 End DriverNear.
 

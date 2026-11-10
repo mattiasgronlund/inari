@@ -26,7 +26,7 @@ From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary LogReal DyRound DyConv DyOps DyDriver
   DyGrow DyConst DyExpCore DyExpRules DyExp DyHyp DyLogRules DyLogTiny DyLogCore DyLog DyLogHyp
   DyPowExact DyPown DyExactDriver PowFactor ExpIrrational ExpQuadratic DyTrigExact DyLogPoint
-  FastLog.
+  FastLog FastAhyp.
 
 Open Scope R_scope.
 
@@ -330,13 +330,14 @@ assert (V0 : B2R v = 0).
 assert (X1 : B2R x = 1) by (rewrite V0, exp_0 in E; lra).
 rewrite (dle_one x Fx X1).
 destruct Hz as [Hz | ->]; [contradiction |].
-(* [1 < 1] is false, so [acosh] is the driver on [ev_acosh 1], which
+(* [1 < 1] is false, and the fast path returns [None] at 1
+   ([fast_acosh_one]), so [acosh] is the driver on [ev_acosh 1], which
    encloses 0 by the point 0 at every level ([ev_acosh_one]). *)
 unfold DyadicLog.acosh_dir_with.
 replace (is_nan DyadicExp.one || Model.eq DyadicExp.one infinity) with false
   by (vm_compute; reflexivity).
 replace (lt DyadicExp.one DyadicExp.one) with false by (vm_compute; reflexivity).
-cbv iota.
+cbv iota. rewrite fast_acosh_one. cbv iota.
 apply Hz0; [lia | exact ev_acosh_one].
 Qed.
 

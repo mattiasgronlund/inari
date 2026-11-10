@@ -56,6 +56,7 @@ From Inari Require FastTrigTables FastTrigReduce FastTrigSC FastTrigEval FastTri
   FastTrigRound FastTrigCore FastTrig.
 From Inari Require FastPowTaylor FastPowHorner FastPowCube FastPowPoly FastPowCore FastPowLn FastPowMul
   FastPow.
+From Inari Require FastDdSqrt FastLogDd FastAhypAsinh FastAhypAcosh FastAhypAtanh FastAhyp.
 From Inari Require KahanMcDonald DyTrigPos SideTight SideTheorems DyPointSide.
 From Inari Require ExpQuadratic PowFactor ExpIrrational CosNiven CosIrrational DyExactDriver
   DyExactPoint DyTrigExact DyExpPoint DyExpExact DyLogSeries DyLogPoint DyLogExact DyAtanExact.
@@ -443,6 +444,33 @@ Print Assumptions FastPow.fast_pow_dir_correct.
 Print Assumptions FastPow.fast_pow_near_correct.
 Print Assumptions FastPow.fast_pow_dir_fma.
 Print Assumptions FastPow.fast_pow_near_fma.
+Print Assumptions FastDdSqrt.dd_sqrt_correct.
+Print Assumptions FastDdSqrt.dd_sqrt_fma.
+Print Assumptions FastLogDd.log1p_small_correct.
+Print Assumptions FastLogDd.log1p_small_fma.
+Print Assumptions FastLogDd.fast_ln_dd_correct.
+Print Assumptions FastLogDd.fast_ln_dd_fma.
+Print Assumptions FastAhypAsinh.fast_asinh_pos_correct.
+Print Assumptions FastAhypAsinh.fast_asinh_pos_fma.
+Print Assumptions FastAhypAcosh.fast_acosh_correct.
+Print Assumptions FastAhypAcosh.fast_acosh_fma.
+Print Assumptions FastAhypAtanh.fast_atanh_pos_correct.
+Print Assumptions FastAhypAtanh.fast_atanh_pos_fma.
+Print Assumptions FastAhyp.fast_asinh_dir_correct.
+Print Assumptions FastAhyp.fast_asinh_near_correct.
+Print Assumptions FastAhyp.fast_asinh_dir_fma.
+Print Assumptions FastAhyp.fast_asinh_near_fma.
+Print Assumptions FastAhyp.fast_acosh_dir_correct.
+Print Assumptions FastAhyp.fast_acosh_near_correct.
+Print Assumptions FastAhyp.fast_acosh_dir_fma.
+Print Assumptions FastAhyp.fast_acosh_near_fma.
+Print Assumptions FastAhyp.fast_atanh_dir_correct.
+Print Assumptions FastAhyp.fast_atanh_near_correct.
+Print Assumptions FastAhyp.fast_atanh_dir_fma.
+Print Assumptions FastAhyp.fast_atanh_near_fma.
+Print Assumptions FastAhyp.fast_asinh_correct.
+Print Assumptions FastAhyp.fast_atanh_correct.
+Print Assumptions FastAhyp.fast_acosh_one.
 Print Assumptions DyExp.exp_dir_correct.
 Print Assumptions DyExp.exp_dir_side.
 Print Assumptions DyExp.exp_dir_strict.

@@ -13,7 +13,7 @@ From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary LogReal DyRound DyConv DyOps DyDriver
   DyGrow DyConst DyExpCore DyExpRules DyExp ExpReal DyHyp DyLogRules DyLogTiny DyLogCore DyLog
-  DyLogHyp NearF64 NearCells DyDriverNear FastLog.
+  DyLogHyp NearF64 NearCells DyDriverNear FastLog FastAhyp.
 From Inari Require AtanhSeries DySinhTiny Decompose.
 
 Open Scope Z_scope.
@@ -204,6 +204,18 @@ rewrite <- Ex, Ep, Ek. unfold Rlog10.
 rewrite Rlog_pow by lra. symmetry. apply INR_IZR_INZ.
 Qed.
 
+(** Where the rule [|x| < 2^-27] fails, [|x| >= 2^-27], as the fast paths
+    of [asinh] and [atanh] take. *)
+Local Lemma fast_not_tiny_near :
+  forall x, is_finite x = true -> lt (fabs x) DyadicExp.tiny_near = false ->
+  bpow radix2 (-27) <= Rabs (B2R x).
+Proof.
+intros x Fx G. unfold lt in G.
+rewrite Bltb_correct in G by (first [unfold fabs; rewrite is_finite_Babs; exact Fx | reflexivity]).
+rewrite hyp_fabs, lit_tiny_near in G.
+destruct (Rlt_bool_spec (Rabs (B2R x)) (bpow radix2 (-27))) as [_|L]; [discriminate G | exact L].
+Qed.
+
 Local Close Scope R_scope.
 
 (** Where [ziv_near_strict] returns, [Dyadic.ziv_near] returns the same:
@@ -213,6 +225,8 @@ Local Close Scope R_scope.
 Local Ltac near_strict :=
   repeat match goal with
   | |- (if ?c then _ else _) = Some _ -> _ => destruct c; [exact (fun h => h)|]
+  | |- (match ?c with Some _ => _ | None => _ end) = Some _ -> _ =>
+      destruct c; [exact (fun h => h)|]
   end;
   apply ziv_near_strict_ziv.
 
@@ -269,6 +283,8 @@ intros x v Fx H. unfold DyadicLog.asinh_near_with in H.
 rewrite (fin_not_nan x Fx), (fin_neq_inf x Fx), (fin_neq_ninf x Fx) in H. cbn [orb] in H.
 destruct (lt (fabs x) DyadicExp.tiny_near) eqn:G; cbv iota in H.
 { injection H as <-. exact (asinh_tiny_near_rule x Fx G). }
+destruct (DyadicLog.fast_asinh_near false x) eqn:F; cbv iota in H.
+{ injection H as <-. exact (fast_asinh_near_correct false x _ Fx (fast_not_tiny_near x Fx G) F). }
 apply (ziv_near_strict_correct (DyadicLog.ev_asinh x) 1%nat _ v); [|exact H].
 intros n a Hn Ha. exact (ev_asinh_correct x n a Hn Ha).
 Qed.
@@ -285,6 +301,8 @@ rewrite (fin_not_nan x Fx), (fin_neq_inf x Fx) in H. cbn [orb] in H.
 destruct (lt x DyadicExp.one) eqn:G; cbv iota in H.
 { exfalso. apply lt_R in G; [|exact Fx|reflexivity].
   rewrite dexp_one_R in G. unfold acosh_dom in Dx. lra. }
+destruct (DyadicLog.fast_acosh_near false x) eqn:F; cbv iota in H.
+{ injection H as <-. exact (fast_acosh_near_correct false x _ Fx Dx F). }
 apply (ziv_near_strict_correct (DyadicLog.ev_acosh x) 1%nat _ v); [|exact H].
 intros n a Hn Ha. exact (ev_acosh_correct x n a Fx Dx Hn Ha).
 Qed.
@@ -310,6 +328,9 @@ destruct (eq (fabs x) DyadicExp.one) eqn:G2; cbv iota in H.
   destruct (Req_bool_spec (Rabs (B2R x)) 1); [lra | discriminate G2]. }
 destruct (lt (fabs x) DyadicExp.tiny_near) eqn:G3; cbv iota in H.
 { injection H as <-. exact (atanh_tiny_near_rule x Fx G3). }
+destruct (DyadicLog.fast_atanh_near false x) eqn:F; cbv iota in H.
+{ injection H as <-.
+  exact (fast_atanh_near_correct false x _ Fx (conj (fast_not_tiny_near x Fx G3) A) F). }
 apply (ziv_near_strict_correct (DyadicLog.ev_atanh x) 1%nat _ v); [|exact H].
 intros n a Hn Ha. exact (ev_atanh_correct x n a Fx Dx Hn Ha).
 Qed.
