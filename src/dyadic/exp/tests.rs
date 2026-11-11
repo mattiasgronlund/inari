@@ -1094,7 +1094,7 @@ fn sub_tie(h: f64, l: f64, e: i64) -> Option<f64> {
     }
     let c = pow2(-1022 - i32::try_from(e).unwrap());
     let (s, t) = fast_two_sum(c, h);
-    (s < 2.0 * c && t.abs() == f64::EPSILON / 2.0 * c).then(|| (t + l) / c)
+    (s < 2.0 * c && t.abs() == f64::EPSILON / 2.0 * c).then_some((t + l) / c)
 }
 
 // 2^-53 + 2^-67, exact: the far bound of `round_near_sub` on u, in units of C.
@@ -1216,7 +1216,7 @@ fn far_side_ties() {
         let (h, l, e) = edge_parts(i, x).unwrap();
         let u = sub_tie(h, l, e);
         assert!(
-            u.is_some_and(|u| u.abs() > TIE_FAR),
+            matches!(u, Some(u) if u.abs() > TIE_FAR),
             "{name}({x:e}): ({h:e}, {l:e}, {e}), u = {u:?} C"
         );
         same_without_fast_path(i, x);
@@ -1246,7 +1246,7 @@ fn far_side_ties_random() {
             let Some((h, l, e)) = edge_parts(i, x) else {
                 continue;
             };
-            if !sub_tie(h, l, e).is_some_and(|u| u.abs() > TIE_FAR) {
+            if !matches!(sub_tie(h, l, e), Some(u) if u.abs() > TIE_FAR) {
                 continue;
             }
             found += 1;

@@ -225,7 +225,7 @@ fn sub_tie(h: f64, l: f64, e: i64) -> Option<f64> {
     }
     let c = pow2(-1022 - e);
     let (s, t) = fast_two_sum(c, h);
-    (s < 2.0 * c && t.abs() == f64::EPSILON / 2.0 * c).then(|| (t + l) / c)
+    (s < 2.0 * c && t.abs() == f64::EPSILON / 2.0 * c).then_some((t + l) / c)
 }
 
 // The far arms of `round_near_sub_err` on random arguments of `edges_random` from 2^-1030 to
