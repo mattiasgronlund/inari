@@ -356,6 +356,7 @@ const TWO_M1021: f64 = 2.0 * f64::MIN_POSITIVE;
 // `rocq/theories/AtanExactDiv.v` proves that an `f64` that the function returns is y / x
 // (`exact_div_correct`), and that the function returns the same with and without an FMA
 // (`exact_div_fma`).
+#[inline(always)]
 fn exact_div(y: f64, x: f64) -> Option<f64> {
     let q = y / x;
     let s = if y.abs() < TWO_M968 { TWO_128 } else { 1.0 };
@@ -377,6 +378,15 @@ fn exact_div(y: f64, x: f64) -> Option<f64> {
 // is y / x, below `TINY_HYP` in magnitude (`tiny_quotient_correct`), on both paths, with
 // `exact_div_correct` for the first; that the function returns every such quotient, the same
 // map as the `Dyadic` division alone, the tests check and Rocq does not prove.
+//
+// `exact_div`, `tiny_quotient` and `midpoint_quotient` are always inlined, and
+// `tiny_quotient_dyadic` and `midpoint_quotient_dyadic` never: the `f64` checks then run in
+// `atan2` and `atan2_near` without a stack frame of their own, which LLVM by itself builds for
+// the `Dyadic`s in every call, so that atan2 takes 2.02 (rn) and 2.10 (rd, ru) times the
+// instructions of CORE-MATH in the same rounding on uniform angles (cachegrind, 4,096 arguments,
+// log-uniform radii in [2^-4, 2^4)), against 2.11 to 2.17 without the attributes, 10 to 14 more
+// instructions per call. The attributes keep that layout if the `Dyadic` parts change.
+#[inline(always)]
 fn tiny_quotient(y: f64, x: f64) -> Option<f64> {
     if y.abs() * TWO_25 >= x {
         return None;
@@ -394,6 +404,7 @@ fn tiny_quotient(y: f64, x: f64) -> Option<f64> {
 // <= y / x <= `hi` <= `hi.to_f64(true)`, so that y / x = q if the two `f64`s are equal. Two
 // `f64`s whose quotient is a dyadic number have one of at most 53 bits, which 64 bits hold
 // exactly, so that the check finds every such quotient that is an `f64`.
+#[inline(never)]
 fn tiny_quotient_dyadic(y: f64, x: f64) -> Option<f64> {
     let (a, b) = (Dyadic::<1>::from_f64(y), Dyadic::<1>::from_f64(x));
     let (lo, hi) = (a.div(&b, false), a.div(&b, true));
@@ -428,6 +439,7 @@ fn tiny_quotient_dyadic(y: f64, x: f64) -> Option<f64> {
 // (`midpoint_quotient_correct`), on both paths, with `exact_div_correct` for the first; that
 // the function returns every such quotient, the same map as the `Dyadic` division alone, the
 // tests check and Rocq does not prove.
+#[inline(always)]
 fn midpoint_quotient(y: f64, x: f64) -> Option<f64> {
     if y.abs() * TWO_1021 >= x {
         return None;
@@ -469,6 +481,7 @@ fn midpoint_quotient(y: f64, x: f64) -> Option<f64> {
 // exact, subnormal or not. The tests check this, and Rocq does not prove it:
 // `midpoint_quotient_dyadic_correct` of `rocq/theories/DyAtanMidQ.v` uses only the check of
 // the exponents.
+#[inline(never)]
 fn midpoint_quotient_dyadic(y: f64, x: f64) -> Option<f64> {
     let (a, b) = (Dyadic::<1>::from_f64(y), Dyadic::<1>::from_f64(x));
     if a.exp - b.exp > -1022 {
