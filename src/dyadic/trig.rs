@@ -725,16 +725,24 @@ fn fast_round_near(h: f64, l: f64) -> Option<f64> {
 // argument, or where its rounding test fails.
 // `rocq/theories/FastTrig.v` proves that they return those roundings (`fast_sin_dir_correct`
 // and the others), and the same with and without an FMA (`fast_sin_dir_fma` and the others).
+// Always inlined: LLVM inlines the three into `sin`, `cos` and `tan` by itself since 09e972a,
+// where sin and cos rounded down and up take 2.71 to 2.89 times the instructions of CORE-MATH
+// in the same rounding (cachegrind, 4,096 arguments in [0.1, 10), [-10, 10) or [-π/4, π/4)).
+// Out of line, they cost 7 to 15 more instructions per call, 2.88 to 3.00 times. The attribute
+// keeps that layout if the fast path grows.
+#[inline(always)]
 fn fast_sin_dir(x: f64, up: bool) -> Option<f64> {
     let (h, l) = fast_sin(x)?;
     fast_round_dir(h, l, up)
 }
 
+#[inline(always)]
 fn fast_cos_dir(t: f64, up: bool) -> Option<f64> {
     let (h, l) = fast_cos(t)?;
     fast_round_dir(h, l, up)
 }
 
+#[inline(always)]
 fn fast_tan_dir(x: f64, up: bool) -> Option<f64> {
     let (h, l) = fast_tan(x)?;
     fast_round_dir(h, l, up)
