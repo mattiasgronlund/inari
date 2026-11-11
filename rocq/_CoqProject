@@ -250,6 +250,11 @@ theories/FastPowMul.v
 theories/FastPow.v
 theories/FastDdSqrt.v
 theories/FastLogDd.v
+theories/AsinhTaylor.v
+theories/FastAhypOdd.v
+theories/FastAhypNear1Poly.v
+theories/FastAhypNear1Sum.v
+theories/FastAhypNear1.v
 theories/FastAhypAsinh.v
 theories/FastAhypAcosh.v
 theories/FastAhypAtanh.v

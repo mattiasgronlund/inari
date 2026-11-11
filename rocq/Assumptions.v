@@ -57,7 +57,8 @@ From Inari Require FastTrigTables FastTrigReduce FastTrigSC FastTrigEval FastTri
   FastTrigCore FastTrig.
 From Inari Require FastPowTaylor FastPowHorner FastPowCube FastPowPoly FastPowCore FastPowLn FastPowMul
   FastPow.
-From Inari Require FastDdSqrt FastLogDd FastAhypAsinh FastAhypAcosh FastAhypAtanh FastAhyp.
+From Inari Require FastDdSqrt FastLogDd AsinhTaylor FastAhypOdd FastAhypNear1 FastAhypAsinh FastAhypAcosh
+  FastAhypAtanh FastAhyp.
 From Inari Require FastAtanTables FastAtanPoly FastAtanCore FastAtan FastAsin.
 From Inari Require FastRoundSubBits FastRoundSubCommon FastRoundSub FastRoundWide FastExpEdge
   FastExpByEdge.
@@ -464,10 +465,15 @@ Print Assumptions FastPow.fast_pow_dir_fma.
 Print Assumptions FastPow.fast_pow_near_fma.
 Print Assumptions FastDdSqrt.dd_sqrt_correct.
 Print Assumptions FastDdSqrt.dd_sqrt_fma.
-Print Assumptions FastLogDd.log1p_small_correct.
-Print Assumptions FastLogDd.log1p_small_fma.
 Print Assumptions FastLogDd.fast_ln_dd_correct.
 Print Assumptions FastLogDd.fast_ln_dd_fma.
+Print Assumptions AsinhTaylor.asinh_taylor9.
+Print Assumptions AsinhTaylor.asinh_taylor15.
+Print Assumptions FastAhypOdd.asinh_odd_correct.
+Print Assumptions FastAhypOdd.atanh_odd_correct.
+Print Assumptions FastAhypNear1.acosh_asinh_half.
+Print Assumptions FastAhypNear1.acosh_near1_correct.
+Print Assumptions FastAhypNear1.acosh_near1_fma.
 Print Assumptions FastAhypAsinh.fast_asinh_pos_correct.
 Print Assumptions FastAhypAsinh.fast_asinh_pos_fma.
 Print Assumptions FastAhypAcosh.fast_acosh_correct.

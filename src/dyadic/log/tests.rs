@@ -807,29 +807,58 @@ fn widened() {
 }
 
 // The branches of the fast paths of asinh, acosh and atanh, as (function, a, b) for the
-// arguments t = |x| in [a, b) of each, and in (1, b) for the first of acosh: ln(1 + u) by
-// `log1p_small` for asinh below `AHYP_SMALL` = 2^-11, acosh below 1 + `ACOSH_SMALL` =
-// 1 + 2^-22 and atanh below `ATANH_SMALL` = 2^-12, ln 2 + ln(t ± 1/(4t)) for asinh and acosh
-// from `AHYP_LARGE` = 2^26 on, and `fast_ln_dd` of t + √(t^2 ± 1) and of (1 + t) / (1 - t) in
+// arguments t = |x| in [a, b) of each, and in (1, b) for the first of acosh: the odd polynomial
+// `odd_series` for asinh and atanh below `AHYP_NEAR` = 2^-8, the series `fast_acosh_near1` for
+// acosh below `ACOSH_NEAR1` = 1 + 2^-8, ln 2 + ln(t ± 1/(4t)) for asinh and acosh from
+// `AHYP_LARGE` = 2^26 on, and `fast_ln_dd` of t + √(t^2 ± 1) and of (1 + t) / (1 - t) in
 // between. Below `TINY_NEAR` = 2^-27 (and `TINY_HYP` = 2^-26 in the directions), the rules
 // settle asinh and atanh.
 const AHYP_BRANCHES: [(usize, f64, f64); 8] = [
-    (ASINH, TINY_NEAR, AHYP_SMALL),
-    (ASINH, AHYP_SMALL, AHYP_LARGE),
+    (ASINH, TINY_NEAR, AHYP_NEAR),
+    (ASINH, AHYP_NEAR, AHYP_LARGE),
     (ASINH, AHYP_LARGE, f64::MAX),
-    (ACOSH, 1.0, 1.0 + ACOSH_SMALL),
-    (ACOSH, 1.0 + ACOSH_SMALL, AHYP_LARGE),
+    (ACOSH, 1.0, ACOSH_NEAR1),
+    (ACOSH, ACOSH_NEAR1, AHYP_LARGE),
     (ACOSH, AHYP_LARGE, f64::MAX),
-    (ATANH, TINY_NEAR, ATANH_SMALL),
-    (ATANH, ATANH_SMALL, 1.0),
+    (ATANH, TINY_NEAR, AHYP_NEAR),
+    (ATANH, AHYP_NEAR, 1.0),
 ];
 
-// (h, l, k) of the fast path of asinh, acosh or atanh (the function `i`) at x, as the function
-// computes them, or `None` at x = 1 for acosh.
+// Whether x is in the first branch of the function `i` in `AHYP_BRANCHES`, the series near 0 of
+// asinh and atanh and near 1 of acosh, whose rounding tests take the bound `ERR67` = 2^-67 in
+// place of 2^-68, as the wrappers `fast_asinh_dir` to `fast_atanh_near` decide it.
+fn ahyp_near(i: usize, x: f64) -> bool {
+    if i == ACOSH {
+        x < ACOSH_NEAR1
+    } else {
+        x.abs() < AHYP_NEAR
+    }
+}
+
+// The bound on |y 2^-k - (h + l)| that the rounding tests of the fast path of the function `i`
+// assume at x: `ERR67` in the series near 0 and 1 (`ahyp_near`), and 2^-68 elsewhere.
+fn ahyp_err(i: usize, x: f64) -> f64 {
+    if ahyp_near(i, x) {
+        ERR67
+    } else {
+        FAST_ERR
+    }
+}
+
+// (h, l, k) of the fast path of asinh, acosh or atanh (the function `i`) at x, as the wrappers
+// compute them, or `None` at x = 1 for acosh. Near 0, the series takes t = |x| and the wrappers
+// put the sign back, which here is the sign of h and l, as in the other branches.
 fn ahyp_parts(i: usize, x: f64) -> Option<(f64, f64, i64)> {
+    let odd = |c| {
+        let (h, l, k) = odd_series(x.abs(), c);
+        Some(if x < 0.0 { (-h, -l, k) } else { (h, l, k) })
+    };
     match i {
+        ASINH if ahyp_near(i, x) => odd(ASINH_ODD),
         ASINH => fast_asinh(x),
+        ACOSH if ahyp_near(i, x) => fast_acosh_near1(x),
         ACOSH => fast_acosh(x),
+        ATANH if ahyp_near(i, x) => odd(ATANH_ODD),
         ATANH => fast_atanh(x),
         _ => unreachable!(),
     }
@@ -856,7 +885,7 @@ fn in_range(rng: &mut Rng, a: f64, b: f64, log: bool) -> f64 {
 // A random t in the branch [a, b) of `AHYP_BRANCHES`, of a kind that n picks: uniform over the
 // branch, of any exponent in it, or, for the last branch of atanh, which ends at 1, 1 - d for a
 // d of any exponent. The first branch of acosh, whose arguments all have the exponent of 1,
-// takes 1 + d for a d uniform or of any exponent in [2^-52, 2^-22) instead.
+// takes 1 + d for a d uniform or of any exponent in [2^-52, 2^-8) instead.
 fn ahyp_arg(rng: &mut Rng, a: f64, b: f64, n: usize) -> f64 {
     let log = n % 3 != 0;
     loop {
@@ -907,28 +936,25 @@ fn fast_ahyp_range_random() {
 
 // The thresholds of the rules of asinh, acosh and atanh and of the branches of their fast paths,
 // with 4 `f64`s on each side: the rules of the tiny arguments at 2^-27 (to nearest) and 2^-26
-// (directions), the ends of `log1p_small` at 2^-12 (atanh), 2^-11 (asinh) and 1 + 2^-22
-// (acosh), t = 1/2 and 3/4, at which the power of 2 that scales 1 - t in atanh changes, 2,
-// below which acosh takes x - 1 as exact, and 2^26, where asinh and acosh switch to
-// ln 2 + ln(t ± 1/(4t)). Then 1 with 32 `f64`s on each side, where atanh and acosh end, 64
-// arguments from 2^25.5 to 2^26, below that switch, with 2 `f64`s on each side, and the 16
-// largest `f64`s.
+// (directions), the ends of the series at 2^-8 (asinh and atanh) and 1 + 2^-8 (acosh),
+// t = 1/2 and 3/4, at which the power of 2 that scales 1 - t in atanh changes, and 2^26, where
+// asinh and acosh switch to ln 2 + ln(t ± 1/(4t)). Then 1 with 64 `f64`s on each side, where
+// atanh ends and acosh starts, at 1 + k ulp for k up to 64, 64 arguments from 2^25.5 to 2^26,
+// below that switch, with 2 `f64`s on each side, and the 16 largest `f64`s.
 fn ahyp_threshold_args() -> Vec<f64> {
     let mut args = vec![];
     for x in [
         TINY_NEAR,
         TINY_HYP,
-        ATANH_SMALL,
-        AHYP_SMALL,
-        1.0 + ACOSH_SMALL,
+        AHYP_NEAR,
+        ACOSH_NEAR1,
         0.5,
         0.75,
-        2.0,
         AHYP_LARGE,
     ] {
         args.extend(around(x, 4));
     }
-    args.extend(around(1.0, 32));
+    args.extend(around(1.0, 64));
     // 2^25.5 rounded, and 63 steps of (2^26 - 2^25.5) / 64 above it.
     let start = SQRT_2 * pow2(25);
     for j in 0..64 {
@@ -971,11 +997,11 @@ fn ahyp_thresholds() {
 }
 
 // asinh, acosh and atanh where a rounding test of their fast paths passes, but would fail with
-// `WIDE` in place of the bound 2^-68, as in `widened`: there an error in the bound would show
-// first, so the fast paths have to give the same `f64`s as the kernel, to which disabling them
-// falls through, and as MPFR. Each branch of `AHYP_BRANCHES` is sampled until it has 40 narrow
-// passes of the directed tests and 40 of the test to nearest. The directions take the fast path
-// from `TINY_HYP` on.
+// `WIDE` in place of the bound (`ahyp_err`), as in `widened`: there an error in the bound
+// would show first, so the fast paths have to give the same `f64`s as the kernel, to which
+// disabling them falls through, and as MPFR. Each branch of `AHYP_BRANCHES` is sampled until it
+// has 40 narrow passes of the directed tests and 40 of the test to nearest. The directions take
+// the fast path from `TINY_HYP` on.
 #[test]
 fn ahyp_widened() {
     let mut rng = Rng(941);
@@ -1002,9 +1028,10 @@ fn ahyp_widened() {
             } else {
                 f64::EPSILON / 4.0
             };
-            let narrow_dir = t >= TINY_HYP && FAST_ERR < l.abs() && l.abs() <= WIDE;
-            let narrow_near = l < above - FAST_ERR
-                && l > -(below - FAST_ERR)
+            let err = ahyp_err(i, x);
+            let narrow_dir = t >= TINY_HYP && err < l.abs() && l.abs() <= WIDE;
+            let narrow_near = l < above - err
+                && l > -(below - err)
                 && (l >= above - WIDE || l <= -(below - WIDE));
             if !narrow_dir && !narrow_near {
                 continue;
@@ -1028,6 +1055,104 @@ fn ahyp_widened() {
             );
             check(i, x);
         }
+    }
+}
+
+// asinh, acosh and atanh take the series near 0 and 1, the first branches in `AHYP_BRANCHES`:
+// on random arguments of each, of the kinds that `ahyp_arg` draws, with either sign for asinh and
+// atanh, each direction and the rounding to nearest run one rounding test, which passes where
+// `round_dir_err` and `round_near_err` with the bound `ERR67` pass on (h, l, k) of the series
+// (`ahyp_parts`), and then give their result with the sign of x put back, as the wrappers
+// `fast_asinh_dir` to `fast_atanh_near` do. Most of these tests pass. The other branch of the
+// wrappers, `fast_asinh` and the others rounded with `round_dir_signed` and `round_near_signed`,
+// mostly gives the same counts and results here, so the arguments are drawn until it would give
+// other counts or another result in 4 roundings to nearest and 4 in the directions: a wrapper
+// that took it there would fail this test. The directions take the fast path from `TINY_HYP`
+// on, so below it only the rounding to nearest is checked.
+#[test]
+fn ahyp_near_taken() {
+    let mut rng = Rng(943);
+    for (i, a, b) in AHYP_BRANCHES {
+        if !ahyp_near(i, a) {
+            continue;
+        }
+        // The numbers of roundings to nearest and in the directions in which the other branch
+        // differs.
+        let (mut passed, mut failed, mut differ, mut n) = (0, 0, [0; 2], 0);
+        while n < 3000 || differ[0] < 4 || differ[1] < 4 {
+            n += 1;
+            assert!(
+                n <= 2_000_000,
+                "{} on [{a:e}, {b:e}): the other branch differs in {} roundings to nearest and \
+                 {} in the directions of 2000000 arguments",
+                FUNCTIONS[i].0,
+                differ[0],
+                differ[1]
+            );
+            let t = ahyp_arg(&mut rng, a, b, n);
+            let x = ahyp_sign(&mut rng, i, t);
+            let (h, l, k) = ahyp_parts(i, x).unwrap();
+            // |h| and l with the sign of h: the wrappers round the series at t = |x|, with
+            // the direction reversed for x < 0, and negate the result.
+            let (h, l) = if x < 0.0 { (-h, -l) } else { (h, l) };
+            let signed = |r: f64| if x < 0.0 { -r } else { r };
+            for up in [None, Some(false), Some(true)] {
+                if up.is_some() && t < TINY_HYP {
+                    continue;
+                }
+                let series = match up {
+                    None => round_near_err(h, l, k, ERR67),
+                    Some(up) => round_dir_err(h, l, k, ERR67, up != (x < 0.0)),
+                }
+                .map(signed);
+                crate::dyadic::fast::reset_fast_counts();
+                let r = match up {
+                    None => NEAR[i](x),
+                    Some(up) => FUNCTIONS[i].1(x, up),
+                };
+                let counts = crate::dyadic::fast::fast_counts();
+                assert_eq!(
+                    counts,
+                    (usize::from(series.is_some()), usize::from(series.is_none())),
+                    "{}({x:e}), {up:?}: (passed, failed) rounding tests, with the series' \
+                     test passing: {}",
+                    FUNCTIONS[i].0,
+                    series.is_some()
+                );
+                match series {
+                    Some(s) => {
+                        assert_eq!(
+                            r.to_bits(),
+                            s.to_bits(),
+                            "{}({x:e}), {up:?}: {r:e} != {s:e} from the series",
+                            FUNCTIONS[i].0
+                        );
+                        passed += 1;
+                    }
+                    None => failed += 1,
+                }
+                // The counts and the result of the other branch at x.
+                crate::dyadic::fast::reset_fast_counts();
+                let other = match i {
+                    ASINH => fast_asinh(x),
+                    ACOSH => fast_acosh(x),
+                    _ => fast_atanh(x),
+                }
+                .and_then(|(h, l, k)| match up {
+                    None => round_near_signed(h, l, k),
+                    Some(up) => round_dir_signed(h, l, k, up),
+                });
+                let other_counts = crate::dyadic::fast::fast_counts();
+                if (other_counts, other.map(f64::to_bits)) != (counts, series.map(f64::to_bits)) {
+                    differ[usize::from(up.is_some())] += 1;
+                }
+            }
+        }
+        assert!(
+            passed > 100 * failed,
+            "{} on [{a:e}, {b:e}): {passed} passed, {failed} failed",
+            FUNCTIONS[i].0
+        );
     }
 }
 
@@ -1276,12 +1401,14 @@ mod mpfr {
     }
 
     // The fast paths of asinh, acosh and atanh (`ahyp_parts`) give (h, l, k) with h = RN(h + l),
-    // 1 <= |h| < 2, k in [-1021, 1022] and |y 2^-k - (h + l)| <= 2^-68 for y = asinh x,
-    // acosh x and atanh x, the bound that `fast_asinh_pos_correct`, `fast_acosh_correct` and
-    // `fast_atanh_pos_correct` in `rocq/theories/FastAhypAsinh.v`, `FastAhypAcosh.v` and
-    // `FastAhypAtanh.v` state, with 1/2 < |h| < 2 there. The arguments are those of
-    // `ahyp_threshold_args` and random ones of each branch of `AHYP_BRANCHES`, with both signs
-    // for asinh and atanh.
+    // 1 <= |h| < 2, k in [-1021, 1022] and |y 2^-k - (h + l)| <= `ahyp_err` for y = asinh x,
+    // acosh x and atanh x: 2^-67 in the series near 0 and 1, the bound that
+    // `asinh_odd_correct` and `atanh_odd_correct` in `rocq/theories/FastAhypOdd.v` and
+    // `acosh_near1_correct` in `FastAhypNear1.v` state, and elsewhere 2^-68, that of
+    // `fast_asinh_pos_correct`, `fast_acosh_correct` and `fast_atanh_pos_correct` in
+    // `FastAhypAsinh.v`, `FastAhypAcosh.v` and `FastAhypAtanh.v`, with 1/2 < |h| < 2 there. The
+    // arguments are those of `ahyp_threshold_args` and random ones of each branch of
+    // `AHYP_BRANCHES`, with both signs for asinh and atanh.
     #[test]
     fn fast_ahyp_bound() {
         let mut rng = Rng(943);
@@ -1313,7 +1440,7 @@ mod mpfr {
                         && 1.0 <= h.abs()
                         && h.abs() < 2.0
                         && (-1021..=1022).contains(&k)
-                        && d <= pow2(-68),
+                        && d <= ahyp_err(i, x),
                     "{}({x:e}): ({h:e}, {l:e}, {k}), with |y 2^-k - (h + l)| = {:e}",
                     FUNCTIONS[i].0,
                     d.to_f64()

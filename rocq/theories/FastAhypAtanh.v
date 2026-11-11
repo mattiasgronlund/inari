@@ -1,10 +1,9 @@
-(** * The fast path of [atanh] before the rounding, for [2^-27 <= t < 1]
+(** * The fast path of [atanh] before the rounding, for [2^-8 <= t < 1]
 
     [DyadicLog.fast_atanh_pos] of [Model.v] computes
     [2 atanh t = ln((1 + t) / (1 - t))], with [1 - t] and [1 + t] exact
-    as double-doubles: as [ln(1 + u)] for [u = 2t / (1 - t)] by
-    [Fast.dd_div] ([FastDiv.v]) below [t = 2^-12] ([log1p_small_correct]),
-    and otherwise as [-j ln 2 + ln q] for [q = (1 + t) / ((1 - t) 2^-j)],
+    as double-doubles, as [-j ln 2 + ln q] for [q = (1 + t) / ((1 - t) 2^-j)]
+    by [Fast.dd_div] ([FastDiv.v]),
     where [Fast.normalize] ([FastRoundErr.v]) scales [1 - t] into [[1, 2)]
     exactly ([fast_ln_dd_correct] with [e0 = -j]). The exponent [k - 1]
     halves the result. [fast_atanh_pos_correct] shows that the result is
@@ -21,30 +20,6 @@ Open Scope R_scope.
 Local Ltac num := cbn [bpow radix_val radix2] in *; lra.
 
 (** ** Helpers *)
-
-(** [atanh_small] is [2^-12]. *)
-Local Lemma atanh_small_R : B2R DyadicLog.atanh_small = bpow radix2 (-12).
-Proof.
-rewrite <- SF2R_B2SF.
-replace (B2SF DyadicLog.atanh_small) with (SpecFloat.S754_finite false 4503599627370496 (-64))
-  by (vm_compute; reflexivity).
-cbn [SF2R SpecFloat.cond_Zopp]. unfold F2R; cbn [Fnum Fexp].
-change (IZR 4503599627370496) with (bpow radix2 52). rewrite <- bpow_plus. reflexivity.
-Qed.
-
-Local Lemma lt_true :
-  forall x y, is_finite x = true -> is_finite y = true -> Model.lt x y = true -> B2R x < B2R y.
-Proof.
-intros x y Fx Fy H. unfold Model.lt in H. rewrite Bltb_correct in H by assumption.
-destruct (Rlt_bool_spec (B2R x) (B2R y)); [assumption | discriminate].
-Qed.
-
-Local Lemma lt_false :
-  forall x y, is_finite x = true -> is_finite y = true -> Model.lt x y = false -> B2R y <= B2R x.
-Proof.
-intros x y Fx Fy H. unfold Model.lt in H. rewrite Bltb_correct in H by assumption.
-destruct (Rlt_bool_spec (B2R x) (B2R y)); [discriminate | assumption].
-Qed.
 
 (** RN keeps a number on the same side of a power of 2. *)
 Local Lemma rn_ge_bpow :
@@ -166,84 +141,7 @@ rewrite (Rabs_pos_eq (B2R dh)) in L by (pose proof (bpow_gt_0 radix2 (-53)); lra
 repeat split; try assumption; try lra.
 Qed.
 
-(** ** Below [t = 2^-12]: [ln (1 + u)] for [u = 2t / (1 - t)] *)
-
-(** [2t] is exact, [u] is in [[2^-26, 3t]], so [qh + ql] (within
-    [2^-98 u] of [u], [dd_div_correct]) rounds into [[2^-30, 2^-10]], and
-    [|ln (1 + u) - ln (1 + qh + ql)| <= |u - qh - ql| <= 2^-96 t], within
-    [2^-72 ln ((1 + t) / (1 - t))] as that is at least [t] ([ln_ge_T]). *)
-Local Lemma small_case :
-  forall fma t dh dl, is_finite t = true -> bpow radix2 (-27) <= B2R t < bpow radix2 (-12) ->
-  is_finite dh = true -> is_finite dl = true -> B2R dh + B2R dl = 1 - B2R t ->
-  B2R dh = RN (B2R dh + B2R dl) -> bpow radix2 (-53) <= B2R dh <= 1 ->
-  Rabs (B2R dl) <= bpow radix2 (-53) * B2R dh ->
-  Fast.dd_div true (add t t) zero dh dl = Fast.dd_div false (add t t) zero dh dl /\
-  let '(qh, ql) := Fast.dd_div fma (add t t) zero dh dl in
-  is_finite qh = true /\ is_finite ql = true /\
-  bpow radix2 (-30) <= B2R qh <= bpow radix2 (-10) /\
-  Rabs (B2R ql) <= bpow radix2 (-53) * B2R qh /\
-  Rabs (ln ((1 + B2R t) / (1 - B2R t)) - ln (1 + (B2R qh + B2R ql)))
-    <= bpow radix2 (-72) * Rabs (ln ((1 + B2R t) / (1 - B2R t))).
-Proof.
-intros fma t dh dl Ft HT Fh Fl S Rh Hd Hl.
-pose proof (bpow_gt_0 radix2 (-27)) as P27.
-pose proof (Rabs_le_inv _ _ Hl) as Hl2.
-(* [2t] is a float: [t 2^1] with [mag t >= -26]. *)
-assert (N2 : is_finite (add t t) = true /\ B2R (add t t) = 2 * B2R t).
-{ assert (Hm : Rabs (B2R t + B2R t) <= MAX).
-  { apply small_le_max. rewrite Rabs_pos_eq by lra. num. }
-  destruct (add_below_max t t Ft Ft Hm) as (F & E & _).
-  split; [exact F|]. rewrite E.
-  assert (G2 : generic_format radix2 fexp64 (B2R t * bpow radix2 1)).
-  { apply mult_bpow_exact_FLT; [apply generic_format_B2R|].
-    assert (M : (-26 <= mag radix2 (B2R t))%Z).
-    { apply mag_ge_bpow. rewrite Rabs_pos_eq by lra.
-      eapply Rle_trans; [| exact (proj1 HT)]. apply bpow_le. lia. }
-    lia. }
-  change (bpow radix2 1) with 2 in G2.
-  replace (B2R t + B2R t) with (B2R t * 2) by ring.
-  rewrite round_generic; [ring | typeclasses eauto | exact G2]. }
-destruct N2 as (Fn & Rn).
-assert (Fz : is_finite zero = true) by reflexivity.
-assert (Rz : B2R zero = 0) by reflexivity.
-assert (P1 : bpow radix2 (-80) <= B2R (add t t) <= 4) by (rewrite Rn; num).
-assert (P2 : Rabs (B2R zero) <= bpow radix2 (-50) * B2R (add t t)).
-{ rewrite Rz, Rabs_R0, Rn. pose proof (bpow_gt_0 radix2 (-50)). nra. }
-assert (P3 : / 2 <= B2R dh <= 4) by num.
-assert (P4 : Rabs (B2R dl) <= bpow radix2 (-52) * B2R dh) by num.
-split; [apply dd_div_fma; assumption|].
-destruct (Fast.dd_div fma (add t t) zero dh dl) as [qh ql] eqn:Eq. cbv beta iota.
-pose proof (dd_div_correct fma (add t t) zero dh dl Fn Fz Fh Fl P1 P2 P3 P4) as C.
-rewrite Eq in C. cbv beta iota in C. destruct C as (Fqh & Fql & Rq & Hq).
-rewrite Rn, Rz, S in Hq.
-set (T := B2R t) in *.
-set (U := (2 * T + 0) / (1 - T)) in *.
-assert (EU : U * (1 - T) = 2 * T) by (unfold U; field; num).
-assert (HU : 2 * T <= U <= 3 * T).
-{ assert (T12 : T <= / 3) by num. split; nra. }
-pose proof (Rabs_le_inv _ _ Hq) as Hq2.
-assert (Hqh : bpow radix2 (-30) <= B2R qh <= bpow radix2 (-10)).
-{ rewrite Rq. split; [apply rn_ge_bpow | apply rn_le_bpow]; try lia; num. }
-assert (Hn : bpow radix2 (-1022) <= Rabs (B2R qh)).
-{ rewrite Rabs_pos_eq by (pose proof (bpow_gt_0 radix2 (-30)); lra).
-  apply Rle_trans with (bpow radix2 (-30)); [apply bpow_le; lia | lra]. }
-pose proof (rn_low (B2R qh) (B2R qh + B2R ql) Rq Hn) as L.
-replace (B2R qh + B2R ql - B2R qh) with (B2R ql) in L by ring.
-rewrite (Rabs_pos_eq (B2R qh)) in L by (pose proof (bpow_gt_0 radix2 (-30)); lra).
-repeat split; try assumption; try lra.
-(* [(1 + t) / (1 - t) = 1 + u] *)
-assert (Ey : (1 + T) / (1 - T) = 1 + U) by (unfold U; field; num).
-rewrite Ey.
-assert (Hy : T <= ln (1 + U)) by (rewrite <- Ey; apply ln_ge_T; num).
-pose proof (ln_close (1 + U) (1 + (B2R qh + B2R ql)) 1 ltac:(lra) ltac:(lra) ltac:(num)) as Lc.
-rewrite Rmult_1_r in Lc.
-replace (1 + U - (1 + (B2R qh + B2R ql))) with (- (B2R qh + B2R ql - U)) in Lc by ring.
-rewrite Rabs_Ropp in Lc.
-rewrite (Rabs_pos_eq (ln (1 + U))) by lra.
-num.
-Qed.
-
-(** ** From [t = 2^-12]: [-j ln 2 + ln q] *)
+(** ** The quotient: [-j ln 2 + ln q] *)
 
 (** [nh + nl = 1 + t] exactly ([fts_exact]); [Fast.normalize] scales
     [dh + dl = 1 - t] by [B = 2^-j] into [dh' in [1, 2]], with
@@ -410,77 +308,64 @@ Qed.
 
 Theorem fast_atanh_pos_correct :
   forall fma t h l k,
-  is_finite t = true -> bpow radix2 (-27) <= B2R t < 1 ->
+  is_finite t = true -> bpow radix2 (-8) <= B2R t < 1 ->
   DyadicLog.fast_atanh_pos fma t = Some (h, l, k) ->
   is_finite h = true /\ is_finite l = true /\ B2R h = RN (B2R h + B2R l) /\
   / 2 < Rabs (B2R h) < 2 /\ (-1021 <= k <= 1022)%Z /\
   Rabs (Ratanh (B2R t) * bpow radix2 (- k) - (B2R h + B2R l)) <= bpow radix2 (-68).
 Proof.
-intros fma t h l k Ft HT.
+intros fma t h l k Ft HT8.
+assert (HT' : bpow radix2 (-12) <= B2R t)
+  by (apply (Rle_trans _ (bpow radix2 (-8))); [apply bpow_le; lia | exact (proj1 HT8)]).
+assert (HT : bpow radix2 (-27) <= B2R t < 1)
+  by (split; [apply (Rle_trans _ (bpow radix2 (-12))); [apply bpow_le; lia | exact HT'] |
+    exact (proj2 HT8)]).
 unfold DyadicLog.fast_atanh_pos.
 destruct (Fast.fast_two_sum DyadicExp.one (opp t)) as [dh dl] eqn:Ed. cbv beta iota.
 destruct (den_facts t dh dl Ft HT Ed) as (Fh & Fl & S & Rh & Hd & Hl).
-assert (Fs : is_finite DyadicLog.atanh_small = true) by reflexivity.
-(* The kernels approximate [y = ln ((1 + t) / (1 - t)) = 2 atanh t >= t]. *)
+(* The kernel approximates [y = ln ((1 + t) / (1 - t)) = 2 atanh t >= t]. *)
 assert (Hy : B2R t <= ln ((1 + B2R t) / (1 - B2R t))).
 { apply ln_ge_T. pose proof (bpow_gt_0 radix2 (-27)). lra. }
 assert (Ey : ln ((1 + B2R t) / (1 - B2R t)) = 2 * Ratanh (B2R t)) by (unfold Ratanh; field).
 assert (Hr : bpow radix2 (-27) <= 2 * Ratanh (B2R t)) by lra.
-destruct (Model.lt t DyadicLog.atanh_small) eqn:Elt.
-- pose proof (lt_true t _ Ft Fs Elt) as HT'. rewrite atanh_small_R in HT'.
-  destruct (Fast.dd_div fma (add t t) zero dh dl) as [qh ql] eqn:Eq. cbv beta iota.
-  destruct (small_case fma t dh dl Ft (conj (proj1 HT) HT') Fh Fl S Rh Hd Hl) as [_ C].
-  rewrite Eq in C. cbv beta iota in C. destruct C as (Fqh & Fql & Bq & Lq & Eq').
-  destruct (DyadicLog.log1p_small fma qh ql) as [[[h0 l0] k0]|] eqn:El;
-    cbv beta iota; [|discriminate].
-  intros E. injection E as <- <- <-.
-  destruct (log1p_small_correct fma qh ql _ h0 l0 k0 Fqh Fql Bq Lq Eq' El)
-    as (F1 & F2 & R1 & B1 & K1 & E1).
-  rewrite Ey in E1.
-  apply half_out; assumption.
-- pose proof (lt_false t _ Ft Fs Elt) as HT'. rewrite atanh_small_R in HT'.
-  destruct (Fast.fast_two_sum DyadicExp.one t) as [nh nl] eqn:En. cbv beta iota.
-  destruct (Fast.normalize dh dl) as [[dh' dl'] j] eqn:Ej. cbv beta iota.
-  destruct (Fast.dd_div fma nh nl dh' dl') as [qh ql] eqn:Eq. cbv beta iota.
-  destruct (large_case fma t dh dl nh nl dh' dl' j Ft (conj HT' (proj2 HT)) Fh Fl S Rh Hd Hl En Ej)
-    as [_ C].
-  rewrite Eq in C. cbv beta iota in C.
-  destruct C as (Fqh & Fql & Pq & Lq & Hj & Hm & Hy20 & Herr).
-  destruct (DyadicLog.fast_ln_dd fma qh ql (- j)) as [[[h0 l0] k0]|] eqn:El;
-    cbv beta iota; [|discriminate].
-  intros E. injection E as <- <- <-.
-  destruct (fast_ln_dd_correct fma qh ql (- j) _ h0 l0 k0 Fqh Fql Pq Lq Hj Hm Hy20 Herr El)
-    as (F1 & F2 & R1 & B1 & K1 & E1).
-  rewrite Ey in E1.
-  apply half_out; assumption.
+destruct (Fast.fast_two_sum DyadicExp.one t) as [nh nl] eqn:En. cbv beta iota.
+destruct (Fast.normalize dh dl) as [[dh' dl'] j] eqn:Ej. cbv beta iota.
+destruct (Fast.dd_div fma nh nl dh' dl') as [qh ql] eqn:Eq. cbv beta iota.
+destruct (large_case fma t dh dl nh nl dh' dl' j Ft (conj HT' (proj2 HT)) Fh Fl S Rh Hd Hl En Ej)
+  as [_ C].
+rewrite Eq in C. cbv beta iota in C.
+destruct C as (Fqh & Fql & Pq & Lq & Hj & Hm & Hy20 & Herr).
+destruct (DyadicLog.fast_ln_dd fma qh ql (- j)) as [[[h0 l0] k0]|] eqn:El;
+  cbv beta iota; [|discriminate].
+intros E. injection E as <- <- <-.
+destruct (fast_ln_dd_correct fma qh ql (- j) _ h0 l0 k0 Fqh Fql Pq Lq Hj Hm Hy20 Herr El)
+  as (F1 & F2 & R1 & B1 & K1 & E1).
+rewrite Ey in E1.
+apply half_out; assumption.
 Qed.
 
 Theorem fast_atanh_pos_fma :
   forall t,
-  is_finite t = true -> bpow radix2 (-27) <= B2R t < 1 ->
+  is_finite t = true -> bpow radix2 (-8) <= B2R t < 1 ->
   DyadicLog.fast_atanh_pos true t = DyadicLog.fast_atanh_pos false t.
 Proof.
-intros t Ft HT. unfold DyadicLog.fast_atanh_pos.
+intros t Ft HT8.
+assert (HT' : bpow radix2 (-12) <= B2R t)
+  by (apply (Rle_trans _ (bpow radix2 (-8))); [apply bpow_le; lia | exact (proj1 HT8)]).
+assert (HT : bpow radix2 (-27) <= B2R t < 1)
+  by (split; [apply (Rle_trans _ (bpow radix2 (-12))); [apply bpow_le; lia | exact HT'] |
+    exact (proj2 HT8)]).
+unfold DyadicLog.fast_atanh_pos.
 destruct (Fast.fast_two_sum DyadicExp.one (opp t)) as [dh dl] eqn:Ed. cbv beta iota.
 destruct (den_facts t dh dl Ft HT Ed) as (Fh & Fl & S & Rh & Hd & Hl).
-assert (Fs : is_finite DyadicLog.atanh_small = true) by reflexivity.
-destruct (Model.lt t DyadicLog.atanh_small) eqn:Elt.
-- pose proof (lt_true t _ Ft Fs Elt) as HT'. rewrite atanh_small_R in HT'.
-  destruct (small_case false t dh dl Ft (conj (proj1 HT) HT') Fh Fl S Rh Hd Hl) as [D _].
-  rewrite D.
-  destruct (Fast.dd_div false (add t t) zero dh dl) as [qh ql] eqn:Eq. cbv beta iota.
-  destruct (small_case false t dh dl Ft (conj (proj1 HT) HT') Fh Fl S Rh Hd Hl) as [_ C].
-  rewrite Eq in C. cbv beta iota in C. destruct C as (Fqh & Fql & Bq & Lq & _).
-  rewrite log1p_small_fma by assumption. reflexivity.
-- pose proof (lt_false t _ Ft Fs Elt) as HT'. rewrite atanh_small_R in HT'.
-  destruct (Fast.fast_two_sum DyadicExp.one t) as [nh nl] eqn:En. cbv beta iota.
-  destruct (Fast.normalize dh dl) as [[dh' dl'] j] eqn:Ej. cbv beta iota.
-  destruct (large_case false t dh dl nh nl dh' dl' j Ft (conj HT' (proj2 HT)) Fh Fl S Rh Hd Hl En Ej)
-    as [D _].
-  rewrite D.
-  destruct (Fast.dd_div false nh nl dh' dl') as [qh ql] eqn:Eq. cbv beta iota.
-  destruct (large_case false t dh dl nh nl dh' dl' j Ft (conj HT' (proj2 HT)) Fh Fl S Rh Hd Hl En Ej)
-    as [_ C].
-  rewrite Eq in C. cbv beta iota in C. destruct C as (Fqh & Fql & Pq & _).
-  rewrite fast_ln_dd_fma by assumption. reflexivity.
+destruct (Fast.fast_two_sum DyadicExp.one t) as [nh nl] eqn:En. cbv beta iota.
+destruct (Fast.normalize dh dl) as [[dh' dl'] j] eqn:Ej. cbv beta iota.
+destruct (large_case false t dh dl nh nl dh' dl' j Ft (conj HT' (proj2 HT)) Fh Fl S Rh Hd Hl En Ej)
+  as [D _].
+rewrite D.
+destruct (Fast.dd_div false nh nl dh' dl') as [qh ql] eqn:Eq. cbv beta iota.
+destruct (large_case false t dh dl nh nl dh' dl' j Ft (conj HT' (proj2 HT)) Fh Fl S Rh Hd Hl En Ej)
+  as [_ C].
+rewrite Eq in C. cbv beta iota in C. destruct C as (Fqh & Fql & Pq & _).
+rewrite fast_ln_dd_fma by assumption. reflexivity.
 Qed.

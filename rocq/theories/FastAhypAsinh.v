@@ -1,11 +1,10 @@
-(** * The fast path of [asinh] before the rounding, for [t >= 2^-27]
+(** * The fast path of [asinh] before the rounding, for [t >= 2^-8]
 
     [DyadicLog.fast_asinh_pos] of [Model.v] computes [asinh t = ln(t + c)]
     with [c = sqrt(1 + t^2)] in double-double ([Fast.dd_sqrt],
     [FastDdSqrt.v]), where [1 + t^2] is exact up to one rounding of
-    [2^-105 (1 + t^2)]: as [ln(1 + u)] for [u = t + (c - 1)] below
-    [t = 2^-11] ([log1p_small_correct], with [u] within [2^-72.8 u]), as
-    [ln(t + c)] up to [2^26] ([fast_ln_dd_correct] with [e0 = 0]), and
+    [2^-105 (1 + t^2)]: as [ln(t + c)] up to [2^26]
+    ([fast_ln_dd_correct] with [e0 = 0]), and
     from [2^26] on as [ln 2 + ln(t + RN(1/(4t)))], since
     [0 <= (1 + s/2) - sqrt(1 + s) <= s^2/8] for [s = 1/t^2] puts
     [2 (t + 1/(4t))] within [2^-106] of [t + c], relatively.
@@ -37,9 +36,6 @@ Local Ltac lit_pow2 :=
   reflexivity.
 
 Local Lemma lit_large : B2R DyadicLog.ahyp_large = bpow radix2 26.
-Proof. lit_pow2. Qed.
-
-Local Lemma lit_small : B2R DyadicLog.ahyp_small = bpow radix2 (-11).
 Proof. lit_pow2. Qed.
 
 Local Lemma lit_quarter : B2R DyadicLog.quarter = bpow radix2 (-2).
@@ -302,8 +298,7 @@ cbn [bpow radix_val radix2] in *. lra.
 Qed.
 
 (** [sqrt(ah + a2)] is within [2^-104] of [c = sqrt(1 + s)], as [|p - q| (p
-    + q) = |p^2 - q^2|], so [ch + cl] is within [(2^-100 + 2^-103) c]. (A
-    crude [2^-99] would not leave the [2^-72] of [asinh_small].) *)
+    + q) = |p^2 - q^2|], so [ch + cl] is within [(2^-100 + 2^-103) c]. *)
 Local Lemma asinh_c :
   forall fma ah a2 ch cl s,
   is_finite ah = true -> is_finite a2 = true -> 0 <= s ->
@@ -434,122 +429,6 @@ assert (I2 : / q <= 1 + 2 * e) by nra.
 apply Rabs_le. lra.
 Qed.
 
-(** ** Below [t = 2^-11]: [ln(1 + u)] with [u = t + (c - 1)] *)
-
-(** [c = sqrt(1 + t^2)] is in [[1, 1 + t^2/2]], so [ch] is in [[1/2, 2]]
-    and [ch - 1] is exact (P. H. Sterbenz, Floating-point computation,
-    1974) and below [t] in magnitude; both FastTwoSums are exact, and [uh
-    + ul] is within [0.6 2^-99] of [u], while [u >= t >= 2^-27]. *)
-Local Lemma asinh_small :
-  forall t ch cl s w uh ul,
-  is_finite t = true -> bpow radix2 (-27) <= B2R t < bpow radix2 (-11) ->
-  is_finite ch = true -> is_finite cl = true -> B2R ch = RN (B2R ch + B2R cl) ->
-  Rabs (B2R ch + B2R cl - sqrt (1 + B2R t * B2R t)) <=
-    (bpow radix2 (-100) + bpow radix2 (-103)) * sqrt (1 + B2R t * B2R t) ->
-  Fast.fast_two_sum t (sub ch DyadicExp.one) = (s, w) ->
-  Fast.fast_two_sum s (add w cl) = (uh, ul) ->
-  is_finite uh = true /\ is_finite ul = true /\
-  bpow radix2 (-30) <= B2R uh <= bpow radix2 (-10) /\
-  Rabs (B2R ul) <= bpow radix2 (-53) * B2R uh /\
-  Rabs (arcsinh (B2R t) - ln (1 + (B2R uh + B2R ul))) <=
-    bpow radix2 (-72) * Rabs (arcsinh (B2R t)).
-Proof.
-intros t ch cl s w uh ul Ft Ht Fch Fcl Ech Hc Es Eu.
-assert (Bm1022 : bpow radix2 (-1022) <= / 1267650600228229401496703205376)
-  by (apply (Rle_trans _ (bpow radix2 (-100))); [apply bpow_le; lia | right; reflexivity]).
-destruct FastLogReduce.one_R as (F1 & E1).
-assert (Gch : format (B2R ch)) by apply generic_format_B2R.
-cbn [bpow radix_val radix2 Z.opp] in Ht, Hc |- *.
-set (X := B2R t) in *.
-set (c := sqrt (1 + X * X)) in *.
-assert (Hcc : c * c = 1 + X * X) by (unfold c; apply sqrt_sqrt; nra).
-assert (Hc0 : 0 <= c) by apply sqrt_pos.
-assert (Ec : c = sqrt (1 + X * X)) by reflexivity.
-clearbody c.
-assert (HXX : X * X <= / 2048 * X) by (apply Rmult_le_compat_r; lra).
-assert (Hc1 : 1 <= c) by (apply le_of_sq; [exact Hc0 | nra]).
-assert (Hc2 : c <= 1 + X * X / 2).
-{ apply le_of_sq; [nra |]. rewrite Hcc.
-  assert (0 <= X * X * (X * X)) by (apply Rmult_le_pos; nra). nra. }
-(* [C = ch + cl] and [ch] *)
-set (C := B2R ch + B2R cl) in *.
-assert (EC : C = B2R ch + B2R cl) by reflexivity.
-apply Rabs_le_inv in Hc.
-pose proof (rn_rel C ltac:(rewrite Rabs_pos_eq by lra; lra)) as Hch.
-rewrite <- Ech in Hch.
-assert (Hch0 : 0 <= B2R ch).
-{ rewrite Ech. apply rn_ge; [apply generic_format_0 | lra]. }
-rewrite (Rabs_pos_eq (B2R ch)) in Hch by exact Hch0.
-cbn [bpow radix_val radix2 Z.opp] in Hch.
-apply Rabs_le_inv in Hch.
-(* [d = ch - 1], exact by Sterbenz's lemma *)
-assert (Gd : format (B2R ch - 1)).
-{ apply sterbenz; [typeclasses eauto .. | exact Gch | rewrite <- E1; apply generic_format_B2R | lra]. }
-destruct (sub_below_max ch DyadicExp.one Fch F1) as (Fd & Ed & _).
-{ rewrite E1. apply Rabs_le. cbn [bpow radix_val radix2 Z.opp]. lra. }
-rewrite E1, round_generic in Ed by (try typeclasses eauto; exact Gd).
-(* the first FastTwoSum *)
-destruct (fts t (sub ch DyadicExp.one) s w Ft Fd) as (Fs & Fw & Es' & Esw); try exact Es.
-{ rewrite Ed. fold X. rewrite (Rabs_pos_eq X) by lra. apply Rabs_le. split; lra. }
-{ rewrite Ed. fold X. apply Rabs_le. cbn [bpow radix_val radix2 Z.opp]. split; lra. }
-fold X in Es', Esw. rewrite Ed in Es', Esw.
-pose proof (rn_rel (X + (B2R ch - 1)) ltac:(rewrite Rabs_pos_eq by lra; lra)) as Hs.
-rewrite <- Es' in Hs.
-assert (Hs0 : 0 <= B2R s).
-{ rewrite Es'. apply rn_ge; [apply generic_format_0 | lra]. }
-rewrite (Rabs_pos_eq (B2R s)) in Hs by exact Hs0.
-cbn [bpow radix_val radix2 Z.opp] in Hs.
-apply Rabs_le_inv in Hs.
-(* [w + cl] and the second FastTwoSum *)
-assert (Hz : Rabs (B2R w + B2R cl) <= / 2251799813685248).
-{ apply Rabs_le. split; lra. }
-destruct (add_below_max w cl Fw Fcl) as (Fz & Ez & _).
-{ apply (Rle_trans _ _ _ Hz). cbn [bpow radix_val radix2 Z.opp]. lra. }
-pose proof (FastExpErr.rn_err (B2R w + B2R cl)) as Hzr.
-rewrite <- Ez in Hzr.
-cbn [bpow radix_val radix2 Z.opp] in Hzr.
-apply Rabs_le_inv in Hzr.
-assert (Hz' := Hz). apply Rabs_le_inv in Hz'.
-destruct (fts s (add w cl) uh ul Fs Fz) as (Fuh & Ful & Euh & Eul); try exact Eu.
-{ rewrite (Rabs_pos_eq (B2R s)) by exact Hs0. apply Rabs_le. split; lra. }
-{ apply Rabs_le. cbn [bpow radix_val radix2 Z.opp]. split; lra. }
-(* [U = uh + ul] against [u = t + c - 1] *)
-set (U := B2R uh + B2R ul) in *.
-assert (EU : U = B2R uh + B2R ul) by reflexivity.
-set (u := X + c - 1).
-assert (Eu' : u = X + c - 1) by reflexivity.
-clearbody u.
-assert (HU : Rabs (U - u) <= 3 / 5 * / 633825300114114700748351602688).
-{ apply Rabs_le. split; lra. }
-assert (Hu : / 134217728 <= u <= / 2048 + / 8388608) by lra.
-assert (HU' := HU). apply Rabs_le_inv in HU'.
-rewrite <- Eul in Euh.
-pose proof (rn_rel U ltac:(rewrite Rabs_pos_eq by lra; lra)) as Huh.
-rewrite <- Euh in Huh.
-assert (Huh0 : 0 <= B2R uh).
-{ rewrite Euh. apply rn_ge; [apply generic_format_0 | lra]. }
-rewrite (Rabs_pos_eq (B2R uh)) in Huh by exact Huh0.
-cbn [bpow radix_val radix2 Z.opp] in Huh.
-assert (Hul : B2R ul = - (B2R uh - U)) by lra.
-apply Rabs_le_inv in Huh.
-(* the logarithms: [asinh t = ln(t + c) = ln(1 + u)] *)
-assert (EA : X + c = 1 + u) by lra.
-unfold arcsinh. replace (X ^ 2 + 1) with (1 + X * X) by ring.
-rewrite <- Ec, EA.
-pose proof (ln_lo u ltac:(lra)) as Hl.
-assert (Huu : u * u <= u * (/ 2048 + / 8388608)) by (apply Rmult_le_compat_l; lra).
-rewrite (Rabs_pos_eq (ln (1 + u))) by lra.
-pose proof (ln_diff (1 + u) (1 + U) 1 ltac:(lra) ltac:(lra) ltac:(lra)) as HL.
-rewrite Rinv_1, Rmult_1_r in HL.
-replace (1 + u - (1 + U)) with (- (U - u)) in HL by ring.
-rewrite Rabs_Ropp in HL.
-split; [exact Fuh |]. split; [exact Ful |].
-split; [split; lra |].
-split.
-- rewrite Hul, Rabs_Ropp. apply Rabs_le. split; lra.
-- lra.
-Qed.
-
 (** From [t = 2^-11] to [2^26]: [ln(t + c)] with [xh + xl = ch + t] exactly (Dekker's FastTwoSum, as [fts]),
     since [c - t = 1/(c + t) >= 2^-28] puts [ch] above [t]. [xh + RN(xl + cl)] is within [2^-98] of [t + c],
     so its [ln] is within [2^-97] absolutely, and [asinh t >= ln(1 + 2^-11) > 2^-12]. *)
@@ -648,15 +527,18 @@ Qed.
 
 Theorem fast_asinh_pos_correct :
   forall fma t h l k,
-  is_finite t = true -> bpow radix2 (-27) <= B2R t ->
+  is_finite t = true -> bpow radix2 (-8) <= B2R t ->
   DyadicLog.fast_asinh_pos fma t = Some (h, l, k) ->
   is_finite h = true /\ is_finite l = true /\ B2R h = RN (B2R h + B2R l) /\
   / 2 < Rabs (B2R h) < 2 /\ (-1021 <= k <= 1022)%Z /\
   Rabs (arcsinh (B2R t) * bpow radix2 (- k) - (B2R h + B2R l)) <= bpow radix2 (-68).
 Proof.
-intros fma t h l k Ft Ht.
+intros fma t h l k Ft Ht8.
 assert (FL : is_finite DyadicLog.ahyp_large = true) by reflexivity.
-assert (FS : is_finite DyadicLog.ahyp_small = true) by reflexivity.
+assert (HTS : bpow radix2 (-11) <= B2R t)
+  by (apply (Rle_trans _ (bpow radix2 (-8))); [apply bpow_le; lia | exact Ht8]).
+assert (Ht : bpow radix2 (-27) <= B2R t)
+  by (apply (Rle_trans _ (bpow radix2 (-8))); [apply bpow_le; lia | exact Ht8]).
 assert (Pt : 0 < B2R t) by (pose proof (bpow_gt_0 radix2 (-27)); lra).
 unfold DyadicLog.fast_asinh_pos. cbv zeta.
 destruct (Model.ge t DyadicLog.ahyp_large) eqn:Ege.
@@ -664,38 +546,32 @@ destruct (Model.ge t DyadicLog.ahyp_large) eqn:Ege.
   pose proof (ge_true t _ Ft FL Ege) as HTL. rewrite lit_large in HTL.
   destruct (asinh_large t Ft HTL) as (Fq & Hq & Hm & Hy20 & Herr).
   intros E. exact (fast_ln_dd_correct fma t _ 1 _ h l k Ft Fq Pt Hq ltac:(lia) Hm Hy20 Herr E).
-- pose proof (ge_false t _ Ft FL Ege) as HTL. rewrite lit_large in HTL.
+- (* Up to [2^26]: [ln(t + c)]. *)
+  pose proof (ge_false t _ Ft FL Ege) as HTL. rewrite lit_large in HTL.
   destruct (Fast.two_sum DyadicExp.one (mul t t)) as [ah al] eqn:Ea. cbv beta iota.
   destruct (asinh_sq fma t ah al Ft (conj Ht HTL) Ea) as (Fah & Fa2 & Hah & Ha2 & He).
   destruct (Fast.dd_sqrt fma ah (add al (Generic.two_prod_err fma t t (mul t t)))) as [ch cl] eqn:Ec.
   cbv beta iota.
   destruct (asinh_c fma ah _ ch cl (B2R t * B2R t) Fah Fa2 ltac:(nra) Hah Ha2 He Ec)
     as (Fch & Fcl & Ech & Hc).
-  destruct (Model.lt t DyadicLog.ahyp_small) eqn:Elt.
-  + (* Below [t = 2^-11]: [ln(1 + u)], [u = t + (c - 1)]. *)
-    pose proof (FastHypPos.lt_true _ _ Ft FS Elt) as HTS. rewrite lit_small in HTS.
-    destruct (Fast.fast_two_sum t (sub ch DyadicExp.one)) as [s w] eqn:Es. cbv beta iota.
-    destruct (Fast.fast_two_sum s (add w cl)) as [uh ul] eqn:Eu.
-    destruct (asinh_small t ch cl s w uh ul Ft (conj Ht HTS) Fch Fcl Ech Hc Es Eu)
-      as (Fuh & Ful & Bu & Lu & Ey).
-    intros E. exact (log1p_small_correct fma uh ul _ h l k Fuh Ful Bu Lu Ey E).
-  + (* Up to [2^26]: [ln(t + c)]. *)
-    pose proof (FastHypPos.lt_false _ _ Ft FS Elt) as HTS. rewrite lit_small in HTS.
-    destruct (Fast.fast_two_sum ch t) as [xh xl] eqn:Ex.
-    destruct (asinh_mid t ch cl xh xl Ft (conj HTS HTL) Fch Fcl Ech Hc Ex)
-      as (Fxh & Fxl & Pxh & Hxl & Hm & Hy20 & Herr).
-    intros E. exact (fast_ln_dd_correct fma xh (add xl cl) 0 _ h l k Fxh Fxl Pxh Hxl ltac:(lia)
-      Hm Hy20 Herr E).
+  destruct (Fast.fast_two_sum ch t) as [xh xl] eqn:Ex.
+  destruct (asinh_mid t ch cl xh xl Ft (conj HTS HTL) Fch Fcl Ech Hc Ex)
+    as (Fxh & Fxl & Pxh & Hxl & Hm & Hy20 & Herr).
+  intros E. exact (fast_ln_dd_correct fma xh (add xl cl) 0 _ h l k Fxh Fxl Pxh Hxl ltac:(lia)
+    Hm Hy20 Herr E).
 Qed.
 
 Theorem fast_asinh_pos_fma :
   forall t,
-  is_finite t = true -> bpow radix2 (-27) <= B2R t ->
+  is_finite t = true -> bpow radix2 (-8) <= B2R t ->
   DyadicLog.fast_asinh_pos true t = DyadicLog.fast_asinh_pos false t.
 Proof.
-intros t Ft Ht.
+intros t Ft Ht8.
 assert (FL : is_finite DyadicLog.ahyp_large = true) by reflexivity.
-assert (FS : is_finite DyadicLog.ahyp_small = true) by reflexivity.
+assert (HTS : bpow radix2 (-11) <= B2R t)
+  by (apply (Rle_trans _ (bpow radix2 (-8))); [apply bpow_le; lia | exact Ht8]).
+assert (Ht : bpow radix2 (-27) <= B2R t)
+  by (apply (Rle_trans _ (bpow radix2 (-8))); [apply bpow_le; lia | exact Ht8]).
 assert (Pt : 0 < B2R t) by (pose proof (bpow_gt_0 radix2 (-27)); lra).
 unfold DyadicLog.fast_asinh_pos. cbv zeta.
 destruct (Model.ge t DyadicLog.ahyp_large) eqn:Ege.
@@ -716,16 +592,8 @@ destruct (Model.ge t DyadicLog.ahyp_large) eqn:Ege.
   cbv beta iota.
   destruct (asinh_c false ah _ ch cl (B2R t * B2R t) Fah Fa2 ltac:(nra) Hah Ha2 He Ec)
     as (Fch & Fcl & Ech & Hc).
-  destruct (Model.lt t DyadicLog.ahyp_small) eqn:Elt.
-  + pose proof (FastHypPos.lt_true _ _ Ft FS Elt) as HTS. rewrite lit_small in HTS.
-    destruct (Fast.fast_two_sum t (sub ch DyadicExp.one)) as [s w] eqn:Es. cbv beta iota.
-    destruct (Fast.fast_two_sum s (add w cl)) as [uh ul] eqn:Eu.
-    destruct (asinh_small t ch cl s w uh ul Ft (conj Ht HTS) Fch Fcl Ech Hc Es Eu)
-      as (Fuh & Ful & Bu & Lu & _).
-    apply log1p_small_fma; assumption.
-  + pose proof (FastHypPos.lt_false _ _ Ft FS Elt) as HTS. rewrite lit_small in HTS.
-    destruct (Fast.fast_two_sum ch t) as [xh xl] eqn:Ex.
-    destruct (asinh_mid t ch cl xh xl Ft (conj HTS HTL) Fch Fcl Ech Hc Ex)
-      as (Fxh & _ & Pxh & _).
-    apply fast_ln_dd_fma; assumption.
+  destruct (Fast.fast_two_sum ch t) as [xh xl] eqn:Ex.
+  destruct (asinh_mid t ch cl xh xl Ft (conj HTS HTL) Fch Fcl Ech Hc Ex)
+    as (Fxh & _ & Pxh & _).
+  apply fast_ln_dd_fma; assumption.
 Qed.

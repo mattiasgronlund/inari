@@ -443,8 +443,8 @@ pub(super) const SHIFTER: f64 = 6_755_399_441_055_744.0;
 // The coefficients of the Taylor polynomials of the fast paths of sinh, cosh and tanh, as the
 // bits of `f64`s: `SH<n>` = RN(1/n!) for the odd n from 5 to 15 and `CH<n>` = RN(1/n!) for the
 // even n from 4 to 12, and `SH3` is 1/6 in double-double, [RN(1/6), RN(1/6 - RN(1/6))], within
-// 2^-110 of it.
-const SH3: [u64; 2] = [0x3fc5555555555555, 0x3c65555555555555];
+// 2^-110 of it, which the series of acosh near 1 in `src/dyadic/log.rs` takes too.
+pub(super) const SH3: [u64; 2] = [0x3fc5555555555555, 0x3c65555555555555];
 const SH5: u64 = 0x3f81111111111111;
 const SH7: u64 = 0x3f2a01a01a01a01a;
 const SH9: u64 = 0x3ec71de3a556c734;
@@ -458,7 +458,8 @@ const CH10: u64 = 0x3e927e4fb7789f5c;
 const CH12: u64 = 0x3e21eed8eff8d898;
 
 // 2^-63, 2^-67 and 2^-68: the error bounds of the fast paths of sinh, cosh and tanh that are
-// not computed from an exponent, and 2^-67 also that of x^y and x^n in `src/dyadic/pow.rs`.
+// not computed from an exponent, and 2^-67 also that of x^y and x^n in `src/dyadic/pow.rs` and
+// of asinh, acosh and atanh near their zeros in `src/dyadic/log.rs`.
 const ERR63: f64 = f64::EPSILON / 2048.0;
 pub(super) const ERR67: f64 = f64::EPSILON / 32768.0;
 const ERR68: f64 = f64::EPSILON / 65536.0;

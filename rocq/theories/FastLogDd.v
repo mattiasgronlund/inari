@@ -1,15 +1,12 @@
-(** * ln of a double-double, and ln(1 + u) for a small u, before the rounding
+(** * ln of a double-double, before the rounding
 
-    [DyadicLog.log1p_small] of [Model.v] takes [log1p_poly] ([FastLogPoly.v])
-    at [u = uh + ul] with [2^-30 <= uh <= 2^-10], where its error is below
-    [0.29 2^-69 uh], and normalises the sum as [fast_ln] does
-    ([FastLogFin.fl_finish]). [DyadicLog.fast_ln_dd] adds [e0 ln 2] and
-    [xl / xh] to the core of [xh] ([FastLogCore.v]), since
+    [DyadicLog.fast_ln_dd] of [Model.v] adds [e0 ln 2] and [xl / xh] to the
+    core of [xh] ([FastLogCore.v]), since
     [ln(xh + xl) = ln xh + ln(1 + xl / xh)] and [ln(1 + d)] is [d] within
-    [d^2 <= 2^-102] for [|d| <= 2^-51]. [log1p_small_correct] and
-    [fast_ln_dd_correct] show that the results are within [2^-68] of [y 2^-k]
-    for a [y] that the argument approximates, with [1/2 < |h| < 2], as the
-    rounding tests of [FastSign.v] need.
+    [d^2 <= 2^-102] for [|d| <= 2^-51]. [fast_ln_dd_correct] shows that the
+    result is within [2^-68] of [y 2^-k] for a [y] that the argument
+    approximates, with [1/2 < |h| < 2], as the rounding tests of [FastSign.v]
+    need.
 
     In [fast_ln_dd], [e + e0 <= 1025] follows from [xh 2^e0 <= 2^1025], so
     that [(e + e0) LN2H] is exact ([FastLogLn.fl_e_ln2h]). For [e + e0 = 0],
@@ -79,104 +76,6 @@ Qed.
 (** [ln 2^n = n ln 2]. *)
 Local Lemma ld_ln_bpow : forall n, ln (bpow radix2 n) = IZR n * ln 2.
 Proof. intros n. rewrite bpow_exp, ln_exp. reflexivity. Qed.
-
-(** The hypotheses of [log1p_poly_correct] and [log1p_poly_fma] on [uh]. *)
-Local Lemma ld_small :
-  forall uh : f64, bpow radix2 (-30) <= B2R uh <= bpow radix2 (-10) ->
-  Rabs (B2R uh) = B2R uh /\ Rabs (B2R uh) <= bpow radix2 (-9) /\
-  (B2R uh = 0 \/ bpow radix2 (-200) <= Rabs (B2R uh)).
-Proof.
-intros uh Huh.
-pose proof (bpow_gt_0 radix2 (-30)) as P30.
-assert (Au : Rabs (B2R uh) = B2R uh) by (apply Rabs_pos_eq; lra).
-assert (H10 : bpow radix2 (-10) <= bpow radix2 (-9)) by (apply bpow_le; lia).
-assert (H200 : bpow radix2 (-200) <= bpow radix2 (-30)) by (apply bpow_le; lia).
-rewrite Au. split; [reflexivity | split; [lra | right; lra]].
-Qed.
-
-(** ** [log1p_small] *)
-
-Theorem log1p_small_correct :
-  forall fma uh ul y h l k,
-  is_finite uh = true -> is_finite ul = true ->
-  bpow radix2 (-30) <= B2R uh <= bpow radix2 (-10) ->
-  Rabs (B2R ul) <= bpow radix2 (-53) * B2R uh ->
-  Rabs (y - ln (1 + (B2R uh + B2R ul))) <= bpow radix2 (-72) * Rabs y ->
-  DyadicLog.log1p_small fma uh ul = Some (h, l, k) ->
-  is_finite h = true /\ is_finite l = true /\ B2R h = RN (B2R h + B2R l) /\
-  / 2 < Rabs (B2R h) < 2 /\ (-1021 <= k <= 1022)%Z /\
-  Rabs (y * bpow radix2 (- k) - (B2R h + B2R l)) <= bpow radix2 (-68).
-Proof.
-intros fma uh ul y h l k Fuh Ful Huh Hul Hy E.
-destruct (ld_small uh Huh) as (Au & H9 & H200).
-assert (H53 : Rabs (B2R ul) <= bpow radix2 (-53) * Rabs (B2R uh)) by (rewrite Au; exact Hul).
-pose proof (log1p_poly_correct fma uh ul Fuh Ful H9 H200 H53) as Hp.
-unfold DyadicLog.log1p_small in E.
-destruct (DyadicLog.log1p_poly fma uh ul) as [ah pl].
-destruct Hp as (Fah & Fpl & Hah & Hpl & Herr).
-cbv beta iota in E.
-destruct (Fast.fast_two_sum ah pl) as [h0 l0] eqn:E2.
-rewrite Au in Hah, Hpl, Herr.
-assert (B9 : bpow radix2 (-9) = / 512) by reflexivity.
-assert (B10 : bpow radix2 (-10) = / 1024) by reflexivity.
-assert (B30 : bpow radix2 (-30) = / 1073741824) by reflexivity.
-assert (B51 : bpow radix2 (-51) = / 2251799813685248) by reflexivity.
-assert (U : bpow radix2 (-53) = / 9007199254740992) by reflexivity.
-assert (B56 : bpow radix2 (-56) = / 72057594037927936) by reflexivity.
-assert (B69 : bpow radix2 (-69) = / 590295810358705651712) by reflexivity.
-assert (B72 : bpow radix2 (-72) = / 4722366482869645213696) by reflexivity.
-assert (B103 : bpow radix2 (-103) = / 10141204801825835211973625643008) by reflexivity.
-rewrite B9 in Hah. rewrite B51 in Hpl. rewrite U, B103 in Herr. rewrite U in Hul.
-rewrite B10, B30 in Huh. rewrite B72 in Hy.
-(* [uh^3 <= 2^-20 uh], and so [|ul| uh^2 <= 2^-73 uh]. *)
-assert (Q2 : B2R uh ^ 2 <= / 1048576) by nra.
-assert (Q3 : B2R uh ^ 3 <= / 1048576 * B2R uh).
-{ replace (B2R uh ^ 3) with (B2R uh ^ 2 * B2R uh) by ring.
-  apply Rmult_le_compat_r; lra. }
-assert (Q4 : Rabs (B2R ul) * B2R uh ^ 2 <= / 9007199254740992 * (/ 1048576 * B2R uh)).
-{ apply Rle_trans with (/ 9007199254740992 * B2R uh * B2R uh ^ 2).
-  - apply Rmult_le_compat_r; [apply pow_le; lra | exact Hul].
-  - rewrite Rmult_assoc. apply Rmult_le_compat_l; [lra|].
-    replace (B2R uh * B2R uh ^ 2) with (B2R uh ^ 3) by ring. exact Q3. }
-(* The error of the polynomial: [(5/2 + 2) 2^-73 uh + 2^-103 uh <= 0.2813 2^-69 uh]. *)
-assert (Hp : Rabs (ln (1 + (B2R uh + B2R ul)) - (B2R ah + B2R pl)) <=
-  2813 / 10000 * / 590295810358705651712 * B2R uh) by lra.
-assert (Hpl' : Rabs (B2R pl) <= (/ 2097152 + / 2251799813685248) * B2R uh) by lra.
-clear Herr Hpl Q2 Q3 Q4.
-set (L := ln (1 + (B2R uh + B2R ul))) in *.
-(* [0.99 uh <= |L| <= 1.01 uh]. *)
-pose proof (fl_tri (B2R ah) (B2R ah + B2R pl) (- B2R pl) ltac:(ring)) as T1.
-pose proof (fl_tri (B2R ah + B2R pl) L (- (L - (B2R ah + B2R pl))) ltac:(ring)) as T2.
-pose proof (fl_tri L (B2R ah + B2R pl) (L - (B2R ah + B2R pl)) ltac:(ring)) as T3.
-pose proof (fl_tri (B2R ah + B2R pl) (B2R ah) (B2R pl) eq_refl) as T4.
-rewrite !Rabs_Ropp in T1, T2.
-assert (HL : 99 / 100 * B2R uh <= Rabs L <= 101 / 100 * B2R uh) by lra.
-clear T1 T2 T3 T4.
-(* [|y|] against [|L|]. *)
-pose proof (fl_tri L y (- (y - L)) ltac:(ring)) as T5.
-pose proof (fl_tri y L (y - L) ltac:(ring)) as T6.
-rewrite Rabs_Ropp in T5.
-pose proof (Rabs_pos y) as Y0.
-assert (Hyu : 98 / 100 * B2R uh <= Rabs y) by lra.
-apply (fl_finish ah pl h0 l0 h l k y Fah Fpl); [| lra | | | exact E2 | exact E].
-- left. lra.
-- right. rewrite B56. lra.
-- pose proof (fl_tri (y - (B2R ah + B2R pl)) (y - L) (L - (B2R ah + B2R pl)) ltac:(ring)) as T7.
-  rewrite B69. lra.
-Qed.
-
-Theorem log1p_small_fma :
-  forall uh ul,
-  is_finite uh = true -> is_finite ul = true ->
-  bpow radix2 (-30) <= B2R uh <= bpow radix2 (-10) ->
-  Rabs (B2R ul) <= bpow radix2 (-53) * B2R uh ->
-  DyadicLog.log1p_small true uh ul = DyadicLog.log1p_small false uh ul.
-Proof.
-intros uh ul Fuh _ Huh _.
-destruct (ld_small uh Huh) as (_ & H9 & H200).
-unfold DyadicLog.log1p_small.
-rewrite (log1p_poly_fma uh ul Fuh H9 H200). reflexivity.
-Qed.
 
 (** ** [fast_ln_dd] *)
 
