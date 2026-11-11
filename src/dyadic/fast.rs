@@ -30,10 +30,18 @@
 // finite binade, and return `None` for a larger e. Where e < -1022, or e = -1022 and h <= 1, so
 // that h 2^e <= 2^-1022, they round C + y once, on the grid of the `f64`s in [C, 2C] for
 // C = 2^(-1022 - e), instead of rounding h and scaling it, which would round a second time
-// (`round_dir_sub`, `round_near_sub`). Elsewhere `round_dir` and
-// `round_near` are right, at e = 1023 too: there the scaling of the `f64` after h = 2 - 2^-52 is
-// +∞, the rounding up of a y 2^1023 above the largest `f64`. `round_dir_err` and
-// `round_near_err` are right at e = 1023 in the same way.
+// (`round_dir_sub`, `round_near_sub`). Elsewhere `round_dir` and `round_near` are right, at
+// e = 1023 too: there the scaling of the `f64` after h = 2 - 2^-52 is +∞, the rounding up of a
+// y 2^1023 above the largest `f64`. `round_dir_err` and `round_near_err` are right at e = 1023
+// in the same way.
+//
+// `round_dir_wide_err` and `round_near_wide_err` are the same tests for a bound `err` = 2^-p, for
+// an integer p in [55, 105], in place of 2^-68, which x^y and x^n call at 2^-67 on the results
+// of `fast_exp_edge`. Their sub tests `round_dir_sub_err` and `round_near_sub_err` compare
+// u = RN(t + l), for s + t = C + h by Fast2Sum, with 2 err C (directed) and (2^-53 - 2 err) C
+// (to nearest), where `round_dir_sub` and `round_near_sub` take 2^-67 C and (2^-53 - 2^-67) C:
+// 2 err C bounds err and the rounding of u together, as C >= 1 and p <= 105. Elsewhere they
+// call `round_dir_err` and `round_near_err`.
 //
 // `rocq/theories/Model.v` transcribes this file except its tests and the test-only switch and
 // counter (`set_fast_path`, `fast_counts`), so it has to be updated along with it.
@@ -43,7 +51,9 @@
 // `rocq/theories/FastSign.v` `round_dir_signed` and `round_near_signed`,
 // `rocq/theories/FastRoundSub.v` `round_dir_sub` and `round_near_sub`, and
 // `rocq/theories/FastRoundWide.v` `round_dir_wide` and `round_near_wide`, and `round_dir_err`
-// and `round_near_err` at e = 1023.
+// and `round_near_err` at e = 1023 and at e = -1022 with h > 1.
+// `rocq/theories/FastRoundWideErr.v` proves `round_dir_sub_err`, `round_near_sub_err`,
+// `round_dir_wide_err` and `round_near_wide_err` correct.
 //
 // References:
 //
@@ -109,9 +119,10 @@ pub(crate) fn fast_counts() -> (usize, usize) {
     })
 }
 
-// Whether the fast paths are enabled on this thread.
+// Whether the fast paths are enabled on this thread. The fast path of `pow` reads it too, for
+// its rules on th, the high part of y ln x, which take no rounding test.
 #[cfg(test)]
-fn fast_enabled() -> bool {
+pub(crate) fn fast_enabled() -> bool {
     FAST.with(|f| f.get().0)
 }
 
@@ -384,6 +395,96 @@ pub(crate) fn round_near_wide(h: f64, l: f64, e: i64) -> Option<f64> {
         round_near_sub(h, l, e)
     } else {
         round_near(h, l, e)
+    }
+}
+
+// `round_dir_sub` for a fast path that bounds |y - (h + l)| by `err` = 2^-p, for an integer p in
+// [55, 105], in place of 2^-68: C + y is then within 2^-p + 2^-106 C of s + u, which is at most
+// 2 err C, as C >= 1 and p <= 105, so b = 2 err C is the bound on u (2^-67 C at err = 2^-68,
+// `round_dir_sub`'s bound).
+fn round_dir_sub_err(h: f64, l: f64, e: i64, err: f64, up: bool) -> Option<f64> {
+    #[cfg(test)]
+    if !fast_enabled() {
+        return None;
+    }
+    let c = sub_unit(e);
+    let (s, t) = fast_two_sum(c, h);
+    let u = t + l;
+    // 2 err C, exact as err and C are powers of 2.
+    let b = c * (2.0 * err);
+    let r = if s >= 2.0 * c {
+        // The gap above s is 2g, or C < h.
+        #[cfg(test)]
+        record_fast(false);
+        return None;
+    } else if u > b {
+        // s < C + y < the `f64` after s.
+        if up {
+            f64::from_bits(s.to_bits() + 1)
+        } else {
+            s
+        }
+    } else if u < -b {
+        // The `f64` before s < C + y < s.
+        if up {
+            s
+        } else {
+            f64::from_bits(s.to_bits() - 1)
+        }
+    } else {
+        #[cfg(test)]
+        record_fast(false);
+        return None;
+    };
+    #[cfg(test)]
+    record_fast(true);
+    Some(f64::from_bits(r.to_bits() - c.to_bits()))
+}
+
+// `round_near_sub` for a bound `err` as in `round_dir_sub_err`: C + y rounds to s where
+// |u| < 2^-53 C - 2 err C.
+fn round_near_sub_err(h: f64, l: f64, e: i64, err: f64) -> Option<f64> {
+    #[cfg(test)]
+    if !fast_enabled() {
+        return None;
+    }
+    let c = sub_unit(e);
+    let (s, t) = fast_two_sum(c, h);
+    let u = t + l;
+    // (2^-53 - 2 err) C: the subtraction is exact, as 2^-53 - 2^(1 - p) has at most 52
+    // significant bits for p <= 105, and so is the product by the power of 2 C.
+    let b = c * (GAP1 - 2.0 * err);
+    let passed = s < 2.0 * c && u < b && u > -b;
+    #[cfg(test)]
+    record_fast(passed);
+    if passed {
+        Some(f64::from_bits(s.to_bits() - c.to_bits()))
+    } else {
+        None
+    }
+}
+
+/// `round_dir_wide` for a fast path that bounds |y - (h + l)| by `err` = 2^-p, for an integer p
+/// in [55, 105], in place of 2^-68: `round_dir_sub_err` where `round_dir_wide` calls
+/// `round_dir_sub`, and `round_dir_err` where it calls `round_dir`.
+pub(crate) fn round_dir_wide_err(h: f64, l: f64, e: i64, err: f64, up: bool) -> Option<f64> {
+    if e > 1023 {
+        None
+    } else if e < -1022 || (e == -1022 && h <= 1.0) {
+        round_dir_sub_err(h, l, e, err, up)
+    } else {
+        round_dir_err(h, l, e, err, up)
+    }
+}
+
+/// `round_near_wide` for a bound `err` as in `round_dir_wide_err`.
+pub(crate) fn round_near_wide_err(h: f64, l: f64, e: i64, err: f64) -> Option<f64> {
+    if e > 1023 {
+        None
+    } else if e < -1022 || (e == -1022 && h <= 1.0) {
+        round_near_sub_err(h, l, e, err)
+    } else {
+        round_near_err(h, l, e, err)
     }
 }
 

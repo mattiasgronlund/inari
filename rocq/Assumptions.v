@@ -56,12 +56,12 @@ From Inari Require FastTrigTables FastTrigReduce FastTrigSC FastTrigEval FastTri
   FastTrigRound FastTrigBigInt FastTrigBigMul FastTrigBigDec FastTrigBigSum FastTrigBig
   FastTrigCore FastTrig.
 From Inari Require FastPowTaylor FastPowHorner FastPowCube FastPowPoly FastPowCore FastPowLn FastPowMul
-  FastPow.
+  FastPowRules FastPow.
 From Inari Require FastDdSqrt FastLogDd AsinhTaylor FastAhypOdd FastAhypNear1 FastAhypAsinh FastAhypAcosh
   FastAhypAtanh FastAhyp.
 From Inari Require FastAtanTables FastAtanPoly FastAtanCore FastAtan FastAsin.
-From Inari Require FastRoundSubBits FastRoundSubCommon FastRoundSub FastRoundWide FastExpEdge
-  FastExpByEdge.
+From Inari Require FastRoundSubBits FastRoundSubCommon FastRoundSub FastRoundWide FastRoundWideErr
+  FastExpEdge FastExpByEdge.
 From Inari Require KahanMcDonald DyTrigPos SideTight SideTheorems DyPointSide.
 From Inari Require ExpQuadratic PowFactor ExpIrrational CosNiven CosIrrational DyExactDriver
   DyExactPoint DyTrigExact DyExpPoint DyExpExact DyLogSeries DyLogPoint DyLogExact DyAtanExact.
@@ -344,6 +344,12 @@ Print Assumptions FastRoundWide.round_dir_wide_correct.
 Print Assumptions FastRoundWide.round_near_wide_correct.
 Print Assumptions FastRoundWide.round_dir_err_wide_correct.
 Print Assumptions FastRoundWide.round_near_err_wide_correct.
+Print Assumptions FastRoundWide.round_dir_err_normal_correct.
+Print Assumptions FastRoundWide.round_near_err_normal_correct.
+Print Assumptions FastRoundWideErr.round_dir_sub_err_correct.
+Print Assumptions FastRoundWideErr.round_near_sub_err_correct.
+Print Assumptions FastRoundWideErr.round_dir_wide_err_correct.
+Print Assumptions FastRoundWideErr.round_near_wide_err_correct.
 Print Assumptions FastExpEdge.fast_exp_edge_in.
 Print Assumptions FastExpEdge.fast_exp_edge_correct.
 Print Assumptions FastExpEdge.fast_exp_edge_fma.
@@ -458,7 +464,11 @@ Print Assumptions FastPowLn.ln_acc_correct.
 Print Assumptions FastPowLn.ln_acc_fma.
 Print Assumptions FastPowMul.fast_pow_mul.
 Print Assumptions FastPowMul.fast_pow_mul_one.
+Print Assumptions FastPowMul.fast_pow_mul_wide.
+Print Assumptions FastPowRules.fast_pow_overflow.
+Print Assumptions FastPowRules.fast_pow_underflow.
 Print Assumptions FastPow.fast_pow_correct.
+Print Assumptions FastPow.fast_pow_edge_correct.
 Print Assumptions FastPow.fast_pow_dir_correct.
 Print Assumptions FastPow.fast_pow_near_correct.
 Print Assumptions FastPow.fast_pow_dir_fma.

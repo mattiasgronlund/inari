@@ -1837,6 +1837,40 @@ Definition round_near_wide (h l : f64) (e : Z) : option f64 :=
   else if (e <? -1022)%Z || ((e =? -1022)%Z && le h one) then round_near_sub h l e
   else round_near h l e.
 
+(** [fn round_dir_sub_err(h: f64, l: f64, e: i64, err: f64, up: bool) ->
+    Option<f64>] and [fn round_near_sub_err(h: f64, l: f64, e: i64, err:
+    f64) -> Option<f64>], with the bits as in [round_dir_sub]. *)
+Definition round_dir_sub_err (h l : f64) (e : Z) (err : f64) (up : bool) : option f64 :=
+  let c := sub_unit e in
+  let '(s, t) := fast_two_sum c h in
+  let u := add t l in
+  let b := mul c (mul two err) in
+  let r := if ge s (mul two c) then None
+    else if gt u b then Some (if up then from_bits (to_bits s + 1) else s)
+    else if lt u (opp b) then Some (if up then s else from_bits (to_bits s - 1))
+    else None in
+  match r with Some r => Some (from_bits (to_bits r - to_bits c)) | None => None end.
+Definition round_near_sub_err (h l : f64) (e : Z) (err : f64) : option f64 :=
+  let c := sub_unit e in
+  let '(s, t) := fast_two_sum c h in
+  let u := add t l in
+  let b := mul c (sub gap1 (mul two err)) in
+  if lt s (mul two c) && lt u b && gt u (opp b) then Some (from_bits (to_bits s - to_bits c))
+  else None.
+
+(** [pub(crate) fn round_dir_wide_err(h: f64, l: f64, e: i64, err: f64,
+    up: bool) -> Option<f64>] and [pub(crate) fn round_near_wide_err(h:
+    f64, l: f64, e: i64, err: f64) -> Option<f64>].
+    [FastRoundWideErr.v] proves the four. *)
+Definition round_dir_wide_err (h l : f64) (e : Z) (err : f64) (up : bool) : option f64 :=
+  if (1023 <? e)%Z then None
+  else if (e <? -1022)%Z || ((e =? -1022)%Z && le h one) then round_dir_sub_err h l e err up
+  else round_dir_err h l e err up.
+Definition round_near_wide_err (h l : f64) (e : Z) (err : f64) : option f64 :=
+  if (1023 <? e)%Z then None
+  else if (e <? -1022)%Z || ((e =? -1022)%Z && le h one) then round_near_sub_err h l e err
+  else round_near_err h l e err.
+
 (** [pub(crate) fn round_dir_signed(h: f64, l: f64, e: i64, up: bool) ->
     Option<f64>] and [pub(crate) fn round_near_signed(h: f64, l: f64, e:
     i64) -> Option<f64>], where [.map(|r| -r)] is the [match].
@@ -3402,7 +3436,7 @@ Definition ln_core_acc (fma : bool) (x : f64) : Z * f64 * f64 :=
   (e, a_h, a_l).
 
 (** [pub(super) fn ln_acc(x: f64) -> (f64, f64)], where [e as f64] is
-    [of_i64 e], for [DyadicPow.fast_pow]. [FastPowLn.v] proves it. *)
+    [of_i64 e], for [DyadicPow.pow_t]. [FastPowLn.v] proves it. *)
 Definition ln_acc (fma : bool) (x : f64) : f64 * f64 :=
   let '(e, a_h, a_l) := ln_core_acc fma x in
   let ef := of_i64 e in
@@ -5262,27 +5296,69 @@ Definition ev_pow (x y : f64) (n : nat) : option Dyadic.encl :=
   let* w := if less then Dyadic.encl_add n zl ya else Dyadic.encl_sub n zl ya in
   DyadicExp.scaled n w k h l.
 
-(** [fn fast_pow(x: f64, y: f64) -> Option<(f64, f64, i64)>], [fn
-    fast_pow_dir(x: f64, y: f64, up: bool) -> Option<f64>] and [fn
-    fast_pow_near(x: f64, y: f64) -> Option<f64>], where [fma] is
-    [HAS_FMA] and [?] is a [match]. [FastPow.v] proves them. *)
-Definition fast_pow (fma : bool) (x y : f64) : option (f64 * f64 * Z) :=
+(** [fn pow_t(x: f64, y: f64) -> (f64, f64)], where [fma] is [HAS_FMA].
+    [FastPowMul.v] bounds it. *)
+Definition pow_t (fma : bool) (x y : f64) : f64 * f64 :=
   let '(lh, ll) := DyadicLog.ln_acc fma x in
   let th := mul y lh in
-  let tl := add (Generic.two_prod_err fma y lh th) (mul y ll) in
-  DyadicExp.fast_exp fma th tl.
+  (th, add (Generic.two_prod_err fma y lh th) (mul y ll)).
 
+(** [T_OVER] and [T_UNDER]: 709.7828 and -746. [FastPowRules.v] proves
+    the rules on them. *)
+Definition t_over : f64 := from_bits 0x40862e432ca57a78.
+Definition t_under : f64 := from_bits 0xc087500000000000.
+
+(** [fn fast_pow_wide_dir(th: f64, tl: f64, up: bool) -> Option<f64>] and
+    [fn fast_pow_wide_near(th: f64, tl: f64) -> Option<f64>], where [?]
+    is a [match] and [f64::INFINITY] and [0.0] are [infinity] and [zero].
+    [FastPow.v] proves them as part of [fast_pow_dir] and [fast_pow_near]. *)
+Definition fast_pow_wide_dir (fma : bool) (th tl : f64) (up : bool) : option f64 :=
+  if ge th t_over then Some (DyadicExp.overflow up)
+  else if le th t_under then Some (DyadicExp.underflow up)
+  else
+    match DyadicExp.fast_exp_edge fma th tl with
+    | Some (h, l, e) => Fast.round_dir_wide_err h l e DyadicExp.err67 up
+    | None => None
+    end.
+
+Definition fast_pow_wide_near (fma : bool) (th tl : f64) : option f64 :=
+  if ge th t_over then Some infinity
+  else if le th t_under then Some zero
+  else
+    match DyadicExp.fast_exp_edge fma th tl with
+    | Some (h, l, e) => Fast.round_near_wide_err h l e DyadicExp.err67
+    | None => None
+    end.
+
+(** [fn fast_pow_dir(x: f64, y: f64, up: bool) -> Option<f64>] and [fn
+    fast_pow_near(x: f64, y: f64) -> Option<f64>]. [FastPow.v] proves
+    them. *)
 Definition fast_pow_dir (fma : bool) (x y : f64) (up : bool) : option f64 :=
-  match fast_pow fma x y with
+  let '(th, tl) := pow_t fma x y in
+  match DyadicExp.fast_exp fma th tl with
   | Some (h, l, e) => Fast.round_dir_err h l e DyadicExp.err67 up
-  | None => None
+  | None => fast_pow_wide_dir fma th tl up
   end.
 
 Definition fast_pow_near (fma : bool) (x y : f64) : option f64 :=
-  match fast_pow fma x y with
+  let '(th, tl) := pow_t fma x y in
+  match DyadicExp.fast_exp fma th tl with
   | Some (h, l, e) => Fast.round_near_err h l e DyadicExp.err67
-  | None => None
+  | None => fast_pow_wide_near fma th tl
   end.
+
+(** [fn fast_pow_dir_call(x: f64, y: f64, up: bool) -> Option<f64>] and
+    [fn fast_pow_near_call(x: f64, y: f64) -> Option<f64>], which [pow]
+    and [pow_near] call: [fast_pow_dir] and [fast_pow_near] behind
+    [#[inline(never)]], where those are [#[inline(always)]], so that
+    [pown_pos] and [pown_pos_near] inline the fast path and [pow] and
+    [pow_near] call it. [Model.v] has no attributes. [DyPow.v] and
+    [DyPowNear.v] use them. *)
+Definition fast_pow_dir_call (fma : bool) (x y : f64) (up : bool) : option f64 :=
+  fast_pow_dir fma x y up.
+
+Definition fast_pow_near_call (fma : bool) (x y : f64) : option f64 :=
+  fast_pow_near fma x y.
 
 (** The functions of the file with [ziv] a parameter: [pow_dir_with ziv] is
     [pow] with [ziv] for [Dyadic.ziv], and [pow_dir] after the section is
@@ -5369,7 +5445,7 @@ Definition pow_dir_with (x y : f64) (up : bool) : option f64 :=
       | None =>
           if eq (of_i64 (to_i32 y)) y then pown_pos_with x (to_i32 y) up
           else
-            match fast_pow_dir false x y up with
+            match fast_pow_dir_call false x y up with
             | Some v => Some v
             | None =>
                 ziv (ev_pow x y) up (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
@@ -5439,7 +5515,7 @@ Definition pow_near_with (x y : f64) : option f64 :=
       | None =>
           if eq (of_i64 (to_i32 y)) y then pown_pos_near_with x (to_i32 y)
           else
-            match fast_pow_near false x y with
+            match fast_pow_near_call false x y with
             | Some v => Some v
             | None =>
                 ziv_near (ev_pow x y) (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)

@@ -253,7 +253,7 @@ destruct (DyadicPow.exact x y) as [[w|]|] eqn:Ex; [| | discriminate E].
     rewrite <- I, <- (powerRZ_Rpower _ _ Px).
     exact (DyPown.pown_pos_post z post Hp Hz x _ up v Fx Px Hk Hi E).
   + (* The fast path, where [|y ln x| >= 2^-57], then the driver. *)
-    destruct (DyadicPow.fast_pow_dir false x y up) eqn:F; cbv iota in E.
+    destruct (DyadicPow.fast_pow_dir_call false x y up) eqn:F; cbv iota in E.
     { injection E as <-. apply Hp.
       apply (FastPow.fast_pow_dir_correct false x y up _ Fx Px Fy); [| exact F].
       right. destruct (pow_rule_bounds x y Fx Px X1 Fy Y0) as ([Hb _] & _).
@@ -295,7 +295,8 @@ destruct (DyadicPow.exact x y) as [[w|]|]; [exact (fun h => h) | | exact (fun h 
 cbv beta iota.
 destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y);
   [apply DyPown.pown_pos_strict |].
-destruct (DyadicPow.fast_pow_dir false x y up); [exact (fun h => h) | apply ziv_strict_ziv].
+destruct (DyadicPow.fast_pow_dir_call false x y up);
+  [exact (fun h => h) | apply ziv_strict_ziv].
 Qed.
 
 Lemma pow_dir_exact_with :

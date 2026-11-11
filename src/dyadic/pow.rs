@@ -46,18 +46,29 @@
 //
 // x^y and x^n try a fast path in double-double before `ziv` and `ziv_near` (`fast_pow_dir` and
 // `fast_pow_near`): `pow` and `pow_near` after `exact` and `exact_near` and after the integer y
-// that they pass to x^n, and `pown_pos` and `pown_pos_near` after their two rules, at y = n.
-// It computes ln x as lh + ll within 17/16 2^-79 |ln x| (`ln_acc` of `src/dyadic/log.rs`),
-// t = y ln x as th + tl within 3/4 2^-69 of it, with th = RN(y lh) and the error of that
-// product, which is exact there, and e^t by `fast_exp` of `src/dyadic/exp.rs`, as h + l with
-// x^y 2^-e within 2^-67 of it, and rounds that with the tests of `src/dyadic/fast.rs` at 2^-67
-// (`round_dir_err` and `round_near_err`). Where th is out of the range of `fast_exp` or a test
-// fails, the function calls `ziv` or `ziv_near` as before. The x^y that are `f64`s do not
-// reach the fast path, as `exact` and `exact_near` settle them first, and neither do, in
-// `pow_near`, the midpoints, which `exact_near` settles. At an x^n that is an `f64`, the
-// directed test fails, as it passes only where the scaled result lies strictly between two
-// adjacent `f64`s, and the loop settles x^n at its first level as above. Where the fast path
-// returns, it returns the correct rounding, at these arguments too.
+// that they pass to x^n, through the out-of-line `fast_pow_dir_call` and `fast_pow_near_call`,
+// and `pown_pos` and `pown_pos_near` after their two rules, at y = n, inlined (the comment on
+// `fast_pow_dir_call` says why). It computes ln x as lh + ll within 17/16 2^-79 |ln x|
+// (`ln_acc` of `src/dyadic/log.rs`) and t = y ln x as th + tl, with th = RN(y lh) and the error
+// of that product, which is exact there (`pow_t`). For th in [-707, 709], the range of
+// `fast_exp` of `src/dyadic/exp.rs`, th + tl is within 3/4 2^-69 of t, and `fast_exp` gives
+// e^(th + tl) as h + l with x^y 2^-e within 2^-67 of it, which the tests of
+// `src/dyadic/fast.rs` round at 2^-67 (`round_dir_err` and `round_near_err`). Beyond that
+// range, th alone settles x^y where th >= `T_OVER`, at which x^y is above 2^1024, and where
+// th <= `T_UNDER`, at which it is below 2^-1075, with the results of the rules of `pow` and
+// `pow_near` that bound |t| from the exponents. Between those bounds and that range, where
+// -746 < th < -707 or 709 < th < `T_OVER`, th + tl is within 13/16 2^-69 of t, as it is for
+// every |th| <= 752. There `fast_exp_edge` of `src/dyadic/exp.rs` gives e^(th + tl) as h + l
+// with x^y 2^-e again within 2^-67 of it, and `round_dir_wide_err` and `round_near_wide_err`
+// round that once at 2^-67, the subnormal results and those below 2^-1074 included. They
+// return `None` where the exponent of `fast_exp_edge` is 1024, at y ln x in about
+// (709.78263, `T_OVER`), where x^y is 2^1024 or more, or less than 2^-13 below it, relative.
+// Where the fast path returns `None`, the function calls `ziv` or `ziv_near` as before. The
+// x^y that are `f64`s do not reach the fast path, as `exact` and `exact_near` settle them
+// first, and neither do, in `pow_near`, the midpoints, which `exact_near` settles. At an x^n
+// that is an `f64`, the directed test fails, as it passes only where the scaled result lies
+// strictly between two adjacent `f64`s, and the loop settles x^n at its first level as above.
+// Where the fast path returns, it returns the correct rounding, at these arguments too.
 //
 // `rocq/theories/Model.v` transcribes each function of this file except the tests, so it has
 // to be updated along with them. `rocq/theories/DyPow.v` and `rocq/theories/DyPown.v` prove
@@ -71,7 +82,11 @@
 // to x^n, and `rocq/theories/FastPow.v` for the fast path. `DyPown.v` proves the rules of x^n
 // and binary powering. `FastPow.v` proves that the fast path returns x^y rounded, with and
 // without an FMA, from `rocq/theories/FastPowLn.v` for `ln_acc`, `rocq/theories/FastPowMul.v`
-// for t and `rocq/theories/FastExpCore.v` for `fast_exp`. These files also show that
+// for t, `rocq/theories/FastExpCore.v` for `fast_exp`, `rocq/theories/FastPowRules.v` for the
+// rules on th, `rocq/theories/FastExpEdge.v` for `fast_exp_edge` and
+// `rocq/theories/FastRoundWideErr.v` for `round_dir_wide_err` and `round_near_wide_err`.
+// `DyPow.v` and `DyPowNear.v` take the fast path of `pow` and `pow_near` through the models
+// of `fast_pow_dir_call` and `fast_pow_near_call`. These files also show that
 // `exact` finds every argument that reaches it whose exact result is an `f64`, and that both
 // functions return that `f64` at every finite argument whose exact result is one, with x > 0
 // for x^y and x other than 0 for x^n. `rocq/theories/DyPowNear.v` proves that `pow_near` and
@@ -89,8 +104,10 @@
 
 use super::{
     consts::ln2,
-    exp::{fast_exp, mul_f64, mul_int, near_one, overflow, scaled, underflow, ERR67},
-    fast::{round_dir_err, round_near_err},
+    exp::{
+        fast_exp, fast_exp_edge, mul_f64, mul_int, near_one, overflow, scaled, underflow, ERR67,
+    },
+    fast::{round_dir_err, round_dir_wide_err, round_near_err, round_near_wide_err},
     log::{ln_acc, reduce},
     round, ziv, ziv_near, Dyadic, Encl, Eval,
 };
@@ -298,32 +315,113 @@ fn to_k(c: f64) -> i64 {
     k
 }
 
-// x^y = e^(y ln x) for a finite x > 0, as (h, l, e) with x^y 2^-e within 2^-67 of h + l,
-// h = RN(h + l), 1/2 < h < 2 and e in [-1021, 1022], from t = y ln x in double-double and
-// `fast_exp`, or `None` where t is out of the range of `fast_exp`. ln x is lh + ll within
-// 17/16 2^-79 |ln x| (`ln_acc`), y lh is exact as th + `two_prod_err`, and so t = th + tl is
-// within about 2^-69.4 of y ln x where |th| <= 709. `rocq/theories/FastPow.v` proves it, for
-// 2^-60 <= |y ln x|, and for x = 1 and |y| <= 2^900, where t = 0 (`fast_pow_correct`).
-fn fast_pow(x: f64, y: f64) -> Option<(f64, f64, i64)> {
+// t = y ln x as th + tl for a finite x > 0: ln x is lh + ll within 17/16 2^-79 |ln x|
+// (`ln_acc`), th = RN(y lh), and tl is the error of that product, `two_prod_err`, plus
+// RN(y ll). Where 2^-60 <= |y ln x| and |th| <= 752, y lh is exact as th plus that error, and
+// t is within 13/16 2^-69 of y ln x, and within 3/4 2^-69 where |th| <= 709
+// (`rocq/theories/FastPowMul.v`). At x = 1 and |y| <= 2^900, th and tl are zeros.
+fn pow_t(x: f64, y: f64) -> (f64, f64) {
     let (lh, ll) = ln_acc(x);
     let th = y * lh;
-    let tl = two_prod_err::<HAS_FMA>(y, lh, th) + y * ll;
-    fast_exp(th, tl)
+    (th, two_prod_err::<HAS_FMA>(y, lh, th) + y * ll)
 }
+
+// The bounds on th past which the fast path settles x^y by rules: th >= `T_OVER` gives
+// y ln x > 1024 ln 2 = 709.78271..., so that x^y is above the largest `f64`, and th <= `T_UNDER`
+// gives y ln x < -1075 ln 2 = -745.13..., so that x^y is below 2^-1075, as th is within
+// 2^-51 |th| of y ln x (`rocq/theories/FastPowRules.v`). `T_OVER` is the `f64` nearest to
+// 709.7828, 8.7e-5 above 1024 ln 2; `T_UNDER` is the bound of the rule of e^x.
+const T_OVER: f64 = 709.7828;
+const T_UNDER: f64 = -746.0;
 
 // x^y rounded toward +∞ if `up` and toward -∞ otherwise, and to nearest, by the fast path, or
-// `None` where its rounding test fails or y ln x is out of its range.
-// `rocq/theories/FastPow.v` proves that they return those roundings (`fast_pow_dir_correct`
-// and `fast_pow_near_correct`), and the same with and without an FMA (`fast_pow_dir_fma` and
-// `fast_pow_near_fma`), with the hypotheses of `fast_pow_correct`.
+// `None` where its rounding test fails or y ln x is out of its range. Where th is in the range
+// of `fast_exp`, e^(th + tl) is h + l with x^y 2^-e within 2^-67 of it, which the tests round
+// at 2^-67 (`round_dir_err` and `round_near_err`); out of it, `fast_pow_wide_dir` and
+// `fast_pow_wide_near` take over. `rocq/theories/FastPow.v` proves that they return those
+// roundings (`fast_pow_dir_correct` and `fast_pow_near_correct`), and the same with and without
+// an FMA (`fast_pow_dir_fma` and `fast_pow_near_fma`), for 2^-60 <= |y ln x|, and for x = 1
+// and |y| <= 2^900, where th = tl = 0 (`fast_pow_correct`). These two and the two below are
+// always inlined, and `pow` and `pow_near` call them through `fast_pow_dir_call` and
+// `fast_pow_near_call`, whose comment says why.
+#[inline(always)]
 fn fast_pow_dir(x: f64, y: f64, up: bool) -> Option<f64> {
-    let (h, l, e) = fast_pow(x, y)?;
-    round_dir_err(h, l, e, ERR67, up)
+    let (th, tl) = pow_t(x, y);
+    match fast_exp(th, tl) {
+        Some((h, l, e)) => round_dir_err(h, l, e, ERR67, up),
+        None => fast_pow_wide_dir(th, tl, up),
+    }
 }
 
+#[inline(always)]
 fn fast_pow_near(x: f64, y: f64) -> Option<f64> {
-    let (h, l, e) = fast_pow(x, y)?;
-    round_near_err(h, l, e, ERR67)
+    let (th, tl) = pow_t(x, y);
+    match fast_exp(th, tl) {
+        Some((h, l, e)) => round_near_err(h, l, e, ERR67),
+        None => fast_pow_wide_near(th, tl),
+    }
+}
+
+// The fast path for a th out of the range of `fast_exp`: the overflow and the underflow of
+// `exp`'s rules where th >= `T_OVER` or th <= `T_UNDER`, and between them, where
+// -746 < th < -707 or 709 < th < `T_OVER`, e^(th + tl) by `fast_exp_edge` with x^y 2^-e within
+// 2^-67 of h + l, which `round_dir_wide_err` and `round_near_wide_err` round once, subnormal
+// results included. Where `fast_exp_edge` gives e = 1024 (y ln x in about
+// (709.78263, `T_OVER`), around 1024 ln 2), the tests fail. `rocq/theories/FastPow.v` proves
+// them as part of `fast_pow_dir` and `fast_pow_near` (`fast_pow_dir_correct` and
+// `fast_pow_near_correct`).
+#[inline(always)]
+fn fast_pow_wide_dir(th: f64, tl: f64, up: bool) -> Option<f64> {
+    #[cfg(test)]
+    if !super::fast::fast_enabled() {
+        return None;
+    }
+    if th >= T_OVER {
+        Some(overflow(up))
+    } else if th <= T_UNDER {
+        Some(underflow(up))
+    } else {
+        let (h, l, e) = fast_exp_edge(th, tl)?;
+        round_dir_wide_err(h, l, e, ERR67, up)
+    }
+}
+
+#[inline(always)]
+fn fast_pow_wide_near(th: f64, tl: f64) -> Option<f64> {
+    #[cfg(test)]
+    if !super::fast::fast_enabled() {
+        return None;
+    }
+    if th >= T_OVER {
+        Some(f64::INFINITY)
+    } else if th <= T_UNDER {
+        Some(0.0)
+    } else {
+        let (h, l, e) = fast_exp_edge(th, tl)?;
+        round_near_wide_err(h, l, e, ERR67)
+    }
+}
+
+// `fast_pow_dir` and `fast_pow_near` out of line, for `pow` and `pow_near`, while `pown_pos`
+// and `pown_pos_near` inline them, with the wide functions, which are always inlined too
+// (counted with cachegrind, in instructions per call, on sets of x^y and x^n). Left to the
+// compiler, `pown_pos` called `fast_pow_dir` out of line, and most of the sets of x^n and of
+// x^y at an integer y took about 4 to 10 more than before the wide functions. With those two
+// inlined and the wide functions not, the `Option` that the call of a wide function returns
+// met the result of the range of `fast_exp` before the caller's `if let`, a merge that the
+// compiler did not thread away: one more branch per call of `pown_pos` and `pown_pos_near`,
+// and 2.5 and 5 more instructions. With all four inlined, those sets take at most as many as
+// before the wide functions, and two of them about 16 fewer. Inlined into `pow` and `pow_near`
+// as well, the fast path took 10 to 16 more than left to the compiler on four sets of x^y at
+// other y; behind these calls, the sets of x^y take at most half an instruction more.
+#[inline(never)]
+fn fast_pow_dir_call(x: f64, y: f64, up: bool) -> Option<f64> {
+    fast_pow_dir(x, y, up)
+}
+
+#[inline(never)]
+fn fast_pow_near_call(x: f64, y: f64) -> Option<f64> {
+    fast_pow_near(x, y)
 }
 
 /// x^y rounded toward +∞ if `up` and toward -∞ otherwise, and NaN for a finite x < 0 and for
@@ -387,7 +485,7 @@ pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64 {
             // 2 log2 |y| products of enclosures, and a quotient for y < 0, where `Pow`
             // evaluates a logarithm and an exponential, as the header says.
             pown_pos(x, y as i32, up)
-        } else if let Some(v) = fast_pow_dir(x, y, up) {
+        } else if let Some(v) = fast_pow_dir_call(x, y, up) {
             v
         } else {
             // The evaluation loses about the bits of |y a| + 1, and |y a| <= min(|t|, |y| / 2).
@@ -461,7 +559,7 @@ pub(crate) fn pow_near(x: f64, y: f64) -> f64 {
         } else if f64::from(y as i32) == y {
             // An integer y from -2^31 to 2^31 - 1, as in `pow`.
             pown_pos_near(x, y as i32)
-        } else if let Some(v) = fast_pow_near(x, y) {
+        } else if let Some(v) = fast_pow_near_call(x, y) {
             v
         } else {
             let start = if ey.min(s + 4) >= POW_START_BITS {

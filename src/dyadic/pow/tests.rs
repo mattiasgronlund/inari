@@ -1071,6 +1071,98 @@ fn fast_path_edges() {
     t.print("i32 ends");
 }
 
+// The th = RN(y lh) of `pow_t` past the range of `fast_exp` at which the fast path of x^y changes
+// arms or its result changes binade: `T_OVER`, from which a rule gives the overflow, and
+// 1024 ln 2 = 709.78271..., above which x^y overflows; (1024 - 1/8192) ln 2, from which the
+// exponent of `fast_exp_edge` is 1024, so that its tests fail; `T_UNDER` = -746, from which a
+// rule gives the underflow; -1075 ln 2 = -745.133... and -1074 ln 2 = -744.440..., where x^y
+// crosses 2^-1075 and 2^-1074; -1022 ln 2 = -708.396..., where it crosses 2^-1022; -707 and
+// 709, the ends of the range of `fast_exp`; and -707 - 64 ln 2 = -751.36... and
+// 709 + 4 ln 2 = 711.77..., the ends of that of `fast_exp_edge`, past the rules.
+fn th_edges() -> [f64; 11] {
+    let ln2 = std::f64::consts::LN_2;
+    [
+        T_OVER,
+        1024.0 * ln2,
+        (1024.0 - 1.0 / 8192.0) * ln2,
+        T_UNDER,
+        -1075.0 * ln2,
+        -1074.0 * ln2,
+        -1022.0 * ln2,
+        -707.0,
+        709.0,
+        -707.0 - 64.0 * ln2,
+        709.0 + 4.0 * ln2,
+    ]
+}
+
+// x near 1, mid, large, small and subnormal x, at which y ln x reaches the th of `th_edges` at
+// |y| from about 1 to about 2^62.
+fn edge_xs() -> [f64; 18] {
+    [
+        1.0 + pow2(-52),
+        1.0 - pow2(-53),
+        1.0 + 3.0 * pow2(-40),
+        1.0 - 5.0 * pow2(-30),
+        1.0 + 1.37 * pow2(-21),
+        0.7,
+        1.5,
+        3.3,
+        10.1,
+        1.3 * pow2(100),
+        1.7 * pow2(1000),
+        f64::MAX,
+        0.9 * pow2(-100),
+        1.1 * pow2(-1000),
+        pow2(-1022),
+        f64::from_bits(1),
+        f64::from_bits(1 << 40),
+        f64::from_bits((1 << 52) - 1),
+    ]
+}
+
+// x^y and x^n at the th of `th_edges`, as `agree_pow` and `agree_pown` check them: y within 8
+// `f64`s of t / ln x for each t and each x of `edge_xs`, at which th crosses each t that is an
+// `f64` (`T_OVER`, `T_UNDER`, -707 and 709), and n within 2 of t / ln x where that is an `i32`.
+// Most failed tests are next to -1075 ln 2, -1074 ln 2 and -1022 ln 2, where x^y is within the
+// bound 2^-67 2^e of 2^-1075, a midpoint, or of the `f64`s 2^-1074 and 2^-1022, and at n = 1,
+// where x^1 = x is exact.
+#[test]
+fn fast_path_wide_edges() {
+    let mut t = Tally::default();
+    for s in th_edges() {
+        for x in edge_xs() {
+            let ys = around(s / x.ln(), 8);
+            if [T_OVER, T_UNDER, -707.0, 709.0].contains(&s) {
+                let ths: Vec<f64> = ys.iter().map(|&y| pow_t(x, y).0).collect();
+                assert!(
+                    ths.iter().any(|&th| th < s) && ths.iter().any(|&th| th > s),
+                    "x = {x:e}: th does not cross {s}"
+                );
+            }
+            for y in ys {
+                t.add(agree_pow(x, y));
+            }
+            // `as` saturates, so that an n out of the range of `i32` fails `try_from`.
+            let n = (s / x.ln()).round() as i64;
+            for m in n - 2..=n + 2 {
+                if let Ok(m) = i32::try_from(m) {
+                    t.add(agree_pown(x, m));
+                }
+            }
+        }
+    }
+    t.print("wide edges");
+}
+
+// e^(th + tl) for the th and tl of `pow_t`, as (h, l, e) with x^y 2^-e within 2^-67 of h + l,
+// or `None` where th is out of the range of `fast_exp`: the part of `fast_pow_dir` and
+// `fast_pow_near` before their rounding tests in that range (`fast_pow_correct`).
+fn fast_pow(x: f64, y: f64) -> Option<(f64, f64, i64)> {
+    let (th, tl) = pow_t(x, y);
+    fast_exp(th, tl)
+}
+
 // 2^-57, 2^10 times the bound 2^-67 of the fast path (`ERR67`).
 const WIDE: f64 = 1024.0 * ERR67;
 
@@ -1274,3 +1366,5 @@ mod levels;
 mod near;
 mod near_floats;
 mod rules;
+mod wide_random;
+mod wide_signs;

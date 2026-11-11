@@ -1,10 +1,10 @@
 (** * The product y ln x of the fast path of [pow]
 
-    [DyadicPow.fast_pow] of [Model.v] computes [t = y ln x] as [th + tl],
+    [DyadicPow.pow_t] of [Model.v] computes [t = y ln x] as [th + tl],
     with [(lh, ll) = DyadicLog.ln_acc x] ([FastPowLn.v]), [th = RN(y lh)]
     and [tl] the error of that product (TwoProduct, [TwoProduct.v]) plus
-    [RN(y ll)], and passes them to [DyadicExp.fast_exp], which returns
-    [None] unless [|th| <= 709].
+    [RN(y ll)], for [DyadicExp.fast_exp], which returns [None] unless
+    [|th| <= 709], and for [DyadicExp.fast_exp_edge] beyond.
 
     [fast_pow_mul] covers [|y ln x| >= 2^-60] and [|th| <= 709]: then [x
     <> 1], so [|ln x| >= 2^-54] ([FastLogNorm.ln_f64_ne1]) and [|y| <
@@ -12,9 +12,11 @@
     error with and without an FMA; [|tl| <= 2^-40], as [fast_exp] needs;
     and [th + tl] is within [3/4 2^-69] of [y ln x]: [17/16 2^-79 |y ln
     x|] from [ln_acc], with [|y ln x| <= 709.001], plus the two roundings
-    of [tl], below [2^-92]. [fast_pow_mul_one] covers [x = 1]: [ln_acc]
-    returns zeros there, and so do the product and its error, for [|y|
-    <= 2^900]. *)
+    of [tl], below [2^-92]. [fast_pow_mul_wide] is the same for [|th| <=
+    752], with [|tl| <= 3 2^-42], as [fast_exp_edge] needs, and [13/16
+    2^-69] in place of [3/4 2^-69]. [fast_pow_mul_one] covers [x = 1]:
+    [ln_acc] returns zeros there, and so do the product and its error,
+    for [|y| <= 2^900]. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN Relative.
@@ -59,16 +61,26 @@ pose proof (Rabs_triang (a + - b) (- c)) as T1. pose proof (Rabs_triang a (- b))
 rewrite Rabs_Ropp in T1, T2. lra.
 Qed.
 
-Theorem fast_pow_mul :
+(** The part [fast_pow_mul] and [fast_pow_mul_wide] share, for [|th| <=
+    752]: [|tl| <= 2^-41 + 2^-94]; [(1 - 17/16 2^-79) |y ln x| <= |th| +
+    2^-43 + 2^-42], which bounds [|y ln x|] by about [|th|]; and the
+    error of [th + tl] is at most [17/16 2^-79 |y ln x|] from [ln_acc]
+    plus [2^-95] and [2^-94] for the roundings of [RN(y ll)] and of
+    [tl]. *)
+Local Lemma fast_pow_mul_core :
   forall fma x y,
   is_finite x = true -> 0 < B2R x -> is_finite y = true ->
   bpow radix2 (-60) <= Rabs (B2R y * ln (B2R x)) ->
   let '(lh, ll) := DyadicLog.ln_acc fma x in
   let th := mul y lh in
-  is_finite th = true -> Rabs (B2R th) <= 709 ->
+  is_finite th = true -> Rabs (B2R th) <= 752 ->
   let tl := add (Generic.two_prod_err fma y lh th) (mul y ll) in
-  is_finite tl = true /\ Rabs (B2R tl) <= bpow radix2 (-40) /\
-  Rabs (B2R y * ln (B2R x) - (B2R th + B2R tl)) <= 3 / 4 * bpow radix2 (-69) /\
+  is_finite tl = true /\ Rabs (B2R tl) <= bpow radix2 (-41) + bpow radix2 (-94) /\
+  (1 - 17 / 16 * bpow radix2 (-79)) * Rabs (B2R y * ln (B2R x))
+    <= Rabs (B2R th) + bpow radix2 (-43) + bpow radix2 (-42) /\
+  Rabs (B2R y * ln (B2R x) - (B2R th + B2R tl))
+    <= 17 / 16 * bpow radix2 (-79) * Rabs (B2R y * ln (B2R x))
+       + bpow radix2 (-95) + bpow radix2 (-94) /\
   Generic.two_prod_err true y lh th = Generic.two_prod_err false y lh th.
 Proof.
 intros fma x y Fx Px Fy Hyl.
@@ -177,22 +189,26 @@ assert (Ht : Rabs (B2R (add er (mul y ll)) - (B2R er + B2R (mul y ll)))
              <= / 19807040628566084398385987584).
 { rewrite Et. change (/ 19807040628566084398385987584) with (bpow radix2 (-41 - 53)).
   apply FastExp.fe_RN_err; [lia|]. change (bpow radix2 (-41)) with (/ 2199023255552). lra. }
-(* [|y ln x| <= 709.001]: [(1 - 17/16 2^-79) |y ln x| <= |y S| <= |y
-   lh| + |y ll|], with [|y lh| <= |th| + |er| <= 709 + 2^-43]. *)
-assert (HP : Rabs (B2R y * L) <= 709001 / 1000).
-{ assert (Hyh : Rabs (B2R y * B2R lh) <= 709 + / 8796093022208).
+split; [exact Ft|]. split.
+{ pose proof (Rabs_triang_inv (B2R (add er (mul y ll))) (B2R er + B2R (mul y ll))).
+  change (bpow radix2 (-41)) with (/ 2199023255552).
+  change (bpow radix2 (-94)) with (/ 19807040628566084398385987584). lra. }
+split.
+(* [(1 - 17/16 2^-79) |y ln x| <= |y S| <= |y lh| + |y ll|], with [|y lh|
+   <= |th| + |er| <= |th| + 2^-43] and [|y ll| <= 2^-42]. *)
+{ assert (Hyh : Rabs (B2R y * B2R lh) <= Rabs (B2R (mul y lh)) + / 8796093022208).
   { rewrite Ee in He. pose proof (Rabs_triang_inv (B2R y * B2R lh) (B2R (mul y lh))). lra. }
   assert (HyS : Rabs (B2R y * S) <= Rabs (B2R y * B2R lh) + Rabs (B2R y * B2R ll))
     by (unfold S; rewrite Rmult_plus_distr_l; apply Rabs_triang).
   pose proof (mul_ge (B2R y) S (1 - 17 / 16 / 604462909807314587353088) L ltac:(lra)
     (proj1 HS)) as H.
+  change (bpow radix2 (-79)) with (/ 604462909807314587353088).
+  change (bpow radix2 (-43)) with (/ 8796093022208).
+  change (bpow radix2 (-42)) with (/ 4398046511104).
   lra. }
+split.
 (* The error: [y ln x - (th + tl) = y (ln x - S) - (m - y ll) - (tl - (er +
    m))], as [th + er = y lh]. *)
-split; [exact Ft|]. split.
-{ pose proof (Rabs_triang_inv (B2R (add er (mul y ll))) (B2R er + B2R (mul y ll))).
-  change (bpow radix2 (-40)) with (/ 1099511627776). lra. }
-split.
 - replace (B2R y * L - (B2R (mul y lh) + B2R (add er (mul y ll))))
     with (B2R y * (L - S) - (B2R (mul y ll) - B2R y * B2R ll)
           - (B2R (add er (mul y ll)) - (B2R er + B2R (mul y ll))))
@@ -204,9 +220,77 @@ split.
     apply Rmult_le_compat_l; assumption. }
   pose proof (tri3 (B2R y * (L - S)) (B2R (mul y ll) - B2R y * B2R ll)
     (B2R (add er (mul y ll)) - (B2R er + B2R (mul y ll)))).
-  change (bpow radix2 (-69)) with (/ 590295810358705651712).
+  change (bpow radix2 (-79)) with (/ 604462909807314587353088).
+  change (bpow radix2 (-95)) with (/ 39614081257132168796771975168).
+  change (bpow radix2 (-94)) with (/ 19807040628566084398385987584).
   lra.
 - exact (two_prod_err_fma_eq y lh Fy Flh (Ex true) (Ex false)).
+Qed.
+
+Theorem fast_pow_mul :
+  forall fma x y,
+  is_finite x = true -> 0 < B2R x -> is_finite y = true ->
+  bpow radix2 (-60) <= Rabs (B2R y * ln (B2R x)) ->
+  let '(lh, ll) := DyadicLog.ln_acc fma x in
+  let th := mul y lh in
+  is_finite th = true -> Rabs (B2R th) <= 709 ->
+  let tl := add (Generic.two_prod_err fma y lh th) (mul y ll) in
+  is_finite tl = true /\ Rabs (B2R tl) <= bpow radix2 (-40) /\
+  Rabs (B2R y * ln (B2R x) - (B2R th + B2R tl)) <= 3 / 4 * bpow radix2 (-69) /\
+  Generic.two_prod_err true y lh th = Generic.two_prod_err false y lh th.
+Proof.
+intros fma x y Fx Px Fy Hyl.
+pose proof (fast_pow_mul_core fma x y Fx Px Fy Hyl) as C.
+destruct (DyadicLog.ln_acc fma x) as [lh ll].
+cbv beta iota zeta in C |- *. intros Fth Bth.
+assert (B752 : Rabs (B2R (mul y lh)) <= 752) by lra.
+destruct (C Fth B752) as (Ft & Bt & HP & Err & Eq).
+change (bpow radix2 (-41)) with (/ 2199023255552) in Bt.
+change (bpow radix2 (-94)) with (/ 19807040628566084398385987584) in Bt, Err.
+change (bpow radix2 (-79)) with (/ 604462909807314587353088) in HP, Err.
+change (bpow radix2 (-43)) with (/ 8796093022208) in HP.
+change (bpow radix2 (-42)) with (/ 4398046511104) in HP.
+change (bpow radix2 (-95)) with (/ 39614081257132168796771975168) in Err.
+split; [exact Ft|]. split.
+{ change (bpow radix2 (-40)) with (/ 1099511627776). lra. }
+split; [|exact Eq].
+(* [|th| <= 709] gives [|y ln x| <= 709.001], so the error is at most
+   [17/16 2^-79 709.001 + 2^-95 + 2^-94 <= 3/4 2^-69]. *)
+change (bpow radix2 (-69)) with (/ 590295810358705651712).
+lra.
+Qed.
+
+Theorem fast_pow_mul_wide :
+  forall fma x y,
+  is_finite x = true -> 0 < B2R x -> is_finite y = true ->
+  bpow radix2 (-60) <= Rabs (B2R y * ln (B2R x)) ->
+  let '(lh, ll) := DyadicLog.ln_acc fma x in
+  let th := mul y lh in
+  is_finite th = true -> Rabs (B2R th) <= 752 ->
+  let tl := add (Generic.two_prod_err fma y lh th) (mul y ll) in
+  is_finite tl = true /\ Rabs (B2R tl) <= 3 * bpow radix2 (-42) /\
+  Rabs (B2R y * ln (B2R x) - (B2R th + B2R tl)) <= 13 / 16 * bpow radix2 (-69) /\
+  Generic.two_prod_err true y lh th = Generic.two_prod_err false y lh th.
+Proof.
+intros fma x y Fx Px Fy Hyl.
+pose proof (fast_pow_mul_core fma x y Fx Px Fy Hyl) as C.
+destruct (DyadicLog.ln_acc fma x) as [lh ll].
+cbv beta iota zeta in C |- *. intros Fth Bth.
+destruct (C Fth Bth) as (Ft & Bt & HP & Err & Eq).
+change (bpow radix2 (-41)) with (/ 2199023255552) in Bt.
+change (bpow radix2 (-94)) with (/ 19807040628566084398385987584) in Bt, Err.
+change (bpow radix2 (-79)) with (/ 604462909807314587353088) in HP, Err.
+change (bpow radix2 (-43)) with (/ 8796093022208) in HP.
+change (bpow radix2 (-42)) with (/ 4398046511104) in HP.
+change (bpow radix2 (-95)) with (/ 39614081257132168796771975168) in Err.
+split; [exact Ft|]. split.
+{ change (bpow radix2 (-42)) with (/ 4398046511104). lra. }
+split; [|exact Eq].
+(* [|th| <= 752] gives [|y ln x| <= 752.001], so the error is at most
+   [17/16 2^-79 752.001 + 2^-95 + 2^-94 <= 13/16 2^-69] (about [0.7803
+   2^-69]). *)
+change (bpow radix2 (-69)) with (/ 590295810358705651712).
+lra.
 Qed.
 
 (** ** [x = 1] *)
@@ -239,7 +323,7 @@ Qed.
 Theorem fast_pow_mul_one :
   forall fma x y,
   is_finite x = true -> B2R x = 1 -> is_finite y = true -> Rabs (B2R y) <= bpow radix2 900 ->
-  exists sh sl, DyadicPow.fast_pow fma x y = DyadicExp.fast_exp fma (B754_zero sh) (B754_zero sl).
+  exists sh sl, DyadicPow.pow_t fma x y = (B754_zero sh, B754_zero sl).
 Proof.
 intros fma x y Fx Ex Fy Hy.
 (* [x] is the literal [1.0]. *)
@@ -258,7 +342,7 @@ subst x.
 (* [ln_acc] of [1.0] is [(+0, +0)], with and without an FMA. *)
 assert (L1 : DyadicLog.ln_acc fma DyadicExp.one = (B754_zero false, B754_zero false))
   by (destruct fma; vm_compute; reflexivity).
-unfold DyadicPow.fast_pow. rewrite L1. cbv beta iota zeta.
+unfold DyadicPow.pow_t. rewrite L1. cbv beta iota zeta.
 assert (Z0 : zr (B754_zero false)) by (exists false; reflexivity).
 assert (Zt : zr (mul y (B754_zero false))) by (apply zr_mul_r; assumption).
 (* The error of the product [y 0] is a zero: with an FMA, [y 0 - th];

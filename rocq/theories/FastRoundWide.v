@@ -9,7 +9,9 @@
     largest [f64]
     ([round_dir_wide_correct], [round_near_wide_correct]). The tests of
     [FastRoundErr.v] are right at [e = 1023] too
-    ([round_dir_err_wide_correct], [round_near_err_wide_correct]). *)
+    ([round_dir_err_wide_correct], [round_near_err_wide_correct]), and at
+    [e = -1022] with [h > 1] ([round_dir_err_normal_correct],
+    [round_near_err_normal_correct]). *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN Mult_error.
@@ -583,4 +585,96 @@ assert (HB : (pred64 (B2R h) + B2R h) / 2 < y).
     rewrite pred_lo by (assumption || lra). lra. }
 (* [e >= -1021], so the premise for [e = -1022] is vacuous. *)
 exact (near_wide h e y Fh Hh ltac:(lia) ltac:(intros; exfalso; lia) (conj HB HA)).
+Qed.
+
+(** The same tests from [e = -1022], where [h > 1], as [Fast.round_dir_wide_err]
+    and [Fast.round_near_wide_err] call them ([FastRoundWideErr.v]). *)
+
+Theorem round_dir_err_normal_correct :
+  forall h l e err p up v y,
+  is_finite h = true -> is_finite l = true -> B2R h = RN (B2R h + B2R l) ->
+  (-1022 <= e <= 1023)%Z -> ((e = -1022)%Z -> 1 < B2R h) ->
+  (55 <= p <= 105)%Z -> B2R err = bpow radix2 (- p) ->
+  Rabs (y - (B2R h + B2R l)) <= bpow radix2 (- p) ->
+  Fast.round_dir_err h l e err up = Some v ->
+  rounds up (y * bpow radix2 e) v.
+Proof.
+intros h l e err p up v y Fh Fl Hrn He H1 Hp Herr Hy Hv.
+assert (Fe : is_finite err = true) by (apply finite_of_pos; rewrite Herr; apply bpow_gt_0).
+unfold Fast.round_dir_err in Hv.
+destruct (gt h Model.half && lt h Fast.two) eqn:HC; [|discriminate].
+apply andb_prop in HC as [C3 C4].
+(* The function's own check gives [1/2 < h < 2]. *)
+pose proof (gt_true h Model.half Fh eq_refl C3) as H3. rewrite half_R in H3.
+pose proof (DyExpRules.lt_R h Fast.two Fh eq_refl C4) as H4. rewrite two_R in H4.
+(* [err = 2^-p <= 2^-55], below half of [2^-53]. *)
+assert (HP : bpow radix2 (-53) = 2 * bpow radix2 (-54))
+  by (cbn [bpow radix_val radix2]; lra).
+pose proof (bpow_le radix2 (- p) (-55) ltac:(lia)) as HL.
+pose proof (bpow_lt radix2 (-55) (-54) ltac:(lia)) as HL'.
+apply (dir_test h l err e up v y Fh Fl Fe Hrn ltac:(lra) ltac:(lia) H1);
+  [rewrite Herr; lra | rewrite Herr; exact Hy | exact Hv].
+Qed.
+
+Theorem round_near_err_normal_correct :
+  forall h l e err p v y,
+  is_finite h = true -> is_finite l = true -> B2R h = RN (B2R h + B2R l) ->
+  (-1022 <= e <= 1023)%Z -> ((e = -1022)%Z -> 1 < B2R h) ->
+  (55 <= p <= 105)%Z -> B2R err = bpow radix2 (- p) ->
+  Rabs (y - (B2R h + B2R l)) <= bpow radix2 (- p) ->
+  Fast.round_near_err h l e err = Some v ->
+  near_round (y * bpow radix2 e) v.
+Proof.
+intros h l e err p v y Fh Fl Hrn He Hl1 Hp Herr Hy Hv.
+(* [FastRoundErr.round_near_err_correct]'s proof, up to the scaling. *)
+assert (Fx : G (B2R h)) by apply generic_format_B2R.
+assert (Fo : is_finite Fast.one = true) by reflexivity.
+assert (Fe : is_finite err = true) by (apply finite_of_pos; rewrite Herr; apply bpow_gt_0).
+(* The bounds [2^-53 - 2^-p] and [2^-54 - 2^-p] are exact. *)
+destruct (sub_pow2 Fast.gap1 err 53 p eq_refl Fe gap1_R Herr ltac:(lia) ltac:(lia) ltac:(lia))
+  as (F1 & R1).
+destruct (sub_pow2 Fast.gap0 err 54 p eq_refl Fe gap0_R Herr ltac:(lia) ltac:(lia) ltac:(lia))
+  as (F0 & R0).
+change (- (53))%Z with (-53)%Z in R1. change (- (54))%Z with (-54)%Z in R0.
+assert (HP : bpow radix2 (-52) = 2 * bpow radix2 (-53) /\
+             bpow radix2 (-53) = 2 * bpow radix2 (-54))
+  by (cbn [bpow radix_val radix2]; split; lra).
+apply Rabs_le_inv in Hy.
+unfold Fast.round_near_err in Hv. cbv zeta in Hv.
+destruct (gt h Model.half && lt h Fast.two && lt l _ && gt l _) eqn:HC; [|discriminate].
+injection Hv as Hv. subst v.
+apply andb_prop in HC as [HC C2].
+apply andb_prop in HC as [HC C1].
+apply andb_prop in HC as [C3 C4].
+(* The function's own check gives [1/2 < h < 2]. *)
+pose proof (gt_true h Model.half Fh eq_refl C3) as H3. rewrite half_R in H3.
+pose proof (DyExpRules.lt_R h Fast.two Fh eq_refl C4) as H4. rewrite two_R in H4.
+assert (Hh : / 2 < B2R h < 2) by lra.
+(* Above: from 1 on, the gap to [succ h] is [2^-52] and [l < 2^-53 -
+   2^-p]; below 1, it is [2^-53] and [l < 2^-54 - 2^-p]. *)
+assert (HA : y < (B2R h + succ64 (B2R h)) / 2).
+{ destruct (ge h Fast.one) eqn:G1.
+  - pose proof (DyExpRules.lt_R l _ Fl F1 C1) as L1. rewrite R1 in L1.
+    pose proof (ge_true h Fast.one Fh Fo G1) as H1. rewrite one_R in H1.
+    rewrite succ_hi by lra. lra.
+  - pose proof (DyExpRules.lt_R l _ Fl F0 C1) as L1. rewrite R0 in L1.
+    pose proof (ge_false h Fast.one Fh Fo G1) as H1. rewrite one_R in H1.
+    rewrite succ_lo by lra. lra. }
+(* Below: above 1, the gap to [pred h] is [2^-52] and [l > -(2^-53 -
+   2^-p)]; from 1 down, it is [2^-53] and [l > -(2^-54 - 2^-p)]. *)
+assert (HB : (pred64 (B2R h) + B2R h) / 2 < y).
+{ destruct (gt h Fast.one) eqn:G2.
+  - assert (Fn : is_finite (opp (sub Fast.gap1 err)) = true)
+      by (unfold opp; rewrite is_finite_Bopp; exact F1).
+    pose proof (gt_true l _ Fl Fn C2) as L1.
+    unfold opp in L1. rewrite B2R_Bopp, R1 in L1.
+    pose proof (gt_true h Fast.one Fh Fo G2) as H1. rewrite one_R in H1.
+    rewrite pred_hi by (assumption || lra). lra.
+  - assert (Fn : is_finite (opp (sub Fast.gap0 err)) = true)
+      by (unfold opp; rewrite is_finite_Bopp; exact F0).
+    pose proof (gt_true l _ Fl Fn C2) as L1.
+    unfold opp in L1. rewrite B2R_Bopp, R0 in L1.
+    pose proof (gt_false h Fast.one Fh Fo G2) as H1. rewrite one_R in H1.
+    rewrite pred_lo by (assumption || lra). lra. }
+exact (near_wide h e y Fh Hh ltac:(lia) Hl1 (conj HB HA)).
 Qed.

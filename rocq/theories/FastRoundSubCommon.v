@@ -238,3 +238,90 @@ assert (Hg53 : bpow radix2 (-1074 - e) * bpow radix2 (-53)
 assert (Ht' : B2R t = B2R h - IZR N * bpow radix2 (-1074 - e)) by (rewrite Ht, HsN; ring).
 split; apply Rabs_lt; lra.
 Qed.
+
+(** [sub_common] for a bound [2^-p] on [|y - (h + l)|], [p] from 55 to 105,
+    in place of [2^-68], as [FastRoundWideErr.v] needs: [y - N g] is [u]
+    within [2^-p + 2^-105 C <= 2 2^-p C], for [C = 2^(-1022 - e) >= 1]. *)
+Lemma sub_common_err :
+  forall (h l : f64) (e p : Z) (y : R),
+  is_finite h = true -> is_finite l = true -> B2R h = RN (B2R h + B2R l) ->
+  / 2 < B2R h < 2 -> (-1085 <= e <= -1022)%Z -> (55 <= p <= 105)%Z ->
+  Rabs (y - (B2R h + B2R l)) <= bpow radix2 (- p) ->
+  is_finite (add (Fast.sub_unit e) h) = true /\
+  (B2R (add (Fast.sub_unit e) h) < 2 * bpow radix2 (-1022 - e) ->
+   is_finite (add (add h (sub (Fast.sub_unit e) (add (Fast.sub_unit e) h))) l) = true /\
+   0 < y /\
+   exists N : Z, (0 <= N < 2^52)%Z /\
+     to_bits (add (Fast.sub_unit e) h) = ((1 - e) * 2^52 + N)%Z /\
+     Rabs (y - IZR N * bpow radix2 (-1074 - e)
+           - B2R (add (add h (sub (Fast.sub_unit e) (add (Fast.sub_unit e) h))) l))
+       <= 2 * bpow radix2 (- p) * bpow radix2 (-1022 - e) /\
+     Rabs (y - IZR N * bpow radix2 (-1074 - e)) < bpow radix2 (-1074 - e)).
+Proof.
+intros h l e p y Fh Fl Hrn Hh He Hp Hy.
+destruct (sub_sum h e Fh Hh He) as (Fs & Hsub).
+split; [exact Fs|].
+intros Hlt.
+destruct (Hsub Hlt) as (HhC & Ft & Ht & Htg & N & HN & Hbits & HsN).
+set (s := add (Fast.sub_unit e) h) in *.
+set (t := add h (sub (Fast.sub_unit e) s)) in *.
+destruct (l_bound h l Fh Hrn Hh) as (Hl53 & Hl54).
+assert (HP : bpow radix2 (-52) = 2 * bpow radix2 (-53) /\
+             bpow radix2 (-53) = 2 * bpow radix2 (-54) /\
+             bpow radix2 (-52) = 8 * bpow radix2 (-55) /\
+             bpow radix2 (-53) <= / 4 /\ bpow radix2 (-55) <= / 4)
+  by (cbn [bpow radix_val radix2]; repeat split; lra).
+(* [g = C 2^-52] with [C = 2^(-1022 - e) >= 1]. *)
+assert (HgC : bpow radix2 (-1074 - e) = bpow radix2 (-1022 - e) * bpow radix2 (-52)).
+{ rewrite <- bpow_plus. f_equal. ring. }
+assert (HC : 1 <= bpow radix2 (-1022 - e)).
+{ change 1 with (bpow radix2 0). apply bpow_le. lia. }
+pose proof (bpow_gt_0 radix2 (-52)) as H52.
+(* [2^-p <= 2^-55], and [2^-p <= 2^-p C] as [C >= 1]. *)
+assert (Hp55 : bpow radix2 (- p) <= bpow radix2 (-55)) by (apply bpow_le; lia).
+pose proof (Rmult_le_compat_l (bpow radix2 (- p)) 1 (bpow radix2 (-1022 - e))
+              (bpow_ge_0 _ _) HC) as HpC.
+rewrite Rmult_1_r in HpC.
+(* [|l| <= g / 4]: at [e = -1022], [C = 1 > h], so [|l| <= 2^-54 = g / 4];
+   below, [C >= 2] and [|l| <= 2^-53 <= g / 4]. *)
+assert (Hlg : Rabs (B2R l) <= bpow radix2 (-1074 - e) / 4).
+{ destruct (Z.eq_dec e (-1022)) as [E | E].
+  - assert (HC1 : bpow radix2 (-1022 - e) = 1) by (rewrite E; reflexivity).
+    rewrite HC1 in HhC, HgC.
+    specialize (Hl54 HhC). lra.
+  - assert (HC2 : 2 <= bpow radix2 (-1022 - e)).
+    { change 2 with (bpow radix2 1). apply bpow_le. lia. }
+    assert (2 * bpow radix2 (-52) <= bpow radix2 (-1074 - e)).
+    { rewrite HgC. apply Rmult_le_compat_r; lra. }
+    lra. }
+assert (Hg52 : bpow radix2 (-52) <= bpow radix2 (-1074 - e)) by (apply bpow_le; lia).
+assert (Hg11 : bpow radix2 (-1074 - e) <= bpow radix2 1023) by (apply bpow_le; lia).
+pose proof (bpow_ge_0 radix2 971) as H971.
+apply Rabs_le_inv in Htg, Hlg, Hy.
+assert (Htl : Rabs (B2R t + B2R l) <= bpow radix2 (-1074 - e)) by (apply Rabs_le; lra).
+destruct (add_no_overflow t l Ft Fl ltac:(lra)) as (Fu & Hu).
+set (u := add t l) in *.
+split; [exact Fu|].
+split; [apply Rabs_le_inv in Hl53; lra|].
+exists N.
+split; [exact HN|].
+split; [exact Hbits|].
+(* [u] is [t + l] within [2^-53 g]. *)
+assert (Hk : (-1021 <= -1074 - e)%Z) by lia.
+pose proof (fe_RN_err (B2R t + B2R l) (-1074 - e) Hk Htl) as Hue.
+rewrite <- Hu in Hue.
+replace (-1074 - e - 53)%Z with ((-1074 - e) + (-53))%Z in Hue by ring.
+rewrite bpow_plus in Hue.
+apply Rabs_le_inv in Hue.
+(* [2^-53 g = 2^-105 C <= 2^-p C], as [p <= 105]. *)
+assert (H105 : bpow radix2 (-1074 - e) * bpow radix2 (-53)
+               <= bpow radix2 (- p) * bpow radix2 (-1022 - e)).
+{ rewrite <- (bpow_plus radix2 (-1074 - e) (-53)).
+  replace (-1074 - e + -53)%Z with (-105 + (-1022 - e))%Z by ring.
+  rewrite (bpow_plus radix2 (-105) (-1022 - e)).
+  apply Rmult_le_compat_r; [apply bpow_ge_0 | apply bpow_le; lia]. }
+(* [t = C + h - s = h - N g], so [y - N g - u = (y - h - l) + (t + l - u)]
+   and [y - N g = (y - h - l) + t + l]. *)
+assert (Ht' : B2R t = B2R h - IZR N * bpow radix2 (-1074 - e)) by (rewrite Ht, HsN; ring).
+split; [apply Rabs_le | apply Rabs_lt]; lra.
+Qed.

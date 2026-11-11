@@ -278,7 +278,7 @@ destruct (DyadicPow.exact_near x y) as [[w|]|] eqn:Ex; [| | discriminate E].
     rewrite <- I, <- (powerRZ_Rpower _ _ Px).
     exact (pown_pos_near x _ v Fx Px Hk Hi E).
   + (* The fast path, where [|y ln x| >= 2^-57], then the driver. *)
-    destruct (DyadicPow.fast_pow_near false x y) eqn:F; cbv iota in E.
+    destruct (DyadicPow.fast_pow_near_call false x y) eqn:F; cbv iota in E.
     { injection E as <-.
       apply (FastPow.fast_pow_near_correct false x y _ Fx Px Fy); [| exact F].
       right. destruct (pow_rule_bounds x y Fx Px X1 Fy Y0) as ([Hb _] & _).
@@ -344,7 +344,8 @@ destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58); [exact (fun h => h)|]
 destruct (DyadicPow.exact_near x y) as [[w|]|]; [exact (fun h => h) | | exact (fun h => h)].
 cbv beta iota.
 destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y); [apply pown_pos_near_strict |].
-destruct (DyadicPow.fast_pow_near false x y); [exact (fun h => h) | apply ziv_near_strict_ziv].
+destruct (DyadicPow.fast_pow_near_call false x y);
+  [exact (fun h => h) | apply ziv_near_strict_ziv].
 Qed.
 
 Theorem pown_near_strict :

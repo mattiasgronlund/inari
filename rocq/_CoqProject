@@ -199,6 +199,7 @@ theories/FastRoundSubBits.v
 theories/FastRoundSubCommon.v
 theories/FastRoundSub.v
 theories/FastRoundWide.v
+theories/FastRoundWideErr.v
 theories/FastExpEdge.v
 theories/FastExpByEdge.v
 theories/FastExp.v
@@ -247,6 +248,7 @@ theories/FastPowPoly.v
 theories/FastPowCore.v
 theories/FastPowLn.v
 theories/FastPowMul.v
+theories/FastPowRules.v
 theories/FastPow.v
 theories/FastDdSqrt.v
 theories/FastLogDd.v

@@ -107,7 +107,12 @@
 // return sinh x, cosh x and tanh x rounded, with and without an FMA.
 //
 // The fast path of x^y and x^n in `src/dyadic/pow.rs` also calls `fast_exp`, at y ln x in
-// double-double, and rounds its result with the bound `ERR67`, as its header says.
+// double-double, and rounds its result with the bound `ERR67`. Where th, the high part of
+// y ln x, is out of the range of `fast_exp` but short of the bounds past which its rules on th
+// settle overflow and underflow, it then calls `fast_exp_edge` and rounds that result once at
+// the same 2^-67, subnormal results included, with `round_dir_wide_err` and
+// `round_near_wide_err` of `src/dyadic/fast.rs`, which fail where the exponent of
+// `fast_exp_edge` is above 1023, as the header of `src/dyadic/pow.rs` says.
 
 use super::{
     consts::{ln10, ln2},
@@ -531,8 +536,10 @@ fn fast_exp_by(x: f64, c: [u64; 2]) -> Option<(f64, f64, i64)> {
 // Always inlined, as is `fast_exp_by_edge`: out of line, the call made `exp`, `exp2` and
 // `fast_cosh_pos` set up a stack frame on every call, also where x never comes here, which
 // cost 3 to 5 instructions per call on the arguments of the normal range (cachegrind).
+// The fast path of x^y and x^n calls it too, for the th out of the range of `fast_exp` that its
+// rules on th leave (`src/dyadic/pow.rs`).
 #[inline(always)]
-fn fast_exp_edge(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
+pub(super) fn fast_exp_edge(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
     if zh < 0.0 {
         let (h, l, e) = fast_exp(
             zh + f64::from_bits(LN2_64[0]),
