@@ -963,7 +963,8 @@ Definition mul_into (n : nat) (x y : list Z) : option (list Z) :=
     [n = out.len()], where
     [usize::try_from(sh / 64).unwrap_or(usize::MAX).min(out.len())] is
     [Nat.min (Z.to_nat (sh / 64)) n] on any target, and the [u128] shift
-    is by [sh % 64 < 64] bits. *)
+    is by [sh % 64 < 64] bits. The Rust skips the fill of the [j] zero
+    limbs when [j = 0], where [repeat 0 0] is [nil]. *)
 Fixpoint shl_limbs (k : nat) (x : list Z) (s carry : Z) : list Z :=
   match k with
   | O => nil
@@ -1078,7 +1079,9 @@ Fixpoint zeros_low (d : list Z) : nat :=
 
 (** [fn div_rem(q, r, x: &[u64], d: &[u64], scratch)], returning [q] and
     [r], for the [q.len() == x.len()] and [r.len() == d.len()] that every
-    caller passes. [expect] is [None]. *)
+    caller passes. [expect] is [None]. Where [x >= d], the Rust zeroes
+    [q[k..]], for [k = s1.len() - d1.len() + 1], and [r[n..]], the
+    [repeat 0] terms, and copies [s0], each only when it is not empty. *)
 Definition div_rem (x d : list Z) : option (list Z * list Z) :=
   let* n0 := rposition_nonzero d in
   let n := S n0 in

@@ -8,6 +8,9 @@
 
 use std::cmp::Ordering;
 
+#[cfg(test)]
+mod tests;
+
 /// The number of bits of `x`, which is 0 for 0: `2^(b - 1) <= x < 2^b` otherwise.
 pub(crate) fn bit_len(x: &[u64]) -> u64 {
     match x.iter().rposition(|&l| l != 0) {
@@ -100,7 +103,10 @@ pub(crate) fn shl_into(out: &mut [u64], x: &[u64], sh: u64) {
         .min(out.len());
     let s = (sh % 64) as u32;
     let (zeros, out) = out.split_at_mut(j);
-    zeros.fill(0);
+    // A fill of no limbs can still call `memset`, which costs more than the test.
+    if j > 0 {
+        zeros.fill(0);
+    }
     let mut carry = 0;
     for (i, o) in out.iter_mut().enumerate() {
         let t = u128::from(x.get(i).copied().unwrap_or(0)) << s;
@@ -139,15 +145,14 @@ pub(crate) fn div_rem_limb(q: &mut [u64], x: &[u64], d: u64) -> u64 {
 /// `scratch.len() >= x.len() + d.len() + 2`. Panics if `d` is 0.
 pub(crate) fn div_rem(q: &mut [u64], r: &mut [u64], x: &[u64], d: &[u64], scratch: &mut [u64]) {
     let n = d.iter().rposition(|&l| l != 0).expect("division by zero") + 1;
-    q.fill(0);
     if cmp(x, d) == Ordering::Less {
         // x < d < 2^(64 n), so the limbs of `x` from `n` up are 0.
+        q.fill(0);
         for (i, l) in r.iter_mut().enumerate() {
             *l = x.get(i).copied().unwrap_or(0);
         }
         return;
     }
-    r.fill(0);
     // For the `j` zero limbs at the bottom of `d`, d = d1 * B^j and x = s1 * B^j + s0 with
     // B = 2^64 and s0 < B^j. Then x = (s1 / d1) * d + (s1 % d1) * B^j + s0, and
     // (s1 % d1) * B^j + s0 <= (d1 - 1) * B^j + B^j - 1 < d, so the quotient is s1 / d1 and the
@@ -157,12 +162,24 @@ pub(crate) fn div_rem(q: &mut [u64], r: &mut [u64], x: &[u64], d: &[u64], scratc
     let j = d.iter().take_while(|&&l| l == 0).count();
     let (s0, s1) = x.split_at(j);
     let d1 = &d[j..n];
-    r[..j].copy_from_slice(s0);
+    // The quotient s1 / d1 fits the k = s1.len() - d1.len() + 1 limbs q[..k], and the remainder
+    // the n limbs r[..n], of which r[..j] is s0: each branch writes q[..k] and r[j..n], and the
+    // limbs above them are 0. A fill or a copy of no limbs can still call `memset` or `memcpy`,
+    // which costs more than the test.
+    let k = s1.len() - d1.len() + 1;
+    if j > 0 {
+        r[..j].copy_from_slice(s0);
+    }
     if let [c] = *d1 {
-        r[j] = div_rem_limb(&mut q[..s1.len()], s1, c);
+        r[j] = div_rem_limb(&mut q[..k], s1, c);
     } else {
-        let k = s1.len() - d1.len() + 1;
         div_rem_knuth(&mut q[..k], &mut r[j..n], s1, d1, scratch);
+    }
+    if k < q.len() {
+        q[k..].fill(0);
+    }
+    if n < r.len() {
+        r[n..].fill(0);
     }
 }
 
