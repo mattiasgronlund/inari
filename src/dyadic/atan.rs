@@ -327,17 +327,26 @@ impl Eval for Acos {
     }
 }
 
-// y / x, for finite y != 0 and x != 0, if it is an `f64` of magnitude below `TINY_HYP`. The
-// exponents of the `Dyadic`s give |y / x| > 2^(a.exp - b.exp - 1), so that the check of them
-// only saves the division for quotients that are at least 2^-26. q = `lo.to_f64(false)` <=
-// `lo` <= y / x <= `hi` <= `hi.to_f64(true)`, so that y / x = q if the two `f64`s are equal.
-// Two `f64`s whose quotient is a dyadic number have one of at most 53 bits, which 64 bits hold
-// exactly, so that the check finds every such quotient that is an `f64`.
+// 2^25 and 2^1021, by which `tiny_quotient` and `midpoint_quotient` scale |y| to compare it
+// with x in `f64`, before they build their `Dyadic`s.
+const TWO_25: f64 = 33_554_432.0;
+const TWO_1021: f64 = 0.5 / f64::MIN_POSITIVE;
+
+// y / x, for finite y != 0 and x > 0, if it is an `f64` of magnitude below `TINY_HYP`. The
+// first check leaves out, in `f64`, the y and x with |y| 2^25 >= x, at which |y / x| >= 2^-25,
+// above `TINY_HYP`, so that the last check gives `None` too: |y| 2^25 is exact for
+// |y| < 2^999, subnormal or not, and +∞ otherwise, where |y / x| > 2^999 / 2^1024. It only
+// saves the `Dyadic`s and the division, which the tests check and Rocq does not prove:
+// `rocq/theories/DyAtanTiny.v` proves only that an `f64` that the function returns is y / x,
+// below `TINY_HYP` in magnitude. q = `lo.to_f64(false)` <= `lo` <= y / x <= `hi` <=
+// `hi.to_f64(true)`, so that y / x = q if the two `f64`s are equal. Two `f64`s whose quotient
+// is a dyadic number have one of at most 53 bits, which 64 bits hold exactly, so that the
+// check finds every such quotient that is an `f64`.
 fn tiny_quotient(y: f64, x: f64) -> Option<f64> {
-    let (a, b) = (Dyadic::<1>::from_f64(y), Dyadic::<1>::from_f64(x));
-    if a.exp - b.exp >= -25 {
+    if y.abs() * TWO_25 >= x {
         return None;
     }
+    let (a, b) = (Dyadic::<1>::from_f64(y), Dyadic::<1>::from_f64(x));
     let (lo, hi) = (a.div(&b, false), a.div(&b, true));
     let q = lo.to_f64(false);
     if q == hi.to_f64(true) && q.abs() < TINY_HYP {
@@ -347,7 +356,7 @@ fn tiny_quotient(y: f64, x: f64) -> Option<f64> {
     }
 }
 
-// y / x rounded toward zero to an `f64`, for finite y and x != 0, if it is an odd multiple of
+// y / x rounded toward zero to an `f64`, for finite y and x > 0, if it is an odd multiple of
 // 2^-1075 and the exponents of the `Dyadic`s give |y / x| < 2^-1021. The `f64`s below 2^-1021
 // are the multiples of 2^-1074, so that such a quotient q is the midpoint between the two
 // `f64`s q - 2^-1075 and q + 2^-1075. For q > 0, atan q is in (q - q^3 / 3, q), and q^3 / 3
@@ -372,7 +381,17 @@ fn tiny_quotient(y: f64, x: f64) -> Option<f64> {
 // which has at most 54 bits. `lo` is then m 2^exp for its mantissa m = o 2^t, with o odd and t
 // its trailing zeros, so that y / x is an odd multiple of 2^-1075 exactly when exp + t = -1075.
 // `lo.to_f64(lo.neg)` rounds it toward -∞ if it is positive and toward +∞ if it is negative.
+//
+// The first check leaves out, in `f64` and before the `Dyadic`s, the y and x with
+// |y| 2^1021 >= x, which the check of the exponents leaves out too, so that it only saves the
+// `Dyadic`s: that check passes only where |y| < 2^(a.exp + 64) <= 2^(b.exp + 63 - 1021) <=
+// x 2^-1021, and so |y| < 8, as x < 2^1024, at which |y| 2^1021 is exact, subnormal or not.
+// The tests check this, and Rocq does not prove it: `rocq/theories/DyAtanMidQ.v` uses only the
+// check of the exponents.
 fn midpoint_quotient(y: f64, x: f64) -> Option<f64> {
+    if y.abs() * TWO_1021 >= x {
+        return None;
+    }
     let (a, b) = (Dyadic::<1>::from_f64(y), Dyadic::<1>::from_f64(x));
     if a.exp - b.exp > -1022 {
         return None;

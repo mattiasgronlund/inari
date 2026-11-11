@@ -29,6 +29,7 @@ Lemma midpoint_quotient_correct :
 Proof.
 intros y x f Fy Fx Zy Px H.
 unfold DyadicAtan.midpoint_quotient in H.
+destruct (ge (mul (fabs y) DyadicAtan.two_1021) x); [discriminate H|].
 destruct (Dyadic.from_f64 1 y) as [a|] eqn:Ea; [|discriminate H].
 cbv beta iota zeta in H.
 destruct (Dyadic.from_f64 1 x) as [b|] eqn:Eb; [|discriminate H].

@@ -295,8 +295,9 @@ destruct (div_correct 1 a d false Hn Oa Od Sa Sd Hd) as (lo & Elo & Olo & Vlo).
 destruct (div_correct 1 a d true Hn Oa Od Sa Sd Hd) as (hi & Ehi & Ohi & Vhi).
 destruct (to_f64_correct 1 lo false Hn Olo) as (q0 & Eq0 & Rq0).
 destruct (to_f64_correct 1 hi true Hn Ohi) as (q1 & Eq1 & Rq1).
-unfold DyadicAtan.tiny_quotient in H. rewrite Ea, Ed in H. cbv beta iota in H.
-destruct (_ <=? _)%Z; [discriminate H|].
+unfold DyadicAtan.tiny_quotient in H.
+destruct (ge (mul (fabs y) DyadicAtan.two_25) x); [discriminate H|].
+rewrite Ea, Ed in H. cbv beta iota in H.
 rewrite Elo, Ehi, Eq0, Eq1 in H. cbv beta iota in H.
 destruct (eq q0 q1 && lt (fabs q0) DyadicExp.tiny_hyp) eqn:C; [|discriminate H].
 injection H as <-.

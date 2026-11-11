@@ -280,8 +280,9 @@ fn exact_enclosure() {
 // asin, and atan is checked at 2^53 too, where `ziv_near` settles atan x to nearest. For
 // atan2, y = q d and x = d for q at `TINY_NEAR` and `TINY_HYP` and the `f64`s around them,
 // where y / x = q exactly for d = 1 and 2^1000, which the rule of `tiny_quotient` takes below
-// `TINY_HYP` and that of `atan2_near` below `TINY_NEAR`, and the quotients |y| / |x| at the
-// thresholds of `atan_encl`, in each quadrant.
+// `TINY_HYP` and that of `atan2_near` below `TINY_NEAR`, and where y is subnormal for
+// d = `f64::MIN_POSITIVE` and the subnormal 2^-1048, or 0 for the latter, and the quotients
+// |y| / |x| at the thresholds of `atan_encl`, in each quadrant.
 #[test]
 fn rules_at_their_thresholds() {
     let thresholds = [
@@ -306,8 +307,18 @@ fn rules_at_their_thresholds() {
     }
     for q in [around(TINY_NEAR, 3), around(TINY_HYP, 3)].concat() {
         // y = q d, which is exact for d = 1 and 2^1000, and rounded for the other d unless
-        // q d fits in an `f64`: for 2^-1000 it is subnormal, with fewer bits than q.
-        for d in [1.0, pow2(-1000), pow2(1000), 3.0, 0.75, f64::MAX / 3.0] {
+        // q d fits in an `f64`: for 2^-1000 and `f64::MIN_POSITIVE` it is subnormal, with fewer
+        // bits than q, and for 2^-1048 it is 0 or 2^-1074.
+        for d in [
+            1.0,
+            pow2(-1000),
+            pow2(1000),
+            3.0,
+            0.75,
+            f64::MAX / 3.0,
+            f64::MIN_POSITIVE,
+            pow2(-1048),
+        ] {
             for (y, x) in [(q * d, d), (-q * d, d), (q * d, -d), (-q * d, -d)] {
                 check2(y, x);
                 check2(x, y);
@@ -607,6 +618,238 @@ fn midpoint_quotients() {
             }
         }
     }
+}
+
+// `tiny_quotient` and `midpoint_quotient` as they were before their `f64` tests: each checked
+// the exponents of its `Dyadic`s before dividing, which `tiny_quotient` no longer does and
+// `midpoint_quotient` keeps after its `f64` test. They are kept to check that the `f64` tests
+// leave the maps from (y, x) to results unchanged.
+fn tiny_quotient_old(y: f64, x: f64) -> Option<f64> {
+    let (a, b) = (Dyadic::<1>::from_f64(y), Dyadic::<1>::from_f64(x));
+    if a.exp - b.exp >= -25 {
+        return None;
+    }
+    let (lo, hi) = (a.div(&b, false), a.div(&b, true));
+    let q = lo.to_f64(false);
+    if q == hi.to_f64(true) && q.abs() < TINY_HYP {
+        Some(q)
+    } else {
+        None
+    }
+}
+
+fn midpoint_quotient_old(y: f64, x: f64) -> Option<f64> {
+    let (a, b) = (Dyadic::<1>::from_f64(y), Dyadic::<1>::from_f64(x));
+    if a.exp - b.exp > -1022 {
+        return None;
+    }
+    let (lo, hi) = (a.div(&b, false), a.div(&b, true));
+    if lo == hi && lo.exp + i64::from(lo.m[0].trailing_zeros()) == -1075 {
+        Some(lo.to_f64(lo.neg))
+    } else {
+        None
+    }
+}
+
+// floor(log2 |v|), for finite v != 0, subnormal or not.
+fn exponent(v: f64) -> i32 {
+    let bits = v.abs().to_bits();
+    if bits >> 52 == 0 {
+        // A subnormal v is bits 2^-1074, whose highest bit is bit 63 - leading_zeros.
+        -1011 - bits.leading_zeros() as i32
+    } else {
+        (bits >> 52) as i32 - 1023
+    }
+}
+
+// v 2^t rounded to nearest, as `log_uniform` rounds m 2^e, for v in [1, 2) and t <= 1023, and
+// below -1074 too: for t in [-2096, -1075], v 2^(t + 1074) is a normal `f64`, which the
+// product by 2^-1074 rounds, and for t < -2096, v 2^t < 2^-2096 rounds to 0.
+fn times_pow2(v: f64, t: i32) -> f64 {
+    if t >= -1074 {
+        v * pow2(t)
+    } else if t >= -2096 {
+        v * pow2(t + 1074) * pow2(-1074)
+    } else {
+        0.0
+    }
+}
+
+// `tiny_quotient` and `midpoint_quotient` give the same results at (y, x) as
+// `tiny_quotient_old` and `midpoint_quotient_old`, for finite y != 0 and x > 0; where the
+// check of the exponents of a reference passes, a.exp - b.exp <= -26 or a.exp - b.exp <= -1022,
+// the `f64` test of the function passes too, |y| 2^25 < x or |y| 2^1021 < x; and where the
+// `f64` test passes and the check of the exponents does not, a.exp - b.exp is -25 or -1021.
+// Returns whether a.exp - b.exp <= -26, |y| 2^25 < x, a.exp - b.exp <= -1022 and
+// |y| 2^1021 < x hold, in that order.
+fn same_map(y: f64, x: f64) -> [bool; 4] {
+    let diff = Dyadic::<1>::from_f64(y).exp - Dyadic::<1>::from_f64(x).exp;
+    let passes = [
+        diff <= -26,
+        y.abs() * TWO_25 < x,
+        diff <= -1022,
+        y.abs() * TWO_1021 < x,
+    ];
+    assert!(
+        (!passes[0] || passes[1]) && (!passes[2] || passes[3]),
+        "({:e}, {:e}): a check of the exponents passes and the `f64` test not, {:?}",
+        y,
+        x,
+        passes
+    );
+    assert!(
+        (passes[0] || !passes[1] || diff == -25) && (passes[2] || !passes[3] || diff == -1021),
+        "({:e}, {:e}): an `f64` test passes at a.exp - b.exp = {}, {:?}",
+        y,
+        x,
+        diff,
+        passes
+    );
+    assert_eq!(
+        tiny_quotient(y, x).map(f64::to_bits),
+        tiny_quotient_old(y, x).map(f64::to_bits),
+        "tiny_quotient({:e}, {:e})",
+        y,
+        x
+    );
+    assert_eq!(
+        midpoint_quotient(y, x).map(f64::to_bits),
+        midpoint_quotient_old(y, x).map(f64::to_bits),
+        "midpoint_quotient({:e}, {:e})",
+        y,
+        x
+    );
+    passes
+}
+
+// `same_map` at 10^5 random (y, x) around the thresholds of the tests, with both signs of y:
+// x = mx 2^e for an e uniform in [-1074, 1023], rounded to a subnormal below e = -1022 as
+// `log_uniform` rounds it, and y = my 2^(ex + d), rounded the same way (`times_pow2`), for the
+// exponent ex of x and a d uniform in [-28, -22] for half of them, around the thresholds of
+// `tiny_quotient`, and in [-1025, -1019] for the other half, around those of
+// `midpoint_quotient`, leaving out the y that round to 0. my and mx are random in [1, 2), and
+// for 1 in 8 of them one of the edges 1, next_up(1), 1.5 and next_down(2). Each of the four
+// tests passes at some of them and fails at others; the `f64` tests pass at some where the
+// checks of the exponents do not, at a.exp - b.exp = -25 with |y| 2^25 < x and at
+// a.exp - b.exp = -1021 with |y| 2^1021 < x; and each function gives a quotient at some.
+#[test]
+fn quotient_rules_same_map() {
+    let edges = [1.0, next_up(1.0), 1.5, next_down(2.0)];
+    let mantissa = |rng: &mut Rng| {
+        if rng.below(8) == 0 {
+            edges[rng.below(4) as usize]
+        } else {
+            1.0 + rng.below(1 << 52) as f64 / (1u64 << 52) as f64
+        }
+    };
+    let mut rng = Rng(100);
+    // The arguments at which each test fails and passes, at which the `f64` tests pass and the
+    // checks of the exponents do not, and at which each function gives a quotient.
+    let mut sides = [[0; 2]; 4];
+    let mut windows = [0; 2];
+    let mut quotients = [0; 2];
+    let mut n = 0;
+    while n < 100_000 {
+        let x = mantissa(&mut rng) * pow2(uniform(&mut rng, -1074, 1023));
+        let d = if n % 2 == 0 {
+            uniform(&mut rng, -28, -22)
+        } else {
+            uniform(&mut rng, -1025, -1019)
+        };
+        let y = random_sign(&mut rng) * times_pow2(mantissa(&mut rng), exponent(x) + d);
+        if y == 0.0 {
+            continue;
+        }
+        n += 1;
+        let passes = same_map(y, x);
+        for (side, pass) in sides.iter_mut().zip(passes) {
+            side[usize::from(pass)] += 1;
+        }
+        windows[0] += usize::from(!passes[0] && passes[1]);
+        windows[1] += usize::from(!passes[2] && passes[3]);
+        quotients[0] += usize::from(tiny_quotient(y, x).is_some());
+        quotients[1] += usize::from(midpoint_quotient(y, x).is_some());
+    }
+    assert!(
+        sides.iter().flatten().all(|&c| c > 0) && windows.iter().chain(&quotients).all(|&c| c > 0),
+        "sides {sides:?}, windows {windows:?}, quotients {quotients:?}"
+    );
+}
+
+// `same_map` and `check2` at the thresholds of the tests, with both signs of y:
+// - y = my 2^(k + d), rounded as `times_pow2` rounds it, and x = mx 2^k, for d in
+//   {-26, -25, -24} and {-1023, -1022, -1021}, around the thresholds of the checks of the
+//   exponents, (my, mx) in {1, next_up(1), next_down(2)}^2, at which my / mx is 1, next to 1
+//   on each side, and the least and the greatest, and k in {-60, 0, 500, 1000};
+// - y = x 2^-25 and y = x 2^-1021 where they are exact, at which the `f64` tests just fail,
+//   and the `f64`s next to them, for x at those mx 2^k, `f64::MAX`, `f64::MIN_POSITIVE` and
+//   2^-1048;
+// - |y| at 2^999 and 8 and the 2 `f64`s on each side, around which |y| 2^25 and |y| 2^1021
+//   reach +∞, with x = `f64::MAX`, the `f64` before it and 2^1023;
+// - subnormal y, 2^-1074, 3 2^-1074 and 2^-1023, with x = 2^-1048, 2^-1047,
+//   `f64::MIN_POSITIVE` and 1, and subnormal x, 2^-1074 and 2^-1050, with y = 2^-1074,
+//   3 2^-1074, 2^-1060 and 2^-1050.
+// Both `f64` tests pass at some of them where the checks of the exponents do not. The bits of
+// `TWO_25` and `TWO_1021` are those that `rocq/theories/Model.v` gives `two_25` and
+// `two_1021`.
+#[test]
+fn quotient_rules_at_their_thresholds() {
+    assert_eq!(TWO_25.to_bits(), 0x4180_0000_0000_0000);
+    assert_eq!(TWO_1021.to_bits(), 0x7fc0_0000_0000_0000);
+    let ms = [1.0, next_up(1.0), next_down(2.0)];
+    let ks = [-60, 0, 500, 1000];
+    let mut args = vec![];
+    for d in [-26, -25, -24, -1023, -1022, -1021] {
+        for my in ms {
+            for mx in ms {
+                for k in ks {
+                    args.push((times_pow2(my, k + d), mx * pow2(k)));
+                }
+            }
+        }
+    }
+    let mut xs = vec![f64::MAX, f64::MIN_POSITIVE, pow2(-1048)];
+    for mx in ms {
+        xs.extend(ks.iter().map(|&k| mx * pow2(k)));
+    }
+    for x in xs {
+        for k in [25, 1021] {
+            // x 2^-k is exact if scaling it back by 2^k, which is exact, gives x.
+            let y = x * pow2(-k);
+            if y * pow2(k) == x {
+                args.extend(around(y, 1).into_iter().map(|y| (y, x)));
+            }
+        }
+    }
+    for y in [around(pow2(999), 2), around(8.0, 2)].concat() {
+        for x in [f64::MAX, next_down(f64::MAX), pow2(1023)] {
+            args.push((y, x));
+        }
+    }
+    for y in [5e-324, 1.5e-323, pow2(-1023)] {
+        for x in [pow2(-1048), pow2(-1047), f64::MIN_POSITIVE, 1.0] {
+            args.push((y, x));
+        }
+    }
+    for x in [5e-324, pow2(-1050)] {
+        for y in [5e-324, 1.5e-323, pow2(-1060), pow2(-1050)] {
+            args.push((y, x));
+        }
+    }
+    let mut windows = [0; 2];
+    for (y, x) in args {
+        // Some my 2^(k + d) round to 0, which the functions do not take.
+        if y == 0.0 {
+            continue;
+        }
+        for y in [y, -y] {
+            let passes = same_map(y, x);
+            windows[0] += usize::from(!passes[0] && passes[1]);
+            windows[1] += usize::from(!passes[2] && passes[3]);
+            check2(y, x);
+        }
+    }
+    assert!(windows[0] > 0 && windows[1] > 0, "windows {windows:?}");
 }
 
 // The hardest arguments that three searches found, as (function, x), and as (y, x) for atan2:
@@ -1163,7 +1406,16 @@ fn fast_edges() {
         }
     }
     for q in [around(TINY_NEAR, 3), around(TINY_HYP, 3)].concat() {
-        for d in [1.0, pow2(-1000), pow2(1000), 3.0, 0.75, f64::MAX / 3.0] {
+        for d in [
+            1.0,
+            pow2(-1000),
+            pow2(1000),
+            3.0,
+            0.75,
+            f64::MAX / 3.0,
+            f64::MIN_POSITIVE,
+            pow2(-1048),
+        ] {
             args2.push((q * d, d));
         }
     }

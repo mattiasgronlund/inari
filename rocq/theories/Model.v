@@ -4261,6 +4261,11 @@ Definition fast_atan2_near (fma : bool) (y x : f64) : option f64 :=
   | None => None
   end.
 
+(** [TWO_25] and [TWO_1021], 2^25 and 2^1021, by which [tiny_quotient] and
+    [midpoint_quotient] scale [|y|] to compare it with [x]. *)
+Definition two_25 : f64 := from_bits 0x4180000000000000.
+Definition two_1021 : f64 := from_bits 0x7fc0000000000000.
+
 (** The functions of the file with [ziv] a parameter: [atan_dir_with ziv] is
     [atan] with [ziv] for [Dyadic.ziv], and [atan_dir] after the section is
     [atan_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
@@ -4280,12 +4285,11 @@ Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
 Definition pi_times_with (c : f64) (up : bool) : option f64 := ziv (ev_pi c) up 1.
 
 (** [fn tiny_quotient(y: f64, x: f64) -> Option<f64>], with [Some None]
-    for [None], where [a.exp - b.exp], which cannot overflow, is computed
-    without a check. *)
+    for [None]. *)
 Definition tiny_quotient (y x : f64) : option (option f64) :=
+  if ge (mul (fabs y) two_25) x then Some None else
   let* a := Dyadic.from_f64 1 y in
   let* b := Dyadic.from_f64 1 x in
-  if -25 <=? Dyadic.dy_exp a - Dyadic.dy_exp b then Some None else
   let* lo := Dyadic.div 1 a b false in
   let* hi := Dyadic.div 1 a b true in
   let* q := Dyadic.to_f64 1 lo false in
@@ -4299,6 +4303,7 @@ Definition tiny_quotient (y x : f64) : option (option f64) :=
     fields [neg], [exp] and [m[0]] of the two. [DyAtanMidQ.v] proves
     it. *)
 Definition midpoint_quotient (y x : f64) : option (option f64) :=
+  if ge (mul (fabs y) two_1021) x then Some None else
   let* a := Dyadic.from_f64 1 y in
   let* b := Dyadic.from_f64 1 x in
   if -1022 <? Dyadic.dy_exp a - Dyadic.dy_exp b then Some None else
