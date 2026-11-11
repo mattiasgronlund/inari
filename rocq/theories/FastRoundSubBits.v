@@ -3,9 +3,11 @@
     Helpers of [FastRoundSub.v]: the bits of [C = Fast.sub_unit e] and of
     the [f64]s of its binade, the [f64]s from 0 to [2^-1022] and rounding
     to nearest among them, the bounds that the tests compare with, which
-    are [C] times [Fast.sub_err] or [Fast.sub_near] ([sub_consts]), and
-    the rounding of a [y 2^e] between two multiples of [2^-1074]
-    ([sub_bracket]). *)
+    are [C] times [Fast.sub_err] or [Fast.sub_near] ([sub_consts]) or
+    [Fast.sub_far], [C (2^-53 + 2^-67)] ([sub_far_consts]), the rounding
+    of a [y 2^e] between two multiples of [2^-1074] ([sub_bracket]), and
+    the rounding to nearest of a [y 2^e] closer than [2^-1075] to a
+    multiple of [2^-1074] ([sub_near_grid]). *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN Plus_error Mult_error.
@@ -226,6 +228,23 @@ change (bpow radix2 39) with (IZR 549755813888).
 lra.
 Qed.
 
+(** [Fast.sub_far] is [2^-53 + 2^-67]. *)
+Local Lemma sub_far_R : B2R Fast.sub_far = bpow radix2 (-53) + bpow radix2 (-67).
+Proof.
+rewrite <- SF2R_B2SF.
+replace (B2SF Fast.sub_far) with (SpecFloat.S754_finite false 4503874505277440 (-105))
+  by (vm_compute; reflexivity).
+cbn [SF2R SpecFloat.cond_Zopp]. unfold F2R; cbn [Fnum Fexp].
+(* [(2^52 + 2^38) 2^-105] *)
+replace (bpow radix2 (-53)) with (bpow radix2 52 * bpow radix2 (-105))
+  by (rewrite <- bpow_plus; reflexivity).
+replace (bpow radix2 (-67)) with (bpow radix2 38 * bpow radix2 (-105))
+  by (rewrite <- bpow_plus; reflexivity).
+change (bpow radix2 52) with (IZR 4503599627370496).
+change (bpow radix2 38) with (IZR 274877906944).
+lra.
+Qed.
+
 (** A copy of [FastRoundErr.two_R], which is local there. *)
 Local Lemma two_R : B2R Fast.two = 2.
 Proof.
@@ -303,7 +322,7 @@ assert (B2 : Rabs (B2R (Fast.sub_unit e) * B2R Fast.sub_err) < bpow radix2 1024)
 { rewrite P2, Rabs_pos_eq by lra. lra. }
 destruct (mul_exact _ _ Fc Fe G2 B2) as (F2 & R2).
 (* [C (2^-53 - 2^-67) = 16383 X] has a 14-bit significand and the exponent
-   [-1089 - e >= -4]. *)
+   [-1089 - e] in [[-67, -4]], above [-1074]. *)
 assert (P3 : B2R (Fast.sub_unit e) * B2R Fast.sub_near = 16383 * X).
 { rewrite Rc, sub_near_R, Rmult_minus_distr_l, HX3, HX2. ring. }
 assert (G3 : G (B2R (Fast.sub_unit e) * B2R Fast.sub_near)).
@@ -319,6 +338,46 @@ split; [exact F1|]. split.
   rewrite bpow_plus. reflexivity. }
 split; [exact F2|]. split; [rewrite R2, P2, HX1; field|].
 split; [exact F3|]. rewrite R3, P3, HX1. field.
+Qed.
+
+(** [C (2^-53 + 2^-67)] is exact, for [C = 2^(-1022 - e)]: in units of [g =
+    2^(-1074 - e)] it is [g / 2 + g / 32768]. *)
+Lemma sub_far_consts :
+  forall e, (-1085 <= e <= -1022)%Z ->
+  is_finite (mul (Fast.sub_unit e) Fast.sub_far) = true /\
+  B2R (mul (Fast.sub_unit e) Fast.sub_far) =
+    bpow radix2 (-1074 - e) / 2 + bpow radix2 (-1074 - e) / 32768.
+Proof.
+intros e He.
+destruct (sub_unit_spec e He) as (Fc & _ & Rc).
+assert (Ff : is_finite Fast.sub_far = true) by (vm_compute; reflexivity).
+(* As in [sub_consts], in units of [X = 2^(-1089 - e)] = [C 2^-67]: [g]
+   is [2^15 X] and [C 2^-53] is [2^14 X]. *)
+set (X := bpow radix2 (-1089 - e)).
+assert (HX1 : bpow radix2 (-1074 - e) = 32768 * X).
+{ unfold X. replace (-1074 - e)%Z with (15 + (-1089 - e))%Z by ring.
+  rewrite bpow_plus. change (bpow radix2 15) with 32768. reflexivity. }
+assert (HX2 : bpow radix2 (-1022 - e) * bpow radix2 (-67) = X).
+{ unfold X. rewrite <- bpow_plus. f_equal. ring. }
+assert (HX3 : bpow radix2 (-1022 - e) * bpow radix2 (-53) = 16384 * X).
+{ unfold X. rewrite <- bpow_plus.
+  replace (-1022 - e + -53)%Z with (14 + (-1089 - e))%Z by ring.
+  rewrite bpow_plus. change (bpow radix2 14) with 16384. reflexivity. }
+assert (HX0 : 0 < X) by apply bpow_gt_0.
+assert (HXb : 32768 * X < bpow radix2 1024) by (rewrite <- HX1; apply bpow_lt; lia).
+(* [C (2^-53 + 2^-67) = 16385 X] has a 15-bit significand and the exponent
+   [-1089 - e] in [[-67, -4]], above [-1074]. *)
+assert (P : B2R (Fast.sub_unit e) * B2R Fast.sub_far = 16385 * X).
+{ rewrite Rc, sub_far_R, Rmult_plus_distr_l, HX3, HX2. ring. }
+assert (Gf : G (B2R (Fast.sub_unit e) * B2R Fast.sub_far)).
+{ rewrite P. apply generic_format_FLT. exists (Float radix2 16385 (-1089 - e)).
+  - unfold F2R, X. cbn [Fnum Fexp]. reflexivity.
+  - cbn [Fnum]. simpl. lia.
+  - cbn [Fexp]. lia. }
+assert (B : Rabs (B2R (Fast.sub_unit e) * B2R Fast.sub_far) < bpow radix2 1024).
+{ rewrite P, Rabs_pos_eq by lra. lra. }
+destruct (mul_exact _ _ Fc Ff Gf B) as (F & R).
+split; [exact F|]. rewrite R, P, HX1. field.
 Qed.
 
 (** ** Rounding between two multiples of [2^-1074] *)
@@ -349,4 +408,59 @@ assert (Hb : B2R (from_bits K) < y * bpow radix2 e < B2R (from_bits (K + 1))).
 destruct up; unfold rounds.
 - exact (DyExpRules.rnd_bracket _ _ true _ F0 F1 Hs Hb).
 - exact (DyExpRules.rnd_bracket _ _ false _ F0 F1 Hs Hb).
+Qed.
+
+(** If [y > 0] is closer than [g / 2] to [K g], for [g = 2^(-1074 - e)]
+    and [K] in [[0, 2^52]], then [y 2^e] rounds to nearest to the [f64]
+    whose bits are [K], [K 2^-1074]. *)
+Lemma sub_near_grid :
+  forall (e K : Z) (y : R), (0 <= K <= 2^52)%Z -> 0 < y ->
+  Rabs (y - IZR K * bpow radix2 (-1074 - e)) < bpow radix2 (-1074 - e) / 2 ->
+  near_round (y * bpow radix2 e) (from_bits K).
+Proof.
+intros e K y HK Hy0 HD.
+set (g := bpow radix2 (-1074 - e)) in *.
+assert (Hg0 : 0 < g) by apply bpow_gt_0.
+pose proof (Rabs_def2 _ _ HD) as (HD1 & _).
+destruct (small_bits K HK) as (Fv & Sv & Rv).
+(* In units of [2^e], [g] is [2^-1074] and [y < (K + 1) g <= (2^52 + 1) g]
+   is below [2^-1021]. *)
+assert (Hge : g * bpow radix2 e = bpow radix2 (-1074)).
+{ unfold g. rewrite <- bpow_plus. f_equal. ring. }
+assert (He0 : 0 < bpow radix2 e) by apply bpow_gt_0.
+assert (Hr0 : 0 < y * bpow radix2 e) by (apply Rmult_lt_0_compat; assumption).
+assert (HN52 : IZR K + 1 <= 4503599627370497).
+{ rewrite <- plus_IZR. apply IZR_le. change 4503599627370497%Z with (2^52 + 1)%Z. lia. }
+assert (H1022 : bpow radix2 (-1022) = 4503599627370496 * bpow radix2 (-1074)).
+{ change 4503599627370496 with (bpow radix2 52). rewrite <- bpow_plus. reflexivity. }
+assert (H1021 : bpow radix2 (-1021) = 2 * bpow radix2 (-1022)).
+{ change 2 with (bpow radix2 1). rewrite <- bpow_plus. reflexivity. }
+assert (H1074 : bpow radix2 (-1074) = 2 * bpow radix2 (-1075)).
+{ change 2 with (bpow radix2 1). rewrite <- bpow_plus. reflexivity. }
+assert (Hr1 : y * bpow radix2 e < (IZR K + 1) * bpow radix2 (-1074)).
+{ rewrite <- Hge, <- Rmult_assoc. apply Rmult_lt_compat_r; [exact He0 | lra]. }
+assert (H1074p : 0 < bpow radix2 (-1074)) by apply bpow_gt_0.
+assert (HK1 : (IZR K + 1) * bpow radix2 (-1074) <= 4503599627370497 * bpow radix2 (-1074))
+  by (apply Rmult_le_compat_r; lra).
+assert (Hr2 : y * bpow radix2 e < bpow radix2 (-1021)) by lra.
+unfold near_round.
+destruct (Rle_dec (bpow radix2 1024 - bpow radix2 970) (Rabs (y * bpow radix2 e))) as [Ho|_].
+- (* No overflow: [y 2^e < 2^-1021]. *)
+  exfalso. rewrite Rabs_pos_eq in Ho by lra.
+  assert (bpow radix2 971 <= bpow radix2 1024) by (apply bpow_le; lia).
+  assert (bpow radix2 971 = 2 * bpow radix2 970).
+  { change 2 with (bpow radix2 1). rewrite <- bpow_plus. reflexivity. }
+  assert (bpow radix2 (-1021) < bpow radix2 970) by (apply bpow_lt; lia).
+  lra.
+- split; [exact Fv | split].
+  + rewrite Rv. symmetry. apply rn_sub_grid; [lra|].
+    replace (y * bpow radix2 e - IZR K * bpow radix2 (-1074))
+      with ((y - IZR K * g) * bpow radix2 e)
+      by (rewrite Rmult_minus_distr_r, Rmult_assoc, Hge; reflexivity).
+    rewrite Rabs_mult, (Rabs_pos_eq (bpow radix2 e)) by lra.
+    apply Rlt_le_trans with (g / 2 * bpow radix2 e).
+    * apply Rmult_lt_compat_r; [exact He0 | exact HD].
+    * lra.
+  + (* [y > 0], so the sign of a zero result is [+]. *)
+    intros _ _. rewrite Sv, Rlt_bool_false; [reflexivity | lra].
 Qed.

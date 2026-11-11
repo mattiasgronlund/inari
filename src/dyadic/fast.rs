@@ -40,8 +40,9 @@
 // of `fast_exp_edge`. Their sub tests `round_dir_sub_err` and `round_near_sub_err` compare
 // u = RN(t + l), for s + t = C + h by Fast2Sum, with 2 err C (directed) and (2^-53 - 2 err) C
 // (to nearest), where `round_dir_sub` and `round_near_sub` take 2^-67 C and (2^-53 - 2^-67) C:
-// 2 err C bounds err and the rounding of u together, as C >= 1 and p <= 105. Elsewhere they
-// call `round_dir_err` and `round_near_err`.
+// 2 err C bounds err and the rounding of u together, as C >= 1 and p <= 105. Where |u| is above
+// (2^-53 + 2 err) C, or (2^-53 + 2^-67) C in `round_near_sub`, C + y rounds to nearest to the
+// `f64` after or before s. Elsewhere they call `round_dir_err` and `round_near_err`.
 //
 // `rocq/theories/Model.v` transcribes this file except its tests and the test-only switch and
 // counter (`set_fast_path`, `fast_counts`), so it has to be updated along with it.
@@ -287,11 +288,12 @@ pub(crate) fn round_near_err(h: f64, l: f64, e: i64, err: f64) -> Option<f64> {
     }
 }
 
-// 2^-67 and 2^-53 - 2^-67: the bounds of `round_dir_sub` and `round_near_sub` on u, in units of
-// C. 2^-67 C bounds `ERR` and the rounding of u together, as C >= 1, and 2^-53 C is half the gap
-// between the `f64`s in [C, 2C].
+// 2^-67, 2^-53 - 2^-67 and 2^-53 + 2^-67: the bounds of `round_dir_sub` and `round_near_sub` on
+// u, in units of C. 2^-67 C bounds `ERR` and the rounding of u together, as C >= 1, and 2^-53 C
+// is half the gap between the `f64`s in [C, 2C].
 const SUB_ERR: f64 = f64::EPSILON / 32768.0;
 const SUB_NEAR: f64 = 16_383.0 / 147_573_952_589_676_412_928.0;
+const SUB_FAR: f64 = 16_385.0 / 147_573_952_589_676_412_928.0;
 
 // C = 2^(-1022 - e), for an e in [-2045, -1022], from its bits.
 fn sub_unit(e: i64) -> f64 {
@@ -348,10 +350,13 @@ fn round_dir_sub(h: f64, l: f64, e: i64, up: bool) -> Option<f64> {
 }
 
 // `round_near` for an e as in `round_dir_sub`: C + y rounds to s where |u| < 2^-53 C - 2^-67 C,
-// and y 2^e to (s - C) 2^e. The comparisons are strict, so a midpoint never passes. Where C + h
-// is itself a midpoint of two `f64`s, Fast2Sum rounds it to the even one, s, and |t| = 2^-53 C,
-// so the test passes only where l brings u back toward s by more than 2^-67 C: where y is on
-// the other side of that midpoint, the kernel decides.
+// and y 2^e to (s - C) 2^e. Where |u| > 2^-53 C + 2^-67 C, C + y is more than half a gap and
+// less than a gap away from s, so it rounds to the `f64` after s where u > 0 and to the one
+// before where u < 0, whose bits are those of s plus or minus 1. As in `round_dir_sub`, s = C
+// never needs the `f64` before it. The comparisons are strict, so a midpoint never passes. Only
+// a C + h that is itself a midpoint of two `f64`s leaves |u| beyond 2^-53 C: t is a multiple of
+// the ulp of h, and |l| is at most half of it, so |t + l| > 2^-53 C only where |t| = 2^-53 C,
+// where Fast2Sum has rounded C + h to the even one, s.
 fn round_near_sub(h: f64, l: f64, e: i64) -> Option<f64> {
     #[cfg(test)]
     if !fast_enabled() {
@@ -361,14 +366,27 @@ fn round_near_sub(h: f64, l: f64, e: i64) -> Option<f64> {
     let (s, t) = fast_two_sum(c, h);
     let u = t + l;
     let b = c * SUB_NEAR;
-    let passed = s < 2.0 * c && u < b && u > -b;
-    #[cfg(test)]
-    record_fast(passed);
-    if passed {
-        Some(f64::from_bits(s.to_bits() - c.to_bits()))
+    let r = if s >= 2.0 * c {
+        // The gap above s is 2g, or C < h.
+        #[cfg(test)]
+        record_fast(false);
+        return None;
+    } else if u < b && u > -b {
+        s
+    } else if u > c * SUB_FAR {
+        // s + g/2 < C + y < the `f64` after s.
+        f64::from_bits(s.to_bits() + 1)
+    } else if u < -(c * SUB_FAR) {
+        // The `f64` before s < C + y < s - g/2.
+        f64::from_bits(s.to_bits() - 1)
     } else {
-        None
-    }
+        #[cfg(test)]
+        record_fast(false);
+        return None;
+    };
+    #[cfg(test)]
+    record_fast(true);
+    Some(f64::from_bits(r.to_bits() - c.to_bits()))
 }
 
 /// `round_dir` for an e in [-1085, 1023], where y 2^e can be subnormal or above the largest
@@ -442,7 +460,7 @@ fn round_dir_sub_err(h: f64, l: f64, e: i64, err: f64, up: bool) -> Option<f64> 
 }
 
 // `round_near_sub` for a bound `err` as in `round_dir_sub_err`: C + y rounds to s where
-// |u| < 2^-53 C - 2 err C.
+// |u| < 2^-53 C - 2 err C, and to the `f64` after or before s where |u| > 2^-53 C + 2 err C.
 fn round_near_sub_err(h: f64, l: f64, e: i64, err: f64) -> Option<f64> {
     #[cfg(test)]
     if !fast_enabled() {
@@ -454,14 +472,27 @@ fn round_near_sub_err(h: f64, l: f64, e: i64, err: f64) -> Option<f64> {
     // (2^-53 - 2 err) C: the subtraction is exact, as 2^-53 - 2^(1 - p) has at most 52
     // significant bits for p <= 105, and so is the product by the power of 2 C.
     let b = c * (GAP1 - 2.0 * err);
-    let passed = s < 2.0 * c && u < b && u > -b;
-    #[cfg(test)]
-    record_fast(passed);
-    if passed {
-        Some(f64::from_bits(s.to_bits() - c.to_bits()))
+    let r = if s >= 2.0 * c {
+        // The gap above s is 2g, or C < h.
+        #[cfg(test)]
+        record_fast(false);
+        return None;
+    } else if u < b && u > -b {
+        s
+    } else if u > c * (GAP1 + 2.0 * err) {
+        // s + g/2 < C + y < the `f64` after s. (2^-53 + 2 err) C is exact as the bound above.
+        f64::from_bits(s.to_bits() + 1)
+    } else if u < -(c * (GAP1 + 2.0 * err)) {
+        // The `f64` before s < C + y < s - g/2.
+        f64::from_bits(s.to_bits() - 1)
     } else {
-        None
-    }
+        #[cfg(test)]
+        record_fast(false);
+        return None;
+    };
+    #[cfg(test)]
+    record_fast(true);
+    Some(f64::from_bits(r.to_bits() - c.to_bits()))
 }
 
 /// `round_dir_wide` for a fast path that bounds |y - (h + l)| by `err` = 2^-p, for an integer p

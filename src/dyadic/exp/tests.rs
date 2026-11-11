@@ -1028,8 +1028,10 @@ fn narrow(h: f64, l: f64) -> (bool, bool) {
 // `edges_random`. Where `round_dir_wide` and `round_near_wide` round C + y on the grid of the
 // `f64`s in [C, 2C] (`round_dir_sub` and `round_near_sub`), with s + t = C + h, they compare
 // |u| for u = RN(t + l) with 2^-67 C in the directions, and with 2^-53 C, half the gap at s,
-// less 2^-67 C to nearest. A pass there is narrow where 2^-57 C, 2^10 times as much, in place
-// of 2^-67 C would make it fail. Elsewhere, narrow is as in `widened`. About 1 random argument
+// less 2^-67 C to nearest, where the result is s; `far_side_ties_random` checks the passes of
+// the far arms, beyond 2^-53 C + 2^-67 C, on the same ranges. A pass there is narrow where
+// 2^-57 C, 2^10 times as much, in place of 2^-67 C would make it fail. Elsewhere, narrow is as
+// in `widened`. About 1 random argument
 // in 8 is such a narrow pass on the ranges of the results below 2^-1020, and 1 in 16 on the
 // others.
 #[test]
@@ -1080,6 +1082,288 @@ fn edges_widened() {
              to nearest",
             FUNCTIONS[i].0
         );
+    }
+}
+
+// u / C at (h, l, e) where `round_near_wide` rounds with `round_near_sub` and C + h is a
+// midpoint of two `f64`s of [C, 2C) below 2C: |t| = 2^-53 C for (s, t) = Fast2Sum(C, h), with
+// s < 2C, and u = RN(t + l). `None` elsewhere. The quotient is exact, as C is a power of 2.
+fn sub_tie(h: f64, l: f64, e: i64) -> Option<f64> {
+    if e > -1022 || (e == -1022 && h > 1.0) {
+        return None;
+    }
+    let c = pow2(-1022 - i32::try_from(e).unwrap());
+    let (s, t) = fast_two_sum(c, h);
+    (s < 2.0 * c && t.abs() == f64::EPSILON / 2.0 * c).then(|| (t + l) / c)
+}
+
+// 2^-53 + 2^-67, exact: the far bound of `round_near_sub` on u, in units of C.
+const TIE_FAR: f64 = f64::EPSILON / 2.0 + 2.0 * FAST_ERR;
+
+// The arguments of the `lo` sets of the counts of exp, exp2 and exp10 (row 93) at which the
+// test to nearest of the fast path failed before `round_near_sub` had its far arms, as
+// (function, x, MPFR's rounding to nearest), in bits. The kernel gave the right results there,
+// so these cost only time: they were not mismatches, and are not in `regressions()`.
+const FAR_SIDE_TIES: [(usize, u64, u64); 91] = [
+    (EXP, 0xc086_28ac_869e_da32, 0x0008_0aef_0d9d_fc43),
+    (EXP, 0xc086_2a64_a2ec_7c1f, 0x0006_7cc9_0738_4e1b),
+    (EXP, 0xc086_25fb_9296_5b44, 0x000b_424e_c0b9_0507),
+    (EXP, 0xc086_28ce_7f59_f01e, 0x0007_e910_01f8_b43d),
+    (EXP, 0xc086_2f78_e1f3_7d70, 0x0003_7035_a3c2_02ef),
+    (EXP, 0xc086_257e_3111_cf1d, 0x000b_f847_7d86_5231),
+    (EXP, 0xc086_334b_e345_82db, 0x0002_21bb_afb0_7203),
+    (EXP, 0xc086_3091_b55c_7f56, 0x0002_ff6c_422c_3391),
+    (EXP, 0xc086_2ba1_2303_ade0, 0x0005_8ef9_74a4_87b7),
+    (EXP, 0xc086_2467_be9a_9d08, 0x000d_b68c_f6d4_e1a1),
+    (EXP, 0xc086_286d_9ed5_440a, 0x0008_4b28_04df_6ab5),
+    (EXP, 0xc086_2c5a_e1c4_0a23, 0x0005_1398_976a_de5f),
+    (EXP, 0xc086_26ad_7f3e_13f6, 0x000a_5278_4ed3_fb2d),
+    (EXP, 0xc086_2b12_00b6_cdc4, 0x0005_f5fb_ba2f_049b),
+    (EXP, 0xc086_2447_3091_f46a, 0x000d_eecc_c724_18bd),
+    (EXP, 0xc086_27fa_5058_6899, 0x0008_c61f_a08f_cccf),
+    (EXP, 0xc086_2618_0eeb_b603, 0x000b_1a7e_bca9_96a7),
+    (EXP, 0xc086_2468_66d1_adef, 0x000d_b56c_aab7_c8df),
+    (EXP, 0xc086_39b3_068f_87f2, 0x0000_f520_1904_28e9),
+    (EXP, 0xc086_25b2_ab37_28a2, 0x000b_aac2_4179_17c3),
+    (EXP, 0xc086_29cc_dd87_219e, 0x0006_fc89_43b9_7863),
+    (EXP, 0xc086_287a_5ae2_5b51, 0x0008_3dfe_d176_44e3),
+    (EXP, 0xc086_3147_b3af_13d1, 0x0002_be2b_3ebb_eca5),
+    (EXP, 0xc086_2896_a4d3_0e43, 0x0008_210c_f318_e397),
+    (EXP, 0xc086_2548_f2e9_0b75, 0x000c_48fc_c060_cc33),
+    (EXP, 0xc086_2b9b_f976_f5c3, 0x0005_9290_d794_65cb),
+    (EXP, 0xc086_2a93_0d75_0fa8, 0x0006_5791_7f02_934f),
+    (EXP, 0xc086_2785_6bf1_fdea, 0x0009_4a0d_9774_e427),
+    (EXP, 0xc086_276d_64f1_e634, 0x0009_661d_f0d7_8b49),
+    (EXP, 0xc086_2be6_7382_8794, 0x0005_5f9e_ad2b_31af),
+    (EXP2, 0xc08f_fa87_e56f_29df, 0x0006_6cbd_9d0b_6f85),
+    (EXP2, 0xc08f_ffdd_4452_7a8a, 0x0004_0c1b_ce07_eb05),
+    (EXP2, 0xc090_104b_d194_ed5f, 0x0000_3ccc_5b4b_adaf),
+    (EXP2, 0xc08f_f09e_5271_9b29, 0x000f_2a4b_b6da_668f),
+    (EXP2, 0xc090_08d3_038a_182d, 0x0000_ddec_ef50_6a2d),
+    (EXP2, 0xc08f_f940_f406_ca3a, 0x0007_2d30_74bf_35ed),
+    (EXP2, 0xc090_01b8_3e74_1ff3, 0x0002_f81d_7d35_920f),
+    (EXP2, 0xc08f_f2df_66f8_f434, 0x000c_797c_ae24_b60b),
+    (EXP2, 0xc090_0174_bc0e_4070, 0x0003_1ba7_fccf_0f89),
+    (EXP2, 0xc08f_f678_cdf8_f1ba, 0x0009_21ec_fd18_4fc9),
+    (EXP2, 0xc08f_f7b2_5438_85dd, 0x0008_368d_2344_6359),
+    (EXP2, 0xc08f_f0f9_8564_58dd, 0x000e_b44b_3ad4_de5d),
+    (EXP2, 0xc08f_fefe_0d82_9d1a, 0x0004_5d6a_855f_60a7),
+    (EXP2, 0xc08f_f4b7_a0ea_11c4, 0x000a_a1c9_109f_e181),
+    (EXP2, 0xc08f_f1b5_d7d1_4121, 0x000d_cbda_49c2_5ba9),
+    (EXP2, 0xc08f_f4c9_6fd6_0fe9, 0x000a_916e_0f8b_2797),
+    (EXP2, 0xc08f_f2af_6d6c_579a, 0x000c_adc3_66cd_5d13),
+    (EXP2, 0xc090_00ca_4b60_1418, 0x0003_7cf4_fbc9_bf5d),
+    (EXP2, 0xc090_015c_7418_62ea, 0x0003_28d7_72d4_8eb7),
+    (EXP2, 0xc08f_f454_6298_f2ef, 0x000a_fec2_9df6_181d),
+    (EXP2, 0xc090_0027_de3e_2642, 0x0003_e4bc_2d40_23b1),
+    (EXP2, 0xc08f_f33e_abcf_f37e, 0x000c_1428_bd9a_159f),
+    (EXP2, 0xc08f_f5c4_b887_6132, 0x0009_b4da_6c11_8843),
+    (EXP2, 0xc08f_fb6c_3eab_39f9, 0x0005_f26a_4644_a88b),
+    (EXP2, 0xc08f_f138_5d49_39e5, 0x000e_6513_3c50_fed3),
+    (EXP2, 0xc090_0ce7_4074_408f, 0x0000_6d73_fa4d_a9d1),
+    (EXP2, 0xc08f_f70f_93c7_f049, 0x0008_ad9d_c1bb_2d41),
+    (EXP2, 0xc08f_fc19_7ec3_0e48, 0x0005_9bb6_6808_8e7f),
+    (EXP2, 0xc08f_f3ae_17bc_ef88, 0x000b_a1b9_0f46_89e9),
+    (EXP2, 0xc08f_f606_7dd0_f6e3, 0x0009_7e26_b221_a157),
+    (EXP2, 0xc08f_f329_a4be_5387, 0x000c_2a3e_7394_11c1),
+    (EXP2, 0xc090_0e43_16b0_a67b, 0x0000_567d_c859_e65f),
+    (EXP2, 0xc08f_f555_2805_3ee0, 0x000a_1479_0f8f_8b4d),
+    (EXP2, 0xc08f_f6a8_a2b2_5b78, 0x0008_fc62_130d_8a91),
+    (EXP10, 0xc073_3b0b_6981_45c6, 0x000e_ac08_5811_d1db),
+    (EXP10, 0xc073_3cc7_d2da_7062, 0x000b_6db4_546e_b443),
+    (EXP10, 0xc073_3cac_7223_9d0d, 0x000b_9b14_b5e6_0b8d),
+    (EXP10, 0xc073_3c2e_77f6_86e4, 0x000c_751e_4ef0_4d7b),
+    (EXP10, 0xc073_4084_2bd3_07d6, 0x0006_ad05_2288_1a43),
+    (EXP10, 0xc073_3c95_e75d_f6b0, 0x000b_c0f8_6bbc_cb9b),
+    (EXP10, 0xc073_3ea9_8591_59ee, 0x0008_b7a9_68c4_fa6d),
+    (EXP10, 0xc073_4196_9a01_70ac, 0x0005_b8b2_3972_de23),
+    (EXP10, 0xc073_430b_d537_3ce3, 0x0004_a37b_1bf6_07b5),
+    (EXP10, 0xc073_3eda_f0b8_64c9, 0x0008_7a84_7ad2_599b),
+    (EXP10, 0xc073_40e4_7000_cb88, 0x0006_52fd_e446_4b93),
+    (EXP10, 0xc073_3db8_cb92_3c19, 0x0009_fb0c_f26e_8b01),
+    (EXP10, 0xc073_3d96_557b_aaae, 0x000a_2d07_f130_8337),
+    (EXP10, 0xc073_424a_84ba_1816, 0x0005_2bcc_ebd2_498d),
+    (EXP10, 0xc073_3e20_a698_20fd, 0x0009_6a26_7ee8_6755),
+    (EXP10, 0xc073_4b95_d4f8_9621, 0x0001_5b7c_094f_893b),
+    (EXP10, 0xc073_41a4_7be1_4bce, 0x0005_ad4f_6755_4575),
+    (EXP10, 0xc073_3e28_5652_6d82, 0x0009_5fc2_37df_3341),
+    (EXP10, 0xc073_3d7b_a947_b046, 0x000a_5462_b5ee_0f47),
+    (EXP10, 0xc073_3d16_8e89_f0f8, 0x000a_ef09_388d_05a9),
+    (EXP10, 0xc073_4823_971d_2085, 0x0002_3a97_d274_9ddf),
+    (EXP10, 0xc073_3d15_39a1_70bc, 0x000a_f121_d672_8e93),
+    (EXP10, 0xc073_466c_5bf6_36d1, 0x0002_da66_574b_5865),
+    (EXP10, 0xc073_4053_2545_6ae5, 0x0006_dcc6_902d_ea0d),
+    (EXP10, 0xc073_3c9f_2a68_67dd, 0x000b_b158_367f_3fc1),
+    (EXP10, 0xc073_3cb6_ab6b_47e1, 0x000b_8a0d_d997_3971),
+    (EXP10, 0xc073_47ba_0716_d54d, 0x0002_5d7a_7363_8cdf),
+];
+
+// e^x, 2^x and 10^x at `FAR_SIDE_TIES`, beyond the range of `fast_exp`, where C + h is a
+// midpoint and |u| > 2^-53 C + 2^-67 C (`sub_tie`): the test to nearest of the fast path passes
+// in a far arm of `round_near_sub`, gives MPFR's result, and the same `f64`s as with the fast
+// paths disabled.
+#[test]
+fn far_side_ties() {
+    use crate::dyadic::fast::{fast_counts, reset_fast_counts};
+    for (i, x, r) in FAR_SIDE_TIES {
+        let x = f64::from_bits(x);
+        let name = FUNCTIONS[i].0;
+        reset_fast_counts();
+        let near = NEAR[i](x);
+        assert_eq!(fast_counts(), (1, 0), "{name}({x:e})");
+        assert_eq!(near.to_bits(), r, "{name}({x:e}) = {near:e}");
+        assert!(fast_parts(i, x).is_none(), "{name}({x:e})");
+        let (h, l, e) = edge_parts(i, x).unwrap();
+        let u = sub_tie(h, l, e);
+        assert!(
+            u.is_some_and(|u| u.abs() > TIE_FAR),
+            "{name}({x:e}): ({h:e}, {l:e}, {e}), u = {u:?} C"
+        );
+        same_without_fast_path(i, x);
+        check(i, x);
+    }
+}
+
+// `far_side_ties` at random arguments beyond the range of `fast_exp`, on the three low ranges
+// of `edges_widened`. Of 4000 arguments of each function, 28 (exp), 38 (exp2) and
+// 35 (exp10) are such ties, about 1 in 105-143; the test asks for at least 14, 19 and 17, about
+// half as many.
+#[test]
+fn far_side_ties_random() {
+    use crate::dyadic::fast::{fast_counts, reset_fast_counts};
+    let mut rng = Rng(934);
+    for (i, a, b, min) in [
+        (EXP, -745.9, -707.0, 14),
+        (EXP2, -1075.0, -1020.0, 19),
+        (EXP10, -323.9, -307.05, 17),
+    ] {
+        let mut found = 0;
+        for _ in 0..4000 {
+            let x = uniform(&mut rng, a, b);
+            if fast_parts(i, x).is_some() {
+                continue;
+            }
+            let Some((h, l, e)) = edge_parts(i, x) else {
+                continue;
+            };
+            if !sub_tie(h, l, e).is_some_and(|u| u.abs() > TIE_FAR) {
+                continue;
+            }
+            found += 1;
+            reset_fast_counts();
+            NEAR[i](x);
+            assert_eq!(fast_counts(), (1, 0), "{}({x:e})", FUNCTIONS[i].0);
+            same_without_fast_path(i, x);
+            check(i, x);
+        }
+        assert!(
+            found >= min,
+            "{}: {found} ties beyond 2^-53 C + 2^-67 C",
+            FUNCTIONS[i].0
+        );
+    }
+}
+
+// `round_near_wide` at constructed ties of `round_near_sub`: for C = 2^(-1022 - e),
+// g = 2^-52 C and h = (m + 1/2) g, C + h is the midpoint of C + m g and C + (m + 1) g, which
+// Fast2Sum rounds to the even one, so that t = g/2 for an even m and -g/2 for an odd one. The
+// l satisfy h = RN(h + l), as the pairs of the fast paths do, so |l| <= ulp(h)/2 < g/2, and
+// y = h + l gives y 2^e = (m + 1/2 + l/g) 2^-1074, which rounds to (m + 1) 2^-1074 where l > 0
+// and to m 2^-1074 where l < 0, whichever s is. Except at m = 2^52 - 1, the fast path gives
+// that result where u is one ulp beyond the far bound 2^-53 C + 2^-67 C (a far arm) or below
+// the near bound 2^-53 C - 2^-67 C (s). It fails where u is at a bound, as the comparisons are
+// strict, and between them, as at l = 0. An m >= 2^39 makes ulp(h)/2 >= 2^-66 C, above the |l|
+// of at most 2^-67 C + 2^-105 C that the test takes. Not every h is in (1/2, 2), the range of
+// the fast paths, which this arithmetic does not need: those in it are at m >= 2^51 for
+// e = -1022, m >= 2^50 for e = -1023 and m in [2^43, 2^45) for e = -1030. At m = 2^52 - 1,
+// Fast2Sum rounds C + h = 2C - g/2 to s = 2C, and the fast path fails for every l. It also
+// fails at every tie where C >= 2^14 and h < 2: there |l| <= ulp(h)/2 <= 2^-53 <= 2^-67 C, so u
+// is neither beyond the far bound nor below the near one. The test takes h in [1, 2) there at
+// e = -1036 and -1040, with l = ±2^-53, the extremes, and l = 0, and the only ties with h in
+// (1/2, 2) at e = -1074 and -1075: h = 3/2 (C = 2^52, g = 1), which Fast2Sum rounds up to
+// s = C + 2, with l = ±2^-53 and 0, and h = 1 (g = 2), which it rounds down to s = C, the
+// smallest s, with l = -2^-54, 0 and 2^-53, all of which leave u = g/2. Below e = -1075,
+// g/2 >= 2 > h, so C + h rounds to C with t = h, and no h < 2 is a tie.
+#[test]
+fn far_side_ties_constructed() {
+    use crate::dyadic::fast::{fast_counts, reset_fast_counts};
+    // The bits of `round_near_wide(h, l, e)`, for a pair (h, l) of the fast paths. It counts
+    // one rounding test, which passed where the result is `Some`.
+    let round = |h: f64, l: f64, e: i32| {
+        assert_eq!(h + l, h, "({h:e}, {l:e}) is not a pair of the fast paths");
+        reset_fast_counts();
+        let r = round_near_wide(h, l, i64::from(e));
+        let counts = if r.is_some() { (1, 0) } else { (0, 1) };
+        assert_eq!(fast_counts(), counts, "({h:e}, {l:e}, {e})");
+        r.map(f64::to_bits)
+    };
+    for e in [-1022, -1023, -1030] {
+        let c = pow2(-1022 - e);
+        let g = f64::EPSILON * c;
+        // 2^-67 C, and the ulps of u just beyond the far bound and just below the near one.
+        let (d, far, near) = (2.0 * FAST_ERR * c, pow2(-105) * c, pow2(-106) * c);
+        for m in [
+            1 << 39,
+            (1 << 39) + 1,
+            (1 << 43) + 0x1234,
+            (1 << 43) + 0x1235,
+            0x000a_7f31_c4d2_9e56,
+            0x000a_7f31_c4d2_9e57,
+            (1 << 52) - 2,
+        ] {
+            let h = (m as f64 + 0.5) * g;
+            let sign = if m % 2 == 0 { 1.0 } else { -1.0 };
+            assert_eq!(
+                sub_tie(h, 0.0, i64::from(e)),
+                Some(sign * f64::EPSILON / 2.0)
+            );
+            for (l, passes) in [
+                (sign * (d + far), true),
+                (sign * d, false),
+                (0.0, false),
+                (-sign * d, false),
+                (-sign * (d + near), true),
+            ] {
+                let oracle = if l > 0.0 { m + 1 } else { m };
+                assert_eq!(
+                    round(h, l, e),
+                    passes.then_some(oracle),
+                    "m = {m}, ({h:e}, {l:e}, {e})"
+                );
+            }
+        }
+        // m = 2^52 - 1.
+        let h = ((1u64 << 52) as f64 - 0.5) * g;
+        assert_eq!(fast_two_sum(c, h).0, 2.0 * c);
+        for l in [-(d + far), 0.0, d + far] {
+            assert_eq!(round(h, l, e), None, "({h:e}, {l:e}, {e})");
+        }
+    }
+    let half = f64::EPSILON / 2.0;
+    for e in [-1036, -1040] {
+        let k = -1022 - e;
+        let g = f64::EPSILON * pow2(k);
+        for m in [(1u64 << (52 - k)) + 0x1234, (1 << (52 - k)) + 0x1235] {
+            let h = (m as f64 + 0.5) * g;
+            assert!((1.0..2.0).contains(&h));
+            // The l beyond 2^-53 = ulp(h)/2 are not valid.
+            assert!(h + next_up(half) != h && h - next_up(half) != h);
+            for l in [-half, 0.0, half] {
+                assert_eq!(round(h, l, e), None, "({h:e}, {l:e}, {e})");
+            }
+        }
+    }
+    // (e, h, s - C, t) at the ties of e = -1074 and -1075.
+    for (e, h, ds, t, ls) in [
+        (-1074, 1.5, 2.0, -0.5, [-half, 0.0, half]),
+        (-1075, 1.0, 0.0, 1.0, [-half / 2.0, 0.0, half]),
+    ] {
+        let c = pow2(-1022 - e);
+        assert_eq!(fast_two_sum(c, h), (c + ds, t));
+        assert_eq!(sub_tie(h, 0.0, i64::from(e)), Some(t / c));
+        for l in ls {
+            assert_eq!(round(h, l, e), None, "({h:e}, {l:e}, {e})");
+        }
     }
 }
 

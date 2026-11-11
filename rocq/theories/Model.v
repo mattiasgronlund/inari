@@ -1790,9 +1790,11 @@ Definition round_near_err (h l : f64) (e : Z) (err : f64) : option f64 :=
   let below := if gt h one then sub gap1 err else sub gap0 err in
   if gt h half && lt h two && lt l above && gt l (opp below) then Some (scale h e) else None.
 
-(** [SUB_ERR] and [SUB_NEAR]: 2^-67 and 2^-53 - 2^-67. *)
+(** [SUB_ERR], [SUB_NEAR] and [SUB_FAR]: 2^-67, 2^-53 - 2^-67 and 2^-53 +
+    2^-67. *)
 Definition sub_err : f64 := from_bits 0x3bc0000000000000.
 Definition sub_near : f64 := from_bits 0x3c9fff8000000000.
+Definition sub_far : f64 := from_bits 0x3ca0004000000000.
 
 (** [fn sub_unit(e: i64) -> f64], where [(1 - e) as u64] is
     [(1 - e) mod 2^64], and [<< 52] drops the bits above 64. *)
@@ -1815,14 +1817,19 @@ Definition round_dir_sub (h l : f64) (e : Z) (up : bool) : option f64 :=
   match r with Some r => Some (from_bits (to_bits r - to_bits c)) | None => None end.
 
 (** [fn round_near_sub(h: f64, l: f64, e: i64) -> Option<f64>], where
-    [s.to_bits() - c.to_bits()] is as in [round_dir_sub]. *)
+    [s.to_bits() + 1], [s.to_bits() - 1] and [r.to_bits() - c.to_bits()]
+    are as in [round_dir_sub]. *)
 Definition round_near_sub (h l : f64) (e : Z) : option f64 :=
   let c := sub_unit e in
   let '(s, t) := fast_two_sum c h in
   let u := add t l in
   let b := mul c sub_near in
-  if lt s (mul two c) && lt u b && gt u (opp b) then Some (from_bits (to_bits s - to_bits c))
-  else None.
+  let r := if ge s (mul two c) then None
+    else if lt u b && gt u (opp b) then Some s
+    else if gt u (mul c sub_far) then Some (from_bits (to_bits s + 1))
+    else if lt u (opp (mul c sub_far)) then Some (from_bits (to_bits s - 1))
+    else None in
+  match r with Some r => Some (from_bits (to_bits r - to_bits c)) | None => None end.
 
 (** [pub(crate) fn round_dir_wide(h: f64, l: f64, e: i64, up: bool) ->
     Option<f64>] and [pub(crate) fn round_near_wide(h: f64, l: f64, e:
@@ -1855,8 +1862,12 @@ Definition round_near_sub_err (h l : f64) (e : Z) (err : f64) : option f64 :=
   let '(s, t) := fast_two_sum c h in
   let u := add t l in
   let b := mul c (sub gap1 (mul two err)) in
-  if lt s (mul two c) && lt u b && gt u (opp b) then Some (from_bits (to_bits s - to_bits c))
-  else None.
+  let r := if ge s (mul two c) then None
+    else if lt u b && gt u (opp b) then Some s
+    else if gt u (mul c (add gap1 (mul two err))) then Some (from_bits (to_bits s + 1))
+    else if lt u (opp (mul c (add gap1 (mul two err)))) then Some (from_bits (to_bits s - 1))
+    else None in
+  match r with Some r => Some (from_bits (to_bits r - to_bits c)) | None => None end.
 
 (** [pub(crate) fn round_dir_wide_err(h: f64, l: f64, e: i64, err: f64,
     up: bool) -> Option<f64>] and [pub(crate) fn round_near_wide_err(h:

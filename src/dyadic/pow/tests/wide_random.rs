@@ -48,12 +48,15 @@ fn edge_arm(x: f64, y: f64) -> bool {
 // still in one of these binades: near 1 and in [1/2, 2], |ln x| < ln 2, so that n ln x is within
 // ln 2 / 2 of t, but a log-uniform x has |ln x| up to 744, and n ln x is often far from t, past
 // the rules or in the range of `fast_exp`. Most rounding tests pass, as in `edges_random` of
-// `src/dyadic/exp/tests.rs`. Most of those that fail are tests to nearest of results from
-// 2^-1030 to 2^-1022, where C = 2^(-1022 - e) is small and C + h is often a midpoint of two
-// `f64`s, at which the test passes only where l brings u back toward s (`round_near_sub`): it
-// fails in about 1 case of 5 from 2^-1023 to 2^-1022, and about half as often in each binade
-// below. At k = 1023, the band from (1024 - 1/8192) ln 2 to 1024 ln 2, where `fast_exp_edge`
-// gives e = 1024 and the tests return `None` without a test, is 1/8192 of the binade.
+// `src/dyadic/exp/tests.rs`: with this seed, the test fails at 1, 0 and 3 of the 16800 calls of
+// x^y in the three ranges, the three roundings of 5600 arguments, and at 0, 1 and 0 of those of
+// x^n. With C = 2^(-1022 - e) and u as in `narrow`,
+// three of the five are tests to nearest with |u| within 2^-66 C of 2^-53 C, half the gap at s:
+// two of x^y at midpoints C + h of two `f64`s, at e = -1027 and -1040, where |l| < 2^-66 C, and
+// one of x^n at e = -1051, where C + h is not a midpoint. The other two are the directed tests
+// of one x^y at e = -1059, where |u| < 2^-66 C. At k = 1023, the band from (1024 - 1/8192) ln 2
+// to 1024 ln 2, where `fast_exp_edge` gives e = 1024 and the tests return `None` without a
+// test, is 1/8192 of the binade.
 #[test]
 fn edges_random() {
     let mut rng = Rng(981);
@@ -117,7 +120,8 @@ fn edges_random() {
 // Where they round C + y on the grid of the `f64`s in [C, 2C] (`round_dir_sub_err` and
 // `round_near_sub_err`), with s + t = C + h, they compare |u| for u = RN(t + l) with
 // 2 ERR67 C = 2^-66 C in the directions, and with 2^-53 C, half the gap at s, less 2^-66 C to
-// nearest, and 2 WIDE C = 2^-56 C in place of 2^-66 C makes them fail. Elsewhere, below e = 1024,
+// nearest, and plus 2^-66 C in the far arms, which only a C + h at a midpoint of two `f64`s
+// reaches, and 2 WIDE C = 2^-56 C in place of 2^-66 C makes them fail. Elsewhere, below e = 1024,
 // `round_dir_err` and `round_near_err` compare l with `ERR67`, and with half the gaps at h less
 // `ERR67`, as in `widened` of `tests.rs`.
 fn narrow(h: f64, l: f64, e: i64) -> (bool, bool) {
@@ -131,7 +135,8 @@ fn narrow(h: f64, l: f64, e: i64) -> (bool, bool) {
         let (err, wide, half) = (2.0 * ERR67 * c, 2.0 * WIDE * c, f64::EPSILON / 2.0 * c);
         (
             s < 2.0 * c && err < u && u <= wide,
-            s < 2.0 * c && u < half - err && u >= half - wide,
+            s < 2.0 * c
+                && ((u < half - err && u >= half - wide) || (u > half + err && u <= half + wide)),
         )
     } else {
         // Half the gap between h and the next `f64` above it, and below it.
@@ -160,9 +165,11 @@ fn narrow(h: f64, l: f64, e: i64) -> (bool, bool) {
 // and as MPFR's (`agree_pow`), as an error in the bound would show there first. There are at
 // least 20 narrow passes of each kind on the results below 2^-1022, where `round_dir_sub_err`
 // and `round_near_sub_err` decide, and on those from 2^1023 to 2^1024, where `round_dir_err`
-// and `round_near_err` do at e = 1023. About 1 argument in 9 passes narrowly in each kind
-// below 2^-1022, and 1 in 16 to 1 in 20 at the top. None does from 2^-1077 to 2^-1076, where
-// C >= 2^54, s = C and u = h + l is above 2^-56 C and below 2^-53 C - 2^-56 C.
+// and `round_near_err` do at e = 1023. With this seed, 214 and 259 of the 2000 arguments below
+// 2^-1022 pass a directed test and the test to nearest narrowly (8 of the 259 on the far side
+// of a midpoint C + h, |u| > 2^-53 C), and 63 and 53 of the 1000 at the top. None does from
+// 2^-1077 to 2^-1076, where C >= 2^54, s = C and u = h + l is above 2^-56 C and below
+// 2^-53 C - 2^-56 C.
 #[test]
 fn edges_widened() {
     let mut rng = Rng(982);
@@ -209,10 +216,152 @@ fn edges_widened() {
     }
 }
 
+// u / C at (h, l, e) where `round_near_wide_err` rounds with `round_near_sub_err` and C + h is
+// a midpoint of two `f64`s of [C, 2C) below 2C: |t| = 2^-53 C for (s, t) = Fast2Sum(C, h),
+// with s < 2C, and u = RN(t + l). `None` elsewhere. The quotient is exact, as C is a power of 2.
+fn sub_tie(h: f64, l: f64, e: i64) -> Option<f64> {
+    if e > -1022 || (e == -1022 && h > 1.0) {
+        return None;
+    }
+    let c = pow2(-1022 - e);
+    let (s, t) = fast_two_sum(c, h);
+    (s < 2.0 * c && t.abs() == f64::EPSILON / 2.0 * c).then(|| (t + l) / c)
+}
+
+// The far arms of `round_near_sub_err` on random arguments of `edges_random` from 2^-1030 to
+// 2^-1022: where C + h is a midpoint (`sub_tie`) and |u| > (2^-53 + 2^-66) C, the test to
+// nearest of x^y passes, and x^y is the same with the fast path as without it, and as MPFR's
+// (`agree_pow`). All 800 x^y of each range take the edge arm. With this seed, 100, 109 and 92
+// of them are at midpoints (x near 1, in [1/2, 2] and log-uniform), and 35, 59 and 55 of those
+// take a far arm. None has |u| within 2^-66 C of 2^-53 C, so that the others take the arm of s.
+// The test asks for about half of the far ones.
+#[test]
+fn far_side_ties() {
+    use crate::dyadic::fast::{fast_counts, reset_fast_counts};
+    let mut rng = Rng(984);
+    // 2^-53 + 2^-66 and 2^-53 - 2^-66, exact.
+    let (far, near) = (
+        f64::EPSILON / 2.0 + 2.0 * ERR67,
+        f64::EPSILON / 2.0 - 2.0 * ERR67,
+    );
+    for (r, range) in RANGES.iter().enumerate() {
+        let (mut calls, mut ties, mut found, mut within) = (0, 0, 0, 0);
+        for k in -1030..=-1023 {
+            for _ in 0..100 {
+                let (x, y) = binade_arg(&mut rng, k, r);
+                if !edge_arm(x, y) {
+                    continue;
+                }
+                calls += 1;
+                let (th, tl) = pow_t(x, y);
+                let (h, l, e) = fast_exp_edge(th, tl).unwrap();
+                let Some(u) = sub_tie(h, l, e) else {
+                    continue;
+                };
+                ties += 1;
+                if u.abs() > far {
+                    found += 1;
+                    reset_fast_counts();
+                    pow_near(x, y);
+                    assert_eq!(fast_counts(), (1, 0), "pow({x:e}, {y:e}) to nearest");
+                    agree_pow(x, y);
+                } else if u.abs() >= near {
+                    within += 1;
+                    eprintln!(
+                        "pow({x:e}, {y:e}): ({h:e}, {l:e}, {e}), u = {u:e} C, within 2^-66 C of \
+                         a midpoint"
+                    );
+                }
+            }
+        }
+        eprintln!(
+            "midpoints, x {range}: {ties} of {calls} x^y, {found} far, {within} within 2^-66 C"
+        );
+        let least = [17, 29, 27][r];
+        assert!(
+            found >= least,
+            "x {range}: {found} of {ties} midpoints take a far arm"
+        );
+    }
+}
+
+// `round_near_wide_err` at constructed midpoints, where `round_near_sub_err` decides: for
+// C = 2^(-1022 - e), g = 2^-52 C and h = (m + 1/2) g, C + h is the midpoint of C + m g and
+// C + (m + 1) g, which Fast2Sum rounds to the even one, s, with t = g/2 for an even m and -g/2
+// for an odd one. (h + l) 2^e = (m + 1/2 + l / g) 2^-1074 rounds to the `f64` whose bits are
+// m + 1 where l > 0 and m where l < 0, as 0 < |l / g| < 1/2. The m are at least 2^50, so
+// that ulp(h) / 2 >= 2^-55 C is above the |l| <= 2^-56 C used here, and u = t + l is exact. Not
+// every h is in (1/2, 2), the range of the fast paths, which this arithmetic does not need:
+// (2^50 + 3/2) g is below 1/2 at e = -1022, and at e = -1030 every h is above 2^6, as an |l| of
+// 2^-56 C = 2^-48 needs ulp(h) / 2 >= 2^-48, which no h < 2 has. With
+// `ERR67`, a far arm gives that `f64` where |u| is in ((2^-53 + 2^-66) C, (2^-53 + 2^-56) C],
+// and the arm of s gives it where |u| is in [(2^-53 - 2^-56) C, (2^-53 - 2^-66) C). The
+// comparisons are strict, so that |u| = (2^-53 +- 2^-66) C fails, and with `WIDE`, all of these
+// fail, as 2 WIDE C = 2^-56 C. At m = 2^52 - 1, C + h = 2C - g/2 rounds to s = 2C, where the
+// gap above s is 2g, and the test fails whatever l.
+#[test]
+fn constructed_ties() {
+    // 2^-53, 2^-66 and 2^-56, in units of C.
+    let (half, err, wide) = (f64::EPSILON / 2.0, 2.0 * ERR67, 2.0 * WIDE);
+    // The distances of |u| / C from 2^-53 that the tests take, on both sides: at the bound of
+    // `ERR67`, just past it, between the bounds and at the bound of `WIDE`.
+    let ds = [err, err + pow2(-74), pow2(-60), wide];
+    for e in [-1022, -1023, -1030] {
+        let c = pow2(-1022 - e);
+        let g = f64::EPSILON * c;
+        for m in [
+            (1_u64 << 50) + 1,
+            (1 << 51) + 2,
+            (1 << 52) - 3,
+            (1 << 52) - 2,
+        ] {
+            // (m + 1/2) g = (2m + 1) g/2, exact as 2m + 1 < 2^53.
+            let h = (2 * m + 1) as f64 * (g / 2.0);
+            let (s, t) = fast_two_sum(c, h);
+            let sign = if m % 2 == 0 { 1.0 } else { -1.0 };
+            assert!(
+                s < 2.0 * c && t == sign * g / 2.0 && (e < -1022 || h <= 1.0),
+                "({h:e}, {e}): s = {s:e}, t = {t:e}"
+            );
+            let half_ulp = (f64::from_bits(h.to_bits() + 1) - h) / 2.0;
+            for (d, far) in ds.iter().flat_map(|&d| [(d, true), (d, false)]) {
+                let l = if far { sign * d * c } else { -sign * d * c };
+                let side = if far { half + d } else { half - d };
+                assert!(
+                    l.abs() <= half_ulp && (t + l).abs() == side * c,
+                    "({h:e}, {l:e}, {e}): not a valid pair, or u is not exact"
+                );
+                let bits = (d != err).then_some(if l > 0.0 { m + 1 } else { m });
+                assert_eq!(
+                    round_near_wide_err(h, l, e, ERR67).map(f64::to_bits),
+                    bits,
+                    "({h:e}, {l:e}, {e}) with ERR67"
+                );
+                assert_eq!(
+                    round_near_wide_err(h, l, e, WIDE),
+                    None,
+                    "({h:e}, {l:e}, {e}) with WIDE"
+                );
+            }
+        }
+    }
+    let (e, c) = (-1023, 2.0);
+    // h = (2^52 - 1/2) g = C - g/2 = 2 - 2^-52, for g = 2^-51.
+    let h = ((1_u64 << 53) - 1) as f64 * pow2(-52);
+    assert_eq!(fast_two_sum(c, h).0, 2.0 * c);
+    for l in ds.iter().flat_map(|&d| [d * c, -d * c]) {
+        assert_eq!(
+            round_near_wide_err(h, l, e, ERR67),
+            None,
+            "({h:e}, {l:e}, {e})"
+        );
+    }
+}
+
 // The rounding tests that `fast_pow_dir` and `fast_pow_near` take on the edge arm, as
 // `fast_counts` counts them, and the arguments at which they take none:
-// - on random arguments of `edges_random`, which all take the edge arm, most pass, and most of
-//   those that fail are tests to nearest at the midpoints C + h from 2^-1023 to 2^-1022;
+// - on random arguments of `edges_random`, which all take the edge arm, all 900 pass with this
+//   seed, those to nearest at midpoints C + h included (`far_side_ties`);
 // - at the exact 2^1023 (x = 2, y = 1023), 2^-1074 = (2^-537)^2 and 2^-1060 = (1/2)^1060, which
 //   take it, both directed tests fail, as h + l is within the bound of an `f64` (scaled to 1, or
 //   to the grid of C + y), and the test to nearest passes and gives that `f64`;
