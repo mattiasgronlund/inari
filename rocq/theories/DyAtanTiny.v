@@ -16,7 +16,7 @@ From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Elementary ExpReal ConstLn Encoding IdealGetD OfPointCore
   MpfrRound MpfrIdeal ExpSeries AtanhSeries DyExpRules DyHypRules DySinhTiny DyTanhTiny
-  DyLogRules DyLogTiny AtanSeries DyRound DyOps DyConv.
+  DyLogRules DyLogTiny AtanSeries DyRound DyOps DyConv AtanExactDiv.
 
 Open Scope R_scope.
 
@@ -280,10 +280,10 @@ Qed.
     conversions, and [eq q q'] makes [q] and [q'] the same real, so [q] is
     [y / x]. [lt (fabs q) tiny_hyp] rules out an infinity or a NaN [q], and
     [eq q q'] then rules them out for [q']. *)
-Lemma tiny_quotient_correct :
+Lemma tiny_quotient_dyadic_correct :
   forall y x q,
   is_finite y = true -> is_finite x = true -> 0 < B2R x ->
-  DyadicAtan.tiny_quotient y x = Some (Some q) ->
+  DyadicAtan.tiny_quotient_dyadic y x = Some (Some q) ->
   is_finite q = true /\ B2R q = B2R y / B2R x /\ lt (fabs q) DyadicExp.tiny_hyp = true.
 Proof.
 intros y x q Fy Fx Hx H.
@@ -295,8 +295,7 @@ destruct (div_correct 1 a d false Hn Oa Od Sa Sd Hd) as (lo & Elo & Olo & Vlo).
 destruct (div_correct 1 a d true Hn Oa Od Sa Sd Hd) as (hi & Ehi & Ohi & Vhi).
 destruct (to_f64_correct 1 lo false Hn Olo) as (q0 & Eq0 & Rq0).
 destruct (to_f64_correct 1 hi true Hn Ohi) as (q1 & Eq1 & Rq1).
-unfold DyadicAtan.tiny_quotient in H.
-destruct (ge (mul (fabs y) DyadicAtan.two_25) x); [discriminate H|].
+unfold DyadicAtan.tiny_quotient_dyadic in H.
 rewrite Ea, Ed in H. cbv beta iota in H.
 rewrite Elo, Ehi, Eq0, Eq1 in H. cbv beta iota in H.
 destruct (eq q0 q1 && lt (fabs q0) DyadicExp.tiny_hyp) eqn:C; [|discriminate H].
@@ -318,4 +317,36 @@ destruct Rq0 as (_ & L0 & _). destruct Rq1 as (_ & L1 & _).
 rewrite Va, Vd in Vlo, Vhi.
 destruct (dround_bounds 1 (B2R y / B2R x) Hn) as [D0 D1].
 lra.
+Qed.
+
+(** At [x >= 2^996], [tiny_quotient_dyadic_correct]. Below, the first
+    check leaves [|y| 2^25 < x], so [|y| < x], and [exact_div_correct]
+    makes the [f64] that [exact_div] returns [y / x]. *)
+Lemma tiny_quotient_correct :
+  forall y x q,
+  is_finite y = true -> is_finite x = true -> 0 < B2R x ->
+  DyadicAtan.tiny_quotient y x = Some (Some q) ->
+  is_finite q = true /\ B2R q = B2R y / B2R x /\ lt (fabs q) DyadicExp.tiny_hyp = true.
+Proof.
+intros y x q Fy Fx Hx H.
+unfold DyadicAtan.tiny_quotient in H.
+destruct (ge (mul (fabs y) DyadicAtan.two_25) x) eqn:G25; [discriminate H|].
+destruct (ge x DyadicAtan.two_996) eqn:G996.
+{ exact (tiny_quotient_dyadic_correct y x q Fy Fx Hx H). }
+assert (F25 : is_finite DyadicAtan.two_25 = true) by (vm_compute; reflexivity).
+assert (F996 : is_finite DyadicAtan.two_996 = true) by (vm_compute; reflexivity).
+assert (H25 : Rabs (B2R y) * bpow radix2 25 < B2R x).
+{ rewrite <- two_25_R.
+  apply ge_mul_false; [exact Fy | exact Fx | exact F25 | | exact G25].
+  rewrite two_25_R. apply bpow_gt_0. }
+assert (B25 : 1 < bpow radix2 25).
+{ change 1 with (bpow radix2 0). apply bpow_lt. lia. }
+assert (Hyx : Rabs (B2R y) < B2R x) by (pose proof (Rabs_pos (B2R y)); nra).
+assert (H996 : B2R x < bpow radix2 996).
+{ rewrite <- two_996_R. exact (ge_false x DyadicAtan.two_996 Fx F996 G996). }
+destruct (DyadicAtan.exact_div false y x) as [q0|] eqn:E; [|discriminate H].
+destruct (lt (fabs q0) DyadicExp.tiny_hyp) eqn:L; [|discriminate H].
+injection H as Eq. subst q.
+destruct (exact_div_correct false y x q0 Fy Fx (conj Hyx H996) E) as [Fq Vq].
+exact (conj Fq (conj Vq L)).
 Qed.

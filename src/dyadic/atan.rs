@@ -46,12 +46,13 @@
 // `asin_parts`, `rocq/theories/AtanSeries.v` for the bounds of the series and the halving,
 // `rocq/theories/AtanIdent.v` for the identities that the evaluations use,
 // `rocq/theories/DyConstPi.v` for π, and `rocq/theories/DyAtanTiny.v` for the rules of atan,
-// asin and atan2 at tiny arguments and quotients. `rocq/theories/DyAtanNear.v` proves that
+// asin and atan2 at tiny arguments and quotients, with `rocq/theories/AtanExactDiv.v` for the
+// quotients that `exact_div` decides in `f64`. `rocq/theories/DyAtanNear.v` proves that
 // each of the four functions rounded to nearest, at finite arguments in its domain, where a
 // rule settles the arguments or a rounding test of `ziv_near` passes, returns its result
 // rounded to nearest as `near_round` in `rocq/theories/NearF64.v` says, from the same
 // enclosures and bounds and the cells of `rocq/theories/NearCells.v`. It builds on
-// `rocq/theories/DyAtanMidQ.v` for `midpoint_quotient`, which uses
+// `rocq/theories/DyAtanMidQ.v` for `midpoint_quotient`, which uses `AtanExactDiv.v` and
 // `rocq/theories/MidQuot.v` for its quotient, `rocq/theories/MidRound.v` for its rounding
 // toward zero and `rocq/theories/NearAtanMid.v` for atan at the midway quotients.
 // `rocq/theories/DyAtanExact.v` proves that each of the four functions returns its result, in
@@ -328,24 +329,72 @@ impl Eval for Acos {
 }
 
 // 2^25 and 2^1021, by which `tiny_quotient` and `midpoint_quotient` scale |y| to compare it
-// with x in `f64`, before they build their `Dyadic`s.
+// with x in `f64`, before they divide.
 const TWO_25: f64 = 33_554_432.0;
 const TWO_1021: f64 = 0.5 / f64::MIN_POSITIVE;
+
+// 2^-968, 2^128 and 2^996, the bound below which `exact_div` scales y, the scale, and the
+// bound on x from which `tiny_quotient` and `midpoint_quotient` divide with `Dyadic`s, and
+// 2^-1021, below which the `f64`s are the multiples of 2^-1074.
+const TWO_M968: f64 = f64::MIN_POSITIVE * 18_014_398_509_481_984.0;
+const TWO_128: f64 = 340_282_366_920_938_463_463_374_607_431_768_211_456.0;
+const TWO_996: f64 = TWO_1021 / TWO_25;
+const TWO_M1021: f64 = 2.0 * f64::MIN_POSITIVE;
+
+// y / x if it is an `f64`, and `None` otherwise, for finite y != 0 and |y| < x < 2^996.
+// q = y / x rounded to nearest is y / x if that is an `f64`, so that y / x is an `f64` exactly
+// when q x = y. The function checks q s x = y s for s = 2^128 if |y| < 2^-968 and s = 1
+// otherwise, which scales both sides exactly, as |q| <= 1, and |y| < 2^-968 where s = 2^128:
+// the product p = qs x rounded to nearest is ys = y s, and the error qs x - p of the product
+// is 0, which `two_prod_err` computes exactly where p = ys (T. J. Dekker, A floating-point
+// technique for extending the available precision, Numer. Math. 18, 1971, without an FMA).
+// There |p| = |ys| is in [2^-968, 2^996), since 2^-1074 2^128 = 2^-946, |qs| <= 2^128 and
+// x < 2^996, which are the conditions of `two_prod_is_exact` in `src/simd/generic.rs`. Where
+// p != ys, qs x != ys, as ys is an `f64` and would be p. Without the scale, the error of a
+// product below 2^-968 can be below the subnormals: y = 2^-1073 and x = 1 + 2^-52 give
+// q = 2^-1073, and q x - y = 2^-1125 rounds to 0, while y / x is not an `f64`.
+// `rocq/theories/AtanExactDiv.v` proves that an `f64` that the function returns is y / x
+// (`exact_div_correct`), and that the function returns the same with and without an FMA
+// (`exact_div_fma`).
+fn exact_div(y: f64, x: f64) -> Option<f64> {
+    let q = y / x;
+    let s = if y.abs() < TWO_M968 { TWO_128 } else { 1.0 };
+    let (qs, ys) = (q * s, y * s);
+    let p = qs * x;
+    if p == ys && two_prod_err::<HAS_FMA>(qs, x, p) == 0.0 {
+        Some(q)
+    } else {
+        None
+    }
+}
 
 // y / x, for finite y != 0 and x > 0, if it is an `f64` of magnitude below `TINY_HYP`. The
 // first check leaves out, in `f64`, the y and x with |y| 2^25 >= x, at which |y / x| >= 2^-25,
 // above `TINY_HYP`, so that the last check gives `None` too: |y| 2^25 is exact for
-// |y| < 2^999, subnormal or not, and +∞ otherwise, where |y / x| > 2^999 / 2^1024. It only
-// saves the `Dyadic`s and the division, which the tests check and Rocq does not prove:
-// `rocq/theories/DyAtanTiny.v` proves only that an `f64` that the function returns is y / x,
-// below `TINY_HYP` in magnitude. q = `lo.to_f64(false)` <= `lo` <= y / x <= `hi` <=
-// `hi.to_f64(true)`, so that y / x = q if the two `f64`s are equal. Two `f64`s whose quotient
-// is a dyadic number have one of at most 53 bits, which 64 bits hold exactly, so that the
-// check finds every such quotient that is an `f64`.
+// |y| < 2^999, subnormal or not, and +∞ otherwise, where |y / x| > 2^999 / 2^1024. Then
+// |y| < x, and `exact_div` decides the quotient for x < 2^996, and `tiny_quotient_dyadic`
+// from 2^996 on. `rocq/theories/DyAtanTiny.v` proves that an `f64` that the function returns
+// is y / x, below `TINY_HYP` in magnitude (`tiny_quotient_correct`), on both paths, with
+// `exact_div_correct` for the first; that the function returns every such quotient, the same
+// map as the `Dyadic` division alone, the tests check and Rocq does not prove.
 fn tiny_quotient(y: f64, x: f64) -> Option<f64> {
     if y.abs() * TWO_25 >= x {
         return None;
     }
+    if x >= TWO_996 {
+        return tiny_quotient_dyadic(y, x);
+    }
+    match exact_div(y, x) {
+        Some(q) if q.abs() < TINY_HYP => Some(q),
+        _ => None,
+    }
+}
+
+// `tiny_quotient` with `Dyadic`s, for finite y != 0 and x > 0. q = `lo.to_f64(false)` <= `lo`
+// <= y / x <= `hi` <= `hi.to_f64(true)`, so that y / x = q if the two `f64`s are equal. Two
+// `f64`s whose quotient is a dyadic number have one of at most 53 bits, which 64 bits hold
+// exactly, so that the check finds every such quotient that is an `f64`.
+fn tiny_quotient_dyadic(y: f64, x: f64) -> Option<f64> {
     let (a, b) = (Dyadic::<1>::from_f64(y), Dyadic::<1>::from_f64(x));
     let (lo, hi) = (a.div(&b, false), a.div(&b, true));
     let q = lo.to_f64(false);
@@ -356,14 +405,45 @@ fn tiny_quotient(y: f64, x: f64) -> Option<f64> {
     }
 }
 
-// y / x rounded toward zero to an `f64`, for finite y and x > 0, if it is an odd multiple of
-// 2^-1075 and the exponents of the `Dyadic`s give |y / x| < 2^-1021. The `f64`s below 2^-1021
-// are the multiples of 2^-1074, so that such a quotient q is the midpoint between the two
-// `f64`s q - 2^-1075 and q + 2^-1075. For q > 0, atan q is in (q - q^3 / 3, q), and q^3 / 3
-// < 2^-3000 is less than half an ulp, 2^-1075, so that atan q is between q and the `f64` f next
-// to q toward zero, and rounds to nearest to f, as it does for q < 0, since atan is odd. Ziv's
-// strategy settles that only at an enclosure of atan q narrower than q^3 / 3, which is
-// q^2 / 3, 2^-2045 to 2^-2150, relative to q, at 32 or 64 limbs.
+// y / x rounded toward zero to an `f64`, for finite y != 0 and x > 0, if it is an odd multiple
+// of 2^-1075, which, for two `f64`s, is below 2^-1022 in magnitude (see
+// `midpoint_quotient_dyadic`). The `f64`s below 2^-1021 are the multiples of 2^-1074, so that
+// such a quotient q is the midpoint between the two `f64`s q - 2^-1075 and q + 2^-1075. For
+// q > 0, atan q is in (q - q^3 / 3, q), and q^3 / 3 < 2^-3000 is less than half an ulp,
+// 2^-1075, so that atan q is between q and the `f64` f next to q toward zero, and rounds to
+// nearest to f, as it does for q < 0, since atan is odd. Ziv's strategy settles that only at an
+// enclosure of atan q narrower than q^3 / 3, which is q^2 / 3, 2^-2045 to 2^-2150, relative to
+// q, at 32 or 64 limbs.
+//
+// The first check leaves out, in `f64`, the y and x with |y| 2^1021 >= x, at which
+// |y / x| >= 2^-1021: |y| 2^1021 is exact for |y| < 8, subnormal or not, and +∞ otherwise,
+// where |y / x| > 2^3 / 2^1024. For x < 2^996 the function then decides the quotient in `f64`:
+// 2y is exact, |2y| < x, and y / x is an odd multiple m 2^-1075 of 2^-1075 below 2^-1022
+// exactly when 2y / x, of magnitude below 2^-1020, is an `f64` q (`exact_div`) below 2^-1021
+// whose bits are odd: below 2^-1021 the bits of |q| are the integer |q| / 2^-1074. The `f64` with
+// the bits of q minus 1 is then (m - 1) 2^-1074 with the sign of y, -0 for m = 1 and y < 0, and
+// its product by 0.5, exact as m - 1 is even, the `f64` next to y / x toward zero, with that
+// sign. `midpoint_quotient_dyadic` decides it for x >= 2^996. `rocq/theories/DyAtanMidQ.v`
+// proves that an `f64` that the function returns is atan(y / x) rounded to nearest
+// (`midpoint_quotient_correct`), on both paths, with `exact_div_correct` for the first; that
+// the function returns every such quotient, the same map as the `Dyadic` division alone, the
+// tests check and Rocq does not prove.
+fn midpoint_quotient(y: f64, x: f64) -> Option<f64> {
+    if y.abs() * TWO_1021 >= x {
+        return None;
+    }
+    if x >= TWO_996 {
+        return midpoint_quotient_dyadic(y, x);
+    }
+    match exact_div(2.0 * y, x) {
+        Some(q) if q.abs() < TWO_M1021 && q.to_bits() & 1 == 1 => {
+            Some(f64::from_bits(q.to_bits() - 1) * 0.5)
+        }
+        _ => None,
+    }
+}
+
+// `midpoint_quotient` with `Dyadic`s, for finite y != 0 and x > 0.
 //
 // The mantissas of `a` and `b` are in [2^63, 2^64), so that |y / x| < 2^(a.exp - b.exp + 1),
 // which is at most 2^-1021 if a.exp - b.exp <= -1022. The quotients that this check leaves out
@@ -382,16 +462,14 @@ fn tiny_quotient(y: f64, x: f64) -> Option<f64> {
 // its trailing zeros, so that y / x is an odd multiple of 2^-1075 exactly when exp + t = -1075.
 // `lo.to_f64(lo.neg)` rounds it toward -∞ if it is positive and toward +∞ if it is negative.
 //
-// The first check leaves out, in `f64` and before the `Dyadic`s, the y and x with
-// |y| 2^1021 >= x, which the check of the exponents leaves out too, so that it only saves the
-// `Dyadic`s: that check passes only where |y| < 2^(a.exp + 64) <= 2^(b.exp + 63 - 1021) <=
-// x 2^-1021, and so |y| < 8, as x < 2^1024, at which |y| 2^1021 is exact, subnormal or not.
-// The tests check this, and Rocq does not prove it: `rocq/theories/DyAtanMidQ.v` uses only the
-// check of the exponents.
-fn midpoint_quotient(y: f64, x: f64) -> Option<f64> {
-    if y.abs() * TWO_1021 >= x {
-        return None;
-    }
+// The first check of `midpoint_quotient` leaves out, in `f64` and before the `Dyadic`s, the y
+// and x with |y| 2^1021 >= x, which the check of the exponents leaves out too, so that on this
+// path it only saves the `Dyadic`s: that check passes only where |y| < 2^(a.exp + 64) <=
+// 2^(b.exp + 63 - 1021) <= x 2^-1021, and so |y| < 8, as x < 2^1024, at which |y| 2^1021 is
+// exact, subnormal or not. The tests check this, and Rocq does not prove it:
+// `midpoint_quotient_dyadic_correct` of `rocq/theories/DyAtanMidQ.v` uses only the check of
+// the exponents.
+fn midpoint_quotient_dyadic(y: f64, x: f64) -> Option<f64> {
     let (a, b) = (Dyadic::<1>::from_f64(y), Dyadic::<1>::from_f64(x));
     if a.exp - b.exp > -1022 {
         return None;

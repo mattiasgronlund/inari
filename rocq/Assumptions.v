@@ -59,7 +59,7 @@ From Inari Require FastPowTaylor FastPowHorner FastPowCube FastPowPoly FastPowCo
   FastPowRules FastPow.
 From Inari Require FastDdSqrt FastLogDd AsinhTaylor FastAhypOdd FastAhypNear1 FastAhypAsinh FastAhypAcosh
   FastAhypAtanh FastAhyp.
-From Inari Require FastAtanTables FastAtanPoly FastAtanCore FastAtan FastAsin.
+From Inari Require FastAtanTables FastAtanPoly FastAtanCore FastAtan FastAsin AtanExactDiv.
 From Inari Require FastRoundSubBits FastRoundSubCommon FastRoundSub FastRoundWide FastRoundWideErr
   FastExpEdge FastExpByEdge.
 From Inari Require KahanMcDonald DyTrigPos SideTight SideTheorems DyPointSide.
@@ -524,6 +524,8 @@ Print Assumptions FastAtan.fast_atan2_dir_correct.
 Print Assumptions FastAtan.fast_atan2_near_correct.
 Print Assumptions FastAtan.fast_atan2_dir_fma.
 Print Assumptions FastAtan.fast_atan2_near_fma.
+Print Assumptions AtanExactDiv.exact_div_correct.
+Print Assumptions AtanExactDiv.exact_div_fma.
 Print Assumptions FastAsin.fast_asin_pos_correct.
 Print Assumptions FastAsin.fast_acos_val_correct.
 Print Assumptions FastAsin.fast_asin_pos_fma.

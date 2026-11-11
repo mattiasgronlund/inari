@@ -4320,6 +4320,26 @@ Definition fast_atan2_near (fma : bool) (y x : f64) : option f64 :=
 Definition two_25 : f64 := from_bits 0x4180000000000000.
 Definition two_1021 : f64 := from_bits 0x7fc0000000000000.
 
+(** [TWO_M968], [TWO_128], [TWO_996] and [TWO_M1021]: 2^-968, 2^128, 2^996
+    and 2^-1021. *)
+Definition two_m968 : f64 := from_bits 0x0370000000000000.
+Definition two_128 : f64 := from_bits 0x47f0000000000000.
+Definition two_996 : f64 := from_bits 0x7e30000000000000.
+Definition two_m1021 : f64 := from_bits 0x0020000000000000.
+
+(** [fn exact_div(y: f64, x: f64) -> Option<f64>], with [HAS_FMA] the
+    parameter [fma]. [tiny_quotient] and [midpoint_quotient] pass [false]:
+    [AtanExactDiv.exact_div_fma] shows that [true] gives the same for
+    finite [y <> 0] and [|y| < x < 2^996], at which they call it.
+    [AtanExactDiv.v] proves it. *)
+Definition exact_div (fma : bool) (y x : f64) : option f64 :=
+  let q := div y x in
+  let s := if lt (fabs y) two_m968 then two_128 else DyadicExp.one in
+  let qs := mul q s in
+  let ys := mul y s in
+  let p := mul qs x in
+  if eq p ys && eq (Generic.two_prod_err fma qs x p) zero then Some q else None.
+
 (** The functions of the file with [ziv] a parameter: [atan_dir_with ziv] is
     [atan] with [ziv] for [Dyadic.ziv], and [atan_dir] after the section is
     [atan_dir_with Dyadic.ziv]. The proofs also apply them to a [ziv] that
@@ -4338,10 +4358,9 @@ Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
 (** [fn pi_times(c: f64, up: bool) -> f64] *)
 Definition pi_times_with (c : f64) (up : bool) : option f64 := ziv (ev_pi c) up 1.
 
-(** [fn tiny_quotient(y: f64, x: f64) -> Option<f64>], with [Some None]
-    for [None]. *)
-Definition tiny_quotient (y x : f64) : option (option f64) :=
-  if ge (mul (fabs y) two_25) x then Some None else
+(** [fn tiny_quotient_dyadic(y: f64, x: f64) -> Option<f64>], with
+    [Some None] for [None]. [DyAtanTiny.v] proves it. *)
+Definition tiny_quotient_dyadic (y x : f64) : option (option f64) :=
   let* a := Dyadic.from_f64 1 y in
   let* b := Dyadic.from_f64 1 x in
   let* lo := Dyadic.div 1 a b false in
@@ -4350,14 +4369,25 @@ Definition tiny_quotient (y x : f64) : option (option f64) :=
   let* q' := Dyadic.to_f64 1 hi true in
   Some (if eq q q' && lt (fabs q) DyadicExp.tiny_hyp then Some q else None).
 
-(** [fn midpoint_quotient(y: f64, x: f64) -> Option<f64>], with
+(** [fn tiny_quotient(y: f64, x: f64) -> Option<f64>], with [Some None]
+    for [None], where [Some(q) if q.abs() < TINY_HYP] is the [if] of
+    [Some q], and [_] is both other cases. [DyAtanTiny.v] proves it. *)
+Definition tiny_quotient (y x : f64) : option (option f64) :=
+  if ge (mul (fabs y) two_25) x then Some None
+  else if ge x two_996 then tiny_quotient_dyadic y x
+  else
+    Some (match exact_div false y x with
+          | Some q => if lt (fabs q) DyadicExp.tiny_hyp then Some q else None
+          | None => None
+          end).
+
+(** [fn midpoint_quotient_dyadic(y: f64, x: f64) -> Option<f64>], with
     [Some None] for [None], where [a.exp - b.exp] and
     [lo.exp + i64::from(lo.m[0].trailing_zeros())], which cannot overflow,
     are computed without a check, and the derived [lo == hi] compares the
     fields [neg], [exp] and [m[0]] of the two. [DyAtanMidQ.v] proves
     it. *)
-Definition midpoint_quotient (y x : f64) : option (option f64) :=
-  if ge (mul (fabs y) two_1021) x then Some None else
+Definition midpoint_quotient_dyadic (y x : f64) : option (option f64) :=
   let* a := Dyadic.from_f64 1 y in
   let* b := Dyadic.from_f64 1 x in
   if -1022 <? Dyadic.dy_exp a - Dyadic.dy_exp b then Some None else
@@ -4370,6 +4400,23 @@ Definition midpoint_quotient (y x : f64) : option (option f64) :=
     let* f := Dyadic.to_f64 1 lo (Dyadic.dy_neg lo) in
     Some (Some f)
   else Some None.
+
+(** [fn midpoint_quotient(y: f64, x: f64) -> Option<f64>], with
+    [Some None] for [None], where the guard of [Some(q)] is the [if] of
+    [Some q], and [_] is both other cases. [q.to_bits() - 1], which does
+    not wrap as the bits are odd, is an integer subtraction, and
+    [q.to_bits() & 1] is [Z.land (to_bits q) 1]. [DyAtanMidQ.v] proves
+    it. *)
+Definition midpoint_quotient (y x : f64) : option (option f64) :=
+  if ge (mul (fabs y) two_1021) x then Some None
+  else if ge x two_996 then midpoint_quotient_dyadic y x
+  else
+    Some (match exact_div false (mul DyadicExp.two y) x with
+          | Some q =>
+              if lt (fabs q) two_m1021 && (Z.land (to_bits q) 1 =? 1)
+              then Some (mul (from_bits (to_bits q - 1)) half) else None
+          | None => None
+          end).
 
 (** [pub(crate) fn atan(x: f64, up: bool) -> f64] *)
 Definition atan_dir_with (x : f64) (up : bool) : option f64 :=

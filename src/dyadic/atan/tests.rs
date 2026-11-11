@@ -621,9 +621,9 @@ fn midpoint_quotients() {
 }
 
 // `tiny_quotient` and `midpoint_quotient` as they were before their `f64` tests: each checked
-// the exponents of its `Dyadic`s before dividing, which `tiny_quotient` no longer does and
-// `midpoint_quotient` keeps after its `f64` test. They are kept to check that the `f64` tests
-// leave the maps from (y, x) to results unchanged.
+// the exponents of its `Dyadic`s before dividing, which `tiny_quotient` no longer does, and of
+// `midpoint_quotient` only `midpoint_quotient_dyadic` does, for x >= 2^996. They are kept to
+// check that the `f64` tests leave the maps from (y, x) to results unchanged.
 fn tiny_quotient_old(y: f64, x: f64) -> Option<f64> {
     let (a, b) = (Dyadic::<1>::from_f64(y), Dyadic::<1>::from_f64(x));
     if a.exp - b.exp >= -25 {
@@ -1706,5 +1706,7 @@ mod mpfr {
     }
 }
 
+mod exact_div;
+mod exact_div_cases;
 mod levels;
 mod mpfr_cases;

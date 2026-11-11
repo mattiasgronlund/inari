@@ -284,6 +284,7 @@ theories/AtanSeries.v
 theories/AtanIdent.v
 theories/DyConstPi.v
 theories/KahanMcDonald.v
+theories/AtanExactDiv.v
 theories/DyAtanTiny.v
 theories/DyAtanCore.v
 theories/DyAtan.v
