@@ -791,6 +791,68 @@ fn f64_round_trip() {
     }
 }
 
+// `from_f64`, which writes the top limb itself, gives a normalized `Dyadic<N>`, the one that
+// `round` gives on the integer mantissa `m` and exponent `e` of each of `xs`, |x| = m * 2^e,
+// which is exact.
+fn from_f64_as_round<const N: usize>(xs: &[f64]) {
+    for &x in xs {
+        let bits = x.to_bits();
+        let neg = bits >> 63 != 0;
+        let be = ((bits >> 52) & 0x7ff) as i64;
+        let f = bits & ((1 << 52) - 1);
+        let (m, e) = if be == 0 {
+            (f, -1074)
+        } else {
+            (f | 1 << 52, be - 1075)
+        };
+        let d = Dyadic::<N>::from_f64(x);
+        check_normal(&d);
+        assert_eq!(
+            d,
+            round::<N>(neg, &[m], e, false, false),
+            "{:e} at {} limbs",
+            x,
+            N
+        );
+    }
+}
+
+// On the zeros, the subnormal numbers with one bit set and with the low bits of the fraction
+// all set, every power of two, the largest number of each binade of normal numbers, the ends of
+// the range, and random finite numbers, each with both signs, at 1, 2, 3, 4 and 64 limbs.
+#[test]
+fn from_f64_is_round() {
+    let mut xs = vec![0.0, 5e-324, f64::MIN_POSITIVE, f64::MAX];
+    for k in 0..52 {
+        // 2^k * 2^-1074, and the fraction of k + 1 bits all set.
+        xs.push(f64::from_bits(1 << k));
+        xs.push(f64::from_bits((2 << k) - 1));
+    }
+    for be in 1..=2046 {
+        // 2^(be - 1023), and the largest number of its binade.
+        xs.push(f64::from_bits(be << 52));
+        xs.push(f64::from_bits(be << 52 | ((1 << 52) - 1)));
+    }
+    let mut rng = Rng(53);
+    for _ in 0..100_000 {
+        // Bits of an infinity or a NaN, with the biased exponent 2047, get 2046.
+        let bits = rng.next();
+        let x = f64::from_bits(bits);
+        xs.push(if x.is_finite() {
+            x
+        } else {
+            f64::from_bits(bits & !(1 << 52))
+        });
+    }
+    let negs: Vec<f64> = xs.iter().map(|x| -x).collect();
+    xs.extend(negs);
+    from_f64_as_round::<1>(&xs);
+    from_f64_as_round::<2>(&xs);
+    from_f64_as_round::<3>(&xs);
+    from_f64_as_round::<4>(&xs);
+    from_f64_as_round::<64>(&xs);
+}
+
 // sqrt(2) + 1/3.
 struct Sqrt2Third;
 

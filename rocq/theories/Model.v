@@ -1276,7 +1276,9 @@ Definition round (n : nat) (neg : bool) (x : list Z) (e : Z) (sticky up : bool)
     else Some {| dy_neg := neg; dy_exp := exp; dy_m := m' |}
   else Some {| dy_neg := neg; dy_exp := exp; dy_m := m |}.
 
-(** [Dyadic::from_f64(x)], where [assert!(x.is_finite())] is [None]. *)
+(** [Dyadic::from_f64(x)], where [assert!(x.is_finite())] is [None], and the
+    exponent [e - i64::from(lz) - 64 * (N as i64 - 1)] is computed without a
+    check, as it cannot overflow. *)
 Definition from_f64 (n : nat) (x : f64) : option dyadic :=
   if negb (is_finite x) then None else
   let bits := to_bits x in
@@ -1284,7 +1286,11 @@ Definition from_f64 (n : nat) (x : f64) : option dyadic :=
   let be := Z.land (Z.shiftr bits 52) 0x7ff in
   let f := Z.land bits (Z.shiftl 1 52 - 1) in
   let '(m, e) := if be =? 0 then (f, -1074) else (Z.lor f (Z.shiftl 1 52), be - 1075) in
-  round n neg (m :: nil) e false false.
+  if m =? 0 then Some (dy_zero n) else
+  let lz := leading_zeros 64 m in
+  let* top := shl 64 m lz in
+  Some {| dy_neg := neg; dy_exp := e - lz - 64 * (Z.of_nat n - 1);
+          dy_m := Limbs.update (repeat 0 n) (n - 1) (top :: nil) |}.
 
 (** [x.is_zero()], [x.neg()] and [x.shl(k)] *)
 Definition is_zero (n : nat) (x : dyadic) : bool := Limbs.limb (dy_m x) (n - 1) =? 0.

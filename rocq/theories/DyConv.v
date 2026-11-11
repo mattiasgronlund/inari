@@ -66,6 +66,90 @@ assert (H2 : e < Dyadic.dy_exp d + dprec n).
 lia.
 Qed.
 
+(** The [Dyadic] that [from_f64] builds from [(-1)^s m 2^e], for an [f64]
+    with [m < 2^53] and [e] in the exponent range of [f64]: [m] shifted up to
+    the top bit of the top limb, or the zero of [n] limbs for [m = 0], which
+    is exact. *)
+Lemma from_f64_top :
+  forall n s m e (x : f64),
+  level_ok n -> 0 <= m < 2 ^ 53 -> -1074 <= e <= 971 ->
+  B2R x = cond_Ropp s (IZR m * bpow radix2 e)%R ->
+  exists d,
+  (if m =? 0 then Some (Dyadic.dy_zero n) else
+   let lz := leading_zeros 64 m in
+   let* top := shl 64 m lz in
+   Some {| Dyadic.dy_neg := s; Dyadic.dy_exp := e - lz - 64 * (Z.of_nat n - 1);
+           Dyadic.dy_m := Limbs.update (repeat 0 n) (n - 1) (top :: nil) |}) = Some d /\
+  dy_ok n d /\ exp_small d /\ Dyadic.dy_R d = B2R x.
+Proof.
+intros n s m e x Hn Hm He Hx.
+assert (Hn' : (1 <= n <= 64)%nat) by exact Hn.
+destruct (Z.eqb_spec m 0) as [Hm0 | Hm0].
+- (* [m = 0]: the zero of [n] limbs. *)
+  destruct (dy_zero_ok n) as (Hok & HR & Hs).
+  exists (Dyadic.dy_zero n). split; [reflexivity |]. split; [exact Hok |].
+  split; [exact Hs |].
+  rewrite HR, Hx, Hm0. destruct s; cbn [cond_Ropp]; ring.
+- (* [lz = 63 - log2 m] is at least [11], as [m < 2^53]. *)
+  assert (Hm1 : 0 < m) by lia.
+  pose proof (Z.log2_spec m Hm1) as HL.
+  assert (HL53 : Z.log2 m < 53) by (apply Z.log2_lt_pow2; lia).
+  pose proof (Z.log2_nonneg m) as HL0.
+  assert (Hlz : leading_zeros 64 m = 63 - Z.log2 m).
+  { unfold leading_zeros. destruct (Z.eqb_spec m 0); lia. }
+  (* [m 2^lz] has its top bit at bit [63], as in [Knuth.v]'s [dt 2^s]. *)
+  assert (HT : 2 ^ 63 <= m * 2 ^ (63 - Z.log2 m) < 2 ^ 64).
+  { assert (E1 : 2 ^ Z.log2 m * 2 ^ (63 - Z.log2 m) = 2 ^ 63)
+      by (rewrite <- Z.pow_add_r by lia; f_equal; lia).
+    assert (E2 : 2 ^ Z.succ (Z.log2 m) * 2 ^ (63 - Z.log2 m) = 2 ^ 64)
+      by (rewrite <- Z.pow_add_r by lia; f_equal; lia).
+    assert (0 < 2 ^ (63 - Z.log2 m)) by (apply Z.pow_pos_nonneg; lia).
+    split; nia. }
+  (* So the shift loses no bit. *)
+  assert (Hshl : shl 64 m (63 - Z.log2 m) = Some (m * 2 ^ (63 - Z.log2 m))).
+  { unfold shl.
+    replace ((0 <=? 63 - Z.log2 m) && (63 - Z.log2 m <? 64)) with true
+      by (symmetry; apply andb_true_intro; split; [apply Z.leb_le | apply Z.ltb_lt]; lia).
+    rewrite Z.shiftl_mul_pow2 by lia. rewrite Z.mod_small by lia. reflexivity. }
+  destruct (ex_intro (fun t => t = m * 2 ^ (63 - Z.log2 m)) _ eq_refl) as (t & Ht).
+  rewrite <- Ht in HT, Hshl.
+  (* The mantissa is [n - 1] zero limbs and then [t]. *)
+  assert (Hu : Limbs.update (repeat 0 n) (n - 1) (t :: nil) = repeat 0 (n - 1) ++ t :: nil).
+  { destruct n as [| k]; [lia |].
+    replace (S k - 1)%nat with k by lia.
+    unfold Limbs.update. cbn [length repeat]. rewrite repeat_cons.
+    rewrite firstn_app, repeat_length, Nat.sub_diag. cbn [firstn].
+    rewrite firstn_all2, app_nil_r by (rewrite repeat_length; lia).
+    rewrite skipn_all2 by (rewrite length_app, repeat_length; cbn [length]; lia).
+    reflexivity. }
+  assert (Hval : Limbs.val (repeat 0 (n - 1) ++ t :: nil) = 2 ^ (64 * Z.of_nat (n - 1)) * t).
+  { rewrite val_app, val_repeat0, repeat_length. cbn [Limbs.val]. ring. }
+  assert (Hn1 : Z.of_nat (n - 1) = Z.of_nat n - 1) by lia.
+  exists {| Dyadic.dy_neg := s; Dyadic.dy_exp := e - (63 - Z.log2 m) - 64 * (Z.of_nat n - 1);
+            Dyadic.dy_m := Limbs.update (repeat 0 n) (n - 1) (t :: nil) |}.
+  split; [cbv beta iota zeta; rewrite Hlz, Hshl; reflexivity |].
+  unfold dy_ok, exp_small, Dyadic.dy_R. cbn [Dyadic.dy_m Dyadic.dy_exp Dyadic.dy_neg].
+  rewrite Hu, Hval.
+  split; [split; [| split; [| split]] | split].
+  + apply limbs_ok_app; [apply limbs_ok_repeat0 |].
+    apply limbs_ok_cons. split; [lia | constructor].
+  + rewrite length_app, repeat_length. cbn [length]. lia.
+  + lia.
+  + (* [2^(64 n - 1) = 2^(64 (n - 1)) 2^63 <= 2^(64 (n - 1)) t]. *)
+    right. unfold dprec.
+    replace (64 * Z.of_nat n - 1) with (64 * Z.of_nat (n - 1) + 63) by lia.
+    rewrite Z.pow_add_r by lia.
+    apply Z.mul_le_mono_nonneg_l; [apply Z.pow_nonneg; lia | lia].
+  + lia.
+  + (* [2^(64 (n - 1)) m 2^lz 2^(e - lz - 64 (n - 1)) = m 2^e]. *)
+    rewrite Hx, Ht, !mult_IZR, !IZR_pow2 by lia.
+    replace (bpow radix2 e) with
+      (bpow radix2 (64 * Z.of_nat (n - 1)) * bpow radix2 (63 - Z.log2 m) *
+       bpow radix2 (e - (63 - Z.log2 m) - 64 * (Z.of_nat n - 1)))%R
+      by (rewrite <- !bpow_plus; f_equal; lia).
+    destruct s; cbn [cond_Ropp]; ring.
+Qed.
+
 (** [from_f64] reads the fields of the bits of [x] as
     [Generic.decompose] does ([Decompose.decompose_correct]), and the
     zeros too, as [m = 0]. *)
@@ -86,14 +170,14 @@ destruct (Z.eqb_spec (c / 2^52) 0) as [HE0 | HE0]; cbv beta iota.
 - (* A zero or a subnormal: no implicit bit, and the exponent [-1074]. *)
   replace (mant c) with (c mod 2^52) in Hx by (unfold mant; now rewrite HE0).
   replace (expo c) with (-1074) in Hx by (unfold expo; now rewrite HE0).
-  apply from_f64_round; [exact Hn | zlia | lia |].
+  apply from_f64_top; [exact Hn | zlia | lia |].
   rewrite Hx. unfold F2R; cbn [Fnum Fexp]. destruct (Bsign x); reflexivity.
 - (* A normal float: the implicit bit is set. *)
   rewrite lor_implicit by zlia.
   replace (mant c) with (c mod 2^52 + 2^52) in Hx
     by (unfold mant; now rewrite (proj2 (Z.eqb_neq _ _) HE0)).
   replace (expo c) with (c / 2^52 - 1075) in Hx by (unfold expo; zlia).
-  apply from_f64_round; [exact Hn | zlia | zlia |].
+  apply from_f64_top; [exact Hn | zlia | zlia |].
   rewrite Hx. unfold F2R; cbn [Fnum Fexp]. destruct (Bsign x); reflexivity.
 Qed.
 

@@ -176,7 +176,20 @@ impl<const N: usize> Dyadic<N> {
         } else {
             (f | (1 << 52), be - 1075)
         };
-        round(neg, &[m], e, false, false)
+        if m == 0 {
+            return Self::ZERO;
+        }
+        // 0 < m < 2^53 fits the top limb: shifted up by its `lz` leading zeros, its top bit is
+        // bit p - 1, as a normalized number has it, and the limbs below it are 0. That is what
+        // `round` would return, without its loops.
+        let lz = m.leading_zeros();
+        let mut mm = [0; N];
+        mm[N - 1] = m << lz;
+        Self {
+            neg,
+            exp: e - i64::from(lz) - 64 * (N as i64 - 1),
+            m: mm,
+        }
     }
 
     pub(crate) fn is_zero(&self) -> bool {
