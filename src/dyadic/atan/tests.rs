@@ -1175,6 +1175,42 @@ fn check2_fast(y: f64, x: f64) {
     check2(y, x);
 }
 
+// The function `i` gives the same `f64`s at x, in both directions and to nearest, with the first
+// stages of the fast paths as with them disabled (`set_atan_stage1`), where the second stages
+// answer, and `check_fast` holds, which compares them with the kernel and with MPFR.
+fn check_stages(i: usize, x: f64) {
+    let first = roundings(i, x);
+    set_atan_stage1(false);
+    let second = roundings(i, x);
+    set_atan_stage1(true);
+    assert!(
+        first == second,
+        "{}({:e}): {:?} with the first stage != {:?} without it",
+        FUNCTIONS[i].0,
+        x,
+        first.map(f64::from_bits),
+        second.map(f64::from_bits)
+    );
+    check_fast(i, x);
+}
+
+// The same for atan2 at (y, x), with `check2_fast`.
+fn check2_stages(y: f64, x: f64) {
+    let first = roundings2(y, x);
+    set_atan_stage1(false);
+    let second = roundings2(y, x);
+    set_atan_stage1(true);
+    assert!(
+        first == second,
+        "atan2({:e}, {:e}): {:?} with the first stage != {:?} without it",
+        y,
+        x,
+        first.map(f64::from_bits),
+        second.map(f64::from_bits)
+    );
+    check2_fast(y, x);
+}
+
 // atan, asin, acos and atan2 give the same `f64`s, in both directions and to nearest, with the
 // fast path as with it disabled, and agree with MPFR, on random arguments of any exponent and of
 // a moderate magnitude, and most of their rounding tests pass.
@@ -1233,6 +1269,25 @@ fn fast_path_agrees_with_kernel() {
     );
 }
 
+// The second stages of the fast paths, which the first stages leave where their rounding tests
+// fail or `fast_atan1` returns `None`, give the same `f64`s as the kernel where the first stages
+// are disabled (`set_atan_stage1`).
+#[test]
+fn fast_stage2_agrees_with_kernel() {
+    let mut rng = Rng(110);
+    set_atan_stage1(false);
+    for n in 0..300 {
+        let u = rng.below(1 << 53) as f64 / (1u64 << 52) as f64 - 1.0;
+        check_fast(ATAN, 10.0 * u);
+        check_fast(ASIN, u);
+        check_fast(ACOS, u);
+        if n % 3 == 0 {
+            check2_fast(10.0 * u, 10.0 * random_sign(&mut rng) * (u + 1.5));
+        }
+    }
+    set_atan_stage1(true);
+}
+
 // The branches of the fast paths of atan, asin and acos, as (function, a, b) for the arguments x
 // with |x| in [a, b) of each, which both signs of x take. atan takes the polynomial at |x|
 // itself below about 1/128, where 64 |x| rounds to 0, from `TINY_NEAR` on (the directed rule
@@ -1284,10 +1339,17 @@ fn in_range(rng: &mut Rng, a: f64, b: f64, log: bool) -> f64 {
 }
 
 // A random (y, x) in the branch (swap, neg, lo, hi) of `BRANCHES2`, with a random sign of y: q
-// in [2^lo, 2^hi) from `in_range`, d = m 2^e for a random m in [1, 2) and an e uniform in
-// [-20, 1000], and q d rounded, which is normal, as the other argument.
+// in [2^lo, 2^hi) from `in_range`, and (y, x) from `at_quotient`.
 fn in_branch2(rng: &mut Rng, (swap, neg, lo, hi): (bool, bool, i32, i32), log: bool) -> (f64, f64) {
     let q = in_range(rng, pow2(lo), pow2(hi), log);
+    at_quotient(rng, swap, neg, q)
+}
+
+// A random (y, x) with |y| > |x| if `swap`, x < 0 if `neg` and a random sign of y, at about the
+// quotient q in (0, 1] of the lesser magnitude by the greater: d = m 2^e for a random m in [1, 2)
+// and an e uniform in [-20, 1000], and q d rounded, which is normal for q >= 2^-1000, as the
+// other argument.
+fn at_quotient(rng: &mut Rng, swap: bool, neg: bool, q: f64) -> (f64, f64) {
     let d = log_uniform(rng, -20, 1000);
     let (a, b) = if swap { (d, q * d) } else { (q * d, d) };
     (random_sign(rng) * a, if neg { -b } else { b })
@@ -1326,6 +1388,40 @@ fn fast_range_random() {
     }
 }
 
+// atan, asin, acos and atan2 give the same `f64`s with the first stages of their fast paths as
+// with them disabled, and as with the fast paths disabled, and agree with MPFR (`check_stages`,
+// `check2_stages`), on random arguments of each branch of their fast paths (`BRANCHES` and
+// `BRANCHES2`), half uniform over the branch and half of any exponent in it, with either sign, as
+// in `fast_range_random`, and of each set of `COUNT_SETS` and `COUNT_SETS2`, the sets of the
+// instruction counts.
+#[test]
+fn first_stage_random() {
+    let mut rng = Rng(1102);
+    for (i, a, b) in BRANCHES {
+        for n in 0..2000 {
+            let t = in_range(&mut rng, a, b, n % 2 == 1);
+            check_stages(i, random_sign(&mut rng) * t);
+        }
+    }
+    for branch in BRANCHES2 {
+        for n in 0..2000 {
+            let (y, x) = in_branch2(&mut rng, branch, n % 2 == 1);
+            check2_stages(y, x);
+        }
+    }
+    for (i, set) in COUNT_SETS {
+        for _ in 0..2000 {
+            check_stages(i, count_arg(&mut rng, i, set));
+        }
+    }
+    for set in COUNT_SETS2 {
+        for _ in 0..2000 {
+            let (y, x) = count_args2(&mut rng, set);
+            check2_stages(y, x);
+        }
+    }
+}
+
 // (h, l, e, err) of the fast path of the function `i` at x, as the function computes them before
 // its rounding tests, or `None` where the fast path leaves x to the kernel, for an x that the
 // rules leave: atan and asin take |x|, and give the sign of x to the rounding.
@@ -1343,9 +1439,26 @@ fn fast_parts2(y: f64, x: f64) -> Option<(f64, f64, i64, f64)> {
     fast_atan2_pos(y.abs(), x.abs(), x < 0.0)
 }
 
+// The parts of the first stage of the fast path of the function `i` at x, as `fast_parts` gives
+// those of the second stage: `None` is the second stage's turn.
+fn fast_parts1(i: usize, x: f64) -> Option<(f64, f64, i64, f64)> {
+    match i {
+        ATAN => fast_atan_pos1(x.abs()),
+        ASIN => fast_asin_pos1(x.abs()),
+        ACOS => fast_acos_val1(x),
+        _ => unreachable!(),
+    }
+}
+
+// The same for atan2 at (y, x), where `Some(None)` sends the result, below 2^-1021, to the kernel.
+fn fast_parts1_2(y: f64, x: f64) -> Option<Option<(f64, f64, i64, f64)>> {
+    fast_atan2_pos1(y.abs(), x.abs(), x < 0.0)
+}
+
 // atan, asin, acos and atan2 next to the edges of the table, of its index, of the reductions and
 // of the ranges of their fast paths, both signs of each, where they give the same `f64`s with the
-// fast path as with it disabled, and as MPFR (`check_fast`, `check2_fast`):
+// first stages of the fast paths as with them disabled, with the fast path as with it disabled,
+// and as MPFR (`check_stages`, `check2_stages`):
 // - atan at the points j/64 of the table, at the ties (2j + 1)/128 of its index, and at their
 //   inverses, which π/2 - atan(1 / t) takes, and the 2 `f64`s on each side of them;
 // - asin and acos at the t at which t / √(1 - t^2) or √(1 - t^2) / t is one of those points, as
@@ -1361,7 +1474,9 @@ fn fast_parts2(y: f64, x: f64) -> Option<(f64, f64, i64, f64)> {
 //   of `midpoint_quotient`, and next to them.
 // The fast path computes its parts at every argument of atan in [2^-27, 1], whose core has no
 // quotient, of acos below 2^-27 and at -1, and of asin at ±1, and not of acos at 1; and for x > 0
-// and exponents that differ by more than 60, exactly at the results of at least 2^-1021.
+// and exponents that differ by more than 60, exactly at the results of at least 2^-1021. So does
+// the first stage, but for atan at the points j/64 for j >= 1, which it leaves to the second; and
+// for those exponents it sends the results below 2^-1021 to the kernel itself.
 #[test]
 fn fast_edges() {
     let mut args = vec![];
@@ -1400,7 +1515,7 @@ fn fast_edges() {
     args.extend((-1074..=-28).map(|k| (ACOS, pow2(k))));
     for (i, x) in args {
         for x in [x, -x] {
-            check_fast(i, x);
+            check_stages(i, x);
             let always = match i {
                 ATAN => (TINY_NEAR..=1.0).contains(&x.abs()),
                 ASIN => x.abs() == 1.0,
@@ -1412,9 +1527,19 @@ fn fast_edges() {
                 FUNCTIONS[i].0,
                 x
             );
+            // The first stage too, but at the points j/64 of the table for j >= 1, where
+            // `fast_atan1` leaves t = c to the core.
+            let point = i == ATAN && x.abs() >= 1.0 / 64.0 && (64.0 * x).fract() == 0.0;
+            assert!(
+                !always || point || fast_parts1(i, x).is_some(),
+                "{}({:e}): no parts of the first stage",
+                FUNCTIONS[i].0,
+                x
+            );
         }
     }
     assert!(fast_parts(ACOS, 1.0).is_none());
+    assert!(fast_parts1(ACOS, 1.0).is_none());
 
     let mut args2 = vec![];
     // The points and ties of the table, as y / x.
@@ -1477,6 +1602,13 @@ fn fast_edges() {
                         scaled >= -1021,
                         "atan2({y:e}, {x:e})"
                     );
+                    // The first stage owns these quotients: `Some(None)` sends the same
+                    // results to the kernel, and the second stage never runs.
+                    assert_eq!(
+                        fast_parts1_2(y, x).map(|p| p.is_some()),
+                        Some(scaled >= -1021),
+                        "atan2({y:e}, {x:e}): first stage"
+                    );
                 }
             }
         }
@@ -1511,8 +1643,8 @@ fn fast_edges() {
     }
     for (y, x) in args2 {
         for (sy, sx) in QUADRANTS {
-            check2_fast(sy * y, sx * x);
-            check2_fast(sx * x, sy * y);
+            check2_stages(sy * y, sx * x);
+            check2_stages(sx * x, sy * y);
         }
     }
 }
@@ -1601,6 +1733,276 @@ fn widened() {
             dir += usize::from(narrow_dir);
             near += usize::from(narrow_near);
             check2_fast(y, x);
+        }
+    }
+}
+
+// The same for the first stages of the fast paths, at their parts (`fast_parts1`,
+// `fast_parts1_2`): where a rounding test of a first stage passes, but would fail with 2^6 err in
+// place of its err, atan, asin, acos and atan2 give the same `f64`s with the first stages as with
+// them disabled, as the kernel and as MPFR (`check_stages`, `check2_stages`). The arguments that a
+// first stage leaves to the second, or atan2's to the kernel, are skipped. The branches and skips
+// are those of `widened`, but for acos below `TINY_ASIN`, where the first stage is the second
+// stage's π/2 - x with its err, `ERR70`, which `widened` takes. atan2's branch of the q below
+// 2^-62 for x > 0 and |y| < |x| stays, though its first stage answers it with err = `ERR70` too,
+// as the second stage does: the first takes q from `fast_quot`, which the second does not.
+#[test]
+fn widened1() {
+    let mut rng = Rng(1103);
+    for (i, a, b) in BRANCHES {
+        if i == ACOS && b <= TINY_ASIN {
+            continue;
+        }
+        let (mut dir, mut near, mut n) = (0, 0, 0);
+        while dir < 40 || near < 40 {
+            n += 1;
+            assert!(
+                n <= 1_000_000,
+                "{} on [{a:e}, {b:e}): {dir} narrow passes of the directed tests and {near} of \
+                 the test to nearest of the first stage in 1000000 arguments",
+                FUNCTIONS[i].0
+            );
+            let x = random_sign(&mut rng) * in_range(&mut rng, a, b, n % 2 == 1);
+            let Some(parts) = fast_parts1(i, x) else {
+                continue;
+            };
+            let (narrow_dir, narrow_near) = narrow(parts);
+            let narrow_dir = narrow_dir && (i != ATAN || x.abs() >= TINY_HYP);
+            if !narrow_dir && !narrow_near {
+                continue;
+            }
+            dir += usize::from(narrow_dir);
+            near += usize::from(narrow_near);
+            check_stages(i, x);
+        }
+    }
+    for branch in BRANCHES2 {
+        let (swap, neg, lo, _) = branch;
+        if lo < -60 && (swap || neg) {
+            continue;
+        }
+        let (mut dir, mut near, mut n) = (0, 0, 0);
+        while dir < 40 || near < 40 {
+            n += 1;
+            assert!(
+                n <= 1_000_000,
+                "atan2 on {branch:?}: {dir} narrow passes of the directed tests and {near} of \
+                 the test to nearest of the first stage in 1000000 arguments"
+            );
+            let (y, x) = in_branch2(&mut rng, branch, n % 2 == 1);
+            let Some(Some(parts)) = fast_parts1_2(y, x) else {
+                continue;
+            };
+            let (narrow_dir, narrow_near) = narrow(parts);
+            if !narrow_dir && !narrow_near {
+                continue;
+            }
+            dir += usize::from(narrow_dir);
+            near += usize::from(narrow_near);
+            check2_stages(y, x);
+        }
+    }
+}
+
+// The sets of arguments on which the instruction counts of atan, asin and acos are taken, as
+// (function, name), which `count_arg` draws.
+const COUNT_SETS: [(usize, &str); 17] = [
+    (ATAN, "cal"),
+    (ATAN, "u"),
+    (ATAN, "lu"),
+    (ATAN, "tiny"),
+    (ATAN, "big"),
+    (ATAN, "w"),
+    (ASIN, "cal"),
+    (ASIN, "lu"),
+    (ASIN, "n1"),
+    (ASIN, "tiny"),
+    (ASIN, "w"),
+    (ACOS, "cal"),
+    (ACOS, "lu"),
+    (ACOS, "n1"),
+    (ACOS, "tiny"),
+    (ACOS, "w"),
+    (ACOS, "zero"),
+];
+
+// The same for atan2, which `count_args2` draws.
+const COUNT_SETS2: [&str; 6] = ["cal", "q4", "far", "tq", "w", "sub"];
+
+// A random argument of the function `i` in the set `name` of `COUNT_SETS`: `cal` uniform in
+// [-10, 10) for atan and in [-1, 1) for asin and acos, as `u` for atan, and the others with a
+// random sign: `lu` of an exponent in [-30, 29] for atan and in [-30, -1] for asin and acos,
+// `tiny` in [-26, -9] for atan and asin and in [-60, -28] for acos, `big` in [0, 53] above 1,
+// `w` of any exponent, below 1 for asin and acos, `n1` in (1 - 2^-8, 1], and `zero` of an
+// exponent in [-1074, -1000], and 0 for about an eighth of them, at random.
+fn count_arg(rng: &mut Rng, i: usize, name: &str) -> f64 {
+    let u = rng.below(1 << 53) as f64 / (1u64 << 53) as f64;
+    let s = random_sign(rng);
+    match (i, name) {
+        (ATAN, "cal") => -10.0 + 20.0 * u,
+        (ATAN, "u") | (_, "cal") => -1.0 + 2.0 * u,
+        (ATAN, "lu") => s * log_uniform(rng, -30, 29),
+        (_, "lu") => s * log_uniform(rng, -30, -1),
+        (ACOS, "tiny") => s * log_uniform(rng, -60, -28),
+        (_, "tiny") => s * log_uniform(rng, -26, -9),
+        (ATAN, "big") => s * log_uniform(rng, 0, 53).max(next_up(1.0)),
+        (ATAN, "w") => s * log_uniform(rng, -1074, 1023),
+        (_, "w") => s * log_uniform(rng, -1074, -1),
+        (_, "n1") => s * (1.0 - rng.below(1 << 45) as f64 * pow2(-53)),
+        (ACOS, "zero") if rng.below(8) == 0 => 0.0,
+        (ACOS, "zero") => s * log_uniform(rng, -1074, -1000),
+        _ => unreachable!(),
+    }
+}
+
+// A random (y, x) in the set `name` of `COUNT_SETS2`: `cal` both uniform in [-10, 10), `q4` at a
+// uniform angle and a radius of an exponent in [-4, 3], `far` at |y / x| or |x / y| of an
+// exponent in [-60, -28], with random signs, `tq` at x in [1, 2) and y / x of an exponent in
+// [-80, -28], `w` both of any exponent, with random signs, and `sub` at x > 0 and |y / x| of an
+// exponent in [-1030, -1010], about the subnormal results.
+fn count_args2(rng: &mut Rng, name: &str) -> (f64, f64) {
+    let unit = |rng: &mut Rng| rng.below(1 << 53) as f64 / (1u64 << 53) as f64;
+    match name {
+        "cal" => (-10.0 + 20.0 * unit(rng), -10.0 + 20.0 * unit(rng)),
+        "q4" => {
+            let t = 2.0 * PI * unit(rng);
+            let r = log_uniform(rng, -4, 3);
+            (r * t.sin(), r * t.cos())
+        }
+        "far" => {
+            let b = random_sign(rng) * log_uniform(rng, -10, 9);
+            let q = random_sign(rng) * log_uniform(rng, -60, -28);
+            if rng.below(2) == 0 {
+                (b * q, b)
+            } else {
+                (b, b * q)
+            }
+        }
+        "tq" => {
+            let x = 1.0 + unit(rng);
+            (x * log_uniform(rng, -80, -28), x)
+        }
+        "w" => (
+            random_sign(rng) * log_uniform(rng, -1074, 1023),
+            random_sign(rng) * log_uniform(rng, -1074, 1023),
+        ),
+        "sub" => {
+            let x = log_uniform(rng, -10, 9);
+            (random_sign(rng) * x * log_uniform(rng, -1030, -1010), x)
+        }
+        _ => unreachable!(),
+    }
+}
+
+// How the fast paths took the calls of a set in one rounding: `tested` is the number of calls
+// that took a rounding test, `first` the number of those whose first stage computed its parts
+// and took its test, `passed` of those whose first stage's test passed, and `kernel` of those
+// whose tests all failed, which the kernel computes. A call without a test is settled by a rule
+// or sent to the kernel before any test.
+#[derive(Default)]
+struct Stage1Tally {
+    calls: usize,
+    tested: usize,
+    first: usize,
+    passed: usize,
+    kernel: usize,
+}
+
+impl Stage1Tally {
+    // Adds a call at `args`, from the tests that `fast_counts` gives after it, as (passed, failed),
+    // and whether the first stage computed its parts. A failed first stage records its failure
+    // before the second stage records its own test, if it takes one, so the first stage passed
+    // iff no test failed, and then it took the only test.
+    fn add(&mut self, args: &str, (passed, failed): (usize, usize), first: bool) {
+        self.calls += 1;
+        if passed + failed == 0 {
+            return;
+        }
+        self.tested += 1;
+        if first {
+            assert!(
+                (failed == 0 && passed == 1) || (failed > 0 && passed + failed <= 2),
+                "{args}: {passed} passed and {failed} failed tests after the first stage"
+            );
+            self.first += 1;
+            self.passed += usize::from(failed == 0);
+        } else {
+            assert!(
+                passed + failed == 1,
+                "{args}: {passed} passed and {failed} failed tests of the second stage alone"
+            );
+        }
+        self.kernel += usize::from(passed == 0);
+    }
+
+    // Prints the tally of the set `name`, and checks that the first stage passed at least 95% of
+    // its tests.
+    fn check(&self, name: &str) {
+        let rate = |n: usize| 100.0 * n as f64 / self.first.max(1) as f64;
+        eprintln!(
+            "first stage, {name}: {} calls, {} with a rounding test, {} by the first stage, of \
+             which {} passed ({:.2}%), {} to the kernel after failed tests",
+            self.calls,
+            self.tested,
+            self.first,
+            self.passed,
+            rate(self.passed),
+            self.kernel
+        );
+        assert!(
+            100 * self.passed >= 95 * self.first,
+            "first stage, {name}: {} of {} tests passed",
+            self.passed,
+            self.first
+        );
+    }
+}
+
+// The roundings of `roundings`, by name.
+const MODES: [&str; 3] = ["rd", "ru", "rn"];
+
+// The first stages of the fast paths of atan, asin, acos and atan2 pass at least 95% of their
+// rounding tests on each set of `COUNT_SETS` and `COUNT_SETS2` in each rounding. The test prints,
+// for each set and rounding, how many calls took a rounding test and how many of those the first
+// stage answered.
+#[test]
+fn first_stage_pass_rates() {
+    let mut rng = Rng(1101);
+    for (i, set) in COUNT_SETS {
+        let (name, f) = FUNCTIONS[i];
+        let args: Vec<f64> = (0..3000).map(|_| count_arg(&mut rng, i, set)).collect();
+        for (mode, mode_name) in MODES.into_iter().enumerate() {
+            let mut tally = Stage1Tally::default();
+            for &x in &args {
+                reset_fast_counts();
+                match mode {
+                    0 => f(x, false),
+                    1 => f(x, true),
+                    _ => NEAR[i](x),
+                };
+                let counts = fast_counts();
+                let first = counts != (0, 0) && fast_parts1(i, x).is_some();
+                tally.add(&format!("{name}({x:e}) {mode_name}"), counts, first);
+            }
+            tally.check(&format!("{name} {set} {mode_name}"));
+        }
+    }
+    for set in COUNT_SETS2 {
+        let args: Vec<(f64, f64)> = (0..3000).map(|_| count_args2(&mut rng, set)).collect();
+        for (mode, mode_name) in MODES.into_iter().enumerate() {
+            let mut tally = Stage1Tally::default();
+            for &(y, x) in &args {
+                reset_fast_counts();
+                match mode {
+                    0 => atan2(y, x, false),
+                    1 => atan2(y, x, true),
+                    _ => atan2_near(y, x),
+                };
+                let counts = fast_counts();
+                let first = counts != (0, 0) && matches!(fast_parts1_2(y, x), Some(Some(_)));
+                tally.add(&format!("atan2({y:e}, {x:e}) {mode_name}"), counts, first);
+            }
+            tally.check(&format!("atan2 {set} {mode_name}"));
         }
     }
 }

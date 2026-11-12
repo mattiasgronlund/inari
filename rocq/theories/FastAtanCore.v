@@ -34,7 +34,7 @@ Local Ltac lit w H :=
 
 (** [Fast.fast_two_sum a b] is exact where [|b| <= |a|] or [a = 0], as in
     [FastLogCore.v]. *)
-Local Lemma lc_fts :
+Lemma lc_fts :
   forall a b s t, is_finite a = true -> is_finite b = true ->
   (Rabs (B2R b) <= Rabs (B2R a) \/ B2R a = 0) -> Rabs (B2R a + B2R b) <= 16 ->
   Fast.fast_two_sum a b = (s, t) ->
@@ -65,7 +65,7 @@ Qed.
 
 (** The exponent of a finite [f64] below [2^k] is below [k], and that of
     one at least [2^k] at least [k], as in [FastDiv.v]. *)
-Local Lemma exponent_lt :
+Lemma exponent_lt :
   forall x k, is_finite x = true -> (-1022 <= k)%Z ->
   Rabs (B2R x) < bpow radix2 k -> (Generic.exponent x < k)%Z.
 Proof.
@@ -76,7 +76,7 @@ assert (H1 : bpow radix2 (Generic.exponent x) < bpow radix2 k) by lra.
 apply lt_bpow in H1. exact H1.
 Qed.
 
-Local Lemma exponent_ge :
+Lemma exponent_ge :
   forall x k, is_finite x = true -> bpow radix2 k <= Rabs (B2R x) ->
   (k <= Generic.exponent x)%Z.
 Proof.
@@ -88,7 +88,7 @@ Qed.
 
 (** [two_prod_is_exact] holds for products of moderate exponents, as in
     [FastDiv.v]. *)
-Local Lemma two_prod_is_exact_of :
+Lemma two_prod_is_exact_of :
   forall fma x y,
   (-968 <= Generic.exponent (mul x y) <= 1022)%Z ->
   (Generic.exponent x <= 995)%Z -> (Generic.exponent y <= 995)%Z ->
@@ -101,7 +101,7 @@ Qed.
 
 (** The low part of a rounded-to-nearest normal value is within [2^-53] of
     it relatively. *)
-Local Lemma low_rel :
+Lemma low_rel :
   forall x (h : f64), B2R h = RN x -> bpow radix2 (-1022) <= Rabs (B2R h) ->
   Rabs (x - B2R h) <= bpow radix2 (-53) * Rabs (B2R h).
 Proof.
@@ -118,7 +118,7 @@ destruct B as (B1 & B2). rewrite B1 in U. rewrite B2. lra.
 Qed.
 
 (** [eq x zero] tests [x = 0]. *)
-Local Lemma eq_zero_R :
+Lemma eq_zero_R :
   forall x : f64, is_finite x = true -> eq x zero = true <-> B2R x = 0.
 Proof.
 intros x Fx.
@@ -133,7 +133,7 @@ Qed.
 (** [kf] is the integer [i] nearest [64 th], with [0 <= i <= 64] (the tie
     at [th = 129/128] goes to the even [SHIFTER + 64]), and [c = i/64]
     exactly. *)
-Local Lemma core_index :
+Lemma core_index :
   forall th, is_finite th = true -> bpow radix2 (-61) <= B2R th <= 129 / 128 ->
   let kf := sub (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter)
     DyadicExp.shifter in
@@ -233,7 +233,7 @@ Qed.
 (** ** The steps *)
 
 (** The table's pairs are rounded to nearest. *)
-Local Lemma table_rn :
+Lemma table_rn :
   forall i, (1 <= i <= 64)%Z ->
   let '(gh, gl) := DyadicAtan.atbl i in B2R gh = RN (B2R gh + B2R gl).
 Proof.
@@ -257,7 +257,7 @@ rewrite Es in E. symmetry. exact E.
 Qed.
 
 (** [th c] is exact as a pair. *)
-Local Lemma core_exact :
+Lemma core_exact :
   forall fma th c, is_finite th = true -> is_finite c = true ->
   / 128 <= B2R th <= 129 / 128 -> / 64 <= B2R c <= 1 ->
   Generic.two_prod_is_exact fma th c (mul th c) = true.
@@ -296,7 +296,7 @@ Qed.
 (** The numerator [t - c]: [th - c] is exact (Sterbenz), and it is a
     multiple of the last bit of [th], above [|tl|] unless it is 0, so
     [fast_two_sum] is exact. Where [nh] is 0, so is [nl]. *)
-Local Lemma core_num :
+Lemma core_num :
   forall th tl c n nh nl,
   is_finite th = true -> is_finite tl = true -> is_finite c = true ->
   / 128 <= B2R th <= 129 / 128 -> Rabs (B2R tl) <= bpow radix2 (-53) * B2R th ->
@@ -374,7 +374,7 @@ rewrite <- E2, E1, Ea, Ed', Rplus_comm, <- Rnh. exact Z0.
 Qed.
 
 (** Past the test against [2^-80], the numerator is in [dd_div]'s range. *)
-Local Lemma core_nh :
+Lemma core_nh :
   forall x (nh nl : f64), is_finite nh = true -> B2R nh = RN x -> B2R nh + B2R nl = x ->
   Rabs x <= / 64 -> Model.lt (fabs nh) DyadicAtan.two_m80 = false ->
   bpow radix2 (-80) <= Rabs (B2R nh) <= / 64 /\
@@ -399,7 +399,7 @@ apply Rle_trans with (2 := H80). apply bpow_le. lia.
 Qed.
 
 (** The denominator [1 + t c]. *)
-Local Lemma core_den :
+Lemma core_den :
   forall fma th tl c s s0 dh dl,
   is_finite th = true -> is_finite tl = true -> is_finite c = true ->
   / 128 <= B2R th <= 129 / 128 -> Rabs (B2R tl) <= bpow radix2 (-53) * B2R th ->
@@ -408,7 +408,7 @@ Local Lemma core_den :
   Fast.fast_two_sum s (add s0 (add (Generic.two_prod_err fma th c (mul th c)) (mul tl c)))
     = (dh, dl) ->
   is_finite dh = true /\ is_finite dl = true /\ 1 <= B2R dh <= 41 / 20 /\
-  Rabs (B2R dl) <= bpow radix2 (-52) * B2R dh /\
+  Rabs (B2R dl) <= bpow radix2 (-53) * B2R dh /\
   Rabs (B2R dh + B2R dl - (1 + (B2R th + B2R tl) * B2R c)) <= bpow radix2 (-103).
 Proof.
 intros fma th tl c s s0 dh dl Fth Ftl Fc Hth Htl Hc ES ED.
@@ -493,7 +493,7 @@ rewrite (Rabs_pos_eq (B2R dh)) in Hdl by lra.
 change (bpow radix2 (-53)) with (/ 9007199254740992) in Hdl.
 do 2 (split; [assumption|]). split; [exact Hdh|].
 split.
-{ change (bpow radix2 (-52)) with (/ 4503599627370496). lra. }
+{ change (bpow radix2 (-53)) with (/ 9007199254740992). lra. }
 (* [dh + dl - (1 + t c) = (a2 - (s0 + a1)) + (a1 - (pe + m)) + (m - tl c)]:
    at most (4.04 + 2.02 + 1.01) 2^-106. *)
 change (bpow radix2 (-103)) with (/ 10141204801825835211973625643008).
@@ -581,6 +581,15 @@ assert (HQR : Rabs (Q - R) <= Q * / 10141204801825835211973625643008).
 { apply Rabs_le. clear - HX Q0 HD Ed. split; nra. }
 apply Rabs_le_inv in HQR.
 rewrite K97. apply Rabs_le. lra.
+Qed.
+
+(** [core_den]'s bound on [dl] in the weaker form that [core_u] takes. *)
+Local Lemma den_low52 :
+  forall dh dl : f64, 1 <= B2R dh <= 41 / 20 ->
+  Rabs (B2R dl) <= bpow radix2 (-53) * B2R dh -> Rabs (B2R dl) <= bpow radix2 (-52) * B2R dh.
+Proof.
+intros dh dl Hdh Hdl. apply Rle_trans with (1 := Hdl).
+apply Rmult_le_compat_r; [lra | apply bpow_le; lia].
 Qed.
 
 (** The quotient [u] with the sign of the numerator taken out. *)
@@ -789,7 +798,7 @@ Qed.
 
 (** The ranges of [t] and [c] past the index, and the bounds on the
     numerator and the denominator they give. *)
-Local Lemma core_range :
+Lemma core_range :
   forall th tl c : f64, bpow radix2 (-61) <= B2R th <= 129 / 128 ->
   Rabs (B2R tl) <= bpow radix2 (-53) * B2R th -> / 64 <= B2R c <= 1 ->
   Rabs (64 * B2R th - 64 * B2R c) <= / 2 ->
@@ -890,6 +899,7 @@ destruct (Z.eqb_spec i 0) as [I0|I0].
     intros H.
     destruct (core_den fma th tl c s s0 dh dl Fth Ftl Fc Hth' Htl Hc ES ED)
       as (Fdh & Fdl & Hdh & Hdl & Ed).
+    apply (den_low52 dh dl Hdh) in Hdl.
     set (D := 1 + (B2R th + B2R tl) * B2R c) in *.
     revert H.
     destruct (if Model.gt nh zero then Fast.dd_div fma nh nl dh dl
@@ -1006,6 +1016,7 @@ destruct (Z.eqb i 0) eqn:I0.
     (add s0 (add (Generic.two_prod_err false th c (mul th c)) (mul tl c)))) as (dh, dl) eqn:ED.
   destruct (core_den false th tl c s s0 dh dl Fth Ftl Fc Hth' Htl Hc ES ED)
     as (Fdh & Fdl & Hdh & Hdl & Ed).
+  apply (den_low52 dh dl Hdh) in Hdl.
   rewrite (core_u_fma nh nl dh dl Fnh Fnl Fdh Fdl Hnh Hnl Hdh Hdl).
   destruct (if Model.gt nh zero then Fast.dd_div false nh nl dh dl
     else let '(qh, ql) := Fast.dd_div false (Model.opp nh) (Model.opp nl) dh dl in

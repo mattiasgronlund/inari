@@ -272,6 +272,12 @@ theories/FastAtanTables.v
 theories/FastAtanIdent.v
 theories/FastAtanPoly.v
 theories/FastAtanCore.v
+theories/FastAtan1Poly.v
+theories/FastAtan1Rem.v
+theories/FastAtan1Mid.v
+theories/FastAtan1Div.v
+theories/FastAtan1Quot.v
+theories/FastAtan1.v
 theories/FastAtanAsm.v
 theories/FastAtanQuot.v
 theories/FastAtan.v

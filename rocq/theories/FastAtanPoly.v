@@ -74,7 +74,7 @@ split; [exact F | split; [exact E | apply Rabs_le_inv; exact B]].
 Qed.
 
 (** Rounding to nearest in the normal range moves [x] by at most [2^-53 |x|]. *)
-Local Lemma rn_rel :
+Lemma rn_rel :
   forall x, bpow radix2 (-1022) <= Rabs x -> Rabs (RN x - x) <= bpow radix2 (-53) * Rabs x.
 Proof.
 intros x Hx.
@@ -246,17 +246,17 @@ Local Ltac lit_R l :=
 Local Ltac coef c :=
   split; [vm_compute; reflexivity|]; lit_R (from_bits c); num; apply Rabs_le; lra.
 
-Local Lemma at5_b :
+Lemma at5_b :
   is_finite (from_bits DyadicAtan.A5) = true /\
   Rabs (B2R (from_bits DyadicAtan.A5) - / 5) <= bpow radix2 (-56).
 Proof. coef DyadicAtan.A5. Qed.
 
-Local Lemma at7_b :
+Lemma at7_b :
   is_finite (from_bits DyadicAtan.A7) = true /\
   Rabs (B2R (from_bits DyadicAtan.A7) - / 7) <= bpow radix2 (-56).
 Proof. coef DyadicAtan.A7. Qed.
 
-Local Lemma at9_b :
+Lemma at9_b :
   is_finite (from_bits DyadicAtan.A9) = true /\
   Rabs (B2R (from_bits DyadicAtan.A9) - / 9) <= bpow radix2 (-56).
 Proof. coef DyadicAtan.A9. Qed.
@@ -266,7 +266,7 @@ Local Lemma at11_b :
   Rabs (B2R (from_bits DyadicAtan.A11) - / 11) <= bpow radix2 (-56).
 Proof. coef DyadicAtan.A11. Qed.
 
-Local Lemma at3_b :
+Lemma at3_b :
   is_finite (from_bits (fst DyadicAtan.A3)) = true /\
   is_finite (from_bits (snd DyadicAtan.A3)) = true /\
   / 3 - bpow radix2 (-54) <= B2R (from_bits (fst DyadicAtan.A3)) <= / 3 /\
@@ -285,7 +285,7 @@ Qed.
     an exact result of at most [K] adds [2^-53 K + 2^-1075]. The bounds
     [Mx] and [Mu] are separate, as [vh] is at most [2^-14] and only its
     real [v] needs [2^-13]. *)
-Local Lemma mul_step :
+Lemma mul_step :
   forall x q u y Mx Mu Y D dl D',
   is_finite x = true -> is_finite q = true ->
   0 <= B2R x <= Mx -> 0 <= u <= Mu -> Rabs (B2R x - u) <= dl ->
@@ -310,7 +310,7 @@ apply Rabs_le_inv in B, H1, H2.
 split; [exact F | split; [apply Rabs_le; lra | exact H3]].
 Qed.
 
-Local Lemma sub_step :
+Lemma sub_step :
   forall c q g y Y G D D',
   is_finite c = true -> is_finite q = true ->
   Rabs (B2R c - g) <= G -> Rabs (B2R q - y) <= D -> 0 <= g -> Rabs y <= Y ->

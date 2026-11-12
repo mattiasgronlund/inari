@@ -4154,6 +4154,54 @@ Definition fast_atan_core (fma : bool) (th tl : f64) : option (f64 * f64) :=
   let '(sh, s1) := Fast.fast_two_sum gh ph in
   Some (Fast.fast_two_sum sh (add s1 (add gl pl))).
 
+(** [ERR62], 2^-62. *)
+Definition err62 : f64 := from_bits 0x3c10000000000000.
+
+(** [fn fast_atan1(th: f64, tl: f64) -> Option<(f64, f64)>], with the
+    literals and [kf as i64] of [fast_atan_core], and the early [return]s
+    as the [if]s. [FastAtan1.v] proves it. *)
+Definition fast_atan1 (fma : bool) (th tl : f64) : option (f64 * f64) :=
+  let kf :=
+    sub (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter) DyadicExp.shifter in
+  let i := DyadicExp.to_i64 kf in
+  if Z.eqb i 0 then
+    let v := mul th th in
+    let b := sub (from_bits (fst A3))
+      (mul v (sub (from_bits A5) (mul v (sub (from_bits A7) (mul v (from_bits A9)))))) in
+    Some (Fast.fast_two_sum th (sub tl (mul (mul th v) b)))
+  else
+  let '(gh, gl) := atbl i in
+  let c := mul kf (from_bits 0x3f90000000000000) in
+  let '(nh, nl) := Fast.fast_two_sum (sub th c) tl in
+  if lt (fabs nh) two_m80 then None else
+  let p := mul th c in
+  let pe := Generic.two_prod_err fma th c p in
+  let '(s, s0) := Fast.two_sum DyadicExp.one p in
+  let '(dh, dl) := Fast.fast_two_sum s (add s0 (add pe (mul tl c))) in
+  let uh := div nh dh in
+  let q := mul uh dh in
+  let qe := Generic.two_prod_err fma uh dh q in
+  let ul := div (sub (add (sub (sub nh q) qe) nl) (mul uh dl)) dh in
+  let v := mul uh uh in
+  let b := sub (from_bits (fst A3))
+    (mul v (sub (from_bits A5) (mul v (sub (from_bits A7) (mul v (from_bits A9)))))) in
+  let '(sh, s1) := Fast.fast_two_sum gh uh in
+  Some (Fast.fast_two_sum sh (add s1 (add gl (sub ul (mul (mul uh v) b))))).
+
+(** [fn fast_quot(n: f64, d: f64) -> (f64, f64)] and [fn fast_recip(t: f64)
+    -> (f64, f64)], where the literal [1.0] is [DyadicExp.one].
+    [FastAtan1Quot.v] proves them. *)
+Definition fast_quot (fma : bool) (n d : f64) : f64 * f64 :=
+  let qh := div n d in
+  let p := mul qh d in
+  let pe := Generic.two_prod_err fma qh d p in
+  (qh, div (sub (sub n p) pe) d).
+Definition fast_recip (fma : bool) (t : f64) : f64 * f64 :=
+  let qh := div DyadicExp.one t in
+  let p := mul qh t in
+  let pe := Generic.two_prod_err fma qh t p in
+  (qh, mul (sub (sub DyadicExp.one p) pe) qh).
+
 (** [fn pio2_add(f: f64, rh: f64, rl: f64) -> (f64, f64)].
     [FastAtanAsm.v] proves it. *)
 Definition pio2_add (f rh rl : f64) : f64 * f64 :=
@@ -4261,13 +4309,77 @@ Definition fast_acos_val (fma : bool) (x : f64) : option (f64 * f64 * Z * f64) :
   | None => None
   end.
 
-(** [fn fast_atan_dir(x: f64, up: bool) -> Option<f64>], the same for
-    [asin], [acos] and [atan2], and [fn fast_atan_near(x: f64) ->
+(** [fn fast_atan_pos1(t: f64) -> Option<(f64, f64, i64, f64)>], where [?]
+    is the [match]. [FastAtan.v] proves it. *)
+Definition fast_atan_pos1 (fma : bool) (t : f64) : option (f64 * f64 * Z * f64) :=
+  if le t DyadicExp.one then
+    match fast_atan1 fma t zero with
+    | Some (ah, al) => let '(h, l, e, _) := octant false false ah al in Some (h, l, e, err62)
+    | None => None
+    end
+  else
+    let '(qh, ql) := fast_recip fma t in
+    match fast_atan1 fma qh ql with
+    | Some (ah, al) => let '(h, l, e, _) := octant true false ah al in Some (h, l, e, err62)
+    | None => None
+    end.
+
+(** [fn fast_atan2_pos1(a: f64, b: f64, neg: bool) -> Option<Option<(f64,
+    f64, i64, f64)>>], where [?] is the [match]. [FastAtan.v] proves it. *)
+Definition fast_atan2_pos1 (fma : bool) (a b : f64) (neg : bool)
+  : option (option (f64 * f64 * Z * f64)) :=
+  let swap := gt a b in
+  let '(n, d) := if swap then (b, a) else (a, b) in
+  let '(mn, en) := split n in
+  let '(md, ed) := split d in
+  let e := (en - ed)%Z in
+  let '(qh, ql) := fast_quot fma mn md in
+  if Z.leb (-60) e then
+    let p := DyadicExp.two_pow e in
+    match fast_atan1 fma (mul qh p) (mul ql p) with
+    | Some (rh, rl) => let '(h, l, k, _) := octant swap neg rh rl in Some (Some (h, l, k, err62))
+    | None => None
+    end
+  else if swap || neg then Some (Some (octant swap neg (div n d) zero))
+  else
+    let '(h, l, k) := Fast.normalize qh ql in
+    if Z.ltb (e + k) (-1021) then Some None else Some (Some (h, l, (e + k)%Z, err70)).
+
+(** [fn fast_asin_atan1(t: f64) -> Option<(f64, f64)>]. [FastAsin.v]
+    proves it. *)
+Definition fast_asin_atan1 (fma : bool) (t : f64) : option (f64 * f64) :=
+  let '(rh, rl) := fast_sqrt1m fma t in
+  let '(qh, ql) := if le t asin_s then Fast.dd_div fma t zero rh rl else Fast.dd_div fma rh rl t zero in
+  fast_atan1 fma qh ql.
+
+(** [fn fast_asin_pos1(t: f64) -> Option<(f64, f64, i64, f64)>] and [fn
+    fast_acos_val1(x: f64) -> Option<(f64, f64, i64, f64)>], as
+    [fast_asin_pos] and [fast_acos_val]. [FastAsin.v] proves them. *)
+Definition fast_asin_pos1 (fma : bool) (t : f64) : option (f64 * f64 * Z * f64) :=
+  if eq t DyadicExp.one then Some (from_bits (fst PIO2), from_bits (snd PIO2), 0%Z, err70) else
+  match fast_asin_atan1 fma t with
+  | Some (ch, cl) => let '(h, l, e, _) := octant (gt t asin_s) false ch cl in Some (h, l, e, err62)
+  | None => None
+  end.
+Definition fast_acos_val1 (fma : bool) (x : f64) : option (f64 * f64 * Z * f64) :=
+  if eq x DyadicExp.one then None else
+  if lt (fabs x) tiny_asin then
+    let '(h, l) := pio2_add DyadicExp.one (opp x) zero in Some (h, l, 0%Z, err70) else
+  if eq x DyadicExp.m_one then Some (from_bits (fst PIO2), from_bits (snd PIO2), 1%Z, err70) else
+  let t := fabs x in
+  match fast_asin_atan1 fma t with
+  | Some (ch, cl) =>
+    let '(h, l, e, _) := octant (le t asin_s) (lt x zero) ch cl in Some (h, l, e, err62)
+  | None => None
+  end.
+
+(** [fn fast_atan_dir2(x: f64, up: bool) -> Option<f64>], the same for
+    [asin], [acos] and [atan2], and [fn fast_atan_near2(x: f64) ->
     Option<f64>] and the others, as [DyadicExp.fast_sinh_dir], where
     [x.abs()] is [fabs x], and [up != (x < 0.0)] is [xorb up (lt x
     zero)]. [FastAtan.v] proves those of [atan] and [atan2], and
     [FastAsin.v] those of [asin] and [acos]. *)
-Definition fast_atan_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+Definition fast_atan_dir2 (fma : bool) (x : f64) (up : bool) : option f64 :=
   match fast_atan_pos fma (fabs x) with
   | Some (h, l, e, err) =>
     match Fast.round_dir_err h l e err (xorb up (lt x zero)) with
@@ -4276,7 +4388,7 @@ Definition fast_atan_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
     end
   | None => None
   end.
-Definition fast_asin_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+Definition fast_asin_dir2 (fma : bool) (x : f64) (up : bool) : option f64 :=
   match fast_asin_pos fma (fabs x) with
   | Some (h, l, e, err) =>
     match Fast.round_dir_err h l e err (xorb up (lt x zero)) with
@@ -4285,12 +4397,12 @@ Definition fast_asin_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
     end
   | None => None
   end.
-Definition fast_acos_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+Definition fast_acos_dir2 (fma : bool) (x : f64) (up : bool) : option f64 :=
   match fast_acos_val fma x with
   | Some (h, l, e, err) => Fast.round_dir_err h l e err up
   | None => None
   end.
-Definition fast_atan2_dir (fma : bool) (y x : f64) (up : bool) : option f64 :=
+Definition fast_atan2_dir2 (fma : bool) (y x : f64) (up : bool) : option f64 :=
   match fast_atan2_pos fma (fabs y) (fabs x) (lt x zero) with
   | Some (h, l, e, err) =>
     match Fast.round_dir_err h l e err (xorb up (lt y zero)) with
@@ -4299,7 +4411,7 @@ Definition fast_atan2_dir (fma : bool) (y x : f64) (up : bool) : option f64 :=
     end
   | None => None
   end.
-Definition fast_atan_near (fma : bool) (x : f64) : option f64 :=
+Definition fast_atan_near2 (fma : bool) (x : f64) : option f64 :=
   match fast_atan_pos fma (fabs x) with
   | Some (h, l, e, err) =>
     match Fast.round_near_err h l e err with
@@ -4308,7 +4420,7 @@ Definition fast_atan_near (fma : bool) (x : f64) : option f64 :=
     end
   | None => None
   end.
-Definition fast_asin_near (fma : bool) (x : f64) : option f64 :=
+Definition fast_asin_near2 (fma : bool) (x : f64) : option f64 :=
   match fast_asin_pos fma (fabs x) with
   | Some (h, l, e, err) =>
     match Fast.round_near_err h l e err with
@@ -4317,12 +4429,12 @@ Definition fast_asin_near (fma : bool) (x : f64) : option f64 :=
     end
   | None => None
   end.
-Definition fast_acos_near (fma : bool) (x : f64) : option f64 :=
+Definition fast_acos_near2 (fma : bool) (x : f64) : option f64 :=
   match fast_acos_val fma x with
   | Some (h, l, e, err) => Fast.round_near_err h l e err
   | None => None
   end.
-Definition fast_atan2_near (fma : bool) (y x : f64) : option f64 :=
+Definition fast_atan2_near2 (fma : bool) (y x : f64) : option f64 :=
   match fast_atan2_pos fma (fabs y) (fabs x) (lt x zero) with
   | Some (h, l, e, err) =>
     match Fast.round_near_err h l e err with
@@ -4331,6 +4443,105 @@ Definition fast_atan2_near (fma : bool) (y x : f64) : option f64 :=
     end
   | None => None
   end.
+
+(** [fn fast_atan_dir1(x: f64, up: bool) -> Option<f64>], the same for
+    [asin] and [acos], [fn fast_atan2_dir1(y: f64, x: f64, up: bool) ->
+    Option<Option<f64>>], and [fn fast_atan_near1(x: f64) -> Option<f64>]
+    and the others, as the second stages above, without the statements
+    under [#[cfg(test)]], where [?] and [match .. { .. => return .. }]
+    are the [match]es. [FastAtan.v] proves those of [atan] and [atan2],
+    and [FastAsin.v] those of [asin] and [acos]. *)
+Definition fast_atan_dir1 (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_atan_pos1 fma (fabs x) with
+  | Some (h, l, e, err) =>
+    match Fast.round_dir_err h l e err (xorb up (lt x zero)) with
+    | Some r => Some (if lt x zero then opp r else r)
+    | None => None
+    end
+  | None => None
+  end.
+Definition fast_asin_dir1 (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_asin_pos1 fma (fabs x) with
+  | Some (h, l, e, err) =>
+    match Fast.round_dir_err h l e err (xorb up (lt x zero)) with
+    | Some r => Some (if lt x zero then opp r else r)
+    | None => None
+    end
+  | None => None
+  end.
+Definition fast_acos_dir1 (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_acos_val1 fma x with
+  | Some (h, l, e, err) => Fast.round_dir_err h l e err up
+  | None => None
+  end.
+Definition fast_atan2_dir1 (fma : bool) (y x : f64) (up : bool) : option (option f64) :=
+  match fast_atan2_pos1 fma (fabs y) (fabs x) (lt x zero) with
+  | Some (Some (h, l, e, err)) =>
+    match Fast.round_dir_err h l e err (xorb up (lt y zero)) with
+    | Some r => Some (Some (if lt y zero then opp r else r))
+    | None => None
+    end
+  | Some None => Some None
+  | None => None
+  end.
+Definition fast_atan_near1 (fma : bool) (x : f64) : option f64 :=
+  match fast_atan_pos1 fma (fabs x) with
+  | Some (h, l, e, err) =>
+    match Fast.round_near_err h l e err with
+    | Some r => Some (if lt x zero then opp r else r)
+    | None => None
+    end
+  | None => None
+  end.
+Definition fast_asin_near1 (fma : bool) (x : f64) : option f64 :=
+  match fast_asin_pos1 fma (fabs x) with
+  | Some (h, l, e, err) =>
+    match Fast.round_near_err h l e err with
+    | Some r => Some (if lt x zero then opp r else r)
+    | None => None
+    end
+  | None => None
+  end.
+Definition fast_acos_near1 (fma : bool) (x : f64) : option f64 :=
+  match fast_acos_val1 fma x with
+  | Some (h, l, e, err) => Fast.round_near_err h l e err
+  | None => None
+  end.
+Definition fast_atan2_near1 (fma : bool) (y x : f64) : option (option f64) :=
+  match fast_atan2_pos1 fma (fabs y) (fabs x) (lt x zero) with
+  | Some (Some (h, l, e, err)) =>
+    match Fast.round_near_err h l e err with
+    | Some r => Some (Some (if lt y zero then opp r else r))
+    | None => None
+    end
+  | Some None => Some None
+  | None => None
+  end.
+
+(** [fn fast_atan_dir(x: f64, up: bool) -> Option<f64>], the same for
+    [asin], [acos] and [atan2], and [fn fast_atan_near(x: f64) ->
+    Option<f64>] and the others, where [if let Some(r) = o { return
+    Some(r); } p] is [match o with Some v => Some v | None => p end], and
+    [if let Some(r) = o { return r; } p], in [fast_atan2_dir] and
+    [fast_atan2_near], is [match o with Some v => v | None => p end].
+    [FastAtan.v] proves those of [atan] and [atan2], and [FastAsin.v] those
+    of [asin] and [acos]. *)
+Definition fast_atan_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_atan_dir1 fma x up with Some v => Some v | None => fast_atan_dir2 fma x up end.
+Definition fast_asin_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_asin_dir1 fma x up with Some v => Some v | None => fast_asin_dir2 fma x up end.
+Definition fast_acos_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_acos_dir1 fma x up with Some v => Some v | None => fast_acos_dir2 fma x up end.
+Definition fast_atan2_dir (fma : bool) (y x : f64) (up : bool) : option f64 :=
+  match fast_atan2_dir1 fma y x up with Some v => v | None => fast_atan2_dir2 fma y x up end.
+Definition fast_atan_near (fma : bool) (x : f64) : option f64 :=
+  match fast_atan_near1 fma x with Some v => Some v | None => fast_atan_near2 fma x end.
+Definition fast_asin_near (fma : bool) (x : f64) : option f64 :=
+  match fast_asin_near1 fma x with Some v => Some v | None => fast_asin_near2 fma x end.
+Definition fast_acos_near (fma : bool) (x : f64) : option f64 :=
+  match fast_acos_near1 fma x with Some v => Some v | None => fast_acos_near2 fma x end.
+Definition fast_atan2_near (fma : bool) (y x : f64) : option f64 :=
+  match fast_atan2_near1 fma y x with Some v => v | None => fast_atan2_near2 fma y x end.
 
 (** [TWO_25] and [TWO_1021], 2^25 and 2^1021, by which [tiny_quotient] and
     [midpoint_quotient] scale [|y|] to compare it with [x]. *)

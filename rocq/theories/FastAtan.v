@@ -23,7 +23,7 @@ From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Encoding Elementary AtanReal AtanIdent TwoSum DyDriver
   NearF64 NearCells FastRound FastRoundErr FastDiv FastHypPos FastAtanTables FastAtanIdent
-  FastAtanCore FastAtanAsm FastAtanQuot.
+  FastAtanCore FastAtanAsm FastAtanQuot FastAtan1Quot FastAtan1.
 From Inari Require DyExp DyPown FastExpErr FastLogReduce AtanSeries TwoProduct.
 
 Open Scope R_scope.
@@ -101,6 +101,9 @@ Qed.
 Local Notation G := (generic_format radix2 fexp64).
 
 Local Lemma lit_err70 : B2R DyadicAtan.err70 = bpow radix2 (-70).
+Proof. lit_pow2. Qed.
+
+Local Lemma lit_err62 : B2R DyadicAtan.err62 = bpow radix2 (-62).
 Proof. lit_pow2. Qed.
 
 (** The low part of a rounded-to-nearest normal value is within [2^-53] of
@@ -535,6 +538,392 @@ cbv zeta in S. destruct S as (Fth & Ftl & Hth & Htl & _).
 rewrite (fast_atan_core_fma _ _ Fth Ftl Hth Htl). reflexivity.
 Qed.
 
+(** ** The first stages *)
+
+(** A [d] from [2^-64] to [2^-64 + 2^-84], the errors of [fast_atan1] at the
+    quotient ([FastAtan1.atan1_abs_err], [atan1_rel_err]), is in the range
+    of [FastAtanAsm.octant_bound], and the [3 d] of its result is at most
+    [err62], so the stages return [err62]. *)
+Local Lemma d64_range :
+  forall d,
+  bpow radix2 (-64) <= d <= bpow radix2 (-64) + bpow radix2 (-84) ->
+  (bpow radix2 (-100) <= d <= bpow radix2 (-60)) /\ 3 * d <= bpow radix2 (-62).
+Proof.
+intros d Hd.
+assert (C : bpow radix2 (-100) <= bpow radix2 (-64) /\
+  bpow radix2 (-64) + bpow radix2 (-84) <= bpow radix2 (-60) /\
+  3 * (bpow radix2 (-64) + bpow radix2 (-84)) <= bpow radix2 (-62)).
+{ change (bpow radix2 (-100)) with (/ 1267650600228229401496703205376).
+  change (bpow radix2 (-84)) with (/ 19342813113834066795298816).
+  change (bpow radix2 (-64)) with (/ 18446744073709551616).
+  change (bpow radix2 (-62)) with (/ 4611686018427387904).
+  change (bpow radix2 (-60)) with (/ 1152921504606846976).
+  lra. }
+lra.
+Qed.
+
+Local Lemma close62 :
+  forall r e (h l : f64) d,
+  bpow radix2 (-64) <= d <= bpow radix2 (-64) + bpow radix2 (-84) ->
+  Rabs (r * bpow radix2 (- e) - (B2R h + B2R l)) <= 3 * d ->
+  exists p, (55 <= p <= 105)%Z /\ B2R DyadicAtan.err62 = bpow radix2 (- p) /\
+    Rabs (r * bpow radix2 (- e) - (B2R h + B2R l)) <= bpow radix2 (- p).
+Proof.
+intros r e h l d Hd Hb.
+exists 62%Z. split; [lia|]. split; [exact lit_err62|].
+apply Rle_trans with (1 := Hb). exact (proj2 (d64_range d Hd)).
+Qed.
+
+(** [fast_atan_pos1] and [fast_atan2_pos1], from [fast_atan1] in place of
+    the core and [fast_recip] and [fast_quot] in place of [dd_div], with
+    the bound of [fast_atan_pos] and [fast_atan2_pos]. *)
+Theorem fast_atan_pos1_correct :
+  forall fma t h l e err,
+  is_finite t = true -> bpow radix2 (-27) <= B2R t < bpow radix2 54 ->
+  DyadicAtan.fast_atan_pos1 fma t = Some (h, l, e, err) ->
+  is_finite h = true /\ is_finite l = true /\ B2R h = RN (B2R h + B2R l) /\
+  (-1021 <= e <= 1022)%Z /\
+  exists p, (55 <= p <= 105)%Z /\ B2R err = bpow radix2 (- p) /\
+    Rabs (atan (B2R t) * bpow radix2 (- e) - (B2R h + B2R l)) <= bpow radix2 (- p).
+Proof.
+intros fma t h l e err Ft Ht H.
+destruct FastLogReduce.one_R as (F1 & E1).
+assert (Fz : is_finite zero = true) by reflexivity.
+assert (Ez : B2R zero = 0) by reflexivity.
+pose proof (bpow_gt_0 radix2 (-27)) as P27.
+assert (D64 : bpow radix2 (-64) <= bpow radix2 (-64) <= bpow radix2 (-64) + bpow radix2 (-84)).
+{ pose proof (bpow_gt_0 radix2 (-84)). lra. }
+destruct (d64_range _ D64) as (Hd & _).
+unfold DyadicAtan.fast_atan_pos1 in H.
+destruct (le t DyadicExp.one) eqn:Le.
+- (* [t <= 1]: [fast_atan1] at [t], and the octant [(false, false)]. *)
+  assert (Ht1 : B2R t <= 1).
+  { rewrite <- E1. exact (ge_true DyadicExp.one t F1 Ft Le). }
+  destruct (DyadicAtan.fast_atan1 fma t zero) as [[ah al]|] eqn:Ec; [|discriminate H].
+  cbv beta iota in H.
+  destruct (DyadicAtan.octant false false ah al) as [[[h' l'] e'] err'] eqn:Eo.
+  cbv beta iota in H. injection H as <- <- <- <-.
+  assert (Hth : bpow radix2 (-61) <= B2R t <= 129 / 128).
+  { split; [|lra]. apply Rle_trans with (2 := proj1 Ht). apply bpow_le. lia. }
+  assert (Htl : Rabs (B2R zero) <= bpow radix2 (-53) * B2R t).
+  { rewrite Ez, Rabs_R0. apply Rmult_le_pos; [apply bpow_ge_0 | lra]. }
+  destruct (fast_atan1_correct fma t zero ah al Ft Fz Hth Htl Ec) as (Fah & Fal & Rah & Hc).
+  rewrite Ez, Rplus_0_r in Hc.
+  assert (Hv : 0 < atan (B2R t) <= 4 / 5) by (apply atan_pos_le; lra).
+  assert (Hlo : bpow radix2 (-1020) <= atan (B2R t)).
+  { apply Rle_trans with (B2R t / 2); [|apply atan_lower; lra].
+    assert (E28 : bpow radix2 (-28) = bpow radix2 (-27) / 2)
+      by (cbn [bpow radix_val radix2]; lra).
+    apply Rle_trans with (bpow radix2 (-28)); [apply bpow_le; lia | lra]. }
+  destruct (octant_bound false false ah al (atan (B2R t)) h' l' e' err' (bpow radix2 (-64))
+    Fah Fal Rah Hv Hd (conj Hlo Hc) Eo) as (Fh & Fl & Rh & He & Hb).
+  cbv beta iota in Hb.
+  split; [exact Fh|]. split; [exact Fl|]. split; [exact Rh|]. split; [lia|].
+  exact (close62 _ _ _ _ _ D64 Hb).
+- (* [t > 1]: [π/2 - atan (1/t)], with [1/t] from [fast_recip]. *)
+  assert (Ht1 : 1 < B2R t).
+  { rewrite <- E1. exact (ge_false DyadicExp.one t F1 Ft Le). }
+  destruct (DyadicAtan.fast_recip fma t) as (qh, ql) eqn:Er.
+  cbv beta iota in H.
+  destruct (fast_recip_correct fma t qh ql Ft (conj Ht1 (proj2 Ht)) Er)
+    as (Fqh & Fql & Hqh & Hql & Hq).
+  pose proof (bpow_gt_0 radix2 (-54)) as P54.
+  assert (Hth : bpow radix2 (-61) <= B2R qh <= 129 / 128).
+  { split; [|lra]. apply Rle_trans with (2 := proj1 Hqh). apply bpow_le. lia. }
+  destruct (DyadicAtan.fast_atan1 fma qh ql) as [[ah al]|] eqn:Ec; [|discriminate H].
+  cbv beta iota in H.
+  destruct (DyadicAtan.octant true false ah al) as [[[h' l'] e'] err'] eqn:Eo.
+  cbv beta iota in H. injection H as <- <- <- <-.
+  destruct (fast_atan1_correct fma qh ql ah al Fqh Fql Hth Hql Ec) as (Fah & Fal & Rah & Hc).
+  assert (Hq1 : 0 < / B2R t < 1).
+  { split; [apply Rinv_0_lt_compat; lra|].
+    rewrite <- Rinv_1. apply Rinv_lt_contravar; lra. }
+  assert (Ha : Rabs (B2R ah + B2R al - atan (1 / B2R t)) <= bpow radix2 (-64)).
+  { apply (atan1_abs_err (B2R qh + B2R ql)); [| |exact Hc].
+    - (* [qh + ql] is within [2^-53 qh] of [qh <= 1]. *)
+      assert (B53 : bpow radix2 (-53) = / 9007199254740992) by reflexivity.
+      rewrite B53 in Hql. apply Rabs_le_inv in Hql. lra.
+    - replace (1 / B2R t) with (/ B2R t) by (unfold Rdiv; ring).
+      apply Rle_trans with (1 := Hq).
+      apply Rle_trans with (bpow radix2 (-104) * 1).
+      + apply Rmult_le_compat_l; [apply bpow_ge_0 | lra].
+      + rewrite Rmult_1_r. apply bpow_le. lia. }
+  assert (Hv : 0 < atan (1 / B2R t) <= 4 / 5).
+  { apply atan_pos_le. unfold Rdiv. rewrite Rmult_1_l. lra. }
+  destruct (octant_bound true false ah al (atan (1 / B2R t)) h' l' e' err' (bpow radix2 (-64))
+    Fah Fal Rah Hv Hd Ha Eo) as (Fh & Fl & Rh & He & Hb).
+  cbv beta iota in Hb.
+  rewrite (atan_half_inv (B2R t)) by lra.
+  split; [exact Fh|]. split; [exact Fl|]. split; [exact Rh|]. split; [lia|].
+  exact (close62 _ _ _ _ _ D64 Hb).
+Qed.
+
+Theorem fast_atan2_pos1_correct :
+  forall fma a b neg h l e err,
+  is_finite a = true -> is_finite b = true -> 0 < B2R a -> 0 < B2R b ->
+  DyadicAtan.fast_atan2_pos1 fma a b neg = Some (Some (h, l, e, err)) ->
+  is_finite h = true /\ is_finite l = true /\ B2R h = RN (B2R h + B2R l) /\
+  (-1021 <= e <= 1022)%Z /\
+  exists p, (55 <= p <= 105)%Z /\ B2R err = bpow radix2 (- p) /\
+    Rabs (Ratan2 (B2R a) (if neg then - B2R b else B2R b) * bpow radix2 (- e) - (B2R h + B2R l))
+      <= bpow radix2 (- p).
+Proof.
+intros fma a b neg h l e err Fa Fb Ha Hb H.
+assert (Fz : is_finite zero = true) by reflexivity.
+assert (Ez : B2R zero = 0) by reflexivity.
+assert (B53 : bpow radix2 (-53) = / 9007199254740992) by reflexivity.
+unfold DyadicAtan.fast_atan2_pos1 in H. cbv zeta in H.
+(* The [let '(x, y) := ..]s are taken from [H] and reduced one by one, as
+   in [fast_atan2_pos_correct]. *)
+lazymatch type of H with
+| (match ?t with (_, _) => _ end) = _ => destruct t as (n, d) eqn:End
+end.
+cbv beta iota in H.
+destruct (atan2_nd a b neg n d Fa Fb Ha Hb End) as (Fn & Fd & Hnd & Hoct).
+rewrite Hoct.
+destruct (DyadicAtan.split n) as (mn, en) eqn:Esn. cbv beta iota in H.
+destruct (DyadicAtan.split d) as (md, ed) eqn:Esd. cbv beta iota in H.
+destruct (atan2_split n d mn en md ed Fn Fd Hnd Esn Esd)
+  as (Fmn & Fmd & Hmn & Hmd & Q & Hj & Hq01).
+destruct (DyadicAtan.fast_quot fma mn md) as (qh, ql) eqn:Ed. cbv beta iota in H.
+destruct (fast_quot_correct fma mn md qh ql Fmn Fmd Hmn Hmd Ed)
+  as (Fqh & Fql & Rq & Hq105 & Hqh & Hql & Hr).
+(* [fast_quot]'s [2^-105] is within the [2^-98] of [dd_div] that the
+   rest of the proof of [fast_atan2_pos_correct] takes. *)
+assert (Hq : Rabs (B2R qh + B2R ql - B2R mn / B2R md) <= bpow radix2 (-98) * (B2R mn / B2R md)).
+{ apply Rle_trans with (1 := Hq105). apply Rmult_le_compat_r; [lra | apply bpow_le; lia]. }
+assert (Hpos : 0 < atan (B2R n / B2R d) <= 4 / 5) by (apply atan_pos_le; lra).
+destruct (Z.leb_spec (-60) (en - ed)) as [Le | Lt]; cbv beta iota in H.
+- (* [e >= -60]: [fast_atan1] at [n / d = (qh + ql) 2^e]. *)
+  pose proof (scaled_input qh ql _ (en - ed) Fqh Fql Hq Hqh Hql (conj Le Hj)
+    ltac:(rewrite <- Q; lra)) as S.
+  cbv zeta in S. destruct S as (Fth & Ftl & Hth & Htl & Hin).
+  rewrite <- Q in Hin.
+  destruct (DyadicAtan.fast_atan1 fma (mul qh (DyadicExp.two_pow (en - ed)))
+    (mul ql (DyadicExp.two_pow (en - ed)))) as [[rh rl]|] eqn:Ec; [|discriminate H].
+  cbv beta iota in H.
+  destruct (DyadicAtan.octant (gt a b) neg rh rl) as [[[h' l'] k'] err'] eqn:Eo.
+  cbv beta iota in H. injection H as <- <- <- <-.
+  destruct (fast_atan1_correct fma _ _ rh rl Fth Ftl Hth Htl Ec) as (Frh & Frl & Rrh & Hc).
+  pose proof (bpow_gt_0 radix2 (-61)) as P61.
+  pose proof (bpow_gt_0 radix2 (-84)) as P84.
+  (* One [d] for every octant: the relative [2^-64 + 2^-84], which the
+     absolute [2^-64] of the others is within. *)
+  assert (D0 : bpow radix2 (-64) <= bpow radix2 (-64) + bpow radix2 (-84) <=
+    bpow radix2 (-64) + bpow radix2 (-84)) by lra.
+  assert (Hc' : if gt a b || neg
+    then Rabs (B2R rh + B2R rl - atan (B2R n / B2R d)) <= bpow radix2 (-64) + bpow radix2 (-84)
+    else bpow radix2 (-1020) <= atan (B2R n / B2R d) /\
+      Rabs (B2R rh + B2R rl - atan (B2R n / B2R d))
+        <= (bpow radix2 (-64) + bpow radix2 (-84)) * atan (B2R n / B2R d)).
+  { destruct (gt a b || neg).
+    - (* An absolute error ([atan1_abs_err]). *)
+      apply Rle_trans with (bpow radix2 (-64)); [|lra].
+      apply (atan1_abs_err (B2R (mul qh (DyadicExp.two_pow (en - ed))) +
+        B2R (mul ql (DyadicExp.two_pow (en - ed))))); [| |exact Hc].
+      + (* [th + tl] is within [2^-96] of [n / d <= 1]. *)
+        assert (Hin1 : bpow radix2 (-96) * (B2R n / B2R d) <= / 128).
+        { apply Rle_trans with (bpow radix2 (-96) * 1).
+          - apply Rmult_le_compat_l; [apply bpow_ge_0 | lra].
+          - rewrite Rmult_1_r. change (bpow radix2 (-96)) with (/ 79228162514264337593543950336).
+            lra. }
+        rewrite B53 in Htl. apply Rabs_le_inv in Htl. apply Rabs_le_inv in Hin. lra.
+      + apply Rle_trans with (1 := Hin).
+        apply Rle_trans with (bpow radix2 (-96) * 1).
+        * apply Rmult_le_compat_l; [apply bpow_ge_0 | lra].
+        * rewrite Rmult_1_r. apply bpow_le. lia.
+    - (* A relative error ([atan1_rel_err]), with [n / d >= 2^-61]. *)
+      split.
+      + assert (E61 : bpow radix2 (-61) = / 2 * bpow radix2 (-60)).
+        { replace (-61)%Z with (-1 + -60)%Z by lia. rewrite bpow_plus. reflexivity. }
+        assert (E62 : bpow radix2 (-62) = / 2 * bpow radix2 (-61)).
+        { replace (-62)%Z with (-1 + -61)%Z by lia. rewrite bpow_plus. reflexivity. }
+        assert (L61 : bpow radix2 (-61) <= B2R n / B2R d).
+        { rewrite Q, E61. apply Rmult_le_compat; [lra | apply bpow_ge_0 | lra |].
+          apply bpow_le. exact Le. }
+        assert (L1020 : bpow radix2 (-1020) <= bpow radix2 (-62)) by (apply bpow_le; lia).
+        apply Rle_trans with (B2R n / B2R d / 2); [lra | apply atan_lower; lra].
+      + apply (atan1_rel_err (B2R (mul qh (DyadicExp.two_pow (en - ed))) +
+          B2R (mul ql (DyadicExp.two_pow (en - ed))))); [lra | exact Hin | exact Hc]. }
+  destruct (octant_bound (gt a b) neg rh rl (atan (B2R n / B2R d)) h' l' k' err'
+    (bpow radix2 (-64) + bpow radix2 (-84)) Frh Frl Rrh Hpos (proj1 (d64_range _ D0)) Hc' Eo)
+    as (Fh & Fl & Rh & He & Hbo).
+  split; [exact Fh|]. split; [exact Fl|]. split; [exact Rh|]. split; [lia|].
+  exact (close62 _ _ _ _ _ D0 Hbo).
+- (* [e < -60]: [n / d < 2^-60], and [atan (n / d)] is [n / d] within
+     [(n / d)^3 / 3] ([atan_cubic]), as in [fast_atan2_pos_correct]. *)
+  assert (Hqs : B2R n / B2R d < bpow radix2 (-60)).
+  { rewrite Q. apply Rlt_le_trans with (2 * bpow radix2 (en - ed)).
+    - apply Rmult_lt_compat_r; [apply bpow_gt_0 | lra].
+    - assert (bpow radix2 (en - ed) <= bpow radix2 (-61)) by (apply bpow_le; lia).
+      assert (E60 : bpow radix2 (-60) = 2 * bpow radix2 (-61)).
+      { replace (-60)%Z with (1 + -61)%Z by lia. rewrite bpow_plus. reflexivity. }
+      lra. }
+  pose proof (atan_cubic (B2R n / B2R d) ltac:(lra)) as Cub.
+  assert (Hq3 : (B2R n / B2R d) ^ 3 <= bpow radix2 (-180)).
+  { apply Rle_trans with (bpow radix2 (-60) ^ 3); [apply pow_incr; lra|].
+    cbn [pow]. rewrite Rmult_1_r, <- !bpow_plus. apply bpow_le. lia. }
+  destruct (gt a b || neg) eqn:Sw; cbv beta iota in H.
+  + (* The octants of [π/2 +- atan] and [π - atan]: [RN (n / d)] within
+       an absolute [2^-73]. *)
+    assert (Eo : DyadicAtan.octant (gt a b) neg (div n d) zero = (h, l, e, err)) by congruence.
+    destruct (div_e n d Fn Fd ltac:(apply Rgt_not_eq; lra) ltac:(rewrite Rabs_pos_eq by lra; lra))
+      as (Fq & Rqd).
+    assert (Rrh : B2R (div n d) = RN (B2R (div n d) + B2R zero)).
+    { rewrite Ez, Rplus_0_r. symmetry. apply round_generic; [typeclasses eauto |].
+      apply generic_format_B2R. }
+    assert (Hc' : if gt a b || neg
+      then Rabs (B2R (div n d) + B2R zero - atan (B2R n / B2R d)) <= bpow radix2 (-73)
+      else bpow radix2 (-1020) <= atan (B2R n / B2R d) /\
+        Rabs (B2R (div n d) + B2R zero - atan (B2R n / B2R d))
+          <= bpow radix2 (-73) * atan (B2R n / B2R d)).
+    { rewrite Sw. cbv beta iota. rewrite Rqd, Ez, Rplus_0_r.
+      pose proof (rn_err (B2R n / B2R d) (-113) ltac:(lia)
+        ltac:(rewrite Rabs_pos_eq by lra; apply Rlt_le; exact Hqs)) as Rn.
+      apply Rabs_le_inv in Rn.
+      change (bpow radix2 (-113)) with (/ 10384593717069655257060992658440192) in Rn.
+      change (bpow radix2 (-180))
+        with (/ 1532495540865888858358347027150309183618739122183602176) in Hq3.
+      change (bpow radix2 (-73)) with (/ 9444732965739290427392).
+      apply Rabs_le. split; lra. }
+    destruct (octant_correct (gt a b) neg (div n d) zero (atan (B2R n / B2R d)) h l e err
+      Fq Fz Rrh Hpos Hc' Eo) as (Fh & Fl & Rh & He & Herr & Hbo).
+    split; [exact Fh|]. split; [exact Fl|]. split; [exact Rh|]. split; [lia|].
+    exists 70%Z. split; [lia|]. split; [exact Herr | exact Hbo].
+  + (* The first octant: [qh + ql] times [2^e] by [normalize], with
+       [atan (n / d) 2^-e] within [r (n / d)^2 / 3] of [r = mn / md]; a
+       result below [2^-1021] is [Some None], which the hypothesis
+       excludes. *)
+    apply Bool.orb_false_iff in Sw. destruct Sw as (Sw1 & Sw2).
+    rewrite Sw1, Sw2. cbv beta iota.
+    assert (Hqh2 : bpow radix2 (-1021) <= B2R qh < 2).
+    { split; [|lra]. apply Rle_trans with (/ 2); [|lra].
+      change (/ 2) with (bpow radix2 (-1)). apply bpow_le. lia. }
+    destruct (Fast.normalize qh ql) as [[h' l'] k] eqn:En. cbv beta iota in H.
+    pose proof (normalize_correct qh ql Fqh Fql Rq Hqh2) as N. rewrite En in N.
+    cbv beta iota in N.
+    destruct N as (Fh' & Fl' & Hk & Eh' & El' & Hkb & Rh').
+    destruct (Z.ltb_spec (en - ed + k) (-1021)) as [Lk | Lk]; cbv beta iota in H;
+      [discriminate H|].
+    injection H as <- <- <- <-.
+    split; [exact Fh'|]. split; [exact Fl'|]. split; [exact Rh'|]. split; [lia|].
+    exists 70%Z. split; [lia|]. split; [exact lit_err70|].
+    assert (Kk : (-1 <= k)%Z).
+    { assert (L : bpow radix2 (-1) < bpow radix2 (k + 1)).
+      { apply Rle_lt_trans with (B2R qh); [|exact (proj2 Hkb)].
+        change (bpow radix2 (-1)) with (/ 2). lra. }
+      apply lt_bpow in L. lia. }
+    assert (K2 : bpow radix2 (- k) <= 2).
+    { change 2 with (bpow radix2 1). apply bpow_le. lia. }
+    rewrite Eh', El'.
+    replace (- (en - ed + k))%Z with (- (en - ed) + - k)%Z by lia.
+    rewrite bpow_plus.
+    set (E := bpow radix2 (- (en - ed))).
+    replace (atan (B2R n / B2R d) * (E * bpow radix2 (- k)) -
+        (B2R qh * bpow radix2 (- k) + B2R ql * bpow radix2 (- k)))
+      with ((atan (B2R n / B2R d) * E - (B2R qh + B2R ql)) * bpow radix2 (- k)) by ring.
+    rewrite Rabs_mult, (Rabs_pos_eq (bpow radix2 (- k))) by apply bpow_ge_0.
+    assert (QE : B2R n / B2R d * E = B2R mn / B2R md).
+    { unfold E. rewrite Q, Rmult_assoc, <- bpow_plus.
+      replace (en - ed + - (en - ed))%Z with 0%Z by lia. exact (Rmult_1_r _). }
+    assert (D : atan (B2R n / B2R d) * E - (B2R qh + B2R ql) =
+      (B2R mn / B2R md - (B2R qh + B2R ql)) - (B2R n / B2R d - atan (B2R n / B2R d)) * E)
+      by (rewrite <- QE; ring).
+    assert (PE : 0 <= E) by apply bpow_ge_0.
+    assert (C1 : 0 <= (B2R n / B2R d - atan (B2R n / B2R d)) * E <=
+      B2R n / B2R d * (B2R n / B2R d) * (B2R mn / B2R md) / 3).
+    { split; [apply Rmult_le_pos; lra|].
+      rewrite <- QE.
+      apply Rle_trans with ((B2R n / B2R d) ^ 3 / 3 * E).
+      - apply Rmult_le_compat_r; lra.
+      - (* [ring] of Rocq 9.1 fails on [/ 3], so [Rdiv] is unfolded first. *)
+        apply Req_le. unfold Rdiv. ring. }
+    assert (Q2 : B2R n / B2R d * (B2R n / B2R d) <= bpow radix2 (-120)).
+    { replace (-120)%Z with (-60 + -60)%Z by lia. rewrite bpow_plus.
+      apply Rmult_le_compat; lra. }
+    assert (C2 : B2R n / B2R d * (B2R n / B2R d) * (B2R mn / B2R md) / 3 <=
+      bpow radix2 (-120)).
+    { pose proof (bpow_gt_0 radix2 (-120)).
+      assert (M : B2R n / B2R d * (B2R n / B2R d) * (B2R mn / B2R md) <= bpow radix2 (-120) * 2).
+      { apply Rmult_le_compat; [nra | lra | exact Q2 | lra]. }
+      lra. }
+    assert (A : Rabs (atan (B2R n / B2R d) * E - (B2R qh + B2R ql)) <= bpow radix2 (-96)).
+    { rewrite D. apply Rabs_le_inv in Hq.
+      change (bpow radix2 (-98)) with (/ 316912650057057350374175801344) in Hq.
+      change (bpow radix2 (-120)) with (/ 1329227995784915872903807060280344576) in C2.
+      change (bpow radix2 (-96)) with (/ 79228162514264337593543950336).
+      apply Rabs_le. split; lra. }
+    apply Rle_trans with (bpow radix2 (-96) * 2).
+    { apply Rmult_le_compat; [apply Rabs_pos | apply bpow_ge_0 | exact A | exact K2]. }
+    assert (F : bpow radix2 (-96) * 2 <= bpow radix2 (-70)).
+    { change (bpow radix2 (-96)) with (/ 79228162514264337593543950336).
+      change (bpow radix2 (-70)) with (/ 1180591620717411303424). lra. }
+    exact F.
+Qed.
+
+Theorem fast_atan_pos1_fma :
+  forall t,
+  is_finite t = true -> bpow radix2 (-27) <= B2R t < bpow radix2 54 ->
+  DyadicAtan.fast_atan_pos1 true t = DyadicAtan.fast_atan_pos1 false t.
+Proof.
+intros t Ft Ht.
+destruct FastLogReduce.one_R as (F1 & E1).
+assert (Fz : is_finite zero = true) by reflexivity.
+assert (Ez : B2R zero = 0) by reflexivity.
+pose proof (bpow_gt_0 radix2 (-27)) as P27.
+unfold DyadicAtan.fast_atan_pos1.
+destruct (le t DyadicExp.one) eqn:Le.
+- assert (Ht1 : B2R t <= 1).
+  { rewrite <- E1. exact (ge_true DyadicExp.one t F1 Ft Le). }
+  assert (Hth : bpow radix2 (-61) <= B2R t <= 129 / 128).
+  { split; [|lra]. apply Rle_trans with (2 := proj1 Ht). apply bpow_le. lia. }
+  assert (Htl : Rabs (B2R zero) <= bpow radix2 (-53) * B2R t).
+  { rewrite Ez, Rabs_R0. apply Rmult_le_pos; [apply bpow_ge_0 | lra]. }
+  rewrite (fast_atan1_fma t zero Ft Fz Hth Htl). reflexivity.
+- assert (Ht1 : 1 < B2R t).
+  { rewrite <- E1. exact (ge_false DyadicExp.one t F1 Ft Le). }
+  (* The reciprocal is the same with and without an FMA ([fast_recip_fma]). *)
+  rewrite (fast_recip_fma t Ft (conj Ht1 (proj2 Ht))).
+  destruct (DyadicAtan.fast_recip false t) as (qh, ql) eqn:Er. cbv beta iota.
+  destruct (fast_recip_correct false t qh ql Ft (conj Ht1 (proj2 Ht)) Er)
+    as (Fqh & Fql & Hqh & Hql & _).
+  assert (Hth : bpow radix2 (-61) <= B2R qh <= 129 / 128).
+  { split; [|lra]. apply Rle_trans with (2 := proj1 Hqh). apply bpow_le. lia. }
+  rewrite (fast_atan1_fma qh ql Fqh Fql Hth Hql). reflexivity.
+Qed.
+
+Theorem fast_atan2_pos1_fma :
+  forall a b neg,
+  is_finite a = true -> is_finite b = true -> 0 < B2R a -> 0 < B2R b ->
+  DyadicAtan.fast_atan2_pos1 true a b neg = DyadicAtan.fast_atan2_pos1 false a b neg.
+Proof.
+intros a b neg Fa Fb Ha Hb.
+unfold DyadicAtan.fast_atan2_pos1. cbv zeta.
+(* The pair [(n, d)] taken from the goal, and the [match]es on pairs
+   reduced after each [destruct], as in [fast_atan2_pos_fma]. *)
+lazymatch goal with
+| |- (match ?t with (_, _) => _ end) = _ => destruct t as (n, d) eqn:End
+end.
+cbv beta iota.
+destruct (atan2_nd a b neg n d Fa Fb Ha Hb End) as (Fn & Fd & Hnd & _).
+destruct (DyadicAtan.split n) as (mn, en) eqn:Esn. cbv beta iota.
+destruct (DyadicAtan.split d) as (md, ed) eqn:Esd. cbv beta iota.
+destruct (atan2_split n d mn en md ed Fn Fd Hnd Esn Esd)
+  as (Fmn & Fmd & Hmn & Hmd & Q & Hj & Hq).
+(* The quotient is the same with and without an FMA ([fast_quot_fma]). *)
+rewrite (fast_quot_fma mn md Fmn Fmd Hmn Hmd).
+destruct (DyadicAtan.fast_quot false mn md) as (qh, ql) eqn:Ed. cbv beta iota.
+destruct (Z.leb_spec (-60) (en - ed)) as [Le | Lt]; cbv beta iota; [|reflexivity].
+destruct (fast_quot_correct false mn md qh ql Fmn Fmd Hmn Hmd Ed)
+  as (Fqh & Fql & _ & Hd & Hqh & Hql & Hr).
+assert (Hd' : Rabs (B2R qh + B2R ql - B2R mn / B2R md) <= bpow radix2 (-98) * (B2R mn / B2R md)).
+{ apply Rle_trans with (1 := Hd). apply Rmult_le_compat_r; [lra | apply bpow_le; lia]. }
+pose proof (scaled_input qh ql _ (en - ed) Fqh Fql Hd' Hqh Hql (conj Le Hj)
+  ltac:(rewrite <- Q; lra)) as S.
+cbv zeta in S. destruct S as (Fth & Ftl & Hth & Htl & _).
+rewrite (fast_atan1_fma _ _ Fth Ftl Hth Htl). reflexivity.
+Qed.
+
 (** ** The sign and the rounding *)
 
 (** What [fast_atan_pos_correct] and [fast_atan2_pos_correct] prove of
@@ -663,8 +1052,95 @@ apply (fast_atan2_pos_correct fma (fabs y) (fabs x) (lt x zero)); try assumption
 - rewrite Eb. apply Rabs_pos_lt. exact Hx.
 Qed.
 
+Local Lemma atan_res1 :
+  forall fma x,
+  is_finite x = true -> bpow radix2 (-27) <= Rabs (B2R x) < bpow radix2 54 ->
+  res_bound (atan (Rabs (B2R x))) (DyadicAtan.fast_atan_pos1 fma (fabs x)).
+Proof.
+intros fma x Fx Hx h l e err E.
+destruct (fabs_facts x Fx) as (Ft & Et & _).
+rewrite <- Et.
+apply (fast_atan_pos1_correct fma (fabs x)); [exact Ft | rewrite Et; exact Hx | exact E].
+Qed.
+
+(** The first stage of [atan2] as a [res_bound], where [Some None] (the
+    kernel's case) is [None]. *)
+Local Lemma atan2_res1 :
+  forall fma y x,
+  is_finite y = true -> is_finite x = true -> B2R y <> 0 -> B2R x <> 0 ->
+  res_bound (Ratan2 (Rabs (B2R y)) (if lt x zero then - Rabs (B2R x) else Rabs (B2R x)))
+    (match DyadicAtan.fast_atan2_pos1 fma (fabs y) (fabs x) (lt x zero) with
+     | Some o => o
+     | None => None
+     end).
+Proof.
+intros fma y x Fy Fx Hy Hx h l e err E.
+destruct (fabs_facts y Fy) as (Fa & Ea & _). destruct (fabs_facts x Fx) as (Fb & Eb & _).
+rewrite <- Ea, <- Eb.
+revert E.
+destruct (DyadicAtan.fast_atan2_pos1 fma (fabs y) (fabs x) (lt x zero)) as [o|] eqn:P;
+  intro E; cbv beta iota in E; [subst o | discriminate E].
+apply (fast_atan2_pos1_correct fma (fabs y) (fabs x) (lt x zero)); try assumption.
+- rewrite Ea. apply Rabs_pos_lt. exact Hy.
+- rewrite Eb. apply Rabs_pos_lt. exact Hx.
+Qed.
+
+(** [fast_atan2_dir1] and [fast_atan2_near1] at [Some (Some v)] are the
+    [match] of [signed_dir] and [signed_near] on [atan2_res1]'s result. *)
+Local Lemma atan2_dir1_some :
+  forall fma y x up v,
+  DyadicAtan.fast_atan2_dir1 fma y x up = Some (Some v) ->
+  match
+    match DyadicAtan.fast_atan2_pos1 fma (fabs y) (fabs x) (lt x zero) with
+    | Some o => o
+    | None => None
+    end
+  with
+  | Some (h, l, e, err) =>
+    match Fast.round_dir_err h l e err (xorb up (lt y zero)) with
+    | Some w => Some (if lt y zero then opp w else w)
+    | None => None
+    end
+  | None => None
+  end = Some v.
+Proof.
+intros fma y x up v E1.
+unfold DyadicAtan.fast_atan2_dir1 in E1. revert E1.
+destruct (DyadicAtan.fast_atan2_pos1 fma (fabs y) (fabs x) (lt x zero))
+  as [[[[[h l] e] err]|]|]; intro E1; cbv beta iota in E1 |- *; [| discriminate E1 | discriminate E1].
+destruct (Fast.round_dir_err h l e err (xorb up (lt y zero))) as [w|]; [|discriminate E1].
+injection E1 as <-. reflexivity.
+Qed.
+
+Local Lemma atan2_near1_some :
+  forall fma y x v,
+  DyadicAtan.fast_atan2_near1 fma y x = Some (Some v) ->
+  match
+    match DyadicAtan.fast_atan2_pos1 fma (fabs y) (fabs x) (lt x zero) with
+    | Some o => o
+    | None => None
+    end
+  with
+  | Some (h, l, e, err) =>
+    match Fast.round_near_err h l e err with
+    | Some w => Some (if lt y zero then opp w else w)
+    | None => None
+    end
+  | None => None
+  end = Some v.
+Proof.
+intros fma y x v E1.
+unfold DyadicAtan.fast_atan2_near1 in E1. revert E1.
+destruct (DyadicAtan.fast_atan2_pos1 fma (fabs y) (fabs x) (lt x zero))
+  as [[[[[h l] e] err]|]|]; intro E1; cbv beta iota in E1 |- *; [| discriminate E1 | discriminate E1].
+destruct (Fast.round_near_err h l e err) as [w|]; [|discriminate E1].
+injection E1 as <-. reflexivity.
+Qed.
+
 (** ** Rounded toward -inf and +inf *)
 
+(** Each first tries its first stage ([fast_atan_dir1] and the others),
+    then its second. *)
 Theorem fast_atan_dir_correct :
   forall fma x up v,
   is_finite x = true -> bpow radix2 (-27) <= Rabs (B2R x) < bpow radix2 54 ->
@@ -673,7 +1149,10 @@ Theorem fast_atan_dir_correct :
 Proof.
 intros fma x up v Fx Hx H.
 rewrite <- atan_sign.
-exact (signed_dir _ _ (lt x zero) up v (atan_res fma x Fx Hx) H).
+unfold DyadicAtan.fast_atan_dir in H.
+destruct (DyadicAtan.fast_atan_dir1 fma x up) as [w|] eqn:E1; cbv beta iota in H.
+- injection H as <-. exact (signed_dir _ _ (lt x zero) up w (atan_res1 fma x Fx Hx) E1).
+- exact (signed_dir _ _ (lt x zero) up v (atan_res fma x Fx Hx) H).
 Qed.
 
 Theorem fast_atan2_dir_correct :
@@ -684,7 +1163,12 @@ Theorem fast_atan2_dir_correct :
 Proof.
 intros fma y x up v Fy Fx Hy Hx H.
 rewrite <- (atan2_args y x Hy).
-exact (signed_dir _ _ (lt y zero) up v (atan2_res fma y x Fy Fx Hy Hx) H).
+unfold DyadicAtan.fast_atan2_dir in H.
+destruct (DyadicAtan.fast_atan2_dir1 fma y x up) as [o|] eqn:E1; cbv beta iota in H.
+- subst o.
+  exact (signed_dir _ _ (lt y zero) up v (atan2_res1 fma y x Fy Fx Hy Hx)
+    (atan2_dir1_some fma y x up v E1)).
+- exact (signed_dir _ _ (lt y zero) up v (atan2_res fma y x Fy Fx Hy Hx) H).
 Qed.
 
 (** ** Rounded to nearest *)
@@ -697,7 +1181,10 @@ Theorem fast_atan_near_correct :
 Proof.
 intros fma x v Fx Hx H.
 rewrite <- atan_sign.
-exact (signed_near _ _ (lt x zero) v (atan_res fma x Fx Hx) H).
+unfold DyadicAtan.fast_atan_near in H.
+destruct (DyadicAtan.fast_atan_near1 fma x) as [w|] eqn:E1; cbv beta iota in H.
+- injection H as <-. exact (signed_near _ _ (lt x zero) w (atan_res1 fma x Fx Hx) E1).
+- exact (signed_near _ _ (lt x zero) v (atan_res fma x Fx Hx) H).
 Qed.
 
 Theorem fast_atan2_near_correct :
@@ -708,7 +1195,12 @@ Theorem fast_atan2_near_correct :
 Proof.
 intros fma y x v Fy Fx Hy Hx H.
 rewrite <- (atan2_args y x Hy).
-exact (signed_near _ _ (lt y zero) v (atan2_res fma y x Fy Fx Hy Hx) H).
+unfold DyadicAtan.fast_atan2_near in H.
+destruct (DyadicAtan.fast_atan2_near1 fma y x) as [o|] eqn:E1; cbv beta iota in H.
+- subst o.
+  exact (signed_near _ _ (lt y zero) v (atan2_res1 fma y x Fy Fx Hy Hx)
+    (atan2_near1_some fma y x v E1)).
+- exact (signed_near _ _ (lt y zero) v (atan2_res fma y x Fy Fx Hy Hx) H).
 Qed.
 
 (** ** With and without an FMA *)
@@ -720,7 +1212,8 @@ Theorem fast_atan_dir_fma :
 Proof.
 intros x up Fx Hx. destruct (fabs_facts x Fx) as (Ft & Et & _).
 rewrite <- Et in Hx.
-unfold DyadicAtan.fast_atan_dir. rewrite (fast_atan_pos_fma _ Ft Hx). reflexivity.
+unfold DyadicAtan.fast_atan_dir, DyadicAtan.fast_atan_dir1, DyadicAtan.fast_atan_dir2.
+rewrite (fast_atan_pos1_fma _ Ft Hx), (fast_atan_pos_fma _ Ft Hx). reflexivity.
 Qed.
 
 Theorem fast_atan_near_fma :
@@ -730,7 +1223,8 @@ Theorem fast_atan_near_fma :
 Proof.
 intros x Fx Hx. destruct (fabs_facts x Fx) as (Ft & Et & _).
 rewrite <- Et in Hx.
-unfold DyadicAtan.fast_atan_near. rewrite (fast_atan_pos_fma _ Ft Hx). reflexivity.
+unfold DyadicAtan.fast_atan_near, DyadicAtan.fast_atan_near1, DyadicAtan.fast_atan_near2.
+rewrite (fast_atan_pos1_fma _ Ft Hx), (fast_atan_pos_fma _ Ft Hx). reflexivity.
 Qed.
 
 Theorem fast_atan2_dir_fma :
@@ -742,7 +1236,9 @@ intros y x up Fy Fx Hy Hx.
 destruct (fabs_facts y Fy) as (Fa & Ea & _). destruct (fabs_facts x Fx) as (Fb & Eb & _).
 assert (Ha : 0 < B2R (fabs y)) by (rewrite Ea; apply Rabs_pos_lt; exact Hy).
 assert (Hb : 0 < B2R (fabs x)) by (rewrite Eb; apply Rabs_pos_lt; exact Hx).
-unfold DyadicAtan.fast_atan2_dir. rewrite (fast_atan2_pos_fma _ _ _ Fa Fb Ha Hb). reflexivity.
+unfold DyadicAtan.fast_atan2_dir, DyadicAtan.fast_atan2_dir1, DyadicAtan.fast_atan2_dir2.
+rewrite (fast_atan2_pos1_fma _ _ _ Fa Fb Ha Hb), (fast_atan2_pos_fma _ _ _ Fa Fb Ha Hb).
+reflexivity.
 Qed.
 
 Theorem fast_atan2_near_fma :
@@ -754,5 +1250,7 @@ intros y x Fy Fx Hy Hx.
 destruct (fabs_facts y Fy) as (Fa & Ea & _). destruct (fabs_facts x Fx) as (Fb & Eb & _).
 assert (Ha : 0 < B2R (fabs y)) by (rewrite Ea; apply Rabs_pos_lt; exact Hy).
 assert (Hb : 0 < B2R (fabs x)) by (rewrite Eb; apply Rabs_pos_lt; exact Hx).
-unfold DyadicAtan.fast_atan2_near. rewrite (fast_atan2_pos_fma _ _ _ Fa Fb Ha Hb). reflexivity.
+unfold DyadicAtan.fast_atan2_near, DyadicAtan.fast_atan2_near1, DyadicAtan.fast_atan2_near2.
+rewrite (fast_atan2_pos1_fma _ _ _ Fa Fb Ha Hb), (fast_atan2_pos_fma _ _ _ Fa Fb Ha Hb).
+reflexivity.
 Qed.

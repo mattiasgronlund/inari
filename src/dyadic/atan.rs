@@ -68,34 +68,50 @@
 // rational r other than 0. Other than that, it is not proved that a test passes by the cap of
 // `ziv` or of `ziv_near`, nor that the evaluations do not panic.
 //
-// atan, asin, acos and atan2 try a fast path in double-double after their rules and before
-// `ziv` and `ziv_near` (`fast_atan_dir`, `fast_atan_near` and the others), with the rounding
-// tests of `src/dyadic/fast.rs` at 2^-70 (`round_dir_err` and `round_near_err`), which take a
-// positive result: atan, asin and atan2 apply them to |f| and put the sign back. Where a test
-// fails, or the fast path declines the argument, the function calls `ziv` or `ziv_near` as
-// before. The core (`fast_atan_core`) takes atan t, for a double-double t = th + tl in
-// [2^-61, 129/128], as atan c + atan u for c = i / 64, with i the integer nearest 64 th, and
-// u = (t - c) / (1 + t c), with atan c in double-double from a table (`ATAN_TABLE` of
-// `src/dyadic/atan/tables.rs`), u from `dd_div`, so that |u| <= 2^-7, and atan u from the odd
-// Taylor polynomial of degree 11 (`fast_atan_poly`), within 2^-74 of atan t relatively. atan
-// takes the core at |x| up to 1 and π/2 - atan(1 / |x|) above it. atan2 takes atan of the
-// quotient of the smaller of |y| and |x| by the larger, and then atan q, π - atan q,
-// π/2 - atan q or π/2 + atan q by the octant, as the kernel's `Atan2` does (`octant`). asin and
-// acos take atan(t / r) up to `ASIN_S` and atan(r / t) above it, for r = √(1 - t^2) in
-// double-double (`fast_sqrt1m`, with `dd_sqrt`), as the kernel's `asin_parts` does with its
-// own split, and acos takes π/2 - x in double-double at |x| < 2^-27, where no rule settles it.
-// The fast path declines atan2 where its result is below 2^-1021, as the rounding tests scale
-// by 2^e only for e >= -1021, acos at 1, whose result 0 the kernel settles exactly, and the
-// arguments at which the core meets 0 < |t - c| < 2^-80, a numerator that `dd_div` does not
-// take. The table's points are rational, unlike the
+// atan, asin, acos and atan2 try a fast path after their rules and before `ziv` and `ziv_near`
+// (`fast_atan_dir`, `fast_atan_near` and the others), with the rounding tests of
+// `src/dyadic/fast.rs` (`round_dir_err` and `round_near_err`), which take a positive result:
+// atan, asin and atan2 apply them to |f| and put the sign back. The fast path has two stages,
+// which compute the same angles by the same identities: a first stage (`fast_atan_pos1` and the
+// others), which computes a part of them in plain `f64`, and, where that returns `None` or its
+// test fails, a second stage in double-double (`fast_atan_pos` and the others), whose test takes
+// 2^-70. Where that test fails too, or the fast path declines the argument, the function calls
+// `ziv` or `ziv_near` as before. The core of the second stage (`fast_atan_core`) takes atan t, for
+// a double-double t = th + tl in [2^-61, 129/128], as atan c + atan u for c = i / 64, with i the
+// integer nearest 64 th, and u = (t - c) / (1 + t c), with atan c in double-double from a table
+// (`ATAN_TABLE` of `src/dyadic/atan/tables.rs`), u from `dd_div`, so that |u| <= 2^-7, and atan u
+// from the odd Taylor polynomial of degree 11 (`fast_atan_poly`), within 2^-74 of atan t
+// relatively. atan takes the core at |x| up to 1 and π/2 - atan(1 / |x|) above it. atan2
+// takes atan of the quotient of the smaller of |y| and |x| by the larger, and then atan q,
+// π - atan q, π/2 - atan q or π/2 + atan q by the octant, as the kernel's `Atan2` does
+// (`octant`). asin and acos take atan(t / r) up to `ASIN_S` and atan(r / t) above it, for
+// r = √(1 - t^2) in double-double (`fast_sqrt1m`, with `dd_sqrt`), as the kernel's
+// `asin_parts` does with its own split, and acos takes π/2 - x in double-double at
+// |x| < 2^-27, where no rule settles it. The fast path declines atan2 where its result is below
+// 2^-1021, as the rounding tests scale by 2^e only for e >= -1021, acos at 1, whose result 0
+// the kernel settles exactly, and the arguments at which the core meets 0 < |t - c| < 2^-80, a
+// numerator that `dd_div` does not take. The table's points are rational, unlike the
 // tan(j π / 256) of CORE-MATH's `atan` [CORE-MATH], so that each c is an `f64` and the table
-// is checked from partial sums of the series of atan at rationals.
+// is checked from partial sums of the series of atan at rationals. The first stage does the
+// same with `fast_atan1` in place of the core: the core's c, n = t - c, d = 1 + t c and table
+// entry, and then, in plain `f64`, uh = RN(nh / dh) and the rest of the quotient from the
+// remainder nh - uh dh, as in `dd_div`, and atan u from the odd Taylor polynomial of degree 9,
+// within 2^-64 of atan t relatively, or `None` where |t - c| < 2^-80, t = c among them, which
+// it leaves to the second stage. In place of `dd_div`, it takes 1 / |x| for atan from
+// `fast_recip`, and the quotient of the significands for atan2 from `fast_quot`. It gives its
+// test 2^-62 (`ERR62`) where it calls `fast_atan1`, and 2^-70 on its other arms.
 // `rocq/theories/FastAtanCore.v` bounds the error of `fast_atan_core`, from
 // `rocq/theories/FastAtanTables.v` for the table and the constants,
 // `rocq/theories/FastAtanPoly.v` for the polynomial and `rocq/theories/FastAtanIdent.v` for
-// atan c + atan u. `rocq/theories/FastAtanAsm.v` proves `pio2_add`, `split` and `octant`, and
+// atan c + atan u, and `rocq/theories/FastAtan1.v` that of `fast_atan1`, from
+// `rocq/theories/FastAtan1Poly.v` for its polynomial and `rocq/theories/FastAtan1Div.v` and
+// `rocq/theories/FastAtan1Rem.v` for its quotient. `rocq/theories/FastAtan1Quot.v` bounds
+// `fast_quot` and `fast_recip`, with `rocq/theories/FastAtan1Mid.v`, and
+// `rocq/theories/FastAtanAsm.v` proves `pio2_add`, `split` and `octant`, and bounds `octant`
+// for an input within a given error d, which the first stage needs (`octant_bound`).
 // `rocq/theories/FastAtan.v` proves that the fast paths of atan and atan2 return their results
-// rounded, with and without an FMA, from `rocq/theories/FastAtanQuot.v` for their quotients.
+// rounded, from either stage, with and without an FMA, with `rocq/theories/FastAtanQuot.v` for
+// the quotients of the second stage.
 // `rocq/theories/FastAsin.v` proves the same of asin and acos, from
 // `rocq/theories/FastDdSqrt.v` for `dd_sqrt` and `rocq/theories/FastAsinSqrt.v`,
 // `rocq/theories/FastAsinQuot.v`, `rocq/theories/FastAsinAngle.v` and
@@ -536,9 +552,14 @@ fn midpoint_quotient_dyadic(y: f64, x: f64) -> Option<f64> {
     }
 }
 
-// 2^-70: the bound on |y - (h + l)| of every fast path below, for the result y scaled by 2^-e,
-// with slack over the 2^-74 relative bound of `fast_atan_core`.
+// 2^-70: the bound on |y - (h + l)| of the second stage of every fast path below, for the result
+// y scaled by 2^-e, with slack over the 2^-74 relative bound of `fast_atan_core`, and of the arms
+// of the first stages that do not call `fast_atan1`, which the second stages have too.
 const ERR70: f64 = f64::EPSILON / 262_144.0;
+
+// 2^-62: the same bound for the first stage of every fast path below where it calls
+// `fast_atan1`, with slack over the 2^-64 relative bound of `fast_atan1`.
+const ERR62: f64 = f64::EPSILON / 1024.0;
 
 // 2^-80: the smallest numerator that `dd_div` takes.
 const TWO_M80: f64 = f64::EPSILON / 268_435_456.0;
@@ -637,6 +658,75 @@ fn fast_atan_core(th: f64, tl: f64) -> Option<(f64, f64)> {
     Some(fast_two_sum(sh, s1 + (gl + pl)))
 }
 
+// atan t in double-double for t = th + tl as `fast_atan_core` takes it, with the same c, n and
+// d, but in plain `f64` past them, as (ah, al) with ah = RN(ah + al) and
+// |ah + al - atan t| <= 2^-64 atan t, or `None` where |t - c| < 2^-80, also at t = c, where the
+// core returns atan c from its table. u = n / d is uh = RN(nh / dh) and ul, the rest of the
+// quotient from the remainder nh - uh dh, which is an `f64` [Boldo-Daumas] and exact as in
+// `dd_div`, without its sign split. atan u is u - u^3 B for the odd Taylor polynomial of degree
+// 9, with B = 1/3 - v (1/5 - v (1/7 - v / 9)) for v = uh^2, all in `f64`, whose truncation is
+// below |u|^11 / 11 < 2^-80 for |u| <= 2^-7. Where i = 0, the polynomial takes th itself.
+// `rocq/theories/FastAtan1.v` proves the bound, and that the result is the same with and
+// without an FMA (`fast_atan1_correct` and `fast_atan1_fma`).
+fn fast_atan1(th: f64, tl: f64) -> Option<(f64, f64)> {
+    let kf = (th * 64.0 + SHIFTER) - SHIFTER;
+    let i = kf as i64;
+    if i == 0 {
+        // th <= 2^-7, and th^3 B < 2^-15 th, so that Fast2Sum applies.
+        let v = th * th;
+        let b = f64::from_bits(A3[0])
+            - v * (f64::from_bits(A5) - v * (f64::from_bits(A7) - v * f64::from_bits(A9)));
+        return Some(fast_two_sum(th, tl - (th * v) * b));
+    }
+    let [gh, gl] = ATAN_TABLE[i as usize];
+    let (gh, gl) = (f64::from_bits(gh), f64::from_bits(gl));
+    let c = kf * (1.0 / 64.0);
+    // n = t - c = nh + nl and d = 1 + t c = dh + dl as in `fast_atan_core`.
+    let (nh, nl) = fast_two_sum(th - c, tl);
+    if nh.abs() < TWO_M80 {
+        return None;
+    }
+    let p = th * c;
+    let pe = two_prod_err::<HAS_FMA>(th, c, p);
+    let (s, s0) = two_sum(1.0, p);
+    let (dh, dl) = fast_two_sum(s, s0 + (pe + tl * c));
+    // (nh - q) - qe = nh - uh dh exactly: q + qe = uh dh exactly [Dekker], and nh - q is exact
+    // by Sterbenz's lemma.
+    let uh = nh / dh;
+    let q = uh * dh;
+    let qe = two_prod_err::<HAS_FMA>(uh, dh, q);
+    let ul = ((((nh - q) - qe) + nl) - uh * dl) / dh;
+    let v = uh * uh;
+    let b = f64::from_bits(A3[0])
+        - v * (f64::from_bits(A5) - v * (f64::from_bits(A7) - v * f64::from_bits(A9)));
+    // atan c >= atan(1/64) > 2^-7 >= |uh|, so that Fast2Sum applies, twice.
+    let (sh, s1) = fast_two_sum(gh, uh);
+    Some(fast_two_sum(sh, s1 + (gl + (ul - (uh * v) * b))))
+}
+
+// n / d in double-double for n and d in [1, 2), as (qh, ql) with qh = RN(n / d) and
+// |ql| <= 2^-53 qh: p + pe = qh d exactly [Dekker], n - p is exact by Sterbenz's lemma, and
+// the remainder n - qh d is an `f64` [Boldo-Daumas], so that n / d = qh + (n - qh d) / d.
+// `rocq/theories/FastAtan1Quot.v` proves that qh + ql is within 2^-105 of n / d relatively
+// (`fast_quot_correct`).
+fn fast_quot(n: f64, d: f64) -> (f64, f64) {
+    let qh = n / d;
+    let p = qh * d;
+    let pe = two_prod_err::<HAS_FMA>(qh, d, p);
+    (qh, ((n - p) - pe) / d)
+}
+
+// 1 / t in double-double for t in (1, 2^54), as `fast_quot` with n = 1, but with the remainder
+// r = 1 - qh t times qh in place of r / t: 1 / t = qh + r / t, and r / t - r qh = r^2 / t.
+// `rocq/theories/FastAtan1Quot.v` proves that qh + ql is within 2^-104 of 1 / t relatively
+// (`fast_recip_correct`).
+fn fast_recip(t: f64) -> (f64, f64) {
+    let qh = 1.0 / t;
+    let p = qh * t;
+    let pe = two_prod_err::<HAS_FMA>(qh, t, p);
+    (qh, ((1.0 - p) - pe) * qh)
+}
+
 // f π/2 + (rh + rl) in double-double, for f = 1/2 or 1, |rh| <= f and |rl| <= 2^-52, as (h, l)
 // with h = RN(h + l) within 2^-102 of it: f `PIO2` is within 2^-107 of f π/2, and its high part
 // is above |rh|, so that Fast2Sum applies, twice [Dekker]. `rocq/theories/FastAtanAsm.v` proves
@@ -668,7 +758,9 @@ fn split(v: f64) -> (f64, i64) {
 // sum other than r is at least π/2 - 4/5 > 3/4, and those that reach above 2 are halved, so
 // that h is in (1/2, 2), as the rounding tests take it. `rocq/theories/FastAtanAsm.v` proves the
 // bound with err = 2^-70 for r within 2^-73 of an angle in (0, 4/5], and within 2^-73 of it
-// relatively, with the angle at least 2^-1020, where f is that angle itself (`octant_correct`).
+// relatively, with the angle at least 2^-1020, where f is that angle itself (`octant_correct`),
+// and bounds |f 2^-e - (h + l)| by 3 d for r within d of the angle in the same senses, for
+// 2^-100 <= d <= 2^-60, which the first stages need (`octant_bound`).
 fn octant(swap: bool, neg: bool, rh: f64, rl: f64) -> (f64, f64, i64, f64) {
     match (swap, neg) {
         (false, false) => {
@@ -810,54 +902,332 @@ fn fast_acos_val(x: f64) -> Option<(f64, f64, i64, f64)> {
     Some(octant(t <= ASIN_S, x < 0.0, ch, cl))
 }
 
+// The first stage of `fast_atan_pos`: the same, from `fast_atan1` in place of the core, with
+// err = `ERR62`, and with 1 / t from `fast_recip` above 1. `rocq/theories/FastAtan.v` proves it
+// as `fast_atan_pos` (`fast_atan_pos1_correct` and `fast_atan_pos1_fma`), and the same of the
+// first stages of `fast_atan2_pos` below (`fast_atan2_pos1_correct` and `fast_atan2_pos1_fma`).
+fn fast_atan_pos1(t: f64) -> Option<(f64, f64, i64, f64)> {
+    if t <= 1.0 {
+        let (ah, al) = fast_atan1(t, 0.0)?;
+        let (h, l, e, _) = octant(false, false, ah, al);
+        Some((h, l, e, ERR62))
+    } else {
+        let (qh, ql) = fast_recip(t);
+        let (ah, al) = fast_atan1(qh, ql)?;
+        let (h, l, e, _) = octant(true, false, ah, al);
+        Some((h, l, e, ERR62))
+    }
+}
+
+// The first stage of `fast_atan2_pos`: the same, from `fast_atan1` in place of the core, with
+// err = `ERR62` where it is taken, and with the quotient of the significands from `fast_quot`,
+// as `Some(Some(..))`. The results below 2^-1021 are `Some(None)`: the second stage would send
+// them to the kernel too. `None` is where `fast_atan1` returns `None`.
+// Always inlined: LLVM by itself keeps it out of line, with a stack frame of its own and its
+// result through memory, at which atan2 takes 24 to 27 more instructions per call, 247.9 (rn),
+// 260.2 (rd) and 259.7 (ru) against 221.2, 235.5 and 235.5 on y and x uniform in [-10, 10), and
+// 248.9, 262.8 and 262.8 against 221.7, 238.1 and 238.1 on uniform angles with log-uniform
+// radii in [2^-4, 2^4) (cachegrind, 4,096 arguments per set, in a test build for haswell
+// without the tests module of this file).
+#[inline(always)]
+fn fast_atan2_pos1(a: f64, b: f64, neg: bool) -> Option<Option<(f64, f64, i64, f64)>> {
+    let swap = a > b;
+    let (n, d) = if swap { (b, a) } else { (a, b) };
+    let (mn, en) = split(n);
+    let (md, ed) = split(d);
+    let e = en - ed;
+    let (qh, ql) = fast_quot(mn, md);
+    if e >= -60 {
+        let p = two_pow(e);
+        let (rh, rl) = fast_atan1(qh * p, ql * p)?;
+        let (h, l, k, _) = octant(swap, neg, rh, rl);
+        Some(Some((h, l, k, ERR62)))
+    } else if swap || neg {
+        Some(Some(octant(swap, neg, n / d, 0.0)))
+    } else {
+        let (h, l, k) = normalize(qh, ql);
+        if e + k < -1021 {
+            Some(None)
+        } else {
+            Some(Some((h, l, e + k, ERR70)))
+        }
+    }
+}
+
+// The first stage of `fast_asin_atan`: the same, from `fast_atan1` in place of the core.
+// `rocq/theories/FastAsin.v` proves that it is within 2^-64 + 2^-84 of that relatively
+// (`fast_asin_atan1_correct`).
+fn fast_asin_atan1(t: f64) -> Option<(f64, f64)> {
+    let (rh, rl) = fast_sqrt1m(t);
+    let (qh, ql) = if t <= ASIN_S {
+        dd_div(t, 0.0, rh, rl)
+    } else {
+        dd_div(rh, rl, t, 0.0)
+    };
+    fast_atan1(qh, ql)
+}
+
+// The first stages of `fast_asin_pos` and `fast_acos_val`: the same, from `fast_asin_atan1`, with
+// err = `ERR62` where it is taken. `rocq/theories/FastAsin.v` proves them as those
+// (`fast_asin_pos1_correct`, `fast_acos_val1_correct`, `fast_asin_pos1_fma` and
+// `fast_acos_val1_fma`).
+fn fast_asin_pos1(t: f64) -> Option<(f64, f64, i64, f64)> {
+    if t == 1.0 {
+        return Some((f64::from_bits(PIO2[0]), f64::from_bits(PIO2[1]), 0, ERR70));
+    }
+    let (ch, cl) = fast_asin_atan1(t)?;
+    let (h, l, e, _) = octant(t > ASIN_S, false, ch, cl);
+    Some((h, l, e, ERR62))
+}
+
+// Always inlined, as `fast_atan2_pos1`: LLVM by itself keeps it out of line, with its result
+// through memory and, where it calls `fast_asin_atan1`, a stack frame of its own, at which acos
+// takes 18 to 23 more instructions per call, 206.3 (rn), 205.5 (rd) and 205.0 (ru) against
+// 184.0, 186.8 and 186.9 on x uniform in [-1, 1), and 205.9, 205.6 and 206.1 against 183.0,
+// 186.5 and 186.5 on 1 - 2^-8 < |x| <= 1, and 15 to 17 more on 2^-60 <= |x| < 2^-27, 62.0, 61.3
+// and 61.3 against 45.0, 46.2 and 46.7 (counted as for `fast_atan2_pos1`).
+#[inline(always)]
+fn fast_acos_val1(x: f64) -> Option<(f64, f64, i64, f64)> {
+    if x == 1.0 {
+        return None;
+    }
+    if x.abs() < TINY_ASIN {
+        let (h, l) = pio2_add(1.0, -x, 0.0);
+        return Some((h, l, 0, ERR70));
+    }
+    if x == -1.0 {
+        return Some((f64::from_bits(PIO2[0]), f64::from_bits(PIO2[1]), 1, ERR70));
+    }
+    let t = x.abs();
+    let (ch, cl) = fast_asin_atan1(t)?;
+    let (h, l, e, _) = octant(t <= ASIN_S, x < 0.0, ch, cl);
+    Some((h, l, e, ERR62))
+}
+
+#[cfg(test)]
+thread_local! {
+    // Whether the first stages of the fast paths are enabled on this thread.
+    static STAGE1: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// Enables or disables the first stages of the fast paths of atan, asin, acos and atan2 on this
+/// thread. Disabled, `fast_atan_dir1` and the others return `None`, so that every fast path
+/// takes its second stage (`fast_atan_dir2` and the others).
+#[cfg(test)]
+pub(crate) fn set_atan_stage1(enabled: bool) {
+    STAGE1.with(|s| s.set(enabled));
+}
+
+#[cfg(test)]
+fn stage1_enabled() -> bool {
+    STAGE1.with(|s| s.get())
+}
+
 // atan x, asin x, acos x and atan2(y, x) rounded toward +∞ if `up` and toward -∞ otherwise, and
 // to nearest, by the fast paths, or `None` where the rounding test fails or the fast path does
 // not apply. atan and asin are odd, and atan2 has the sign of y: for x < 0, f(x) rounded up is
 // -f(-x) rounded down. `rocq/theories/FastAtan.v` and `rocq/theories/FastAsin.v` prove that they
 // return those roundings, for 2^-27 <= |x| < 2^54 for atan, finite y and x other than 0 for
 // atan2, 2^-27 <= |x| <= 1 for asin and |x| <= 1 for acos (`fast_atan_dir_correct` and the
-// others), and the same with and without an FMA (`fast_atan_dir_fma` and the others).
+// others), and the same with and without an FMA (`fast_atan_dir_fma` and the others). Each
+// tries its first stage (`fast_atan_dir1` and the others, from `fast_atan_pos1` and the others),
+// and its second stage (`fast_atan_dir2` and the others, from `fast_atan_pos` and the others)
+// where that returns `None`. The comment of the second stages says which of them are inlined.
 fn fast_atan_dir(x: f64, up: bool) -> Option<f64> {
+    if let Some(r) = fast_atan_dir1(x, up) {
+        return Some(r);
+    }
+    fast_atan_dir2(x, up)
+}
+
+fn fast_asin_dir(x: f64, up: bool) -> Option<f64> {
+    if let Some(r) = fast_asin_dir1(x, up) {
+        return Some(r);
+    }
+    fast_asin_dir2(x, up)
+}
+
+fn fast_acos_dir(x: f64, up: bool) -> Option<f64> {
+    if let Some(r) = fast_acos_dir1(x, up) {
+        return Some(r);
+    }
+    fast_acos_dir2(x, up)
+}
+
+fn fast_atan2_dir(y: f64, x: f64, up: bool) -> Option<f64> {
+    if let Some(r) = fast_atan2_dir1(y, x, up) {
+        return r;
+    }
+    fast_atan2_dir2(y, x, up)
+}
+
+fn fast_atan_near(x: f64) -> Option<f64> {
+    if let Some(r) = fast_atan_near1(x) {
+        return Some(r);
+    }
+    fast_atan_near2(x)
+}
+
+fn fast_asin_near(x: f64) -> Option<f64> {
+    if let Some(r) = fast_asin_near1(x) {
+        return Some(r);
+    }
+    fast_asin_near2(x)
+}
+
+fn fast_acos_near(x: f64) -> Option<f64> {
+    if let Some(r) = fast_acos_near1(x) {
+        return Some(r);
+    }
+    fast_acos_near2(x)
+}
+
+fn fast_atan2_near(y: f64, x: f64) -> Option<f64> {
+    if let Some(r) = fast_atan2_near1(y, x) {
+        return r;
+    }
+    fast_atan2_near2(y, x)
+}
+
+fn fast_atan_dir1(x: f64, up: bool) -> Option<f64> {
+    #[cfg(test)]
+    if !stage1_enabled() {
+        return None;
+    }
+    let (h, l, e, err) = fast_atan_pos1(x.abs())?;
+    let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
+    Some(if x < 0.0 { -r } else { r })
+}
+
+fn fast_asin_dir1(x: f64, up: bool) -> Option<f64> {
+    #[cfg(test)]
+    if !stage1_enabled() {
+        return None;
+    }
+    let (h, l, e, err) = fast_asin_pos1(x.abs())?;
+    let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
+    Some(if x < 0.0 { -r } else { r })
+}
+
+fn fast_acos_dir1(x: f64, up: bool) -> Option<f64> {
+    #[cfg(test)]
+    if !stage1_enabled() {
+        return None;
+    }
+    let (h, l, e, err) = fast_acos_val1(x)?;
+    round_dir_err(h, l, e, err, up)
+}
+
+// `Some(r)` is the answer of the fast path, where r = `None` sends atan2 to the kernel, and
+// `None` is the second stage's turn, also where the rounding test fails.
+fn fast_atan2_dir1(y: f64, x: f64, up: bool) -> Option<Option<f64>> {
+    #[cfg(test)]
+    if !stage1_enabled() {
+        return None;
+    }
+    let (h, l, e, err) = match fast_atan2_pos1(y.abs(), x.abs(), x < 0.0)? {
+        Some(v) => v,
+        None => return Some(None),
+    };
+    let r = round_dir_err(h, l, e, err, up != (y < 0.0))?;
+    Some(Some(if y < 0.0 { -r } else { r }))
+}
+
+fn fast_atan_near1(x: f64) -> Option<f64> {
+    #[cfg(test)]
+    if !stage1_enabled() {
+        return None;
+    }
+    let (h, l, e, err) = fast_atan_pos1(x.abs())?;
+    let r = round_near_err(h, l, e, err)?;
+    Some(if x < 0.0 { -r } else { r })
+}
+
+fn fast_asin_near1(x: f64) -> Option<f64> {
+    #[cfg(test)]
+    if !stage1_enabled() {
+        return None;
+    }
+    let (h, l, e, err) = fast_asin_pos1(x.abs())?;
+    let r = round_near_err(h, l, e, err)?;
+    Some(if x < 0.0 { -r } else { r })
+}
+
+fn fast_acos_near1(x: f64) -> Option<f64> {
+    #[cfg(test)]
+    if !stage1_enabled() {
+        return None;
+    }
+    let (h, l, e, err) = fast_acos_val1(x)?;
+    round_near_err(h, l, e, err)
+}
+
+fn fast_atan2_near1(y: f64, x: f64) -> Option<Option<f64>> {
+    #[cfg(test)]
+    if !stage1_enabled() {
+        return None;
+    }
+    let (h, l, e, err) = match fast_atan2_pos1(y.abs(), x.abs(), x < 0.0)? {
+        Some(v) => v,
+        None => return Some(None),
+    };
+    let r = round_near_err(h, l, e, err)?;
+    Some(Some(if y < 0.0 { -r } else { r }))
+}
+
+// The second stages. LLVM inlines them into the dir and near functions, which then call
+// `fast_atan_pos`, `fast_asin_atan`, `fast_acos_val` and `fast_atan2_pos` out of line. The
+// exception is `fast_atan2_dir2`, which is never inlined: inlined, it costs atan2 1.8 to 2.3
+// more instructions per call in rd and ru. Never inlined, the others would cost more too: atan
+// 3.5 to 8.8 per call on x uniform in [-10, 10) and [-1, 1) and |x| log-uniform in
+// [2^-30, 2^30), and asin 3.4 to 4.1 on x uniform in [-1, 1) and |x| log-uniform in
+// [2^-30, 1) and [2^-26, 2^-8). acos would cost 2.9 to 4.9 more, and atan2 3.0 more in rn.
+// The arguments of acos and atan2 are those in the comments of `fast_acos_val1` and
+// `fast_atan2_pos1`, and all these counts are made as there. Either way, the first stage runs
+// in a stack frame, which its call of `fast_atan1` or `fast_asin_atan1` needs, as their result
+// comes back through memory.
+fn fast_atan_dir2(x: f64, up: bool) -> Option<f64> {
     let (h, l, e, err) = fast_atan_pos(x.abs())?;
     let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_asin_dir(x: f64, up: bool) -> Option<f64> {
+fn fast_asin_dir2(x: f64, up: bool) -> Option<f64> {
     let (h, l, e, err) = fast_asin_pos(x.abs())?;
     let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_acos_dir(x: f64, up: bool) -> Option<f64> {
+fn fast_acos_dir2(x: f64, up: bool) -> Option<f64> {
     let (h, l, e, err) = fast_acos_val(x)?;
     round_dir_err(h, l, e, err, up)
 }
 
-fn fast_atan2_dir(y: f64, x: f64, up: bool) -> Option<f64> {
+#[inline(never)]
+fn fast_atan2_dir2(y: f64, x: f64, up: bool) -> Option<f64> {
     let (h, l, e, err) = fast_atan2_pos(y.abs(), x.abs(), x < 0.0)?;
     let r = round_dir_err(h, l, e, err, up != (y < 0.0))?;
     Some(if y < 0.0 { -r } else { r })
 }
 
-fn fast_atan_near(x: f64) -> Option<f64> {
+fn fast_atan_near2(x: f64) -> Option<f64> {
     let (h, l, e, err) = fast_atan_pos(x.abs())?;
     let r = round_near_err(h, l, e, err)?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_asin_near(x: f64) -> Option<f64> {
+fn fast_asin_near2(x: f64) -> Option<f64> {
     let (h, l, e, err) = fast_asin_pos(x.abs())?;
     let r = round_near_err(h, l, e, err)?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_acos_near(x: f64) -> Option<f64> {
+fn fast_acos_near2(x: f64) -> Option<f64> {
     let (h, l, e, err) = fast_acos_val(x)?;
     round_near_err(h, l, e, err)
 }
 
-fn fast_atan2_near(y: f64, x: f64) -> Option<f64> {
+fn fast_atan2_near2(y: f64, x: f64) -> Option<f64> {
     let (h, l, e, err) = fast_atan2_pos(y.abs(), x.abs(), x < 0.0)?;
     let r = round_near_err(h, l, e, err)?;
     Some(if y < 0.0 { -r } else { r })
