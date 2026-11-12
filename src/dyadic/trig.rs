@@ -86,8 +86,9 @@
 // sin, cos and tan try a fast path in double-double after their rules and before `ziv` and
 // `ziv_near` (`fast_sin`, `fast_cos` and `fast_tan`), with the rounding tests for an h of either
 // sign, `round_dir_signed` and `round_near_signed` of `src/dyadic/fast.rs`, after a scaling by a
-// power of 2 (`fast_round_dir` and `fast_round_near`). Where a test fails, or the fast path
-// declines the argument, the function calls `ziv` or `ziv_near` as before. The fast path
+// power of 2 (`fast_round_dir` and `fast_round_near`). Where a test fails, other than where
+// `fast_one_dir` decides sin or cos rounded down or up (below), or the fast path declines the
+// argument, the function calls `ziv` or `ziv_near` as before. The fast path
 // reduces a finite x to n u + ρ for u = π/4096 and |ρ| <= u/2 (1 + 2^-24): for |x| < 2^16
 // (`LIMIT`) with u in three parts as Cody and Waite do (`fast_reduce`), and for larger x as
 // Payne and Hanek do [Payne-Hanek], in integers, from 192 bits of 1/(2π) in `INV2PI` picked by
@@ -97,26 +98,42 @@
 // (`fast_sc`) and the Taylor polynomials of cos ρ - 1 to degree 4 and of sin ρ - ρ to degree 5
 // (`fast_eval`), and tan x as the quotient of the two (`fast_div`). At n = 0, which only
 // `fast_reduce` returns, the Taylor polynomials of sin x and cos x themselves (`fast_sin0` and
-// `fast_cos0`). It declines x where i = 0, other than at that n = 0, as x is then within
-// u/2 (1 + 2^-24) of a multiple of π/2 other than 0, where sin x, cos x or tan x is close to 0
-// or has a pole, so that elsewhere i u + ρ lies in [u/2 (1 - 2^-24), π/2 - u/2 (1 - 2^-24)],
-// where sin and cos are above 2^-12, and the error of the reduction is small relative to them.
-// It also declines x where the computed rh is 0, or, from `fast_reduce_big`, below 2^-65 in
-// magnitude, which the proof of `fast_eval` excludes. The shape, a reduction by a multiple of a
-// fraction of π, sin and cos of that multiple from two tables and short polynomials of the
-// remainder, is that of CORE-MATH's `sin` [CORE-MATH], whose fast path takes multiples of
-// π/2^14, two tables of 128 rows, minimax polynomials and a bound on the absolute error, and
-// `fast_reduce_big` has the shape of its `reduce_large`, a window of the bits of 1/(2π) picked
-// by the exponent and products of integers, with three 64-bit limbs where it takes two.
+// `fast_cos0`). At i = 0, other than at that n = 0 of `fast_reduce`, x is within
+// u/2 (1 + 2^-24) of a multiple of π/2 other than 0, the band, where sin x, cos x or tan x is
+// close to 0 or has a pole, and |ρ| >= 2^-61 (`km_distance`). There the fast path takes a
+// reduction with rh + rl within 2^-74 |ρ| of ρ, in place of the absolute bounds of
+// `fast_reduce` and `fast_reduce_big`: below `LIMIT`, `fast_band` and `fast_tan_band` refine
+// that of `fast_reduce` with the exact error of n U3 and a fourth part `U4` of u
+// (`fast_band_reduce`), and above it, `fast_band_big` and `fast_tan_band_big` recompute the
+// window of `fast_reduce_big` and read the fraction ρ/u that it gives from its leading bit
+// rather than from 2^-1 (`fast_reduce_band_big`). sin x and cos t are then ±sin ρ or ±cos ρ,
+// which it evaluates by their Taylor polynomials (`fast_band_sin` and `fast_cos0`), and tan x
+// is tan ρ or -1/tan ρ, from their quotient (`fast_band_tan`). Elsewhere i u + ρ lies in
+// [u/2 (1 - 2^-24), π/2 - u/2 (1 - 2^-24)], where sin and cos are above 2^-12, and the error of
+// the reduction is small relative to them. The fast path declines x where i != 0 and the
+// computed rh is 0, or, from `fast_reduce_big`, below 2^-65 in magnitude, which the proof of
+// `fast_eval` excludes, and NaN and the infinities. Where the test of sin or cos rounded down or
+// up fails at h = ±1, as it does in the band where the result is ±cos ρ and |ρ| is below about
+// 2^-34, `fast_one_dir` decides the rounding, as the result then lies strictly between
+// 1 - 2^-53 and 1 in magnitude. The shape, a reduction by a multiple of a fraction of π, sin and
+// cos of that multiple from two tables and short polynomials of the remainder, is that of
+// CORE-MATH's `sin` [CORE-MATH], whose fast path takes multiples of π/2^14, two tables of 128
+// rows, minimax polynomials and a bound on the absolute error, and `fast_reduce_big` has the
+// shape of its `reduce_large`, a window of the bits of 1/(2π) picked by the exponent and
+// products of integers, with three 64-bit limbs where it takes two.
 // `rocq/theories/FastTrigCore.v` bounds the error of `fast_sin`, `fast_cos` and `fast_tan`
 // relative to sin x, cos t and tan x by 2^-71, 2^-71 and 3 2^-71, from
 // `rocq/theories/FastTrigReduce.v` and `rocq/theories/FastTrigBig.v` for the reductions, the
 // latter with `rocq/theories/FastTrigBigInt.v`, `rocq/theories/FastTrigBigMul.v`,
 // `rocq/theories/FastTrigBigDec.v` and `rocq/theories/FastTrigBigSum.v`,
-// `rocq/theories/FastTrigTables.v` for the tables and constants other than `INV2PI`, and
+// `rocq/theories/FastTrigBandRed.v` and `rocq/theories/FastTrigBandBig.v` for those of the
+// band, the latter with `rocq/theories/FastTrigBandInt.v` and `rocq/theories/FastTrigBandMul.v`,
+// `rocq/theories/FastTrigTables.v` for the tables and constants other than `INV2PI` and `U4`,
 // `rocq/theories/FastTrigSC.v`, `rocq/theories/FastTrigEval.v` and
-// `rocq/theories/FastTrigDiv.v` for the steps. `rocq/theories/FastTrigRound.v` proves the
-// scaling and, with `rocq/theories/FastSign.v`, the tests, and `rocq/theories/FastTrig.v` proves
+// `rocq/theories/FastTrigDiv.v` for the steps, and `rocq/theories/FastTrigBandEval.v` and
+// `rocq/theories/FastTrigBandDiv.v` for those of the band. `rocq/theories/FastTrigRound.v`
+// proves the scaling and, with `rocq/theories/FastSign.v`, the tests,
+// `rocq/theories/FastTrigOne.v` the rule of `fast_one_dir`, and `rocq/theories/FastTrig.v`
 // that the fast path returns sin x, cos t and tan x rounded, with and without an FMA. As those
 // are correct roundings, `sin_dir_sign` and `cos_dir_sign` hold where the fast path returns too.
 //
@@ -129,7 +146,7 @@
 use super::{
     consts::PI,
     exp::{away, near_one, toward_zero, TINY_HYP, TINY_NEAR},
-    fast::{fast_two_sum, round_dir_signed, round_near_signed},
+    fast::{fast_two_sum, round_dir_signed, round_near_signed, two_sum},
     round, ziv, ziv_near, Dyadic, Encl, Eval,
 };
 use crate::limbs;
@@ -432,13 +449,17 @@ fn tan_small(x: f64, up: bool) -> Option<f64> {
 // before Rust 1.83. u = π/4096; `INV` = RN(1 / u); `U1` is u with its significand cut to 26
 // bits (25 significant bits, as the 26th is 0), so that n U1 is exact for |n| < 2^27, `U2` is
 // u - U1 cut to 26 bits (24 significant bits), so that n U2 is exact too, and
-// `U3` = RN(u - U1 - U2), with |u - U1 - U2 - U3| < 2^-120. `S3` = RN(1/6),
+// `U3` = RN(u - U1 - U2), with |u - U1 - U2 - U3| < 2^-120, and `U4` = RN(u - U1 - U2 - U3),
+// with |u - U1 - U2 - U3 - U4| < 2^-174, which only `fast_band_reduce` takes. `S3` = RN(1/6),
 // `S5` = RN(1/120) and `C4` = RN(1/24). `rocq/theories/FastTrigTables.v` proves that `INV` u is
-// within 2^-52 of 1 and U1 + U2 + U3 within 2^-119 of u (`fast_trig_consts`).
+// within 2^-52 of 1 and U1 + U2 + U3 within 2^-119 of u (`fast_trig_consts`), and
+// `rocq/theories/FastTrigBandRed.v` that |U4| <= 2^-120 and U1 + U2 + U3 + U4 within 2^-174 of u
+// (`band_consts`).
 const INV: u64 = 0x40945f306dc9c883;
 const U1: u64 = 0x3f4921fb50000000;
 const U2: u64 = 0x3da110b460000000;
 const U3: u64 = 0x3be1a62633145c07;
+const U4: u64 = 0xb86f1976b7ed8fbc;
 const S3: u64 = 0x3fc5555555555555;
 const S5: u64 = 0x3f81111111111111;
 const C4: u64 = 0x3fa5555555555555;
@@ -482,7 +503,8 @@ fn fast_mul(ah: f64, al: f64, bh: f64, bl: f64) -> (f64, f64) {
 // with x = N u + ρ for an integer N and n = N mod 8192, in [0, 8191], which is all that
 // `fast_quad` and `fast_tan` read of an n other than 0, as 8192 u = 2π: a reduction of Payne
 // and Hanek [Payne-Hanek], in integers, by the bits of 1/(2π) in `INV2PI`. `None` for any other
-// x, NaN included, where n mod 2048 = 0, as `fast_quad` declines those, and where |rh| < 2^-65.
+// x, NaN included, where n mod 2048 = 0, which `fast_reduce_band_big` reduces, and where
+// |rh| < 2^-65.
 // `rocq/theories/FastTrigBig.v` proves these bounds (`fast_reduce_big_correct`).
 fn fast_reduce_big(x: f64) -> Option<(i64, f64, f64, f64)> {
     // |x| = m 2^e, with m in [2^52, 2^53) and e = be - 1075 for the biased exponent be, which
@@ -549,10 +571,73 @@ fn fast_reduce_any(x: f64) -> Option<(i64, f64, f64, f64)> {
     fast_reduce(x).or_else(|| fast_reduce_big(x))
 }
 
+// (n, rh, rl, rr) for a finite x with |x| >= `LIMIT` and n mod 2048 = 0, where
+// `fast_reduce_big` declines x, with x = N u + ρ for an integer N, n = N mod 8192, rr =
+// RN(rh + rl) and rh + rl within 2^-74 |ρ| of ρ, and `None` for any other x, NaN included.
+// N mod 2048 = 0 and N != 0 put x within u/2 (1 + 2^-24) of a multiple of π/2 other than 0, and
+// |ρ| >= 2^-61 there (`km_distance` in `rocq/theories/KahanMcDonald.v`), so that the 2^-126 of
+// the window of `fast_reduce_big`, in units of u, is at most 2^-75.3 |ρ|. The steps up to n are
+// those of `fast_reduce_big`, and so are their integers. F, R 2^-179 less the integer nearest it
+// as in `fast_reduce_big`, is then read from the first bit after its sign rather than from 2^-1:
+// 106 of the 128 bits of R below those of n. The last 13 of those 128 come from the low limb r0
+// of R, which `fast_reduce_big` does not read. `rocq/theories/FastTrigBandBig.v` proves these
+// bounds (`fast_reduce_band_big_correct`).
+fn fast_reduce_band_big(x: f64) -> Option<(i64, f64, f64, f64)> {
+    let b = x.to_bits() & (u64::MAX >> 1);
+    let be = b >> 52;
+    if !(1039..=2046).contains(&be) {
+        return None;
+    }
+    let m = (b & ((1 << 52) - 1)) | (1 << 52);
+    let k = (be - 1011) as usize;
+    let (i, f) = (k >> 6, k & 63);
+    let w = |j: usize| (INV2PI[i + j] << f) | ((INV2PI[i + j + 1] >> 1) >> (63 - f));
+    let p0 = u128::from(m) * u128::from(w(2));
+    let p1 = u128::from(m) * u128::from(w(1));
+    let c = (p0 >> 64) + (p1 & u128::from(u64::MAX));
+    let r1 = c as u64;
+    let r2 = m
+        .wrapping_mul(w(0))
+        .wrapping_add((p1 >> 64) as u64)
+        .wrapping_add((c >> 64) as u64);
+    let n = (r2.wrapping_add(1 << 50) >> 51) as i64;
+    if n & 2047 != 0 {
+        return None;
+    }
+    // a 2^64 + lo = A, the 128 bits of R below those of n, F 2^128 rounded down, with a an `i64`,
+    // as in `fast_reduce_big`, and lo the next 64 bits, from r1 and r0, the low half of m w(2).
+    // s is the number of bits below the sign bit of a that repeat it, at most 49, as
+    // |F| >= 2^-61/u > 2^-50.7 gives |a| > 2^13. t 2^64 + v = A 2^s, with 2^62 <= |t| <= 2^63;
+    // `>> 1 >> (63 - s)` is `>> (64 - s)`, which is not defined at s = 0.
+    let a = ((r2 << 13) | (r1 >> 51)) as i64;
+    let lo = (r1 << 13) | ((p0 as u64) >> 51);
+    let s = (a ^ (a >> 63)).leading_zeros() - 1;
+    let t = (a << s) | (((lo >> 1) >> (63 - s)) as i64);
+    let v = lo << s;
+    // fh = (t >> 11) 2^(-53 - s) and fl, the next 53 bits of t 2^64 + v times 2^(-106 - s), are
+    // exact, and F - fh - fl is in [0, 2^(-106 - s) + 2^-128), at most 2^-104 |F| + 2^-128.
+    let fh = (t >> 11) as f64 * f64::from_bits(u64::from(970 - s) << 52);
+    let fl =
+        ((((t & 2047) as u64) << 42) | (v >> 22)) as f64 * f64::from_bits(u64::from(917 - s) << 52);
+    let (n, fh, fl) = if x < 0.0 {
+        ((-n) & 8191, -fh, -fl)
+    } else {
+        (n, fh, fl)
+    };
+    let uh = f64::from_bits(U1) + f64::from_bits(U2);
+    let (rh, rl) = fast_mul(fh, fl, uh, f64::from_bits(U3));
+    Some((n, rh, rl, rh + rl))
+}
+
 // (sh, sl, ch, cl) with sh + sl and ch + cl sin and cos of i u, for i in [1, 2047], from the
 // tables at i = 64 i1 + i2 by sin(a + b) = sin a cos b + cos a sin b and
 // cos(a + b) = cos a cos b - sin a sin b. `rocq/theories/FastTrigSC.v` proves that they are
 // within 2^-88 of sin(i u) and cos(i u) relative to them (`fast_sc_correct`).
+// Always inlined: out of line, `sin` and `cos` take 23 to 27 more instructions per call and `tan`
+// 12 to 13 more, on each of five sets of 4,096 arguments: uniform in [0.1, 10), [-10, 10) and
+// [-π/4, π/4), and of either sign with a magnitude log-uniform in [2^-30, 2^1024) and in
+// [2^60, 2^1024) (cachegrind, row 107).
+#[inline(always)]
 fn fast_sc(i: i64) -> (f64, f64, f64, f64) {
     let row = |r: [u64; 4]| {
         (
@@ -613,19 +698,92 @@ fn fast_sin0(x: f64) -> (f64, f64) {
 
 // cos x as h + l, h = RN(h + l), for |x| <= u/2 (1 + 2^-24), by the Taylor polynomial of
 // degree 4. `rocq/theories/FastTrigEval.v` bounds the error for 2^-27 <= |x|, the x that the
-// rules leave (`fast_cos0_correct`).
+// rules leave (`fast_cos0_correct`), and `rocq/theories/FastTrigBandEval.v` the error relative
+// to cos ρ at x = rr for ρ, rh, rl and rr as in `fast_band_sin` (`band_cos_correct`), which
+// `fast_band_eval` and `fast_band_tan` take.
 fn fast_cos0(x: f64) -> (f64, f64) {
     let z = x * x;
     fast_two_sum(1.0, z * (z * f64::from_bits(C4) - 0.5))
 }
 
+// (sh, sl, sr) with ρ = x - n u within 2^-74 |ρ| of sh + sl and sr = RN(sh + sl), from the
+// reduction (n, rh, rl, rr) of `fast_reduce` at an x with n mod 2048 = 0 and n != 0, where
+// |ρ| >= 2^-61 (`km_distance`), but rh + rl is only within 2^-90 of ρ. rh = x - n U1 - n U2 is
+// exact there, and so is n as an `f64`, as |n| < 2^27, so that
+// ρ = rh - n U3 - n U4 - n (u - U1 - U2 - U3 - U4). rl = -RN(n U3); pl, the error of that
+// product, is exact [Dekker], and so is the error e of RN(rh + rl) [Knuth], so that only n U4,
+// the two sums of the tail and n (u - U1 - U2 - U3 - U4) are not, less than 2^-143 + 2^-105 |ρ|
+// together.
+// `rocq/theories/FastTrigBandRed.v` proves the bound (`fast_band_reduce_correct`).
+fn fast_band_reduce(n: i64, rh: f64, rl: f64) -> (f64, f64, f64) {
+    let kf = n as f64;
+    let pl = two_prod_err::<HAS_FMA>(kf, f64::from_bits(U3), -rl);
+    let (s, e) = two_sum(rh, rl);
+    let t = e - (pl + kf * f64::from_bits(U4));
+    (s, t, s + t)
+}
+
+// sin ρ as h + l, h = RN(h + l), for 2^-61 <= |ρ| <= u/2 (1 + 2^-24) within 2^-74 |ρ| of
+// rh + rl, rr = RN(rh + rl) and |rl| <= 2^-24 |rh|, by the Taylor polynomial of degree 5, as
+// `fast_sin0` at a double-double. `rocq/theories/FastTrigBandEval.v` bounds the error
+// (`band_sin_correct`).
+fn fast_band_sin(rh: f64, rl: f64, rr: f64) -> (f64, f64) {
+    let z = rr * rr;
+    fast_two_sum(
+        rh,
+        rl + rr * z * (z * f64::from_bits(S5) - f64::from_bits(S3)),
+    )
+}
+
+// sin(q π/2 + ρ) as h + l, h = RN(h + l), for ρ as in `fast_band_sin`: ±sin ρ at an even q and
+// ±cos ρ at an odd one, from `fast_band_sin` and `fast_cos0`. `rocq/theories/FastTrigBandEval.v`
+// bounds the error (`band_eval_correct`).
+fn fast_band_eval(q: i64, rh: f64, rl: f64, rr: f64) -> (f64, f64) {
+    let (h, l) = if q & 1 == 0 {
+        fast_band_sin(rh, rl, rr)
+    } else {
+        fast_cos0(rr)
+    };
+    if q & 2 == 0 {
+        (h, l)
+    } else {
+        (-h, -l)
+    }
+}
+
+// sin(x + s π/2) as h + l, from the reduction (n, rh, rl, rr) of `fast_reduce` at an x with
+// n mod 2048 = 0 and n != 0: x is within u/2 (1 + 2^-24) of n u = (n / 2048) π/2. Out of line,
+// as `fast_quad` is inlined into `sin` and `cos` and only these x take it.
+#[inline(never)]
+fn fast_band(n: i64, s: i64, rh: f64, rl: f64) -> (f64, f64) {
+    let (rh, rl, rr) = fast_band_reduce(n, rh, rl);
+    fast_band_eval((n >> 11) + s, rh, rl, rr)
+}
+
+// sin(x + s π/2) as h + l, as `fast_band`, for the x where `fast_reduce_big` declines x as
+// n mod 2048 = 0, from the reduction of `fast_reduce_band_big`, and `None` at any other x, such
+// as those where it declines x as |rh| < 2^-65, NaN and the infinities. Out of line, as
+// `fast_band`.
+#[inline(never)]
+fn fast_band_big(x: f64, s: i64) -> Option<(f64, f64)> {
+    let (n, rh, rl, rr) = fast_reduce_band_big(x)?;
+    Some(fast_band_eval((n >> 11) + s, rh, rl, rr))
+}
+
 // sin(x + s π/2) as h + l, from the reduction (n, rh, rl, rr) of x with n != 0, and `None`
-// where i = n mod 2048 is 0, where the result can be near 0, or where rh = 0. With
-// n = 2048 q + i, x + s π/2 = (q + s) π/2 + i u + ρ, and sin(i u + ρ) and
-// cos(i u + ρ) = sin((2048 - i) u - ρ) are both `fast_eval` with j in [1, 2047].
+// where rh = 0 and i = n mod 2048 is not 0. With n = 2048 q + i, x + s π/2 =
+// (q + s) π/2 + i u + ρ, and sin(i u + ρ) and cos(i u + ρ) = sin((2048 - i) u - ρ) are both
+// `fast_eval` with j in [1, 2047]. At i = 0, which only `fast_reduce` gives, the result can be
+// near 0, and `fast_band` takes x.
+// Always inlined: out of line, `sin` and `cos` take 8 to 18 more instructions per call on the
+// same arguments as `fast_sc` (cachegrind, row 107).
+#[inline(always)]
 fn fast_quad(n: i64, s: i64, rh: f64, rl: f64, rr: f64) -> Option<(f64, f64)> {
     let i = n & 2047;
-    if i == 0 || rh == 0.0 {
+    if i == 0 {
+        return Some(fast_band(n, s, rh, rl));
+    }
+    if rh == 0.0 {
         return None;
     }
     let q = (n >> 11) + s;
@@ -640,8 +798,16 @@ fn fast_quad(n: i64, s: i64, rh: f64, rl: f64, rr: f64) -> Option<(f64, f64)> {
 
 // sin x as h + l, h = RN(h + l), within 2^-71 |sin x| of it, for a finite x with 2^-27 <= |x|,
 // or `None`. `rocq/theories/FastTrigCore.v` proves the bound (`fast_sin_correct`).
+// Always inlined, as `fast_sin_dir`: LLVM stopped inlining `fast_sin` and `fast_cos` into
+// `sin`, `sin_near`, `cos` and `cos_near` when the band calls were added, and out of line they
+// cost 15 to 21 more instructions per call on the same arguments as `fast_sc` (cachegrind, row
+// 107).
+#[inline(always)]
 fn fast_sin(x: f64) -> Option<(f64, f64)> {
-    let (n, rh, rl, rr) = fast_reduce_any(x)?;
+    let (n, rh, rl, rr) = match fast_reduce_any(x) {
+        Some(r) => r,
+        None => return fast_band_big(x, 0),
+    };
     if n == 0 {
         Some(fast_sin0(x))
     } else {
@@ -650,8 +816,12 @@ fn fast_sin(x: f64) -> Option<(f64, f64)> {
 }
 
 // cos t as h + l, as `fast_sin` does sin x, for t = |x| (`fast_cos_correct`).
+#[inline(always)]
 fn fast_cos(t: f64) -> Option<(f64, f64)> {
-    let (n, rh, rl, rr) = fast_reduce_any(t)?;
+    let (n, rh, rl, rr) = match fast_reduce_any(t) {
+        Some(r) => r,
+        None => return fast_band_big(t, 1),
+    };
     if n == 0 {
         Some(fast_cos0(t))
     } else {
@@ -669,17 +839,52 @@ fn fast_div(nh: f64, nl: f64, dh: f64, dl: f64) -> (f64, f64) {
     fast_two_sum(qh, (((nh - p) - pe) + (nl - qh * dl)) / dh)
 }
 
+// tan(n u + ρ) = tan ρ at an even q = n / 2048 and -1 / tan ρ at an odd one, as h + l,
+// h = RN(h + l), for n mod 2048 = 0 and ρ as in `fast_band_sin`: the quotient of sin ρ and
+// cos ρ from `fast_band_sin` and `fast_cos0`. `rocq/theories/FastTrigBandEval.v` bounds the
+// error (`band_tan_correct`).
+fn fast_band_tan(n: i64, rh: f64, rl: f64, rr: f64) -> (f64, f64) {
+    let ((sh, sl), (ch, cl)) = (fast_band_sin(rh, rl, rr), fast_cos0(rr));
+    if n & 2048 == 0 {
+        fast_div(sh, sl, ch, cl)
+    } else {
+        let (h, l) = fast_div(ch, cl, sh, sl);
+        (-h, -l)
+    }
+}
+
+// tan x as h + l, as `fast_band` does sin x, from the reduction (n, rh, rl, rr) of
+// `fast_reduce` at an x with n mod 2048 = 0 and n != 0. Out of line, as `fast_band`.
+#[inline(never)]
+fn fast_tan_band(n: i64, rh: f64, rl: f64) -> (f64, f64) {
+    let (rh, rl, rr) = fast_band_reduce(n, rh, rl);
+    fast_band_tan(n, rh, rl, rr)
+}
+
+// tan x as h + l, as `fast_band_big` does sin x. Out of line, as `fast_band`.
+#[inline(never)]
+fn fast_tan_band_big(x: f64) -> Option<(f64, f64)> {
+    let (n, rh, rl, rr) = fast_reduce_band_big(x)?;
+    Some(fast_band_tan(n, rh, rl, rr))
+}
+
 // tan x as h + l, as `fast_sin` does sin x: sin and cos from the same reduction and tables,
 // and their quotient, tan(i u + ρ) at an even q and -1 / tan(i u + ρ) at an odd one, within
 // 3 2^-71 |tan x| of tan x (`fast_tan_correct` in `rocq/theories/FastTrigCore.v`).
 fn fast_tan(x: f64) -> Option<(f64, f64)> {
-    let (n, rh, rl, rr) = fast_reduce_any(x)?;
+    let (n, rh, rl, rr) = match fast_reduce_any(x) {
+        Some(r) => r,
+        None => return fast_tan_band_big(x),
+    };
     if n == 0 {
         let ((sh, sl), (ch, cl)) = (fast_sin0(x), fast_cos0(x));
         return Some(fast_div(sh, sl, ch, cl));
     }
     let i = n & 2047;
-    if i == 0 || rh == 0.0 {
+    if i == 0 {
+        return Some(fast_tan_band(n, rh, rl));
+    }
+    if rh == 0.0 {
         return None;
     }
     let (sh, sl, ch, cl) = fast_sc(i);
@@ -722,7 +927,8 @@ fn fast_round_near(h: f64, l: f64) -> Option<f64> {
 
 // sin x, cos t and tan x rounded toward +∞ if `up` and toward -∞ otherwise, and to nearest, by
 // the fast path, or `None` where the argument is out of its range, where it declines the
-// argument, or where its rounding test fails.
+// argument, or where its rounding test fails, other than where `fast_one_dir` decides sin x or
+// cos t.
 // `rocq/theories/FastTrig.v` proves that they return those roundings (`fast_sin_dir_correct`
 // and the others), and the same with and without an FMA (`fast_sin_dir_fma` and the others).
 // Always inlined: LLVM inlines the three into `sin`, `cos` and `tan` by itself since 09e972a,
@@ -733,13 +939,35 @@ fn fast_round_near(h: f64, l: f64) -> Option<f64> {
 #[inline(always)]
 fn fast_sin_dir(x: f64, up: bool) -> Option<f64> {
     let (h, l) = fast_sin(x)?;
-    fast_round_dir(h, l, up)
+    fast_round_dir(h, l, up).or_else(|| fast_one_dir(h, up))
 }
 
 #[inline(always)]
 fn fast_cos_dir(t: f64, up: bool) -> Option<f64> {
     let (h, l) = fast_cos(t)?;
-    fast_round_dir(h, l, up)
+    fast_round_dir(h, l, up).or_else(|| fast_one_dir(h, up))
+}
+
+// The rounding of y toward +∞ if `up` and toward -∞ otherwise, as `fast_round_dir`, where its
+// test failed and h = ±1, for y = sin x or cos t, h + l within 2^-71 |y| of y and h = RN(h + l),
+// and `None` for any other h. RN(h + l) = 1 puts h + l in [1 - 2^-54, 1 + 2^-53], and with
+// |y| <= 1, y in [1 - 2^-54 - 2^-71, 1]. y = 1 would make x, or t, which `cos` passes only from
+// 2^-26 up, a multiple of π/2 other than 0, which no `f64` is (`km_distance`). y is then
+// strictly between 1 - 2^-53 and 1, where the rounding of y is one or the other, and the same
+// for h = -1. The test fails there when |ρ| is below about 2^-34, as the gap between cos ρ and 1
+// is then below the error.
+// `rocq/theories/FastTrigOne.v` proves it (`fast_one_dir_correct`).
+#[cold]
+fn fast_one_dir(h: f64, up: bool) -> Option<f64> {
+    #[cfg(test)]
+    if !super::fast::fast_enabled() {
+        return None;
+    }
+    if h.abs() != 1.0 {
+        return None;
+    }
+    let v = near_one(-1.0, up != (h < 0.0));
+    Some(if h < 0.0 { -v } else { v })
 }
 
 #[inline(always)]

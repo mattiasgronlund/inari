@@ -4777,7 +4777,7 @@ Definition tan_small (x : f64) (up : bool) : option f64 :=
 (** ** The fast path
 
     The constants of [fn fast_reduce] and the others, as the bits of
-    [f64]s: [INV], [U1], [U2], [U3], [S3], [S5] and [C4], [SHIFTER], 1.5
+    [f64]s: [INV], [U1], [U2], [U3], [U4], [S3], [S5] and [C4], [SHIFTER], 1.5
     * 2^52, and [LIMIT], 2^16. *)
 Import ListNotations.
 
@@ -4785,6 +4785,7 @@ Definition INV : Z := 0x40945f306dc9c883.
 Definition U1 : Z := 0x3f4921fb50000000.
 Definition U2 : Z := 0x3da110b460000000.
 Definition U3 : Z := 0x3be1a62633145c07.
+Definition U4 : Z := 0xb86f1976b7ed8fbc.
 Definition S3 : Z := 0x3fc5555555555555.
 Definition S5 : Z := 0x3f81111111111111.
 Definition C4 : Z := 0x3fa5555555555555.
@@ -4990,6 +4991,48 @@ Definition fast_reduce_any (fma : bool) (x : f64) : option (Z * f64 * f64 * f64)
   | None => fast_reduce_big fma x
   end.
 
+(** [fn fast_reduce_band_big(x: f64) -> Option<(i64, f64, f64, f64)>],
+    whose steps up to [n] are those of [fast_reduce_big], where [p0 as
+    u64] is [p0 mod 2^64], [<<] of a [u64] drops the bits above 64, [a ^
+    (a >> 63)] of an [i64] is [Z.lxor] and [Z.shiftr], which give the
+    same integer, at least 0, [leading_zeros()] of it is [leading_zeros
+    64], [- 1] of that cannot overflow, as it is at least 1, [a << s] of
+    an [i64] is [<<] of its bits [a0], which keeps [as i64] of a [u64],
+    [|] of an [i64] and [as i64] of a [u64] is [Z.lor] of their bits, [t &
+    2047] of an [i64] is [Z.land], [as u64] of it keeps its value, [<< 42]
+    of it cannot drop a bit, as it is below 2^53, [u64::from(970 - s) <<
+    52] is [Z.shiftl], as [s] is at most 63, [as f64] of a [u64] below
+    2^53 is [of_i64], and the rest is as in [fast_reduce_big].
+    [FastTrigBandBig.v] proves it. *)
+Definition fast_reduce_band_big (fma : bool) (x : f64) : option (Z * f64 * f64 * f64) :=
+  let b := Z.land (to_bits x) (2^63 - 1) in
+  let be := Z.shiftr b 52 in
+  if negb ((1039 <=? be) && (be <=? 2046)) then None else
+  let m := Z.lor (Z.land b (2^52 - 1)) (2^52) in
+  let k := be - 1011 in
+  let p0 := m * big_w k 2 in
+  let p1 := m * big_w k 1 in
+  let c := Z.shiftr p0 64 + p1 mod 2^64 in
+  let r1 := c mod 2^64 in
+  let r2 := (m * big_w k 0 + Z.shiftr p1 64 + Z.shiftr c 64) mod 2^64 in
+  let n := Z.shiftr ((r2 + 2^50) mod 2^64) 51 in
+  if negb (Z.land n 2047 =? 0) then None else
+  let a0 := Z.lor (Z.shiftl r2 13 mod 2^64) (Z.shiftr r1 51) in
+  let a := if a0 <? 2^63 then a0 else a0 - 2^64 in
+  let lo := Z.lor (Z.shiftl r1 13 mod 2^64) (Z.shiftr (p0 mod 2^64) 51) in
+  let s := leading_zeros 64 (Z.lxor a (Z.shiftr a 63)) - 1 in
+  let t0 := Z.lor (Z.shiftl a0 s mod 2^64) (Z.shiftr (Z.shiftr lo 1) (63 - s)) in
+  let t := if t0 <? 2^63 then t0 else t0 - 2^64 in
+  let v := Z.shiftl lo s mod 2^64 in
+  let fh := mul (of_i64 (Z.shiftr t 11)) (from_bits (Z.shiftl (970 - s) 52)) in
+  let fl := mul (of_i64 (Z.lor (Z.shiftl (Z.land t 2047) 42) (Z.shiftr v 22)))
+                (from_bits (Z.shiftl (917 - s) 52)) in
+  let '(n, fh, fl) :=
+    if lt x zero then (Z.land (- n) 8191, opp fh, opp fl) else (n, fh, fl) in
+  let uh := add (from_bits U1) (from_bits U2) in
+  let '(rh, rl) := fast_mul fma fh fl uh (from_bits U3) in
+  Some (n, rh, rl, add rh rl).
+
 (** [fn fast_sc(i: i64) -> (f64, f64, f64, f64)], where [i >> 6] and [i &
     63] are [Z.shiftr] and [Z.land], and [-qc] is [opp qc].
     [FastTrigSC.v] proves it. *)
@@ -5033,6 +5076,42 @@ Definition fast_cos0 (x : f64) : f64 * f64 :=
   let z := mul x x in
   Fast.fast_two_sum Fast.one (mul z (sub (mul z (from_bits C4)) half)).
 
+(** [fn fast_band_reduce(n: i64, rh: f64, rl: f64) -> (f64, f64, f64)],
+    where [n as f64] is [of_i64 n] and [-rl] is [opp rl].
+    [FastTrigBandRed.v] proves it. *)
+Definition fast_band_reduce (fma : bool) (n : Z) (rh rl : f64) : f64 * f64 * f64 :=
+  let kf := of_i64 n in
+  let pl := Generic.two_prod_err fma kf (from_bits U3) (opp rl) in
+  let '(s, e) := Fast.two_sum rh rl in
+  let t := sub e (add pl (mul kf (from_bits U4))) in
+  (s, t, add s t).
+
+(** [fn fast_band_sin(rh: f64, rl: f64, rr: f64) -> (f64, f64)] and [fn
+    fast_band_eval(q: i64, rh: f64, rl: f64, rr: f64) -> (f64, f64)],
+    where [q & 1] and [q & 2] are [Z.land], as in [fast_quad].
+    [FastTrigBandEval.v] proves them. *)
+Definition fast_band_sin (rh rl rr : f64) : f64 * f64 :=
+  let z := mul rr rr in
+  Fast.fast_two_sum rh (add rl (mul (mul rr z) (sub (mul z (from_bits S5)) (from_bits S3)))).
+
+Definition fast_band_eval (q : Z) (rh rl rr : f64) : f64 * f64 :=
+  let '(h, l) := if Z.land q 1 =? 0 then fast_band_sin rh rl rr else fast_cos0 rr in
+  if Z.land q 2 =? 0 then (h, l) else (opp h, opp l).
+
+(** [fn fast_band(n: i64, s: i64, rh: f64, rl: f64) -> (f64, f64)] and [fn
+    fast_band_big(x: f64, s: i64) -> Option<(f64, f64)>], where [n >> 11]
+    is [Z.shiftr], as in [fast_quad], and [?] is a [match].
+    [FastTrigCore.v] proves them, with [fast_sin] and the others. *)
+Definition fast_band (fma : bool) (n s : Z) (rh rl : f64) : f64 * f64 :=
+  let '(rh, rl, rr) := fast_band_reduce fma n rh rl in
+  fast_band_eval (Z.shiftr n 11 + s) rh rl rr.
+
+Definition fast_band_big (fma : bool) (x : f64) (s : Z) : option (f64 * f64) :=
+  match fast_reduce_band_big fma x with
+  | Some (n, rh, rl, rr) => Some (fast_band_eval (Z.shiftr n 11 + s) rh rl rr)
+  | None => None
+  end.
+
 (** [fn fast_quad(n: i64, s: i64, rh: f64, rl: f64, rr: f64) ->
     Option<(f64, f64)>], where [n & 2047], [n >> 11], [q & 1] and [q & 2]
     are [Z.land] and [Z.shiftr] of the integers, which agree with Rust's
@@ -5040,7 +5119,8 @@ Definition fast_cos0 (x : f64) : f64 * f64 :=
     [rh == 0.0] is [eq rh zero], true for both zeros. *)
 Definition fast_quad (fma : bool) (n s : Z) (rh rl rr : f64) : option (f64 * f64) :=
   let i := Z.land n 2047 in
-  if (i =? 0) || eq rh zero then None
+  if i =? 0 then Some (fast_band fma n s rh rl)
+  else if eq rh zero then None
   else
     let q := Z.shiftr n 11 + s in
     let '(sh, sl, ch, cl) := fast_sc fma i in
@@ -5050,18 +5130,17 @@ Definition fast_quad (fma : bool) (n s : Z) (rh rl rr : f64) : option (f64 * f64
     Some (if Z.land q 2 =? 0 then (h, l) else (opp h, opp l)).
 
 (** [fn fast_sin(x: f64) -> Option<(f64, f64)>] and [fn fast_cos(t: f64) ->
-    Option<(f64, f64)>], where [?] is a [match]. [FastTrigCore.v] proves
-    them. *)
+    Option<(f64, f64)>]. [FastTrigCore.v] proves them. *)
 Definition fast_sin (fma : bool) (x : f64) : option (f64 * f64) :=
   match fast_reduce_any fma x with
   | Some (n, rh, rl, rr) => if n =? 0 then Some (fast_sin0 x) else fast_quad fma n 0 rh rl rr
-  | None => None
+  | None => fast_band_big fma x 0
   end.
 
 Definition fast_cos (fma : bool) (t : f64) : option (f64 * f64) :=
   match fast_reduce_any fma t with
   | Some (n, rh, rl, rr) => if n =? 0 then Some (fast_cos0 t) else fast_quad fma n 1 rh rl rr
-  | None => None
+  | None => fast_band_big fma t 1
   end.
 
 (** [fn fast_div(nh: f64, nl: f64, dh: f64, dl: f64) -> (f64, f64)].
@@ -5072,12 +5151,34 @@ Definition fast_div (fma : bool) (nh nl dh dl : f64) : f64 * f64 :=
   let pe := Generic.two_prod_err fma qh dh p in
   Fast.fast_two_sum qh (div (add (sub (sub nh p) pe) (sub nl (mul qh dl))) dh).
 
+(** [fn fast_band_tan(n: i64, rh: f64, rl: f64, rr: f64) -> (f64, f64)],
+    where [n & 2048] is [Z.land n 2048]. [FastTrigBandEval.v] proves
+    it. *)
+Definition fast_band_tan (fma : bool) (n : Z) (rh rl rr : f64) : f64 * f64 :=
+  let '(sh, sl) := fast_band_sin rh rl rr in
+  let '(ch, cl) := fast_cos0 rr in
+  if Z.land n 2048 =? 0 then fast_div fma sh sl ch cl
+  else let '(h, l) := fast_div fma ch cl sh sl in (opp h, opp l).
+
+(** [fn fast_tan_band(n: i64, rh: f64, rl: f64) -> (f64, f64)] and [fn
+    fast_tan_band_big(x: f64) -> Option<(f64, f64)>], where [?] is a
+    [match]. [FastTrigCore.v] proves them, with [fast_tan]. *)
+Definition fast_tan_band (fma : bool) (n : Z) (rh rl : f64) : f64 * f64 :=
+  let '(rh, rl, rr) := fast_band_reduce fma n rh rl in
+  fast_band_tan fma n rh rl rr.
+
+Definition fast_tan_band_big (fma : bool) (x : f64) : option (f64 * f64) :=
+  match fast_reduce_band_big fma x with
+  | Some (n, rh, rl, rr) => Some (fast_band_tan fma n rh rl rr)
+  | None => None
+  end.
+
 (** [fn fast_tan(x: f64) -> Option<(f64, f64)>], where [n & 2048] is
     [Z.land n 2048], and the rest is as in [fast_quad]. [FastTrigCore.v]
     proves it. *)
 Definition fast_tan (fma : bool) (x : f64) : option (f64 * f64) :=
   match fast_reduce_any fma x with
-  | None => None
+  | None => fast_tan_band_big fma x
   | Some (n, rh, rl, rr) =>
     if n =? 0 then
       let '(sh, sl) := fast_sin0 x in
@@ -5085,7 +5186,8 @@ Definition fast_tan (fma : bool) (x : f64) : option (f64 * f64) :=
       Some (fast_div fma sh sl ch cl)
     else
       let i := Z.land n 2047 in
-      if (i =? 0) || eq rh zero then None
+      if i =? 0 then Some (fast_tan_band fma n rh rl)
+      else if eq rh zero then None
       else
         let '(sh, sl, ch, cl) := fast_sc fma i in
         let '(s0, s1) := fast_eval fma sh sl ch cl rh rl rr in
@@ -5112,13 +5214,33 @@ Definition fast_round_dir (h l : f64) (up : bool) : option f64 :=
 Definition fast_round_near (h l : f64) : option f64 :=
   let '(h, l, e) := fast_unscale h l in Fast.round_near_signed h l e.
 
+(** [fn fast_one_dir(h: f64, up: bool) -> Option<f64>], which follows
+    [fn fast_cos_dir] in Rust, where [h.abs() != 1.0] is [negb (eq (fabs
+    h) Fast.one)], the literal [-1.0] is [DyadicExp.m_one], [up != (h <
+    0.0)] is [xorb up (lt h zero)] and [-v] is [opp v]. [FastTrigOne.v]
+    proves it. *)
+Definition fast_one_dir (h : f64) (up : bool) : option f64 :=
+  if negb (eq (fabs h) Fast.one) then None
+  else
+    let v := DyadicExp.near_one DyadicExp.m_one (xorb up (lt h zero)) in
+    Some (if lt h zero then opp v else v).
+
 (** [fn fast_sin_dir(x: f64, up: bool) -> Option<f64>], the same for [cos]
     (of [t]) and [tan], and [fn fast_sin_near(x: f64) -> Option<f64>] and
-    the others. [FastTrig.v] proves them. *)
+    the others, where [o.or_else(|| p)] is [match o with Some v => Some v
+    | None => p end]. [FastTrig.v] proves them. *)
 Definition fast_sin_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
-  match fast_sin fma x with Some (h, l) => fast_round_dir h l up | None => None end.
+  match fast_sin fma x with
+  | Some (h, l) =>
+    match fast_round_dir h l up with Some v => Some v | None => fast_one_dir h up end
+  | None => None
+  end.
 Definition fast_cos_dir (fma : bool) (t : f64) (up : bool) : option f64 :=
-  match fast_cos fma t with Some (h, l) => fast_round_dir h l up | None => None end.
+  match fast_cos fma t with
+  | Some (h, l) =>
+    match fast_round_dir h l up with Some v => Some v | None => fast_one_dir h up end
+  | None => None
+  end.
 Definition fast_tan_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
   match fast_tan fma x with Some (h, l) => fast_round_dir h l up | None => None end.
 Definition fast_sin_near (fma : bool) (x : f64) : option f64 :=

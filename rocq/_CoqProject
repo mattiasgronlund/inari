@@ -239,7 +239,14 @@ theories/FastTrigBigMul.v
 theories/FastTrigBigDec.v
 theories/FastTrigBigSum.v
 theories/FastTrigBig.v
+theories/FastTrigBandRed.v
+theories/FastTrigBandInt.v
+theories/FastTrigBandMul.v
+theories/FastTrigBandBig.v
+theories/FastTrigBandDiv.v
+theories/FastTrigBandEval.v
 theories/FastTrigCore.v
+theories/FastTrigOne.v
 theories/FastTrig.v
 theories/FastPowTaylor.v
 theories/FastPowHorner.v

@@ -11,7 +11,7 @@
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr TwoSum DyDriver NearF64 FastRound FastTrigTables
-  FastTrigReduce FastTrigSC FastTrigEval FastTrigDiv FastTrigRound FastTrigCore.
+  FastTrigReduce FastTrigSC FastTrigEval FastTrigDiv FastTrigRound FastTrigCore FastTrigOne.
 
 Open Scope R_scope.
 
@@ -74,6 +74,38 @@ Qed.
 
 (** ** Rounded toward -inf and +inf *)
 
+(** [|y| < 1] from [-1 <= y <= 1] and [|y| <> 1]. *)
+Local Lemma abs_lt_one : forall y, -1 <= y <= 1 -> Rabs y <> 1 -> Rabs y < 1.
+Proof.
+intros y Hy H1.
+assert (Hle : Rabs y <= 1) by (unfold Rabs; destruct (Rcase_abs y); lra).
+destruct (Rle_lt_or_eq_dec _ _ Hle) as [L | L]; [exact L | contradiction].
+Qed.
+
+(** [fast_sin_dir] and [fast_cos_dir] round [h + l] by [fast_round_dir],
+    and where its test fails, by the rule for results next to ±1 of
+    [FastTrigOne.v], which takes [|y| < 1]. *)
+Local Lemma dir_or_one :
+  forall h l up v y,
+  is_finite h = true -> is_finite l = true -> B2R h = RN (B2R h + B2R l) ->
+  bpow radix2 (-1000) <= Rabs (B2R h) <= bpow radix2 1000 ->
+  Rabs (y - (B2R h + B2R l)) <= bpow radix2 (-71) * Rabs y -> Rabs y < 1 ->
+  match DyadicTrig.fast_round_dir h l up with
+  | Some w => Some w
+  | None => DyadicTrig.fast_one_dir h up
+  end = Some v ->
+  rounds up y v.
+Proof.
+intros h l up v y Fh Fl Hrn Hh Hy Hy1 H.
+destruct (DyadicTrig.fast_round_dir h l up) as [w|] eqn:R.
+- injection H as <-.
+  apply (FastTrigRound.fast_round_dir_correct h l up w y Fh Fl Hrn Hh); [|exact R].
+  assert (0 <= bpow radix2 (-71) * Rabs y)
+    by (apply Rmult_le_pos; [apply bpow_ge_0 | apply Rabs_pos]).
+  lra.
+- exact (FastTrigOne.fast_one_dir_correct h l up v y Fh Fl Hrn Hy Hy1 H).
+Qed.
+
 Theorem fast_sin_dir_correct :
   forall fma x up v,
   is_finite x = true -> bpow radix2 (-27) <= Rabs (B2R x) ->
@@ -84,10 +116,8 @@ intros fma x up v Fx Hx H. unfold DyadicTrig.fast_sin_dir in H.
 destruct fma; [rewrite (FastTrigCore.fast_sin_fma x Hx) in H|].
 all: destruct (DyadicTrig.fast_sin false x) as [[h l]|] eqn:E; [|discriminate H].
 all: destruct (FastTrigCore.fast_sin_correct x h l Fx Hx E) as (Fh & Fl & Hrn & Hh & Herr).
-all: apply (FastTrigRound.fast_round_dir_correct h l up v _ Fh Fl Hrn Hh); [|exact H].
-all: assert (0 <= bpow radix2 (-71) * Rabs (sin (B2R x)))
-       by (apply Rmult_le_pos; [apply bpow_ge_0 | apply Rabs_pos]).
-all: lra.
+all: apply (dir_or_one h l up v _ Fh Fl Hrn Hh Herr); [|exact H].
+all: apply abs_lt_one; [apply SIN_bound | exact (FastTrigOne.sin_not_one x Fx)].
 Qed.
 
 Theorem fast_cos_dir_correct :
@@ -100,10 +130,9 @@ intros fma t up v Ft Ht H. unfold DyadicTrig.fast_cos_dir in H.
 destruct fma; [rewrite (FastTrigCore.fast_cos_fma t Ht) in H|].
 all: destruct (DyadicTrig.fast_cos false t) as [[h l]|] eqn:E; [|discriminate H].
 all: destruct (FastTrigCore.fast_cos_correct t h l Ft Ht E) as (Fh & Fl & Hrn & Hh & Herr).
-all: apply (FastTrigRound.fast_round_dir_correct h l up v _ Fh Fl Hrn Hh); [|exact H].
-all: assert (0 <= bpow radix2 (-71) * Rabs (cos (B2R t)))
-       by (apply Rmult_le_pos; [apply bpow_ge_0 | apply Rabs_pos]).
-all: lra.
+all: apply (dir_or_one h l up v _ Fh Fl Hrn Hh Herr); [|exact H].
+all: apply abs_lt_one; [apply COS_bound | apply (FastTrigOne.cos_not_one t Ft)].
+all: intros Z; rewrite Z, Rabs_R0 in Ht; pose proof (bpow_gt_0 radix2 (-27)); lra.
 Qed.
 
 Theorem fast_tan_dir_correct :

@@ -56,7 +56,8 @@ From Inari Require FastSign FastLogTables FastLogTaylor FastLogHorner FastLogPol
   FastLogCore FastLogNorm FastLogLn FastLogBy FastLog.
 From Inari Require FastTrigTables FastTrigReduce FastTrigSC FastTrigEval FastTrigDiv
   FastTrigRound FastTrigBigInt FastTrigBigMul FastTrigBigDec FastTrigBigSum FastTrigBig
-  FastTrigCore FastTrig.
+  FastTrigBandRed FastTrigBandInt FastTrigBandMul FastTrigBandBig FastTrigBandDiv FastTrigBandEval
+  FastTrigCore FastTrigOne FastTrig.
 From Inari Require FastPowTaylor FastPowHorner FastPowCube FastPowPoly FastPowCore FastPowLn FastPowMul
   FastPowRules FastPow.
 From Inari Require FastDdSqrt FastLogDd AsinhTaylor FastAhypOdd FastAhypNear1 FastAhypAsinh FastAhypAcosh
@@ -455,6 +456,21 @@ Print Assumptions FastTrig.fast_tan_dir_correct.
 Print Assumptions FastTrig.fast_tan_near_correct.
 Print Assumptions FastTrig.fast_tan_dir_fma.
 Print Assumptions FastTrig.fast_tan_near_fma.
+Print Assumptions FastTrigBandRed.band_consts.
+Print Assumptions FastTrigBandRed.fast_band_reduce_correct.
+Print Assumptions FastTrigBandRed.fast_band_reduce_fma.
+Print Assumptions FastTrigBandBig.fast_reduce_band_big_correct.
+Print Assumptions FastTrigBandBig.fast_reduce_band_big_fma.
+Print Assumptions FastTrigBandEval.band_sin_correct.
+Print Assumptions FastTrigBandEval.band_cos_correct.
+Print Assumptions FastTrigBandEval.band_eval_correct.
+Print Assumptions FastTrigBandDiv.band_div_correct.
+Print Assumptions FastTrigBandDiv.band_div_fma.
+Print Assumptions FastTrigBandEval.band_tan_correct.
+Print Assumptions FastTrigBandEval.band_tan_fma.
+Print Assumptions FastTrigOne.sin_not_one.
+Print Assumptions FastTrigOne.cos_not_one.
+Print Assumptions FastTrigOne.fast_one_dir_correct.
 Print Assumptions FastPowTaylor.log1p_shift2.
 Print Assumptions FastPowHorner.log1p_horner4_correct.
 Print Assumptions FastPowCube.log1p_cube_correct.

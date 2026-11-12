@@ -742,6 +742,12 @@ fn declined(x: f64) -> bool {
     fast_sin(x).is_none() && fast_cos(x.abs()).is_none() && fast_tan(x).is_none()
 }
 
+// Whether the fast paths of sin, cos and tan all take `x`, before any rounding test, as
+// `declined` reads them.
+fn answered(x: f64) -> bool {
+    fast_sin(x).is_some() && fast_cos(x.abs()).is_some() && fast_tan(x).is_some()
+}
+
 // The n = 2048 q + i of items 1 and 2 of `reduction_edges`: q from 0 to 3 and on across the
 // range of the fast path, and i = 0 and next to the ends of [1, 2047], to the multiples of 64 and
 // to 1024, where (n + 1) u is below `LIMIT` too.
@@ -796,13 +802,14 @@ fn fast_parts(i: usize, x: f64) -> Option<(f64, f64)> {
 //    and on across the range, and for i = 0 and next to the ends of [1, 2047] and to the
 //    multiples of 64, where `fast_sc` takes a row of `SC1` alone, a row of `SC2` alone or one of
 //    each, and at 1024, where i u = π/4. At i = 0 and n != 0, x is close to q π/2, where sin,
-//    cos or tan is close to 0 or has a pole, and the fast paths decline x.
+//    cos or tan is close to 0 or has a pole, and `fast_band` and `fast_tan_band` take x.
 // 2. Next to RN((n + 1/2) u), where |ρ| is at its largest, u/2, the reduction gives n on one side
 //    and n + 1 on the other, and nothing else among the 8 `f64`s on each side of it. The n = 0
 //    of `fast_sin0` and `fast_cos0` meets n = 1 at u/2.
 // 3. At x = n (U1 + U2) for n = m 2^k with m in {1, 3, 5, 7}, an `f64`, as U1 + U2 is an odd
 //    multiple of 2^-60 below 2^-10 and m < 8, the reduction gives n and rh = x - n U1 - n U2 = 0,
-//    and the fast paths decline x.
+//    and the fast paths decline x, other than at n mod 2048 = 0, where `fast_band` and
+//    `fast_tan_band` take x.
 // 4. Around `LIMIT`, at and above which `fast_reduce_big` takes x instead of `fast_reduce`.
 #[test]
 fn reduction_edges() {
@@ -812,7 +819,7 @@ fn reduction_edges() {
             assert_eq!(reduced(y), n, "{y:e}");
             assert_eq!(reduced(-y), -n, "{:e}", -y);
             assert!(
-                n % 2048 != 0 || n == 0 || (declined(y) && declined(-y)),
+                n % 2048 != 0 || n == 0 || (answered(y) && answered(-y)),
                 "{y:e}"
             );
             for j in [SIN, COS, TAN] {
@@ -843,7 +850,13 @@ fn reduction_edges() {
         for y in [x, -x] {
             let (got, rh, _, _) = fast_reduce(y).unwrap();
             assert!(
-                got == if y > 0.0 { n } else { -n } && rh == 0.0 && declined(y),
+                got == if y > 0.0 { n } else { -n }
+                    && rh == 0.0
+                    && if n % 2048 == 0 {
+                        answered(y)
+                    } else {
+                        declined(y)
+                    },
                 "{y:e}: n = {got}, rh = {rh:e}"
             );
             for j in [SIN, COS, TAN] {
@@ -1076,8 +1089,9 @@ fn big_arg(rng: &mut Rng) -> f64 {
 }
 
 // sin, cos and tan on random arguments of `big_arg`, as `check_big` and `check_fast` check them.
-// The fast path takes all but about 1 in 2048 of them, where i = 0, so more than 99%, and most of
-// its rounding tests pass.
+// The fast path takes more than 99% of them, and most of its rounding tests pass. It declines
+// only the x where `fast_reduce_big` finds |rh| < 2^-65, close to a multiple of u that is not
+// one of π/2, as `fast_band_big` and `fast_tan_band_big` take the x where i = 0.
 #[test]
 fn big_random() {
     let mut rng = Rng(951);
@@ -1097,6 +1111,123 @@ fn big_random() {
              {passed} times and failed {failed} times",
             FUNCTIONS[i].0
         );
+    }
+}
+
+// RN(π/2 - RN(π/2)), the part of π/2 below `FRAC_PI_2`.
+const HALF_PI_LO: f64 = 6.123233995736766e-17;
+
+// The largest k with k π/2 below `LIMIT`: 41721 π/2 is about 65535.4.
+const LAST_K: i64 = 41_721;
+
+// RN(k π/2) for k in [1, `LAST_K`], or an `f64` next to it. p + e is k RN(π/2) exactly
+// [Dekker], and p + RN(e + RN(k `HALF_PI_LO`)) is within 2^-89 of k π/2: k (π/2 - RN(π/2) -
+// `HALF_PI_LO`) and the errors of the two roundings, of numbers below 2^-37, are each at most
+// 2^-91. So the result is RN(k π/2) unless k π/2 is within 2^-89 of the midpoint of two
+// `f64`s, and `mpfr::band_reductions` checks that it is RN(k π/2) for every such k.
+fn near_multiple(k: i64) -> f64 {
+    let (kf, h) = (k as f64, std::f64::consts::FRAC_PI_2);
+    let p = kf * h;
+    p + (two_prod_err::<HAS_FMA>(kf, h, p) + kf * HALF_PI_LO)
+}
+
+// What gives the function `i` at `x` in the rounding `r` of `roundings` (0 down, 1 up and 2 to
+// nearest), for an x that its fast path takes and that no rule of `small` takes: 0 for the
+// rounding test of the fast path, 1 for `fast_one_dir`, which sin and cos take in a direction
+// where that test fails, and 2 for neither, where the kernel computes the result.
+fn band_outcome(i: usize, x: f64, r: usize) -> usize {
+    let (h, l) = fast_parts(i, x).unwrap();
+    let up = r == 1;
+    let passed = if r == 2 {
+        fast_round_near(h, l).is_some()
+    } else {
+        fast_round_dir(h, l, up).is_some()
+    };
+    if passed {
+        0
+    } else if r != 2 && i != TAN && fast_one_dir(h, up).is_some() {
+        1
+    } else {
+        2
+    }
+}
+
+// sin, cos and tan at RN(k π/2) and the 2 `f64`s on each side of it, both signs of each, for
+// every k from 1 to `LAST_K`, as `check_fast` checks them. There x = n u + ρ with n = ±2048 k and
+// |ρ| < 2^-35, which the reduction gives and the fast paths take (`fast_band` and
+// `fast_tan_band`), and the result is ±sin ρ, ±cos ρ, tan ρ or -1 / tan ρ. The kernel computes
+// fewer than 1 in 10,000 of the results of each function. The rounding test of the fast path
+// gives the others, but for ±cos ρ in a direction, where cos ρ is within 2^-72 of 1, closer than
+// the error bound of the test, 2^-68, and `fast_one_dir` gives every one of those.
+#[test]
+fn near_multiples() {
+    // outcomes[i][o]: the results of the function `i` that `band_outcome` gives o for.
+    let mut outcomes = [[0usize; 3]; 3];
+    // ±cos ρ is sin at an odd k and cos at an even one, at 10 arguments in 2 directions each.
+    let last = usize::try_from(LAST_K).unwrap();
+    let cos_half = [20 * ((last + 1) / 2), 20 * (last / 2), 0];
+    for k in 1..=LAST_K {
+        for y in around(near_multiple(k), 2) {
+            for (z, n) in [(y, 2048 * k), (-y, -2048 * k)] {
+                assert_eq!(reduced(z), n, "{z:e}");
+                assert!(answered(z), "{z:e}");
+                for i in [SIN, COS, TAN] {
+                    check_fast(i, z);
+                    for r in 0..3 {
+                        outcomes[i][band_outcome(i, z, r)] += 1;
+                    }
+                }
+            }
+        }
+    }
+    for i in [SIN, COS, TAN] {
+        let [test, one, kernel] = outcomes[i];
+        assert!(
+            one == cos_half[i] && 10_000 * kernel < test + one + kernel,
+            "{}: the rounding test gives {test} results, `fast_one_dir` {one} and the kernel \
+             {kernel}",
+            FUNCTIONS[i].0
+        );
+    }
+}
+
+// sin at an odd k and cos at an even k, at x = RN(k π/2) ± 2^-e and at -x, for e from 25 to 40
+// and k from 1 to 16 and at 255, 256, 599 and 600, as `check_fast` checks them. The result is
+// ±cos ρ, with ρ = x - k π/2 within 2^-44 of ±2^-e, as RN(k π/2) < 2^10 is within 2^-44 of
+// k π/2, and 1 - cos ρ is about 2^(-2e - 1). In a direction, the rounding test of the fast path
+// gives the result for e from 27 to 33, where 1 - cos ρ is above the error bound of the test,
+// 2^-68, and `fast_one_dir` for e from 34 to 40, where it is below and cos ρ is above
+// 1 - 2^-54, so that h = 1. To nearest, the test gives the result for e from 27 to 40.
+// At e = 25 and 26, cos ρ is close to the `f64` 1 - 2^(-2e - 1), not to 1, and `fast_one_dir`
+// does not take it.
+#[test]
+fn near_one_edge() {
+    // outcomes[e - 25][r]: how many results in the rounding `r` `band_outcome` gives 0, 1 and 2
+    // for, of the 80 at each e: 20 k, 2 offsets and 2 signs.
+    let mut outcomes = [[[0usize; 3]; 3]; 16];
+    for k in (1..=16).chain([255, 256, 599, 600]) {
+        let i = if k % 2 == 0 { COS } else { SIN };
+        let x = near_multiple(k);
+        for (e, c) in (25..=40).zip(&mut outcomes) {
+            for y in [x + pow2(-e), x - pow2(-e)] {
+                assert_eq!((y - x).abs(), pow2(-e), "{x:e} ± 2^-{e} is not an `f64`");
+                for z in [y, -y] {
+                    check_fast(i, z);
+                    for (r, c) in c.iter_mut().enumerate() {
+                        c[band_outcome(i, z, r)] += 1;
+                    }
+                }
+            }
+        }
+    }
+    for (e, c) in (25..=40).zip(&outcomes) {
+        let one = usize::from(e >= 34);
+        let ok = if e < 27 {
+            c[0][1] == 0 && c[1][1] == 0
+        } else {
+            c[0][one] == 80 && c[1][one] == 80 && c[2][0] == 80
+        };
+        assert!(ok, "2^-{e}: {c:?}");
     }
 }
 
@@ -1198,8 +1329,9 @@ mod mpfr {
 
     // The tables and the constants of the fast path of `trig.rs` are what the comments on them
     // say, with the bounds that `rocq/theories/FastTrigTables.v` proves (`sc1_correct`,
-    // `sc2_correct`, `fast_trig_consts`). π is to 300 bits, so that the angles and u = π/4096
-    // are within 2^-280 of theirs.
+    // `sc2_correct`, `fast_trig_consts`) and, for `U4`, `rocq/theories/FastTrigBandRed.v`
+    // (`band_consts`). π is to 300 bits, so that the angles and u = π/4096 are within 2^-280 of
+    // theirs.
     #[test]
     fn fast_tables_and_constants() {
         let pi = Float::with_val(PREC, Constant::Pi);
@@ -1224,9 +1356,24 @@ mod mpfr {
         let rest = rest - u2;
         let u3 = f64::from_bits(U3);
         assert_eq!(U3, rest.to_f64().to_bits(), "U3: {u3:e} != RN(u - U1 - U2)");
-        let mut err = rest - u3;
-        err.abs_mut();
+        // u - U1 - U2 - U3, exact to `PREC` bits, as are the differences above.
+        let rest = rest - u3;
+        let err = Float::with_val(PREC, rest.abs_ref());
         assert!(err < pow2(-120), "|u - U1 - U2 - U3| = {:e}", err.to_f64());
+        let u4 = f64::from_bits(U4);
+        assert_eq!(
+            U4,
+            rest.to_f64().to_bits(),
+            "U4: {u4:e} != RN(u - U1 - U2 - U3)"
+        );
+        assert!(u4.abs() <= pow2(-120), "|U4| = {u4:e}");
+        let mut err = rest - u4;
+        err.abs_mut();
+        assert!(
+            err <= pow2(-174),
+            "|u - U1 - U2 - U3 - U4| = {:e}",
+            err.to_f64()
+        );
         let inv = Float::with_val(PREC, 4096) / &pi;
         assert_eq!(INV, inv.to_f64().to_bits(), "INV");
         let mut err = Float::with_val(PREC, &u * f64::from_bits(INV)) - 1u32;
@@ -1389,7 +1536,8 @@ mod mpfr {
     // `SMALL_FALL_THROUGH`, and their negations, with 2^-27 <= |x| < `LIMIT` and y = f(x) within
     // 2^-72 |y| of an `f64` g. The bound of the core puts h + l within (2^-72 + 3 2^-71) |y| of
     // g, which is below 2^-68 after the scaling of `fast_unscale` to |h| in [1, 2), so that h is g
-    // and |l| is below 2^-68, where neither direction passes.
+    // and |l| is below 2^-68, where neither direction passes. Where sin or cos gives g = ±1,
+    // `fast_one_dir` rounds y instead, to MPFR's roundings.
     #[test]
     fn hard_cases_fall_through() {
         let mut reached = 0;
@@ -1413,8 +1561,13 @@ mod mpfr {
                         COS => fast_cos_dir(x, up),
                         _ => fast_tan_dir(x, up),
                     };
+                    let want = if i != TAN && y.to_f64().abs() == 1.0 {
+                        Some(if up { MPFR[i].1(x) } else { MPFR[i].0(x) })
+                    } else {
+                        None
+                    };
                     assert!(
-                        r.is_none(),
+                        r.map(f64::to_bits) == want.map(f64::to_bits),
                         "{}({x:e}): the fast path rounds it {} to {r:?}",
                         FUNCTIONS[i].0,
                         if up { "up" } else { "down" }
@@ -1626,7 +1779,52 @@ mod mpfr {
             assert!(ok, "around {x:e}, N = {n}: {ks:?}");
         }
     }
+
+    // `HALF_PI_LO` is RN(π/2 - RN(π/2)), and `near_multiple(k)` is RN(k π/2) for every k from 1
+    // to `LAST_K`. At it and the 2 `f64`s on each side of it, both signs of each, where
+    // `fast_reduce` gives n = ±2048 k, `fast_band_reduce` gives (sh, sl, sr) with the bounds that
+    // `fast_band_reduce_correct` in `rocq/theories/FastTrigBandRed.v` proves: sh, sl and sr are
+    // finite, sr = RN(sh + sl), 2^-61 <= |ρ| <= u/2 (1 + 2^-24) for ρ = x - n u,
+    // |ρ - (sh + sl)| <= 2^-74 |ρ| and |sl| <= 2^-24 |sh|. π is to `PREC` bits, so that n u is
+    // within 2^-280 of n π/4096, and x - n u, sh and sl are exact to `PREC` bits.
+    #[test]
+    fn band_reductions() {
+        let pi = Float::with_val(PREC, Constant::Pi);
+        let half_pi = Float::with_val(PREC, &pi / 2u32);
+        let lo = Float::with_val(PREC, &half_pi - std::f64::consts::FRAC_PI_2).to_f64();
+        assert_eq!(HALF_PI_LO.to_bits(), lo.to_bits(), "HALF_PI_LO: {lo:e}");
+        let u = Float::with_val(PREC, &pi / 4096u32);
+        let far = Float::with_val(PREC, &u / 2u32) * (1.0 + pow2(-24));
+        for k in 1..=LAST_K {
+            let x = near_multiple(k);
+            let want = Float::with_val(PREC, &half_pi * k).to_f64();
+            assert_eq!(x.to_bits(), want.to_bits(), "k = {k}: {x:e} != {want:e}");
+            for y in around(x, 2) {
+                for z in [y, -y] {
+                    let (n, rh, rl, _) = fast_reduce(z).unwrap();
+                    let (sh, sl, sr) = fast_band_reduce(n, rh, rl);
+                    let rho = Float::with_val(PREC, z) - Float::with_val(PREC, &u * n);
+                    let mut err = Float::with_val(PREC, &rho - sh) - sl;
+                    err.abs_mut();
+                    let rho = rho.abs();
+                    assert!(
+                        [sh, sl, sr].iter().all(|v| v.is_finite())
+                            && sr.to_bits() == (sh + sl).to_bits()
+                            && rho >= pow2(-61)
+                            && rho <= far
+                            && err <= Float::with_val(PREC, &rho * pow2(-74))
+                            && sl.abs() <= pow2(-24) * sh.abs(),
+                        "{z:e}: n = {n}, (sh, sl, sr) = ({sh:e}, {sl:e}, {sr:e}), |ρ| = {:e}, \
+                         |ρ - (sh + sl)| = {:e}",
+                        rho.to_f64(),
+                        err.to_f64()
+                    );
+                }
+            }
+        }
+    }
 }
 
+mod band;
 mod levels;
 mod mpfr_cases;
