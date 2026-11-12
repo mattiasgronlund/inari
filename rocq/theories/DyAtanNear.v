@@ -16,7 +16,7 @@ From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary LogReal AtanReal DyRound DyConv DyOps
   DyDriver DyGrow DyConst DyExpCore DyExpRules DyExp ExpReal DyHyp DyHypRules DyLogRules
   DyLogCore DyLog DyLogHyp AtanSeries AtanIdent DyConstPi DyAtanTiny DyAtanCore DyAtan DyAsin
-  MpfrRound NearF64 NearCells DyDriverNear DyAtanMidQ FastAtan FastAsin.
+  MpfrRound NearF64 NearCells DyDriverNear DyAtanMidQ FastAtan FastAsin AtanPiConst.
 From Inari Require PiBounds PiTight.
 
 Open Scope Z_scope.
@@ -140,12 +140,15 @@ apply (near_x _ r Flo).
 Qed.
 
 (** [pi_times_near_with ziv_near_strict c] rounds [c π] to nearest, by
-    the loop on [ev_pi]. *)
+    the constants of [pi_bounds] ([pi_const_near]) or the loop on
+    [ev_pi]. *)
 Local Lemma tn_pi_times :
   forall c v, is_finite c = true ->
   DyadicAtan.pi_times_near_with ziv_near_strict c = Some v -> near_round (B2R c * PI) v.
 Proof.
 intros c v Fc H. unfold DyadicAtan.pi_times_near_with in H.
+destruct (DyadicAtan.pi_bounds (fabs c)) as [[lo hi]|] eqn:Eb; cbv beta iota in H.
+{ injection H as <-. exact (pi_const_near c lo hi Fc Eb). }
 apply (ziv_near_strict_correct (DyadicAtan.ev_pi c) 1%nat); [|exact H].
 intros n a Hn Ha. exact (ev_pi_correct c n a Hn Fc Ha).
 Qed.
@@ -206,7 +209,8 @@ Local Lemma pi_times_near_strict :
   DyadicAtan.pi_times_near_with ziv_near_strict c = Some v -> DyadicAtan.pi_times_near c = Some v.
 Proof.
 intros c v. unfold DyadicAtan.pi_times_near, DyadicAtan.pi_times_near_with.
-apply ziv_near_strict_ziv.
+destruct (DyadicAtan.pi_bounds (fabs c)) as [[lo hi]|];
+  [exact (fun h => h) | apply ziv_near_strict_ziv].
 Qed.
 
 (** Where [ziv_near_strict] returns, [Dyadic.ziv_near] returns the same:

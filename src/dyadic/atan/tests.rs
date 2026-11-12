@@ -222,13 +222,10 @@ fn special_and_exact() {
             assert_eq!(asin(x, up).to_bits(), x.to_bits());
         }
         assert_eq!(acos(1.0, up).to_bits(), 0);
-        // atan2 at the zeros and infinities, as `mpfr_atan2` gives it.
+        // atan2 at the zeros and infinities where `mpfr_atan2` gives y, or 0 with the sign of y.
         for y in [0.0, -0.0] {
             for x in [0.0, 1.0, f64::INFINITY] {
                 assert_eq!(atan2(y, x, up).to_bits(), y.to_bits());
-            }
-            for x in [-0.0, -1.0, f64::NEG_INFINITY] {
-                assert_eq!(atan2(y, x, up), pi_times(1.0_f64.copysign(y), up));
             }
         }
         for y in [1.0, -1.0, f64::MAX, -f64::MAX] {
@@ -236,21 +233,48 @@ fn special_and_exact() {
                 atan2(y, f64::INFINITY, up).to_bits(),
                 0.0_f64.copysign(y).to_bits()
             );
+        }
+    }
+    // atan2 at the zeros and infinities where `mpfr_atan2` gives c π, for c = 1/4, 1/2, 3/4 or 1
+    // with the sign of y: c π in both directions and to nearest, as `ziv` and `ziv_near` give it
+    // from `PiMul(c)`, and not as `pi_times` and `pi_times_near` give it, as atan2 calls them
+    // there.
+    let at_pi_times = |y: f64, x: f64, c: f64| {
+        for up in [false, true] {
             assert_eq!(
-                atan2(y, f64::NEG_INFINITY, up),
-                pi_times(1.0_f64.copysign(y), up)
+                atan2(y, x, up).to_bits(),
+                ziv(&PiMul(c), up, 1).to_bits(),
+                "atan2({:e}, {:e}) toward {}",
+                y,
+                x,
+                if up { "+∞" } else { "-∞" }
             );
+        }
+        assert_eq!(
+            atan2_near(y, x).to_bits(),
+            ziv_near(&PiMul(c), 1).to_bits(),
+            "atan2({:e}, {:e}) to nearest",
+            y,
+            x
+        );
+    };
+    for s in [1.0, -1.0] {
+        // y = ±0, the sign of s.
+        let y = 0.0 * s;
+        for x in [-0.0, -1.0, f64::NEG_INFINITY] {
+            at_pi_times(y, x, s);
+        }
+        for y in [s, s * f64::MAX] {
+            at_pi_times(y, f64::NEG_INFINITY, s);
             for x in [0.0, -0.0] {
-                assert_eq!(atan2(y, x, up), pi_times(0.5_f64.copysign(y), up));
+                at_pi_times(y, x, 0.5 * s);
             }
         }
-        for s in [1.0, -1.0] {
-            let y = s * f64::INFINITY;
-            assert_eq!(atan2(y, f64::INFINITY, up), pi_times(0.25 * s, up));
-            assert_eq!(atan2(y, f64::NEG_INFINITY, up), pi_times(0.75 * s, up));
-            for x in [0.0, -0.0, 1.0, -1.0, f64::MAX, -f64::MAX] {
-                assert_eq!(atan2(y, x, up), pi_times(0.5 * s, up));
-            }
+        let y = s * f64::INFINITY;
+        at_pi_times(y, f64::INFINITY, 0.25 * s);
+        at_pi_times(y, f64::NEG_INFINITY, 0.75 * s);
+        for x in [0.0, -0.0, 1.0, -1.0, f64::MAX, -f64::MAX] {
+            at_pi_times(y, x, 0.5 * s);
         }
     }
     // To nearest: atan and asin keep the sign of a zero, atan(±2^54) and asin(1) are the `f64`
@@ -271,6 +295,66 @@ fn special_and_exact() {
 #[test]
 fn exact_enclosure() {
     crate::dyadic::tests::check_exact(&Acos(1.0), 0.0, "acos(1)");
+}
+
+// `pi_times` and `pi_times_near` take c π from the bits of `pi_bounds` at |c| = 1/4, 1/2, 3/4
+// and 1, and from `ziv` and `ziv_near` at any other c. At both signs of those c, and of a few
+// that `pi_bounds` does not take, they give the bits that `ziv` and `ziv_near` give from
+// `PiMul(c)`, in both directions and to nearest. So do atan at `HUGE_ATAN`, the `f64` after
+// it, `f64::MAX` and +∞, where the rule of atan calls them with c = 1/2, and at their
+// negatives, with c = -1/2.
+#[test]
+fn pi_times_constants() {
+    let ks = [
+        (0.25, true),
+        (0.5, true),
+        (0.75, true),
+        (1.0, true),
+        (0.125, false),
+        (1.5, false),
+        (3.0, false),
+    ];
+    for (k, constant) in ks {
+        assert_eq!(pi_bounds(k).is_some(), constant, "pi_bounds({})", k);
+        for s in [1.0, -1.0] {
+            let c = s * k;
+            for up in [false, true] {
+                assert_eq!(
+                    pi_times(c, up).to_bits(),
+                    ziv(&PiMul(c), up, 1).to_bits(),
+                    "pi_times({}, {})",
+                    c,
+                    up
+                );
+            }
+            assert_eq!(
+                pi_times_near(c).to_bits(),
+                ziv_near(&PiMul(c), 1).to_bits(),
+                "pi_times_near({})",
+                c
+            );
+        }
+    }
+    for x in [HUGE_ATAN, next_up(HUGE_ATAN), f64::MAX, f64::INFINITY] {
+        for x in [x, -x] {
+            let c = 0.5_f64.copysign(x);
+            for up in [false, true] {
+                assert_eq!(
+                    atan(x, up).to_bits(),
+                    ziv(&PiMul(c), up, 1).to_bits(),
+                    "atan({:e}, {})",
+                    x,
+                    up
+                );
+            }
+            assert_eq!(
+                atan_near(x).to_bits(),
+                ziv_near(&PiMul(c), 1).to_bits(),
+                "atan_near({:e})",
+                x
+            );
+        }
+    }
 }
 
 // Each rule and each case of `atan_encl` at its threshold and the 3 `f64`s on each side of it,
@@ -1701,6 +1785,57 @@ mod mpfr {
                 want.to_bits(),
                 "{name}: {:e} != RN(1/{n}) = {want:e}",
                 f64::from_bits(a)
+            );
+        }
+    }
+
+    // The bounds that `pi_bounds` gives for k = 1/4, 1/2, 3/4 and 1 are k π rounded toward -∞
+    // and toward +∞, and the first is also k π rounded to nearest, as the comment on them says.
+    // It is `FRAC_PI_4`, `FRAC_PI_2` and the `f64` `PI` of `std` for k = 1/4, 1/2 and 1, and
+    // k π lies 0.28 of an ulp above it for those k, and 0.21 for k = 3/4, to 2 decimals.
+    #[test]
+    fn pi_bounds_are_roundings() {
+        let consts = [
+            (
+                "PI_QUARTER",
+                0.25,
+                PI_QUARTER,
+                Some(std::f64::consts::FRAC_PI_4),
+                28.0,
+            ),
+            (
+                "PI_HALF",
+                0.5,
+                PI_HALF,
+                Some(std::f64::consts::FRAC_PI_2),
+                28.0,
+            ),
+            ("PI_THREE_QUARTERS", 0.75, PI_THREE_QUARTERS, None, 21.0),
+            ("PI_ONE", 1.0, PI_ONE, Some(std::f64::consts::PI), 28.0),
+        ];
+        for (name, k, bits, named, hundredths) in consts {
+            assert_eq!(pi_bounds(k), Some(bits), "pi_bounds({k})");
+            // k π to `PREC` bits.
+            let v = Float::with_val(PREC, Constant::Pi) * k;
+            let (lo, hi) = (f64::from_bits(bits[0]), f64::from_bits(bits[1]));
+            assert_eq!(
+                bits,
+                [
+                    v.to_f64_round(Round::Down).to_bits(),
+                    v.to_f64_round(Round::Up).to_bits()
+                ],
+                "{name}: [{lo:e}, {hi:e}] != [RD({k} π), RU({k} π)]"
+            );
+            assert_eq!(bits[0], v.to_f64().to_bits(), "{name}: {lo:e} != RN({k} π)");
+            if let Some(named) = named {
+                assert_eq!(bits[0], named.to_bits(), "{name}: {lo:e} != {named:e}");
+            }
+            // (k π - lo) / (hi - lo), with hi - lo, an ulp, exact.
+            let above = (Float::with_val(PREC, &v - lo) / (hi - lo)).to_f64();
+            assert_eq!(
+                (above * 100.0).round(),
+                hundredths,
+                "{name}: k π lies {above} of an ulp above {lo:e}"
             );
         }
     }

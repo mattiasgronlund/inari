@@ -37,21 +37,25 @@
 //
 // `rocq/theories/Model.v` transcribes each function of this file except the tests, so it has
 // to be updated along with them. `rocq/theories/DyAtan.v` and `rocq/theories/DyAsin.v` prove
-// that each of the four functions, at finite arguments in its domain and where it does not
-// panic, returns a value on the side of its result that the rounding is on, and, where a rule
-// that does not call `pi_times` settles the arguments or a rounding test of `ziv` passes, its
-// result rounded as `mpfr_round` in `rocq/theories/Mpfr.v` says, with the rule of atan at
-// |x| >= `HUGE_ATAN`, which calls `pi_times`, proved by `atan_huge_post` in `DyAtan.v`. They
-// build on `rocq/theories/DyAtanCore.v` for `series`, `atan_series`, `atan_encl` and
-// `asin_parts`, `rocq/theories/AtanSeries.v` for the bounds of the series and the halving,
+// that each of the four functions, at finite arguments in its domain (y != 0 or x > 0 for
+// atan2) and where it does not panic, returns a value on the side of its result that the
+// rounding is on, and, where a rule settles the arguments or a rounding test of `ziv` passes,
+// its result rounded as `mpfr_round` in `rocq/theories/Mpfr.v` says. The rules that return
+// ±π/4, ±π/2, ±3π/4 or ±π rounded, among them that of atan at |x| >= `HUGE_ATAN`, whose
+// result rounds as ±π/2 does (`atan_huge_post` in `DyAtan.v`), take the rounded multiple of π
+// from the constants of `pi_times`, not from `ziv`. `DyAtan.v` and `DyAsin.v` build on
+// `rocq/theories/DyAtanCore.v` for `series`, `atan_series`, `atan_encl` and `asin_parts`,
+// `rocq/theories/AtanSeries.v` for the bounds of the series and the halving,
 // `rocq/theories/AtanIdent.v` for the identities that the evaluations use,
-// `rocq/theories/DyConstPi.v` for π, and `rocq/theories/DyAtanTiny.v` for the rules of atan,
-// asin and atan2 at tiny arguments and quotients, with `rocq/theories/AtanExactDiv.v` for the
-// quotients that `exact_div` decides in `f64`. `rocq/theories/DyAtanNear.v` proves that
-// each of the four functions rounded to nearest, at finite arguments in its domain, where a
-// rule settles the arguments or a rounding test of `ziv_near` passes, returns its result
-// rounded to nearest as `near_round` in `rocq/theories/NearF64.v` says, from the same
-// enclosures and bounds and the cells of `rocq/theories/NearCells.v`. It builds on
+// `rocq/theories/DyConstPi.v` for π, `rocq/theories/AtanPiConst.v` for the constants of
+// `pi_times` and `pi_times_near`, c π rounded in both directions and to nearest, and
+// `rocq/theories/DyAtanTiny.v` for the rules of atan, asin and atan2 at tiny arguments and
+// quotients, with `rocq/theories/AtanExactDiv.v` for the quotients that `exact_div` decides in
+// `f64`. `rocq/theories/DyAtanNear.v` proves that each of the four functions rounded to
+// nearest, at the same arguments, where a rule settles the arguments or a rounding
+// test of `ziv_near` passes, returns its result rounded to nearest as `near_round` in
+// `rocq/theories/NearF64.v` says, from the same enclosures, bounds and constants and the cells
+// of `rocq/theories/NearCells.v`. It builds on
 // `rocq/theories/DyAtanMidQ.v` for `midpoint_quotient`, which uses `AtanExactDiv.v` and
 // `rocq/theories/MidQuot.v` for its quotient, `rocq/theories/MidRound.v` for its rounding
 // toward zero and `rocq/theories/NearAtanMid.v` for atan at the midway quotients.
@@ -237,15 +241,52 @@ impl Eval for PiMul {
     }
 }
 
-// c π rounded toward +∞ if `up` and toward -∞ otherwise, for an `f64` c != 0, which makes c π
-// irrational.
-fn pi_times(c: f64, up: bool) -> f64 {
-    ziv(&PiMul(c), up, 1)
+// k π rounded toward -∞ and toward +∞, as the bits of `f64`s, for k = 1/4, 1/2, 3/4 and 1: the
+// `f64`s just below and just above k π. k π lies 0.28 of an ulp above the first for k = 1/4, 1/2
+// and 1, where it is `FRAC_PI_4`, `FRAC_PI_2` and `PI`, and 0.21 of an ulp for k = 3/4, so that
+// the first is also k π rounded to nearest. `rocq/theories/AtanPiConst.v` proves that the bits
+// that `rocq/theories/Model.v` transcribes are these roundings, and the test
+// `pi_bounds_are_roundings` checks those here against MPFR.
+const PI_QUARTER: [u64; 2] = [0x3fe921fb54442d18, 0x3fe921fb54442d19];
+const PI_HALF: [u64; 2] = [0x3ff921fb54442d18, 0x3ff921fb54442d19];
+const PI_THREE_QUARTERS: [u64; 2] = [0x4002d97c7f3321d2, 0x4002d97c7f3321d3];
+const PI_ONE: [u64; 2] = [0x400921fb54442d18, 0x400921fb54442d19];
+
+// The bounds of k π above for k = 1/4, 1/2, 3/4 and 1, and `None` for any other k.
+fn pi_bounds(k: f64) -> Option<[u64; 2]> {
+    if k == 0.25 {
+        Some(PI_QUARTER)
+    } else if k == 0.5 {
+        Some(PI_HALF)
+    } else if k == 0.75 {
+        Some(PI_THREE_QUARTERS)
+    } else if k == 1.0 {
+        Some(PI_ONE)
+    } else {
+        None
+    }
 }
 
-// c π rounded to nearest, ties to even, for an `f64` c != 0.
+// c π rounded toward +∞ if `up` and toward -∞ otherwise, for an `f64` c != 0, which makes c π
+// irrational: from `pi_bounds` for |c| = 1/4, 1/2, 3/4 and 1, the c that `atan` and `atan2`
+// pass up to their signs, and from `ziv` for any other c.
+fn pi_times(c: f64, up: bool) -> f64 {
+    match pi_bounds(c.abs()) {
+        // c π lies between lo and hi for c > 0, and between -hi and -lo for c < 0.
+        Some([lo, hi]) => {
+            f64::from_bits(if up == c.is_sign_positive() { hi } else { lo }).copysign(c)
+        }
+        None => ziv(&PiMul(c), up, 1),
+    }
+}
+
+// c π rounded to nearest, ties to even, for an `f64` c != 0: the lower bound of `pi_bounds`, with
+// the sign of c, for |c| = 1/4, 1/2, 3/4 and 1, and `ziv_near` otherwise.
 fn pi_times_near(c: f64) -> f64 {
-    ziv_near(&PiMul(c), 1)
+    match pi_bounds(c.abs()) {
+        Some([lo, _]) => f64::from_bits(lo).copysign(c),
+        None => ziv_near(&PiMul(c), 1),
+    }
 }
 
 // atan x, for a finite x, from atan t for t = |x|, as atan is odd.

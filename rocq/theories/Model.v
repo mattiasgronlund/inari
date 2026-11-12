@@ -4003,6 +4003,23 @@ Definition ev_acos (x : f64) (n : nat) : option Dyadic.encl :=
     Dyadic.encl_sub n p r
   else Some r.
 
+(** [PI_QUARTER], [PI_HALF], [PI_THREE_QUARTERS] and [PI_ONE], read with
+    [f64::from_bits]. [AtanPiConst.pi_bounds_correct] proves what they
+    are. *)
+Definition PI_QUARTER : Z * Z := (0x3fe921fb54442d18, 0x3fe921fb54442d19).
+Definition PI_HALF : Z * Z := (0x3ff921fb54442d18, 0x3ff921fb54442d19).
+Definition PI_THREE_QUARTERS : Z * Z := (0x4002d97c7f3321d2, 0x4002d97c7f3321d3).
+Definition PI_ONE : Z * Z := (0x400921fb54442d18, 0x400921fb54442d19).
+
+(** [fn pi_bounds(k: f64) -> Option<[u64; 2]>], with the pair [(lo, hi)]
+    for [[lo, hi]]. [AtanPiConst.v] proves it. *)
+Definition pi_bounds (k : f64) : option (Z * Z) :=
+  if eq k quarter then Some PI_QUARTER
+  else if eq k DyadicLog.half then Some PI_HALF
+  else if eq k three_quarters then Some PI_THREE_QUARTERS
+  else if eq k DyadicExp.one then Some PI_ONE
+  else None.
+
 (** The fast paths of the file, before the kernel's [ziv]. [ERR70],
     [TWO_M80] and [ASIN_S]: 2^-70, 2^-80 and 181/256. *)
 Import ListNotations.
@@ -4355,8 +4372,17 @@ Definition exact_div (fma : bool) (y x : f64) : option f64 :=
 Section Driver.
 Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
 
-(** [fn pi_times(c: f64, up: bool) -> f64] *)
-Definition pi_times_with (c : f64) (up : bool) : option f64 := ziv (ev_pi c) up 1.
+(** [fn pi_times(c: f64, up: bool) -> f64], where [c.abs()] is
+    [fabs c], [c.is_sign_positive()] is [negb (Bsign c)], as [c] is not
+    NaN where [pi_bounds] gives a pair, and [==] of two [bool]s is
+    [Bool.eqb]. [DyAtan.v] proves it ([pi_times_post]), with
+    [AtanPiConst.v] for the constants. *)
+Definition pi_times_with (c : f64) (up : bool) : option f64 :=
+  match pi_bounds (fabs c) with
+  | Some (lo, hi) =>
+      Some (copysign (from_bits (if Bool.eqb up (negb (Bsign c)) then hi else lo)) c)
+  | None => ziv (ev_pi c) up 1
+  end.
 
 (** [fn tiny_quotient_dyadic(y: f64, x: f64) -> Option<f64>], with
     [Some None] for [None]. [DyAtanTiny.v] proves it. *)
@@ -4479,7 +4505,11 @@ Section DriverNear.
 Variable ziv_near : (nat -> option Dyadic.encl) -> nat -> option f64.
 
 (** [fn pi_times_near(c: f64) -> f64] *)
-Definition pi_times_near_with (c : f64) : option f64 := ziv_near (ev_pi c) 1.
+Definition pi_times_near_with (c : f64) : option f64 :=
+  match pi_bounds (fabs c) with
+  | Some (lo, _) => Some (copysign (from_bits lo) c)
+  | None => ziv_near (ev_pi c) 1
+  end.
 
 (** [pub(crate) fn atan_near(x: f64) -> f64] *)
 Definition atan_near_with (x : f64) : option f64 :=

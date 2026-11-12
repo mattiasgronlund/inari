@@ -287,6 +287,7 @@ theories/KahanMcDonald.v
 theories/AtanExactDiv.v
 theories/DyAtanTiny.v
 theories/DyAtanCore.v
+theories/AtanPiConst.v
 theories/DyAtan.v
 theories/DyAsin.v
 theories/TrigSeries.v
