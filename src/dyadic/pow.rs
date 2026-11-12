@@ -17,12 +17,13 @@
 // of `src/dyadic/exp.rs` says why). x^y is an `f64` at many arguments, and `exact` finds each
 // of them before the loop, from the odd parts of x and y, in integers. x^n is an `f64` only
 // where binary powering of the exact x rounds nothing, so the loop settles those at its first
-// level. x^y at an integer y from -2^31 to 2^31 - 1 that `exact` leaves is computed as x^n for
-// n = y, as binary powering took fewer instructions than the logarithm and the exponential of
-// `Pow` on each set of such y counted (cachegrind); `mpfr_pow` also passes an integer y below
-// 2^256 in magnitude to `mpfr_pow_z`, which computes x^y by multiplications. `ziv` computes
-// the rest from an `Eval`, at a first level that grows with the bits that the evaluation
-// loses.
+// level. x^y at an integer y from -2^31 to 2^31 - 1 that `exact` and the fast path (below)
+// leave is computed as x^n for n = y, as binary powering took fewer instructions than the
+// logarithm and the exponential of `Pow` on each set of such y counted (cachegrind);
+// `mpfr_pow` also passes an integer y below 2^256 in magnitude to `mpfr_pow_z`, which computes
+// x^y by multiplications. `pown_pos_ziv` computes x^n there without trying the fast path
+// again. `ziv` computes the rest from an `Eval`, at a first level that grows with the bits
+// that the evaluation loses.
 //
 // The functions rounded to nearest have the same rules, with the bounds at which the results
 // overflow, are less than half an ulp from 1 or are at most 2^-1075, whose tie goes to +0, and
@@ -45,10 +46,11 @@
 // is by an enclosure of positive numbers.
 //
 // x^y and x^n try a fast path in double-double before `ziv` and `ziv_near` (`fast_pow_dir` and
-// `fast_pow_near`): `pow` and `pow_near` after `exact` and `exact_near` and after the integer y
-// that they pass to x^n, through the out-of-line `fast_pow_dir_call` and `fast_pow_near_call`,
-// and `pown_pos` and `pown_pos_near` after their two rules, at y = n, inlined (the comment on
-// `fast_pow_dir_call` says why). It computes ln x as lh + ll within 17/16 2^-79 |ln x|
+// `fast_pow_near`): `pow_near` before `exact_near`, `pow` before `exact` but where `maybe_exact`
+// says that x^y may be an `f64`, and both before the integer y that they pass to x^n, through
+// the out-of-line `fast_pow_dir_call` and `fast_pow_near_call`, and `pown_pos` and
+// `pown_pos_near` after their two rules, at y = n, inlined (the comment on `fast_pow_dir_call`
+// says why). It computes ln x as lh + ll within 17/16 2^-79 |ln x|
 // (`ln_acc` of `src/dyadic/log.rs`) and t = y ln x as th + tl, with th = RN(y lh) and the error
 // of that product, which is exact there (`pow_t`). For th in [-707, 709], the range of
 // `fast_exp` of `src/dyadic/exp.rs`, th + tl is within 3/4 2^-69 of t, and `fast_exp` gives
@@ -63,11 +65,14 @@
 // round that once at 2^-67, the subnormal results and those below 2^-1074 included. They
 // return `None` where the exponent of `fast_exp_edge` is 1024, at y ln x in about
 // (709.78263, `T_OVER`), where x^y is 2^1024 or more, or less than 2^-13 below it, relative.
-// Where the fast path returns `None`, the function calls `ziv` or `ziv_near` as before. The
-// x^y that are `f64`s do not reach the fast path, as `exact` and `exact_near` settle them
-// first, and neither do, in `pow_near`, the midpoints, which `exact_near` settles. At an x^n
-// that is an `f64`, the directed test fails, as it passes only where the scaled result lies
-// strictly between two adjacent `f64`s, and the loop settles x^n at its first level as above.
+// Where the fast path returns `None`, `pown_pos` and `pown_pos_near` call `ziv` and `ziv_near`,
+// and `pow` and `pow_near` go on to `exact`, where `maybe_exact` did not send x^y there first,
+// and to `exact_near`, then to x^n at an integer y, and then to `ziv` and `ziv_near`. At an x^y
+// or x^n that is an `f64`, the directed test fails, as it passes only where the scaled result
+// lies strictly between two adjacent `f64`s, which is why `pow` tries `exact` first where
+// `maybe_exact` says that x^y may be one. `exact` then settles x^y, and the loop settles x^n at
+// its first level as above. The test to nearest fails at a midpoint, as it passes only where the
+// scaled result is less than half a gap from an `f64`, and `exact_near` settles those x^y.
 // Where the fast path returns, it returns the correct rounding, at these arguments too.
 //
 // `rocq/theories/Model.v` transcribes each function of this file except the tests, so it has
@@ -76,20 +81,23 @@
 // `rocq/theories/Elementary.v`) and where they do not panic, return values on the side of
 // x^y and x^n that the rounding is on, and, where a rule or `exact` settles the arguments, the
 // fast path returns or a rounding test of `ziv` passes, x^y and x^n rounded as `mpfr_round` in
-// `rocq/theories/Mpfr.v` says. `DyPow.v` builds on `rocq/theories/DyPowRules.v` for the
-// rules, `rocq/theories/DyPowCore.v` for `Pow`, `rocq/theories/DyPowExact.v` and
-// `rocq/theories/DyPowArith.v` for `exact`, `DyPown.v` for the integer y that `pow` passes
-// to x^n, and `rocq/theories/FastPow.v` for the fast path. `DyPown.v` proves the rules of x^n
-// and binary powering. `FastPow.v` proves that the fast path returns x^y rounded, with and
-// without an FMA, from `rocq/theories/FastPowLn.v` for `ln_acc`, `rocq/theories/FastPowMul.v`
-// for t, `rocq/theories/FastExpCore.v` for `fast_exp`, `rocq/theories/FastPowRules.v` for the
-// rules on th, `rocq/theories/FastExpEdge.v` for `fast_exp_edge` and
-// `rocq/theories/FastRoundWideErr.v` for `round_dir_wide_err` and `round_near_wide_err`.
+// `rocq/theories/Mpfr.v` says, `pow` in both of the orders of `exact` and the fast path that
+// `maybe_exact` picks from. `DyPow.v` builds on `rocq/theories/DyPowRules.v` for the rules,
+// `rocq/theories/DyPowCore.v` for `Pow`, `rocq/theories/DyPowExact.v` and
+// `rocq/theories/DyPowArith.v` for `exact`, `DyPown.v` for the integer y that `pow` passes to
+// x^n through `pown_pos_ziv`, and `rocq/theories/FastPow.v` for the fast path. `DyPown.v`
+// proves the rules of x^n and binary powering. `FastPow.v` proves that the fast path returns
+// x^y rounded, with and without an FMA, from `rocq/theories/FastPowLn.v` for `ln_acc`,
+// `rocq/theories/FastPowMul.v` for t, `rocq/theories/FastExpCore.v` for `fast_exp`,
+// `rocq/theories/FastPowRules.v` for the rules on th, `rocq/theories/FastExpEdge.v` for
+// `fast_exp_edge` and `rocq/theories/FastRoundWideErr.v` for `round_dir_wide_err` and
+// `round_near_wide_err`.
 // `DyPow.v` and `DyPowNear.v` take the fast path of `pow` and `pow_near` through the models
 // of `fast_pow_dir_call` and `fast_pow_near_call`. These files also show that
 // `exact` finds every argument that reaches it whose exact result is an `f64`, and that both
 // functions return that `f64` at every finite argument whose exact result is one, with x > 0
-// for x^y and x other than 0 for x^n. `rocq/theories/DyPowNear.v` proves that `pow_near` and
+// for x^y and x other than 0 for x^n, `pow` from `exact` or from the fast path where that
+// comes first and returns. `rocq/theories/DyPowNear.v` proves that `pow_near` and
 // `pown_near`, at finite arguments in their domains, where a rule or `exact_near` settles the
 // arguments, the fast path returns or a rounding test of `ziv_near` passes, return x^y and x^n
 // rounded to nearest as `near_round` in `rocq/theories/NearF64.v` says, from the same
@@ -174,6 +182,23 @@ fn ln_expo(x: f64) -> i64 {
 // Whether the finite y is an odd integer: its odd part is at 2^0.
 pub(crate) fn is_odd_integer(y: f64) -> bool {
     y != 0.0 && odd_parts(y).1 == 0
+}
+
+// Whether `pow` tries `exact` before the fast path, whose directed test fails where x^y is an
+// `f64`. For a normal x it is false only where `exact` returns `None`, by the argument of
+// `exact`, which is checked by reading, not proved: `exact` returns an `f64` only for an odd
+// part of y below 2^11, so that the 32 low bits of y are zeros, as y is normal there (the
+// rule `s <= -58` of `pow` takes every subnormal y), and, for x = mx 2^ex with
+// mx > 1, at y > 0 with b y < 53 for b = floor(log2 mx), as mx = mr^(2^k) and mr^p < 2^53
+// give b y <= p log2 mr < 53. The results do not depend on it, as the fast path and `exact`
+// both return the correct rounding where they return.
+fn maybe_exact(x: f64, y: f64) -> bool {
+    if y.to_bits() as u32 != 0 {
+        return false;
+    }
+    let b = 52 - (x.to_bits() | 1 << 52).trailing_zeros();
+    let t = f64::from(b) * y;
+    (0.0..53.0).contains(&t)
 }
 
 // r^p for an odd r >= 3, if it is below 2^53.
@@ -477,24 +502,40 @@ pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64 {
         } else if s <= -58 {
             // |y ln x| < 2^-54, as exp's rule near 0.
             near_one(if above { 1.0 } else { -1.0 }, up)
-        } else if let Some(v) = exact(x, y) {
-            v
-        } else if f64::from(y as i32) == y {
-            // An integer y from -2^31 to 2^31 - 1: `y as i32` saturates, so that a y outside
-            // that range or not an integer fails the test. Binary powering takes at most
-            // 2 log2 |y| products of enclosures, and a quotient for y < 0, where `Pow`
-            // evaluates a logarithm and an exponential, as the header says.
-            pown_pos(x, y as i32, up)
-        } else if let Some(v) = fast_pow_dir_call(x, y, up) {
-            v
         } else {
-            // The evaluation loses about the bits of |y a| + 1, and |y a| <= min(|t|, |y| / 2).
-            let start = if ey.min(s + 4) >= POW_START_BITS {
-                2
+            // `exact` first where x^y may be an `f64` (`maybe_exact`), and after the fast path
+            // otherwise.
+            let first = maybe_exact(x, y);
+            if first {
+                if let Some(v) = exact(x, y) {
+                    return v;
+                }
+            }
+            if let Some(v) = fast_pow_dir_call(x, y, up) {
+                return v;
+            }
+            if !first {
+                if let Some(v) = exact(x, y) {
+                    return v;
+                }
+            }
+            if f64::from(y as i32) == y {
+                // An integer y from -2^31 to 2^31 - 1: `y as i32` saturates, so that a y
+                // outside that range or not an integer fails the test. Binary powering takes at
+                // most 2 log2 |y| products of enclosures, and a quotient for y < 0, where `Pow`
+                // evaluates a logarithm and an exponential, as the header says. Without a
+                // second fast try, as that would repeat this one.
+                pown_pos_ziv(x, y as i32, up)
             } else {
-                1
-            };
-            ziv(&Pow(x, y), up, start)
+                // The evaluation loses about the bits of |y a| + 1, and
+                // |y a| <= min(|t|, |y| / 2).
+                let start = if ey.min(s + 4) >= POW_START_BITS {
+                    2
+                } else {
+                    1
+                };
+                ziv(&Pow(x, y), up, start)
+            }
         }
     }
 }
@@ -552,15 +593,15 @@ pub(crate) fn pow_near(x: f64, y: f64) -> f64 {
         } else if s <= -58 {
             // |y ln x| < 2^-54, as the rule of `exp_near` near 0.
             1.0
-        } else if let Some(v) = exact_near(x, y) {
-            // The midpoints among them, which an enclosure settles only if they are one of its
-            // bounds.
-            v
-        } else if f64::from(y as i32) == y {
-            // An integer y from -2^31 to 2^31 - 1, as in `pow`.
-            pown_pos_near(x, y as i32)
         } else if let Some(v) = fast_pow_near_call(x, y) {
             v
+        } else if let Some(v) = exact_near(x, y) {
+            // The midpoints, which fail the test to nearest, and which an enclosure settles only
+            // if they are one of its bounds.
+            v
+        } else if f64::from(y as i32) == y {
+            // An integer y from -2^31 to 2^31 - 1, as in `pow`, without a second fast try.
+            pown_pos_near_ziv(x, y as i32)
         } else {
             let start = if ey.min(s + 4) >= POW_START_BITS {
                 2
@@ -644,6 +685,53 @@ fn pown_pos_near(x: f64, n: i32) -> f64 {
         0.0
     } else if let Some(v) = fast_pow_near(x, f64::from(n)) {
         v
+    } else {
+        let start = if n.unsigned_abs() >= 1 << POWN_START_BITS {
+            2
+        } else {
+            1
+        };
+        ziv_near(&Pown(x, n), start)
+    }
+}
+
+// x^n as `pown_pos` takes it, without its fast path, for `pow` at an integer y = n whose fast
+// try failed: the fast path at `f64::from(n)` = y would repeat that computation.
+fn pown_pos_ziv(x: f64, n: i32, up: bool) -> f64 {
+    let (g, n64) = (expo(x), i64::from(n));
+    let (lo, hi) = if n > 0 {
+        (g * n64, (g + 1) * n64)
+    } else {
+        ((g + 1) * n64, g * n64)
+    };
+    if lo >= 1024 {
+        overflow(up)
+    } else if hi <= -1075 {
+        underflow(up)
+    } else {
+        let start = if n.unsigned_abs() >= 1 << POWN_START_BITS {
+            2
+        } else {
+            1
+        };
+        ziv(&Pown(x, n), up, start)
+    }
+}
+
+// x^n as `pown_pos_near` takes it, without its fast path, for `pow_near` at an integer y = n
+// whose fast try failed, as `pown_pos_ziv`.
+fn pown_pos_near_ziv(x: f64, n: i32) -> f64 {
+    let (g, n64) = (expo(x), i64::from(n));
+    let (lo, hi) = if n > 0 {
+        (g * n64, (g + 1) * n64)
+    } else {
+        ((g + 1) * n64, g * n64)
+    };
+    if lo >= 1024 {
+        f64::INFINITY
+    } else if hi <= -1075 {
+        // x^n <= 2^-1075, whose tie goes to +0.
+        0.0
     } else {
         let start = if n.unsigned_abs() >= 1 << POWN_START_BITS {
             2

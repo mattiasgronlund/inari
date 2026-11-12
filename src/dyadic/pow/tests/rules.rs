@@ -351,15 +351,17 @@ fn known_roundings() {
     }
 }
 
-// Whether `pow` takes a finite y to `pown_pos` after its rules and `exact`, by the test of
-// `pow.rs`: `y as i32` saturates, so that only an integer y from -2^31 to 2^31 - 1 passes.
+// Whether `pow` takes a finite y to `pown_pos_ziv` after its rules, `exact` and the fast path,
+// by the test of `pow.rs`: `y as i32` saturates, so that only an integer y from -2^31 to
+// 2^31 - 1 passes.
 fn routed(y: f64) -> bool {
     f64::from(y as i32) == y
 }
 
 // x^y for integers y up to the ends of the route and past them: on every platform, `pow` gives
-// what `pown` gives wherever the test of the route passes, whether the route, `exact` or a rule
-// settles the arguments, and where the tests have MPFR, what MPFR gives at every y.
+// what `pown` gives wherever the test of the route passes, whether the route, the fast path,
+// `exact` or a rule settles the arguments, and where the tests have MPFR, what MPFR gives at
+// every y.
 #[test]
 fn integer_route() {
     // The ends of the route pass the test, and the integers next to them outside it fail it,
@@ -370,8 +372,8 @@ fn integer_route() {
     }
     // y = ±(2^j - 1), ±2^j and ±(2^j + 1) for j up to 31, at and next to each power of two,
     // so that binary powering squares from 0 to 31 times. Of those at and next to the ends of
-    // the route, where neither a rule nor `exact` settles x^y, 2^31 - 1, -(2^31 - 1) and -2^31
-    // take it, and 2^31, 2^31 + 1 and -2^31 - 1 the loop of `Pow`.
+    // the route, where neither a rule, `exact` nor the fast path settles x^y, 2^31 - 1,
+    // -(2^31 - 1) and -2^31 take it, and 2^31, 2^31 + 1 and -2^31 - 1 the loop of `Pow`.
     let mut ys = vec![];
     for j in 0..=31 {
         let p = pow2(j);
@@ -423,10 +425,10 @@ fn integer_route() {
 }
 
 // x^34 at x = 3: 3^34 = 16677181699666569 is above 2^53, so that `exact` leaves pow(3, 34) to
-// the route, and odd, so that it is the midpoint of the `f64`s 16677181699666568 and
-// 16677181699666570 (2 apart there), its roundings toward -∞ and toward +∞. Binary powering
-// takes the products 3^2, 3^4, 3^8, 3^16, 3^32 and 3^2 3^32, each below 2^64 and so exact at
-// one limb, where `ziv_at` then settles both directions.
+// the fast path and the route, and odd, so that it is the midpoint of the `f64`s
+// 16677181699666568 and 16677181699666570 (2 apart there), its roundings toward -∞ and toward
+// +∞. Binary powering takes the products 3^2, 3^4, 3^8, 3^16, 3^32 and 3^2 3^32, each below
+// 2^64 and so exact at one limb, where `ziv_at` then settles both directions.
 #[test]
 fn three_to_the_34() {
     let (d, u) = (16677181699666568.0, 16677181699666570.0);

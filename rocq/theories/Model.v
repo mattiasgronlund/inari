@@ -5408,6 +5408,18 @@ Definition ln_expo (x : f64) : Z :=
 Definition is_odd_integer (y : f64) : bool :=
   negb (eq y zero) && (snd (odd_parts y) =? 0).
 
+(** [fn maybe_exact(x: f64, y: f64) -> bool], where [y.to_bits() as u32]
+    is [to_bits y mod 2 ^ 32], the difference of [u32]s in [b] is the
+    difference in [Z], as bit 52 is set, so that [trailing_zeros] is at
+    most 52, [f64::from(b)] is [of_i64 b], and
+    [(0.0..53.0).contains(&t)] is [le zero t && lt t (of_i64 53)]. No
+    proof unfolds it: [DyPow.v] proves [pow_dir_with] for either value. *)
+Definition maybe_exact (x y : f64) : bool :=
+  if negb (to_bits y mod 2 ^ 32 =? 0) then false else
+  let b := 52 - trailing_zeros 64 (Z.lor (to_bits x) (Z.shiftl 1 52)) in
+  let t := mul (of_i64 b) y in
+  le zero t && lt t (of_i64 53).
+
 (** The loop of [fn small_power(r: u64, p: u64) -> Option<u64>], run [p]
     times, where [t as u64] is [t], as [t < 2 ^ 53] there. *)
 Fixpoint small_power_loop (fuel : nat) (r q : Z) : option Z :=
@@ -5585,9 +5597,12 @@ Definition fast_pow_near_call (fma : bool) (x y : f64) : option f64 :=
     returns only where a rounding test passes ([DyDriver.ziv_strict]).
 
     [pown_pos] tries the fast path after its two rules and before [ziv],
-    with [y = f64::from(n)], and [pow] after [exact] and its integer [y],
-    before [ziv]; their forms rounded to nearest do the same before
-    [ziv_near]. [HAS_FMA] depends on the target. The fast path takes it as
+    with [y = f64::from(n)]. [pow] tries [exact] before the fast path where
+    [maybe_exact] says so and after it otherwise, and then passes an
+    integer [y] to [pown_pos_ziv], which is [pown_pos] without the fast
+    path, and any other [y] to [ziv]. Their forms rounded to nearest do the
+    same before [ziv_near], with [exact_near] after the fast path.
+    [HAS_FMA] depends on the target. The fast path takes it as
     an argument, and the functions below pass [false]:
     [FastPow.fast_pow_dir_fma] and [FastPow.fast_pow_near_fma] show that
     [true] gives the same result at every argument that reaches it. *)
@@ -5631,13 +5646,25 @@ Definition pown_pos_with (x : f64) (k : Z) (up : bool) : option f64 :=
     | None => ziv (ev_pown x k) up (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat)
     end.
 
+(** [fn pown_pos_ziv(x: f64, n: i32, up: bool) -> f64] for [k = n], as
+    [pown_pos_with] without the fast path. *)
+Definition pown_pos_ziv_with (x : f64) (k : Z) (up : bool) : option f64 :=
+  let g := expo x in
+  let '(lo, hi) := if 0 <? k then (g * k, (g + 1) * k) else ((g + 1) * k, g * k) in
+  if 1024 <=? lo then Some (DyadicExp.overflow up)
+  else if hi <=? -1075 then Some (DyadicExp.underflow up)
+  else ziv (ev_pown x k) up (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat).
+
 (** [pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64], where
     [f64::NAN] is [B754_nan], [y.is_infinite()] is [eq y infinity || eq
     y DyadicExp.neg_infinity], [x.is_sign_negative()] is [Bsign x], as
     [x] is not NaN there, [a == b] of two [bool]s is [Bool.eqb], the
     sums of [i64]s are computed without a check, [y as i32] is [to_i32 y],
-    and [f64::from(y as i32)] is [of_i64 (to_i32 y)]. [pown_pos_with],
-    which it calls, comes before it here, and after it in the Rust. *)
+    and [f64::from(y as i32)] is [of_i64 (to_i32 y)]. The blocks under
+    [if first] and [if !first], which return from the function where
+    [exact] gives an [f64], are [r1] and [r2], [Some None] where their
+    [exact] is not called. The functions it calls come before it here, and
+    [pown_pos_ziv_with] after it in the Rust. *)
 Definition pow_dir_with (x y : f64) (up : bool) : option f64 :=
   if eq y zero then Some DyadicExp.one
   else if is_nan x then Some x
@@ -5658,17 +5685,24 @@ Definition pow_dir_with (x y : f64) (up : bool) : option f64 :=
     else if s <=? -58 then
       Some (DyadicExp.near_one (if above then DyadicExp.one else DyadicExp.m_one) up)
     else
-      let* r := exact x y in
-      match r with
+      let first := maybe_exact x y in
+      let* r1 := (if first then exact x y else Some None) in
+      match r1 with
       | Some v => Some v
       | None =>
-          if eq (of_i64 (to_i32 y)) y then pown_pos_with x (to_i32 y) up
-          else
-            match fast_pow_dir_call false x y up with
-            | Some v => Some v
-            | None =>
-                ziv (ev_pow x y) up (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
-            end
+          match fast_pow_dir_call false x y up with
+          | Some v => Some v
+          | None =>
+              let* r2 := (if first then Some None else exact x y) in
+              match r2 with
+              | Some v => Some v
+              | None =>
+                  if eq (of_i64 (to_i32 y)) y then pown_pos_ziv_with x (to_i32 y) up
+                  else
+                    ziv (ev_pow x y) up
+                      (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
+              end
+          end
       end.
 
 (** [pub(crate) fn pown(x: f64, n: i32, up: bool) -> f64] for [k = n],
@@ -5708,7 +5742,17 @@ Definition pown_pos_near_with (x : f64) (k : Z) : option f64 :=
     | None => ziv_near (ev_pown x k) (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat)
     end.
 
-(** [pub(crate) fn pow_near(x: f64, y: f64) -> f64], as [pow_dir_with]. *)
+(** [fn pown_pos_near_ziv(x: f64, n: i32) -> f64] for [k = n], as
+    [pown_pos_near_with] without the fast path. *)
+Definition pown_pos_near_ziv_with (x : f64) (k : Z) : option f64 :=
+  let g := expo x in
+  let '(lo, hi) := if 0 <? k then (g * k, (g + 1) * k) else ((g + 1) * k, g * k) in
+  if 1024 <=? lo then Some infinity
+  else if hi <=? -1075 then Some zero
+  else ziv_near (ev_pown x k) (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat).
+
+(** [pub(crate) fn pow_near(x: f64, y: f64) -> f64], as [pow_dir_with],
+    with the fast path before [exact_near] and no [maybe_exact]. *)
 Definition pow_near_with (x y : f64) : option f64 :=
   if eq y zero then Some DyadicExp.one
   else if is_nan x then Some x
@@ -5728,17 +5772,17 @@ Definition pow_near_with (x y : f64) : option f64 :=
     if 10 <=? s then Some (if above then infinity else zero)
     else if s <=? -58 then Some DyadicExp.one
     else
-      let* r := exact_near x y in
-      match r with
+      match fast_pow_near_call false x y with
       | Some v => Some v
       | None =>
-          if eq (of_i64 (to_i32 y)) y then pown_pos_near_with x (to_i32 y)
-          else
-            match fast_pow_near_call false x y with
-            | Some v => Some v
-            | None =>
+          let* r := exact_near x y in
+          match r with
+          | Some v => Some v
+          | None =>
+              if eq (of_i64 (to_i32 y)) y then pown_pos_near_ziv_with x (to_i32 y)
+              else
                 ziv_near (ev_pow x y) (if pow_start_bits <=? Z.min ey (s + 4) then 2%nat else 1%nat)
-            end
+          end
       end.
 
 (** [pub(crate) fn pown_near(x: f64, n: i32) -> f64] for [k = n], as

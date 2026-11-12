@@ -708,8 +708,8 @@ fn moved(rng: &mut Rng, (x, y): (f64, f64)) -> (f64, f64) {
 // - `t745`: x as in `lu4`, and y = t / ln x for |t| uniform in [100, 745];
 // - `edge`: x as in `lu4`, and y = t / ln x for t uniform in [700, 745.2] or [-746, -700], next to
 //   the ends of the range of `fast_exp` and to overflow and underflow;
-// - `exact`: x^y is an `f64` (`exact_pair`), which `exact` and `exact_near` settle before the fast
-//   path;
+// - `exact`: x^y is an `f64` (`exact_pair`), which the test to nearest of the fast path settles,
+//   and which `exact` settles in both directions, before the fast path at a normal x;
 // - `nexact`: those moved by one ulp of x or of y.
 fn pow_case(name: &str, rng: &mut Rng, i: usize) -> (f64, f64) {
     let any = |rng: &mut Rng| log_uniform(rng, -1074, 1023);
@@ -885,8 +885,11 @@ fn agree_pown(x: f64, n: i32) -> (usize, usize) {
 // x^y and x^n give the same `f64`s, in both directions and to nearest, with the fast path as with
 // it disabled, and agree with MPFR, on 2000 arguments of each set of `pow_case` and `pown_case`,
 // and print how many calls the fast path settled. Most of its rounding tests pass on the sets in
-// its range, no exact x^y reaches it, and the directed tests at the exact x^n fail, as they have
-// to, so that the kernel computes those.
+// its range. On the set `exact`, the tests to nearest pass at every argument (next to 2^1024,
+// where the set does not go, the fast path returns `None` without a test), and no x^y at a
+// normal x reaches the directed tests, as `maybe_exact` sends it to `exact` first. At a
+// subnormal x it can reach them, and they fail, as do the directed tests at the exact x^n, as
+// they have to, so that `exact` and the kernel compute those.
 #[test]
 fn fast_path_agrees_with_kernel() {
     let mut rng = Rng(89);
@@ -894,18 +897,23 @@ fn fast_path_agrees_with_kernel() {
     for name in [
         "lu4", "near1", "mid", "int", "intlu", "t745", "edge", "exact", "nexact",
     ] {
-        let mut t = Tally::default();
+        let (mut t, mut normal) = (Tally::default(), Tally::default());
         for i in 0..2000 {
             let (x, y) = pow_case(name, &mut rng, i);
-            t.add(agree_pow(x, y));
+            let c = agree_pow(x, y);
+            t.add(c);
+            if x >= f64::MIN_POSITIVE {
+                normal.add(c);
+            }
         }
         t.print(&format!("pow {name}"));
         match name {
             "exact" => assert!(
-                t.passed == 0 && t.failed == 0,
-                "pow exact: {} passed, {} failed",
+                t.passed == 2000 && normal.failed == 0,
+                "pow exact: {} passed, {} failed, {} at a normal x",
                 t.passed,
-                t.failed
+                t.failed,
+                normal.failed
             ),
             "nexact" => (),
             _ => assert!(

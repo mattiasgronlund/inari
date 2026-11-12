@@ -8,11 +8,14 @@
     property [post] of [Rpow] of [Elementary.v], for any driver [z] and
     any property [post] that every correct rounding has ([rounds_post])
     and that the results of [z] have ([driver_post]): by the rules of
-    [DyPowRules.v] where one applies, the exact cases of [DyPowExact.v],
-    [pown_pos_post] of [DyPown.v] for an integer [y] from [-2^31] to
-    [2^31 - 1], which [pow] passes to [pown_pos], then the fast path
-    ([FastPow.fast_pow_dir_correct], as [|y ln x| >= 2^-57] there by the
-    rules), and otherwise the driver with the enclosure of
+    [DyPowRules.v] where one applies; then the exact cases of
+    [DyPowExact.v] and the fast path ([FastPow.fast_pow_dir_correct], as
+    [|y ln x| >= 2^-57] there by the rules), in the order that
+    [maybe_exact] picks, which no proof unfolds, as the proofs cover
+    both orders; then [pown_pos_ziv_post] of [DyPown.v] for an integer
+    [y] from [-2^31] to [2^31 - 1], which [pow] passes to
+    [pown_pos_ziv], [pown_pos] without the fast path that [pow] has
+    already tried; and otherwise the driver with the enclosure of
     [ev_pow_correct] of [DyPowCore.v]. So,
     for such [x] and [y]: with [ziv_strict], the kernel rounds [Rpow] in
     the direction [up] where it returns
@@ -20,8 +23,10 @@
     the same value there ([pow_dir_strict]); and wherever the Rust
     returns, its result is at or above [Rpow] if [up] and at or below it
     otherwise ([pow_dir_side]). Where the result at a finite [x > 0] is
-    itself a finite [f64], the Rust returns it ([pow_dir_exact]), so
-    Ziv's loop never runs on such an argument. That a rounding test
+    itself a finite [f64], the Rust returns it ([pow_dir_exact]), from
+    [exact] ([exact_complete]) or from the fast path where that comes
+    first and returns ([fast_pow_dir_exact]), so Ziv's loop never runs
+    on such an argument. That a rounding test
     passes by the cap at the other arguments is not proved.
     [pown_dir] is in [DyPown.v]. *)
 
@@ -239,27 +244,49 @@ destruct (10 <=? DyadicPow.expo y + DyadicPow.ln_expo x) eqn:S1.
 destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58) eqn:S2.
 { apply Z.leb_le in S2. injection E as <-. apply Hp.
   exact (pow_rule_near_one x y up Fx Px X1 Fy Y0 S2). }
-destruct (DyadicPow.exact x y) as [[w|]|] eqn:Ex; [| | discriminate E].
-- injection E as <-. destruct (exact_sound x y w Fx Px Fy Y0 Ex) as [Fw Hw].
-  apply Hp. exact (rnd_exact _ _ _ Fw Hw).
-- cbv beta iota in E.
-  destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y) eqn:I.
-  + (* An integer [y] from [-2^31] to [2^31 - 1]: x^y is [powerRZ x k] for [k = y]. *)
+assert (Hb60 : (bpow radix2 (-60) <= Rabs (B2R y * ln (B2R x)))%R).
+{ destruct (pow_rule_bounds x y Fx Px X1 Fy Y0) as ([Hb _] & _).
+  apply Rle_trans with (2 := Hb). apply bpow_le. apply Z.leb_gt in S2. lia. }
+(* [exact] and the fast path, where [|y ln x| >= 2^-60], in either order. *)
+assert (HE : forall w, DyadicPow.exact x y = Some (Some w) ->
+             post up (Rpower (B2R x) (B2R y)) w).
+{ intros w Ex. destruct (exact_sound x y w Fx Px Fy Y0 Ex) as [Fw Hw].
+  apply Hp. exact (rnd_exact _ _ _ Fw Hw). }
+assert (HF : forall w, DyadicPow.fast_pow_dir_call false x y up = Some w ->
+             post up (Rpower (B2R x) (B2R y)) w).
+{ intros w F. apply Hp.
+  exact (FastPow.fast_pow_dir_correct false x y up w Fx Px Fy (or_intror Hb60) F). }
+(* What both orders reach last: [pown_pos_ziv] or the driver. *)
+assert (HT : forall start,
+  (if eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y
+   then DyadicPow.pown_pos_ziv_with z x (DyadicPow.to_i32 y) up
+   else z (DyadicPow.ev_pow x y) up start) = Some v ->
+  post up (Rpower (B2R x) (B2R y)) v).
+{ intros start E'. destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y) eqn:I.
+  - (* An integer [y] from [-2^31] to [2^31 - 1]: x^y is [powerRZ x k] for [k = y]. *)
     assert (Hi : is_i32 (DyadicPow.to_i32 y)) by apply to_i32_range.
     destruct (of_i64_exact (DyadicPow.to_i32 y)) as [Fk Vk]; [unfold is_i32 in Hi; lia |].
     apply (eq_fin _ _ Fk Fy) in I. rewrite Vk in I.
     assert (Hk : DyadicPow.to_i32 y <> 0)
       by (intros K; apply Y0; rewrite <- I, K; reflexivity).
     rewrite <- I, <- (powerRZ_Rpower _ _ Px).
-    exact (DyPown.pown_pos_post z post Hp Hz x _ up v Fx Px Hk Hi E).
-  + (* The fast path, where [|y ln x| >= 2^-57], then the driver. *)
-    destruct (DyadicPow.fast_pow_dir_call false x y up) eqn:F; cbv iota in E.
-    { injection E as <-. apply Hp.
-      apply (FastPow.fast_pow_dir_correct false x y up _ Fx Px Fy); [| exact F].
-      right. destruct (pow_rule_bounds x y Fx Px X1 Fy Y0) as ([Hb _] & _).
-      apply Rle_trans with (2 := Hb). apply bpow_le. apply Z.leb_gt in S2. lia. }
-    refine (Hz (DyadicPow.ev_pow x y) up _ _ v _ E).
-    intros n a Hn Ea. exact (ev_pow_correct n x y a Hn Fx Px Fy Ea).
+    exact (DyPown.pown_pos_ziv_post z post Hp Hz x _ up v Fx Px Hk Hi E').
+  - refine (Hz (DyadicPow.ev_pow x y) up _ _ v _ E').
+    intros n a Hn Ea. exact (ev_pow_correct n x y a Hn Fx Px Fy Ea). }
+destruct (DyadicPow.maybe_exact x y); cbv iota in E.
+- (* [exact] first, then the fast path. *)
+  destruct (DyadicPow.exact x y) as [[w|]|] eqn:Ex in E; [| | discriminate E].
+  { injection E as <-. exact (HE w Ex). }
+  cbv beta iota in E.
+  destruct (DyadicPow.fast_pow_dir_call false x y up) as [w|] eqn:F in E; cbv iota in E.
+  { injection E as <-. exact (HF w F). }
+  exact (HT _ E).
+- (* The fast path first, then [exact]. *)
+  destruct (DyadicPow.fast_pow_dir_call false x y up) as [w|] eqn:F in E; cbv iota in E.
+  { injection E as <-. exact (HF w F). }
+  destruct (DyadicPow.exact x y) as [[w|]|] eqn:Ex in E; [| | discriminate E].
+  { injection E as <-. exact (HE w Ex). }
+  cbv beta iota in E. exact (HT _ E).
 Qed.
 
 Theorem pow_dir_correct :
@@ -291,12 +318,40 @@ destruct (eq x zero); [exact (fun h => h)|].
 destruct (eq x infinity); [exact (fun h => h)|].
 destruct (10 <=? DyadicPow.expo y + DyadicPow.ln_expo x); [exact (fun h => h)|].
 destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58); [exact (fun h => h)|].
-destruct (DyadicPow.exact x y) as [[w|]|]; [exact (fun h => h) | | exact (fun h => h)].
-cbv beta iota.
-destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y);
-  [apply DyPown.pown_pos_strict |].
-destruct (DyadicPow.fast_pow_dir_call false x y up);
-  [exact (fun h => h) | apply ziv_strict_ziv].
+destruct (DyadicPow.maybe_exact x y); cbv beta iota.
+- destruct (DyadicPow.exact x y) as [[w|]|]; [exact (fun h => h) | | exact (fun h => h)].
+  cbv beta iota.
+  destruct (DyadicPow.fast_pow_dir_call false x y up); [exact (fun h => h) |].
+  cbv beta iota.
+  destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y);
+    [apply DyPown.pown_pos_ziv_strict | apply ziv_strict_ziv].
+- destruct (DyadicPow.fast_pow_dir_call false x y up); [exact (fun h => h) |].
+  cbv beta iota.
+  destruct (DyadicPow.exact x y) as [[w|]|]; [exact (fun h => h) | | exact (fun h => h)].
+  cbv beta iota.
+  destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y);
+    [apply DyPown.pown_pos_ziv_strict | apply ziv_strict_ziv].
+Qed.
+
+(** Where x^y is a finite [f64] [v] and the fast path returns, it returns
+    [v], as it returns the rounding of x^y. *)
+Lemma fast_pow_dir_exact :
+  forall x y up (v r : f64),
+  is_finite x = true -> (0 < B2R x)%R -> is_finite y = true -> is_finite v = true ->
+  Rpower (B2R x) (B2R y) = B2R v ->
+  (bpow radix2 (-60) <= Rabs (B2R y * ln (B2R x)))%R ->
+  DyadicPow.fast_pow_dir_call false x y up = Some r -> r = v.
+Proof.
+intros x y up v r Fx Hx Fy Fv Hv Hb F.
+unfold DyadicPow.fast_pow_dir_call in F.
+pose proof (FastPow.fast_pow_dir_correct false x y up r Fx Hx Fy (or_intror Hb) F) as R.
+assert (Nv : B2R v <> 0%R)
+  by (rewrite <- Hv; apply Rgt_not_eq; unfold Rpower; apply exp_pos).
+(* The fast path returns the correct rounding of the [f64] [v], which is [v]. *)
+unfold rounds in R. rewrite Hv in R.
+destruct (OfPointCore.round_f64_unique _ _ _ _ R (rnd_exact v _ _ Fv eq_refl))
+  as [-> | (s & s' & _ & E)]; [reflexivity |].
+exfalso. apply Nv. rewrite E. reflexivity.
 Qed.
 
 Lemma pow_dir_exact_with :
@@ -332,7 +387,16 @@ destruct (10 <=? DyadicPow.expo y + DyadicPow.ln_expo x) eqn:S1.
 destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58) eqn:S2.
 { exfalso. apply (pow_rule_not_exact x y v Fx Hx X1 Fy Y0 Fv); [| exact Hv].
   right. apply Z.leb_le. exact S2. }
-rewrite (exact_complete x y v Fx Hx X1 Fy Y0 Fv Hv). reflexivity.
+(* Where [maybe_exact] puts [exact] first, it returns [v]; otherwise the
+   fast path returns [v] where it returns, and [exact] after it. *)
+destruct (DyadicPow.maybe_exact x y).
+{ rewrite (exact_complete x y v Fx Hx X1 Fy Y0 Fv Hv). reflexivity. }
+destruct (DyadicPow.fast_pow_dir_call false x y up) as [r|] eqn:F.
+- assert (Hb60 : (bpow radix2 (-60) <= Rabs (B2R y * ln (B2R x)))%R).
+  { destruct (pow_rule_bounds x y Fx Hx X1 Fy Y0) as ([Hb _] & _).
+    apply Rle_trans with (2 := Hb). apply bpow_le. apply Z.leb_gt in S2. lia. }
+  cbv beta iota. f_equal. exact (fast_pow_dir_exact x y up v r Fx Hx Fy Fv Hv Hb60 F).
+- rewrite (exact_complete x y v Fx Hx X1 Fy Y0 Fv Hv). reflexivity.
 Qed.
 
 Theorem pow_dir_exact :

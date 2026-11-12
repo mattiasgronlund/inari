@@ -5,15 +5,24 @@
     arguments of their domains rounded to nearest as [near_round] says:
     the loop by [ziv_near_strict_correct] and the enclosures of
     [DyPowCore.v] and [DyPown.v], the rules before it by the cells of
-    [NearCells.v] and the bounds of [DyPowRules.v], and [exact_near] by
-    [exact_near_sound] of [DyPowNearExact.v]. As [exact_near] returns at
+    [NearCells.v] and the bounds of [DyPowRules.v], the fast path, which
+    [pow_near] tries right after its rules, by [fast_pow_near_correct] of
+    [FastPow.v], and [exact_near], which comes after the fast path, by
+    [exact_near_sound] of [DyPowNearExact.v]. As the fast path, where it
+    returns, returns the rounding to nearest, [exact_near] returns at
     every finite [x > 0] other than 1 and finite [y <> 0] at which x^y
     is q 2^e for an integer [0 < q < 2^54] and [e >= -1075], below
-    2^1024 ([exact_near_complete]), and the rules before it return at
+    2^1024 ([exact_near_complete]), and the rules before them return at
     [x = 1] and [y = 0], [pow_near] returns the rounding to nearest at
     every finite [x > 0] and finite [y] at which x^y is such a number
     ([pow_near_midpoint]), the midpoints of two adjacent [f64]s among
-    them, which an enclosure settles only if it is one of its bounds. *)
+    them, which an enclosure settles only if it is one of its bounds.
+    That proof needs no fact about where the fast path returns. Its test
+    to nearest is expected to pass where x^y is an [f64], except next to
+    2^1024, where [fast_exp_edge] gives the exponent 1024 and the fast
+    path returns [None] without a test (at the largest [f64] and [y = 1],
+    for one), and to fail at a midpoint; [exact_near] then settles those.
+    No proof here shows either. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -166,6 +175,54 @@ destruct (0 <? k); cbv beta iota.
     [exact (fun h => h) | apply ziv_near_strict_ziv].
 Qed.
 
+(** [pown_pos_near_ziv], which [pow_near] calls at an integer [y] after
+    its fast try, is [pown_pos_near] without the fast path. *)
+Local Lemma pown_pos_near_ziv :
+  forall x k v,
+  is_finite x = true -> (0 < B2R x)%R -> k <> 0 -> is_i32 k ->
+  DyadicPow.pown_pos_near_ziv_with ziv_near_strict x k = Some v ->
+  near_round (powerRZ (B2R x) k) v.
+Proof.
+intros x k v Fx Hx Hk Hi E.
+assert (Hl : forall start, ziv_near_strict (DyadicPow.ev_pown x k) start = Some v ->
+             near_round (powerRZ (B2R x) k) v).
+{ intros start H. refine (ziv_near_strict_correct _ _ _ _ _ H).
+  intros n a Hn Ea. exact (DyPown.ev_pown_correct x k n a Hn Fx Hx Hk Hi Ea). }
+unfold DyadicPow.pown_pos_near_ziv_with in E. cbv zeta in E.
+destruct (0 <? k) eqn:K; cbv beta iota in E.
+- destruct (1024 <=? DyadicPow.expo x * k) eqn:O.
+  + injection E as <-. apply pown_inf_near; [exact Fx | exact Hx |].
+    rewrite K. apply Z.leb_le. exact O.
+  + destruct ((DyadicPow.expo x + 1) * k <=? -1075) eqn:U.
+    * injection E as <-. apply pown_zero_near; [exact Fx | exact Hx |].
+      rewrite K. apply Z.leb_le. exact U.
+    * exact (Hl _ E).
+- destruct (1024 <=? (DyadicPow.expo x + 1) * k) eqn:O.
+  + injection E as <-. apply pown_inf_near; [exact Fx | exact Hx |].
+    rewrite K. apply Z.leb_le. exact O.
+  + destruct (DyadicPow.expo x * k <=? -1075) eqn:U.
+    * injection E as <-. apply pown_zero_near; [exact Fx | exact Hx |].
+      rewrite K. apply Z.leb_le. exact U.
+    * exact (Hl _ E).
+Qed.
+
+(** Where [pown_pos_near_ziv_with ziv_near_strict] returns,
+    [pown_pos_near_ziv_with Dyadic.ziv_near] returns the same. *)
+Local Lemma pown_pos_near_ziv_strict :
+  forall x k v,
+  DyadicPow.pown_pos_near_ziv_with ziv_near_strict x k = Some v ->
+  DyadicPow.pown_pos_near_ziv_with Dyadic.ziv_near x k = Some v.
+Proof.
+intros x k v. unfold DyadicPow.pown_pos_near_ziv_with. cbv zeta.
+destruct (0 <? k); cbv beta iota.
+- destruct (1024 <=? DyadicPow.expo x * k); [exact (fun h => h) |].
+  destruct ((DyadicPow.expo x + 1) * k <=? -1075);
+    [exact (fun h => h) | apply ziv_near_strict_ziv].
+- destruct (1024 <=? (DyadicPow.expo x + 1) * k); [exact (fun h => h) |].
+  destruct (DyadicPow.expo x * k <=? -1075);
+    [exact (fun h => h) | apply ziv_near_strict_ziv].
+Qed.
+
 (** ** Helpers of [pown_near], as [DyPown.pown_dir_zero_pos] and
     [DyPown.pown_dir_nonzero] of [pown_dir] *)
 
@@ -265,6 +322,11 @@ destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58) eqn:S2.
                  bpow radix2 (-54))%R)
     by (apply bpow_le; lia).
   apply near_one. unfold Rpower. apply exp_tiny_near. lra. }
+(* The fast path, where [|y ln x| >= 2^-57]. *)
+destruct (DyadicPow.fast_pow_near_call false x y) eqn:F; cbv iota in E.
+{ injection E as <-.
+  apply (FastPow.fast_pow_near_correct false x y _ Fx Px Fy); [| exact F].
+  right. apply Rle_trans with (2 := Hb1). apply bpow_le. apply Z.leb_gt in S2. lia. }
 destruct (DyadicPow.exact_near x y) as [[w|]|] eqn:Ex; [| | discriminate E].
 - injection E as <-. exact (exact_near_sound x y w Fx Px Fy Y0 Ex).
 - cbv beta iota in E.
@@ -276,13 +338,8 @@ destruct (DyadicPow.exact_near x y) as [[w|]|] eqn:Ex; [| | discriminate E].
     assert (Hk : DyadicPow.to_i32 y <> 0)
       by (intros K; apply Y0; rewrite <- I, K; reflexivity).
     rewrite <- I, <- (powerRZ_Rpower _ _ Px).
-    exact (pown_pos_near x _ v Fx Px Hk Hi E).
-  + (* The fast path, where [|y ln x| >= 2^-57], then the driver. *)
-    destruct (DyadicPow.fast_pow_near_call false x y) eqn:F; cbv iota in E.
-    { injection E as <-.
-      apply (FastPow.fast_pow_near_correct false x y _ Fx Px Fy); [| exact F].
-      right. destruct (pow_rule_bounds x y Fx Px X1 Fy Y0) as ([Hb _] & _).
-      apply Rle_trans with (2 := Hb). apply bpow_le. apply Z.leb_gt in S2. lia. }
+    exact (pown_pos_near_ziv x _ v Fx Px Hk Hi E).
+  + (* The driver. *)
     refine (ziv_near_strict_correct _ _ _ _ _ E).
     intros n a Hn Ea. exact (ev_pow_correct n x y a Hn Fx Px Fy Ea).
 Qed.
@@ -341,11 +398,12 @@ destruct (eq x zero); [exact (fun h => h)|].
 destruct (eq x infinity); [exact (fun h => h)|].
 destruct (10 <=? DyadicPow.expo y + DyadicPow.ln_expo x); [exact (fun h => h)|].
 destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58); [exact (fun h => h)|].
+destruct (DyadicPow.fast_pow_near_call false x y); [exact (fun h => h) |].
+cbv beta iota.
 destruct (DyadicPow.exact_near x y) as [[w|]|]; [exact (fun h => h) | | exact (fun h => h)].
 cbv beta iota.
-destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y); [apply pown_pos_near_strict |].
-destruct (DyadicPow.fast_pow_near_call false x y);
-  [exact (fun h => h) | apply ziv_near_strict_ziv].
+destruct (eq (DyadicPow.of_i64 (DyadicPow.to_i32 y)) y);
+  [apply pown_pos_near_ziv_strict | apply ziv_near_strict_ziv].
 Qed.
 
 Theorem pown_near_strict :
@@ -373,7 +431,8 @@ Proof.
 intros x y q e Fx Px Fy Hq He Hl Hv.
 assert (Fz : is_finite zero = true) by reflexivity.
 assert (F1 : is_finite DyadicExp.one = true) by exact (proj1 one_B2R).
-(* The rules before [exact_near] return, and [exact_near] returns at x^y. *)
+(* The rules before the fast path return or pass on, so does the fast path, and
+   [exact_near] returns at x^y. *)
 assert (Ex : exists v, DyadicPow.pow_near_with ziv_near_strict x y = Some v).
 { unfold DyadicPow.pow_near_with.
   destruct (eq y zero) eqn:Y0; [eexists; reflexivity |].
@@ -385,6 +444,7 @@ assert (Ex : exists v, DyadicPow.pow_near_with ziv_near_strict x y = Some v).
   rewrite (fin_neq_inf x Fx). cbv iota zeta.
   destruct (10 <=? DyadicPow.expo y + DyadicPow.ln_expo x); [eexists; reflexivity |].
   destruct (DyadicPow.expo y + DyadicPow.ln_expo x <=? -58); [eexists; reflexivity |].
+  destruct (DyadicPow.fast_pow_near_call false x y); [eexists; reflexivity |].
   apply (DyPow.eq_fin_false x _ Fx F1) in X1. rewrite (proj2 one_B2R) in X1.
   apply (DyPow.eq_fin_false y zero Fy Fz) in Y0. change (B2R zero) with 0%R in Y0.
   destruct (exact_near_complete x y q e Fx Px X1 Fy Y0 Hq He Hl Hv) as [w Ew].

@@ -678,6 +678,53 @@ destruct (0 <? k); cbv beta iota.
     [exact (fun h => h) | apply ziv_strict_ziv].
 Qed.
 
+(** [pown_pos_ziv], which [pow] calls at an integer [y] after its fast try,
+    is [pown_pos] without the fast path, and so returns what [pown_pos]
+    does without it: the rules and the driver of [pown_pos_post]. *)
+Lemma pown_pos_ziv_post :
+  forall z post, rounds_post post -> driver_post z post ->
+  forall x k (up : bool) v,
+  is_finite x = true -> (0 < B2R x)%R -> k <> 0 -> is_i32 k ->
+  DyadicPow.pown_pos_ziv_with z x k up = Some v -> post up (powerRZ (B2R x) k) v.
+Proof.
+intros z post Hp Hz x k up v Fx Hx Hk Hi E.
+assert (Hl : forall start, z (DyadicPow.ev_pown x k) up start = Some v ->
+             post up (powerRZ (B2R x) k) v).
+{ intros start H. apply (Hz (DyadicPow.ev_pown x k) up start _ v); [| exact H].
+  intros n a Hn Ea. exact (ev_pown_correct x k n a Hn Fx Hx Hk Hi Ea). }
+unfold DyadicPow.pown_pos_ziv_with in E. cbv zeta in E.
+destruct (0 <? k) eqn:K; cbv beta iota in E.
+- destruct (1024 <=? DyadicPow.expo x * k) eqn:O.
+  + injection E as <-. apply Hp. apply pown_rule_overflow; [exact Fx | exact Hx |].
+    rewrite K. apply Z.leb_le. exact O.
+  + destruct ((DyadicPow.expo x + 1) * k <=? -1075) eqn:U.
+    * injection E as <-. apply Hp. apply pown_rule_underflow; [exact Fx | exact Hx |].
+      rewrite K. apply Z.leb_le. exact U.
+    * exact (Hl _ E).
+- destruct (1024 <=? (DyadicPow.expo x + 1) * k) eqn:O.
+  + injection E as <-. apply Hp. apply pown_rule_overflow; [exact Fx | exact Hx |].
+    rewrite K. apply Z.leb_le. exact O.
+  + destruct (DyadicPow.expo x * k <=? -1075) eqn:U.
+    * injection E as <-. apply Hp. apply pown_rule_underflow; [exact Fx | exact Hx |].
+      rewrite K. apply Z.leb_le. exact U.
+    * exact (Hl _ E).
+Qed.
+
+(** Where [pown_pos_ziv_with ziv_strict] returns, [pown_pos_ziv_with
+    Dyadic.ziv] returns the same. *)
+Lemma pown_pos_ziv_strict :
+  forall x k up v,
+  DyadicPow.pown_pos_ziv_with ziv_strict x k up = Some v ->
+  DyadicPow.pown_pos_ziv_with Dyadic.ziv x k up = Some v.
+Proof.
+intros x k up v. unfold DyadicPow.pown_pos_ziv_with. cbv zeta.
+destruct (0 <? k); cbv beta iota.
+- destruct (1024 <=? DyadicPow.expo x * k); [exact (fun h => h) |].
+  destruct ((DyadicPow.expo x + 1) * k <=? -1075); [exact (fun h => h) | apply ziv_strict_ziv].
+- destruct (1024 <=? (DyadicPow.expo x + 1) * k); [exact (fun h => h) |].
+  destruct (DyadicPow.expo x * k <=? -1075); [exact (fun h => h) | apply ziv_strict_ziv].
+Qed.
+
 (** ** Helpers of [pown_dir] *)
 
 (** [n % 2 != 0] of the Rust is [Z.odd n]. *)
