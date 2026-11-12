@@ -5443,15 +5443,16 @@ Fixpoint small_power_near_loop (fuel : nat) (r q : Z) : option Z :=
 
 Definition small_power_near (r p : Z) : option Z := small_power_near_loop (Z.to_nat p) r 1.
 
-(** The loop of [fn exact], run [k] times, where [mx as f64] is [of_u64
-    mx], [s as u64] is [to_u64], [ex % 2] is [Z.rem], [ex /= 2] is
-    [Z.quot], and [s * s], which stays below 2 ^ 54, is computed without
-    a check. *)
+(** The loop of [fn exact], run [k] times, where [mx as i64 as f64] is
+    [of_i64 mx], as [mx < 2 ^ 53] there, [as i64] of an [f64] is
+    [DyadicExp.to_i64], [as u64] of an [i64] is [mod 2 ^ 64], [ex % 2] is
+    [Z.rem], [ex /= 2] is [Z.quot], and [s * s], which stays below
+    2 ^ 54, is computed without a check. *)
 Fixpoint roots_loop (fuel : nat) (mx ex : Z) : option (Z * Z) :=
   match fuel with
   | O => Some (mx, ex)
   | S f =>
-      let s := to_u64 (fsqrt (of_u64 mx)) in
+      let s := DyadicExp.to_i64 (fsqrt (of_i64 mx)) mod 2 ^ 64 in
       if negb (Z.rem ex 2 =? 0) || negb (s * s =? mx) then None
       else roots_loop f s (Z.quot ex 2)
   end.

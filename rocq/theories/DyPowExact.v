@@ -12,6 +12,7 @@
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Elementary DyRound DyConv DyPowArith DyPowRules.
+From Inari Require FastExpReduce.
 
 Open Scope Z_scope.
 
@@ -119,26 +120,6 @@ unfold fsqrt. split.
   apply round_generic; first [exact Gs | typeclasses eauto].
 Qed.
 
-(** [c as u64] of an [f64] that holds an integer [0 <= z < 2^64] is [z],
-    and [c as u64] is never negative. *)
-Lemma to_u64_int :
-  forall c z, is_finite c = true -> B2R c = IZR z -> 0 <= z < 2 ^ 64 -> DyadicPow.to_u64 c = z.
-Proof.
-intros c z Fc Hz Hb.
-assert (T : Btrunc c = z).
-{ apply eq_IZR. rewrite Btrunc_correct, Hz by reflexivity.
-  unfold round, F2R, scaled_mantissa, cexp, FIX_exp.
-  cbn [Fnum Fexp bpow Z.opp]. rewrite !Rmult_1_r. now rewrite Ztrunc_IZR. }
-unfold DyadicPow.to_u64.
-destruct c; try discriminate Fc; rewrite T; lia.
-Qed.
-
-Lemma to_u64_nonneg : forall c, 0 <= DyadicPow.to_u64 c.
-Proof.
-intros c. unfold DyadicPow.to_u64.
-destruct c as [s|s| |s m e B]; [lia | destruct s; lia | lia | lia].
-Qed.
-
 (** A real [r <> 0] that an [f64] holds rounds down to that [f64]. *)
 Lemma round_dn_exact :
   forall r v, f64_format r -> r <> 0%R ->
@@ -196,11 +177,11 @@ Lemma roots_loop_sound :
 Proof.
 induction f as [|f IH]; intros mx ex mr er Hmx H; cbn [DyadicPow.roots_loop] in H.
 - injection H as <- <-. rewrite Z.pow_0_r, Z.pow_1_r, Z.mul_1_r. lia.
-- set (s := DyadicPow.to_u64 (fsqrt (of_u64 mx))) in H.
+- set (s := DyadicExp.to_i64 (fsqrt (DyadicPow.of_i64 mx)) mod 2 ^ 64) in H.
   destruct (negb (Z.rem ex 2 =? 0) || negb (s * s =? mx)) eqn:B; [discriminate H|].
   apply Bool.orb_false_iff in B. destruct B as [B1 B2].
   apply Bool.negb_false_iff, Z.eqb_eq in B1, B2.
-  assert (Hs : 0 <= s) by apply to_u64_nonneg.
+  assert (Hs : 0 <= s) by (apply Z.mod_pos_bound; lia).
   assert (Hs0 : 0 < s) by (destruct (Z.eq_dec s 0); [subst s; lia | lia]).
   destruct (IH s (Z.quot ex 2) mr er Hs0 H) as (Hmr & Es & Ee).
   rewrite Nat2Z.inj_succ, Z.pow_succ_r by lia.
@@ -230,7 +211,8 @@ induction f as [|f IH]; intros r er Hr Hb; cbn [DyadicPow.roots_loop].
   assert (Hb0 : s0 < 2 ^ 53) by nia.
   destruct (of_u64_exact (s0 * s0) ltac:(nia)) as (F1 & E1).
   destruct (fsqrt_exact (of_u64 (s0 * s0)) s0 F1 E1 ltac:(lia)) as (F2 & E2).
-  rewrite (to_u64_int _ s0 F2 E2) by lia.
+  change (DyadicPow.of_i64 (s0 * s0)) with (of_u64 (s0 * s0)).
+  rewrite (FastExpReduce.to_i64_int _ s0 F2 E2), Z.mod_small by lia.
   rewrite Z.rem_mul, !Z.eqb_refl by lia. cbn [negb orb].
   rewrite Z.quot_mul by lia. exact (IH r er Hr Hb0).
 Qed.

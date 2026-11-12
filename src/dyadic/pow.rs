@@ -226,7 +226,10 @@ fn small_power(r: u64, p: u64) -> Option<u64> {
 // `f64` only if x is the 2^k-th power of a dyadic number r = mr 2^er, so that mr^(2^k) = mx
 // and 2^k er = ex, and r^(±p) is one, which for y < 0 needs mr = 1. A 2^k-th root of mx is k
 // square roots, each of which has to be an integer, as an integer that is the square of a
-// rational is the square of an integer. A square root below 2^27 is exact in `f64`.
+// rational is the square of an integer. A square root below 2^27 is exact in `f64`. mx < 2^53
+// converts to `f64` exactly through `i64`, and so does an integer root back, and the
+// conversions of `i64` are single instructions on x86-64, where those of `u64` take several
+// without AVX-512.
 fn exact(x: f64, y: f64) -> Option<f64> {
     let (mut mx, mut ex) = odd_parts(x);
     let (my, ey) = odd_parts(y);
@@ -237,7 +240,7 @@ fn exact(x: f64, y: f64) -> Option<f64> {
     }
     let (p, k) = if ey >= 0 { (my << ey, 0) } else { (my, -ey) };
     for _ in 0..k {
-        let s = (mx as f64).sqrt() as u64;
+        let s = (mx as i64 as f64).sqrt() as i64 as u64;
         if ex % 2 != 0 || s * s != mx {
             return None;
         }
@@ -290,7 +293,7 @@ fn exact_near(x: f64, y: f64) -> Option<f64> {
     }
     let (p, k) = if ey >= 0 { (my << ey, 0) } else { (my, -ey) };
     for _ in 0..k {
-        let s = (mx as f64).sqrt() as u64;
+        let s = (mx as i64 as f64).sqrt() as i64 as u64;
         if ex % 2 != 0 || s * s != mx {
             return None;
         }
