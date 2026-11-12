@@ -96,10 +96,12 @@ fn trig_bench(c: &mut Criterion) {
     for (name, f) in fs {
         let mut g = c.benchmark_group(name);
         g.throughput(Throughput::Elements(N as u64));
-        // An iteration takes milliseconds. Criterion's default, linear sampling runs the
-        // routine 1 + 2 + ... + 100 times at least, which would take two to ten times the
-        // default 5 s of measurement on the machine of BENCHMARKS.md; flat sampling runs it
-        // the same number of times per sample.
+        // An iteration took milliseconds when these functions called MPFR. Criterion's
+        // default, linear sampling runs the routine 1 + 2 + ... + 100 times at least, which
+        // would then have taken two to ten times the default 5 s of measurement on the
+        // machine of BENCHMARKS.md; flat sampling runs it the same number of times per
+        // sample. With the kernel, an iteration takes 0.07-0.14 ms there, and the sampling
+        // is the same as for the times of MPFR in BENCHMARKS.md.
         g.sampling_mode(SamplingMode::Flat);
         for (cl, x) in &classes {
             g.bench_function(BenchmarkId::from_parameter(cl), |b| {
