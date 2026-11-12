@@ -18,16 +18,17 @@
 //! to be correctly rounded. No known input reaches the cap: none of the 9,949,560
 //! hard-to-round arguments that CORE-MATH lists for them does, nor any of a million random
 //! arguments of each function but `powi`, in each of the three roundings. `cbrt` and `hypot`
-//! do not use Ziv's strategy and have no cap: they compute the integer part of their result
-//! scaled by a power of two, and whether the scaled result is above it, from an exact integer
-//! cube or square root. `sqrt_rn` is `f64::sqrt`, and `sqrt_rd` and `sqrt_ru` are the square
-//! roots toward -∞ and +∞ of the backend of the interval arithmetic. The tests on 64-bit Linux
-//! and macOS compare the functions with MPFR in all three roundings, and the Rocq proofs in the
-//! repository's `rocq/` directory show the results at finite arguments in the domains
-//! correctly rounded wherever a rule or a rounding test settles them, and those of `cbrt`,
-//! `hypot` and `sqrt` at every finite argument, x >= 0 for `sqrt`, with no such condition (for
-//! `sqrt_rd` and `sqrt_ru`, as the portable backend computes them, which the backends of x86-64
-//! without AVX-512F and of wasm32 call too).
+//! do not use Ziv's strategy and have no cap: where a fast path in `f64` does not decide the
+//! rounding, they compute the integer part of their result scaled by a power of two, and
+//! whether the scaled result is above it, from an exact integer cube or square root.
+//! `sqrt_rn` is `f64::sqrt`, and `sqrt_rd` and `sqrt_ru` are the square roots toward -∞ and +∞
+//! of the backend of the interval arithmetic. The tests on 64-bit Linux and macOS compare the
+//! functions with MPFR in all three roundings, and the Rocq proofs in the repository's `rocq/`
+//! directory show the results at finite arguments in the domains correctly rounded wherever a
+//! rule or a rounding test settles them, and those of `cbrt`, `hypot` and `sqrt` at every
+//! finite argument, x >= 0 for `sqrt`, with no such condition (for `sqrt_rd` and `sqrt_ru`, as
+//! the portable backend computes them, which the backends of x86-64 without AVX-512F and of
+//! wasm32 call too).
 //!
 //! ```
 //! use inari::cr;

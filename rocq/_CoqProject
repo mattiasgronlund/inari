@@ -342,6 +342,14 @@ theories/CrPow.v
 theories/RootReal.v
 theories/RootRound.v
 theories/DyIcbrt.v
+theories/FastCbrtNewton.v
+theories/FastCbrtStep.v
+theories/FastCbrtReduce.v
+theories/FastCbrt.v
+theories/FastHypotFar.v
+theories/FastHypotSum.v
+theories/FastHypotDd.v
+theories/FastHypot.v
 theories/DyCbrt.v
 theories/DyHypotExact.v
 theories/DyHypotOdd.v

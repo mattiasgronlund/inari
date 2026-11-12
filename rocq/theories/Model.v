@@ -5644,7 +5644,9 @@ End DyadicPow.
     The functions of [src/dyadic/root.rs]: [cbrt x up], [cbrt_near x],
     [hypot x y up] and [hypot_near x y] are [cbrt(x, up)],
     [cbrt_near(x)], [hypot(x, y, up)] and [hypot_near(x, y)], with [None]
-    where the Rust function panics. They do not use Ziv's strategy. A
+    where the Rust function panics. Behind their fast paths in [f64]
+    ([fast_cbrt_dir], [fast_cbrt_near], [fast_hypot] and
+    [fast_hypot_near]), they do not use Ziv's strategy. A
     [u128] product of two [u64]s, which cannot overflow, is a product in
     [Z], and [w as u64] and [(w >> 64) as u64] of such a [w] are
     [w mod 2 ^ 64] and [w / 2 ^ 64]. [x.is_infinite()] is
@@ -5653,7 +5655,13 @@ End DyadicPow.
     [B754_nan]. [RootRound.v] proves [odd], [DyIcbrt.v] [icbrt],
     [DyCbrt.v] [cbrt_odd], [cbrt] and [cbrt_near], [DyHypotOdd.v]
     [hypot_odd], with [DyHypotExact.v] for its branch below the cut, and
-    [DyHypot.v] [hypot] and [hypot_near]. *)
+    [DyHypot.v] [hypot] and [hypot_near]. [FastCbrtReduce.v] proves the
+    reduction of [fast_cbrt], [FastCbrtNewton.v] and [FastCbrtStep.v]
+    [cbrt_step], and [FastCbrt.v] [fast_cbrt], [fast_cbrt_dir] and
+    [fast_cbrt_near]. [FastHypotFar.v] proves the rule at a difference of
+    27 of [fast_hypot] and [fast_hypot_near], [FastHypotSum.v] and
+    [FastHypotDd.v] [hypot_dd], and [FastHypot.v] [fast_hypot] and
+    [fast_hypot_near]. *)
 Module DyadicRoot.
 
 (** [fn odd<N>(neg: bool, s: &[u64], e: i64, inexact: bool) -> Dyadic<N>]
@@ -5712,15 +5720,116 @@ Definition cbrt_odd (x : f64) : option Dyadic.dyadic :=
   let* (s, inexact) := icbrt (Limbs.shl_into 3 (Dyadic.dy_m a) k) in
   odd 1 (Dyadic.dy_neg a) (s :: nil) (Z.quot (Dyadic.dy_exp a - k) 3) inexact.
 
-(** [pub(crate) fn cbrt(x: f64, up: bool) -> f64] *)
+(** [CBRT_C], [THIRD], [TWO_NINTHS] and [ESCALE] by their bits, where
+    [escale i] is [f64::from_bits(ESCALE[i as usize])] for [i] in
+    [0, 2], and [CBRT_RES] and [ERR_CBRT]: 2^-32 and 2^-65. *)
+Definition cbrt_c0 : f64 := from_bits 0x3fe1b0babcb61b30.
+Definition cbrt_c1 : f64 := from_bits 0x3fe2c9a3e9acd5ba.
+Definition cbrt_c2 : f64 := from_bits 0xbfc4dc30b2d8c7f2.
+Definition cbrt_c3 : f64 := from_bits 0x3f97a8d3e76f9633.
+Definition third : f64 := from_bits 0x3fd5555555555555.
+Definition two_ninths : f64 := from_bits 0x3fcc71c71c71c71c.
+Definition escale (i : Z) : f64 :=
+  from_bits (if i =? 0 then 0x3ff0000000000000
+             else if i =? 1 then 0x3ff428a2f98d728b else 0x3ff965fea53d6e3d).
+Definition cbrt_res : f64 := from_bits 0x3df0000000000000.
+Definition err_cbrt : f64 := from_bits 0x3be0000000000000.
+
+(** [fn cbrt_step(y: f64, zz: f64, rr: f64) -> Option<(f64, f64)>], where
+    [fma] is [HAS_FMA], as in [DyadicExp.fast_exp], and [-dy] is
+    [opp dy]. [FastCbrtStep.v] proves it. *)
+Definition cbrt_step (fma : bool) (y zz rr : f64) : option (f64 * f64) :=
+  let y2 := mul y y in
+  let y3 := mul y y2 in
+  let d := sub y3 zz in
+  if le (fabs d) cbrt_res then
+    let y2l := Generic.two_prod_err fma y y y2 in
+    let y3l := add (Generic.two_prod_err fma y y2 y3) (mul y y2l) in
+    let h := mul (add d y3l) rr in
+    let dy := mul h (mul y third) in
+    Some (Fast.fast_two_sum y (opp dy))
+  else None.
+
+(** [fn fast_cbrt(x: f64) -> Option<(f64, f64, i64)>], where [>> 52] and
+    [<< 52] are [Z.shiftr] and [Z.shiftl], [&] and [|] are [Z.land] and
+    [Z.lor], [bits.leading_zeros()] is [leading_zeros 64 bits], the [u32]
+    subtraction [- 11], which cannot overflow for the subnormal [x] that
+    reach it, is computed without a check, [(m << nz) & MASK] is
+    [Z.land (Z.shiftl m nz) MASK], as the mask also drops the bits above
+    64, [i64::from(nz)] is [nz], the [i64] division and remainder of the
+    positive [e + 3072] are [Z.div] and [Z.modulo], [i as u64] and
+    [(1023 - i) as u64] are [i] and [1023 - i], as [i] is in [0, 2], the
+    [u64] addition, which cannot overflow, is computed without a check,
+    [1.0 / z] is [div Fast.one z], [y -= a] and [y *= a] are
+    [sub y a] and [mul y a], and the [i64] operations, which cannot
+    overflow, are computed without a check. [FastCbrt.v] proves it. *)
+Definition fast_cbrt (fma : bool) (x : f64) : option (f64 * f64 * Z) :=
+  let bits := Z.land (to_bits x) 0x7fffffffffffffff in
+  let '(m, e) :=
+    if Z.shiftr bits 52 =? 0 then
+      let nz := leading_zeros 64 bits - 11 in
+      (Z.land (Z.shiftl (Z.land bits 0x000fffffffffffff) nz) 0x000fffffffffffff, 1 - nz)
+    else (Z.land bits 0x000fffffffffffff, Z.shiftr bits 52) in
+  let et := (e + 3072) / 3 in
+  let i := (e + 3072) mod 3 in
+  let z := from_bits (Z.lor m 0x3ff0000000000000) in
+  let zz := from_bits (Z.lor m 0x3ff0000000000000 + Z.shiftl i 52) in
+  let r := div Fast.one z in
+  let rr := mul r (from_bits (Z.shiftl (1023 - i) 52)) in
+  let z2 := mul z z in
+  let c0 := add cbrt_c0 (mul z cbrt_c1) in
+  let c2 := add cbrt_c2 (mul z cbrt_c3) in
+  let y := add c0 (mul z2 c2) in
+  let y2 := mul y y in
+  let t := sub (mul y2 (mul y r)) Fast.one in
+  let y := sub y (mul (mul t y) (sub third (mul two_ninths t))) in
+  let y := mul y (escale i) in
+  match cbrt_step fma y zz rr with
+  | Some (h, l) => Some (h, l, et - 1365)
+  | None => None
+  end.
+
+(** [fn fast_cbrt_dir(x: f64, up: bool) -> Option<f64>] and [fn
+    fast_cbrt_near(x: f64) -> Option<f64>], where [up != (x < 0.0)] is
+    [xorb up (lt x zero)]. [FastCbrt.v] proves them. *)
+Definition fast_cbrt_dir (fma : bool) (x : f64) (up : bool) : option f64 :=
+  match fast_cbrt fma x with
+  | Some (h, l, e) =>
+    match Fast.round_dir_err h l e err_cbrt (xorb up (lt x zero)) with
+    | Some r => Some (if lt x zero then opp r else r)
+    | None => None
+    end
+  | None => None
+  end.
+Definition fast_cbrt_near (fma : bool) (x : f64) : option f64 :=
+  match fast_cbrt fma x with
+  | Some (h, l, e) =>
+    match Fast.round_near_err h l e err_cbrt with
+    | Some r => Some (if lt x zero then opp r else r)
+    | None => None
+    end
+  | None => None
+  end.
+
+(** [pub(crate) fn cbrt(x: f64, up: bool) -> f64]. [HAS_FMA] depends on
+    the target. The fast path takes it as an argument, and [cbrt] and
+    [cbrt_near] pass [false]: [FastCbrt.fast_cbrt_dir_fma] and
+    [FastCbrt.fast_cbrt_near_fma] show that [true] gives the same result
+    at every argument that reaches it. *)
 Definition cbrt (x : f64) (up : bool) : option f64 :=
   if eq x zero || negb (is_finite x) then Some x
-  else let* d := cbrt_odd x in Dyadic.to_f64 1 d up.
+  else match fast_cbrt_dir false x up with
+       | Some r => Some r
+       | None => let* d := cbrt_odd x in Dyadic.to_f64 1 d up
+       end.
 
 (** [pub(crate) fn cbrt_near(x: f64) -> f64] *)
 Definition cbrt_near (x : f64) : option f64 :=
   if eq x zero || negb (is_finite x) then Some x
-  else let* d := cbrt_odd x in Dyadic.to_f64_near 1 d.
+  else match fast_cbrt_near false x with
+       | Some r => Some r
+       | None => let* d := cbrt_odd x in Dyadic.to_f64_near 1 d
+       end.
 
 (** [fn hypot_odd(x: f64, y: f64) -> Dyadic<3>], where [a.m[0] >> 10] is
     [Z.shiftr], [g as u64] is [g mod 2 ^ 64], the [u64] subtraction
@@ -5749,14 +5858,69 @@ Definition hypot_odd (x y : f64) : option Dyadic.dyadic :=
     let* sq := Limbs.mul_into 6 s s in
     odd 3 false s (Dyadic.dy_exp b - h) (match Limbs.cmp sq xx with Eq => false | _ => true end).
 
-(** [pub(crate) fn hypot(x: f64, y: f64, up: bool) -> f64] *)
+(** [ERR_HYPOT]: 2^-98. *)
+Definition err_hypot : f64 := from_bits 0x39d0000000000000.
+
+(** [fn hypot_dd(big: f64, small: f64) -> Option<(f64, f64, i64)>], where
+    [(big.to_bits() >> 52) as i64] is [Z.shiftr (to_bits big) 52],
+    [((2045 - eb) as u64) << 52] is [Z.shiftl (2045 - eb) 52], as
+    [2045 - eb] is in [1, 2044] there, the [i64] operations, which cannot
+    overflow, are computed without a check, and [fma] is [HAS_FMA].
+    [FastHypotDd.v] proves it. *)
+Definition hypot_dd (fma : bool) (big small : f64) : option (f64 * f64 * Z) :=
+  let eb := Z.shiftr (to_bits big) 52 in
+  if (eb =? 0) || (2044 <? eb) then None
+  else
+    let s := from_bits (Z.shiftl (2045 - eb) 52) in
+    let x := mul big s in
+    let y := mul small s in
+    let x2 := mul x x in
+    let y2 := mul y y in
+    let dx2 := Generic.two_prod_err fma x x x2 in
+    let dy2 := Generic.two_prod_err fma y y y2 in
+    let '(r2, e2) := Fast.fast_two_sum x2 y2 in
+    let '(ah, al) := Fast.fast_two_sum r2 (add e2 (add dx2 dy2)) in
+    let '(h, l) := Fast.dd_sqrt fma ah al in
+    Some (h, l, eb - 1022).
+
+(** [fn fast_hypot(x: f64, y: f64, up: bool) -> Option<f64>] and [fn
+    fast_hypot_near(x: f64, y: f64) -> Option<f64>], without the
+    statements under [#[cfg(test)]], where [(v.to_bits() >> 52) as i64]
+    is [Z.shiftr (to_bits v) 52], and [big.to_bits() + 1] is
+    [to_bits big + 1], which stays within [u64] for a finite [big].
+    [FastHypot.v] proves them. *)
+Definition fast_hypot (fma : bool) (x y : f64) (up : bool) : option f64 :=
+  let '(big, small) := if ge (fabs x) (fabs y) then (fabs x, fabs y) else (fabs y, fabs x) in
+  if 27 <=? Z.shiftr (to_bits big) 52 - Z.shiftr (to_bits small) 52 then
+    Some (if up then from_bits (to_bits big + 1) else big)
+  else
+    match hypot_dd fma big small with
+    | Some (h, l, e) => Fast.round_dir_err h l e err_hypot up
+    | None => None
+    end.
+Definition fast_hypot_near (fma : bool) (x y : f64) : option f64 :=
+  let '(big, small) := if ge (fabs x) (fabs y) then (fabs x, fabs y) else (fabs y, fabs x) in
+  if 27 <=? Z.shiftr (to_bits big) 52 - Z.shiftr (to_bits small) 52 then Some big
+  else
+    match hypot_dd fma big small with
+    | Some (h, l, e) => Fast.round_near_err h l e err_hypot
+    | None => None
+    end.
+
+(** [pub(crate) fn hypot(x: f64, y: f64, up: bool) -> f64], with the fast
+    path as in [cbrt]: [FastHypot.fast_hypot_dir_fma] and
+    [FastHypot.fast_hypot_near_fma] show that [true] gives the same
+    result. *)
 Definition hypot (x y : f64) (up : bool) : option f64 :=
   if (eq x infinity || eq x DyadicExp.neg_infinity)
      || (eq y infinity || eq y DyadicExp.neg_infinity) then Some infinity
   else if is_nan x || is_nan y then Some B754_nan
   else if eq y zero then Some (fabs x)
   else if eq x zero then Some (fabs y)
-  else let* d := hypot_odd x y in Dyadic.to_f64 3 d up.
+  else match fast_hypot false x y up with
+       | Some r => Some r
+       | None => let* d := hypot_odd x y in Dyadic.to_f64 3 d up
+       end.
 
 (** [pub(crate) fn hypot_near(x: f64, y: f64) -> f64] *)
 Definition hypot_near (x y : f64) : option f64 :=
@@ -5765,7 +5929,10 @@ Definition hypot_near (x y : f64) : option f64 :=
   else if is_nan x || is_nan y then Some B754_nan
   else if eq y zero then Some (fabs x)
   else if eq x zero then Some (fabs y)
-  else let* d := hypot_odd x y in Dyadic.to_f64_near 3 d.
+  else match fast_hypot_near false x y with
+       | Some r => Some r
+       | None => let* d := hypot_odd x y in Dyadic.to_f64_near 3 d
+       end.
 
 End DyadicRoot.
 

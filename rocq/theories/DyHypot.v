@@ -15,6 +15,7 @@ From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Knuth DyRound DyConv DyConvNear NearF64 NearCells
   Decompose RootRound DyHypotOdd.
+From Inari Require FastHypot.
 
 Open Scope Z_scope.
 
@@ -110,6 +111,10 @@ destruct (eq y zero) eqn:Zy.
     { intros H. rewrite (proj2 (hy_eq_zero x Fx) H) in Zx. discriminate Zx. }
     assert (Hy0 : B2R y <> 0%R).
     { intros H. rewrite (proj2 (hy_eq_zero y Fy) H) in Zy. discriminate Zy. }
+    (* The fast path, where it returns. *)
+    destruct (DyadicRoot.fast_hypot false x y up) as [w |] eqn:F.
+    { exists w. split; [reflexivity |].
+      exact (FastHypot.fast_hypot_dir_correct false x y up w Fx Fy Hx0 Hy0 F). }
     destruct (hypot_odd_correct x y Fx Fy Hx0 Hy0) as (d & s & E & b & Hd & Od & Vd & Hs & Hw & Hb).
     rewrite Hd.
     assert (Hn : level_ok 3) by (unfold level_ok; lia).
@@ -146,6 +151,10 @@ destruct (eq y zero) eqn:Zy.
     { intros H. rewrite (proj2 (hy_eq_zero x Fx) H) in Zx. discriminate Zx. }
     assert (Hy0 : B2R y <> 0%R).
     { intros H. rewrite (proj2 (hy_eq_zero y Fy) H) in Zy. discriminate Zy. }
+    (* The fast path, where it returns. *)
+    destruct (DyadicRoot.fast_hypot_near false x y) as [w |] eqn:F.
+    { exists w. split; [reflexivity |].
+      exact (FastHypot.fast_hypot_near_correct false x y w Fx Fy Hx0 Hy0 F). }
     destruct (hypot_odd_correct x y Fx Fy Hx0 Hy0) as (d & s & E & b & Hd & Od & Vd & Hs & Hw & Hb).
     rewrite Hd.
     assert (Hn : level_ok 3) by (unfold level_ok; lia).

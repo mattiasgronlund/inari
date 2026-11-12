@@ -47,6 +47,8 @@ From Inari Require Limbs KnuthStep Knuth NatOps DyRound DyConv DyIsqrt DyOps DyD
   DyExpNear DyLogNear DyAtanNear DyTrigNear DyPowNearExact DyPowNear CrPow DyPoint
   DyPointDec.
 From Inari Require RootReal RootRound DyIcbrt DyCbrt DyHypotExact DyHypotOdd DyHypot CrRoot.
+From Inari Require FastCbrtNewton FastCbrtStep FastCbrtReduce FastCbrt FastHypotFar FastHypotSum
+  FastHypotDd FastHypot.
 From Inari Require FastRound FastExpTables FastExpReduce FastExpCore FastExp.
 From Inari Require FastRoundErr FastDiv FastHypPoly FastCoshPoly FastHypPos FastCoshPos FastTanhPos
   FastHyp.
@@ -884,6 +886,27 @@ Print Assumptions RootRound.odd_correct.
 Print Assumptions RootRound.odd_window_dir.
 Print Assumptions RootRound.odd_window_near.
 Print Assumptions DyIcbrt.icbrt_correct.
+Print Assumptions FastCbrtNewton.cbrt_newton.
+Print Assumptions FastCbrtNewton.cbrt_step_err.
+Print Assumptions FastCbrtStep.cbrt_step_correct.
+Print Assumptions FastCbrtStep.cbrt_step_fma.
+Print Assumptions FastCbrtReduce.cbrt_split_bits.
+Print Assumptions FastCbrtReduce.cbrt_zz_rr.
+Print Assumptions FastCbrt.fast_cbrt_correct.
+Print Assumptions FastCbrt.fast_cbrt_dir_correct.
+Print Assumptions FastCbrt.fast_cbrt_near_correct.
+Print Assumptions FastCbrt.fast_cbrt_dir_fma.
+Print Assumptions FastCbrt.fast_cbrt_near_fma.
+Print Assumptions FastHypotFar.hypot_far_dir.
+Print Assumptions FastHypotFar.hypot_far_near.
+Print Assumptions FastHypotSum.hypot_sum_sq_correct.
+Print Assumptions FastHypotSum.hypot_sum_sq_fma.
+Print Assumptions FastHypotDd.hypot_dd_correct.
+Print Assumptions FastHypotDd.hypot_dd_fma.
+Print Assumptions FastHypot.fast_hypot_dir_correct.
+Print Assumptions FastHypot.fast_hypot_near_correct.
+Print Assumptions FastHypot.fast_hypot_dir_fma.
+Print Assumptions FastHypot.fast_hypot_near_fma.
 Print Assumptions DyCbrt.cbrt_dir_correct.
 Print Assumptions DyCbrt.cbrt_near_correct.
 Print Assumptions DyCbrt.cbrt_special.

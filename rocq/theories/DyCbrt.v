@@ -17,6 +17,7 @@ From Stdlib Require Import ZArith Reals Lra Lia List.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr Limbs Elementary Decompose DyRound DyConv DyConvNear NearF64
   RootReal RootRound DyIcbrt.
+From Inari Require FastCbrt.
 
 Open Scope Z_scope.
 
@@ -187,6 +188,10 @@ destruct (eq x zero) eqn:Z0; cbn [orb negb].
   + split; [exact F0 |]. split; [apply Rle_refl |]. intros g _ Hg. exact Hg.
 - assert (Hx0 : B2R x <> 0%R).
   { intros H. rewrite (proj2 (cb_eq_zero x Fx) H) in Z0. discriminate Z0. }
+  (* The fast path, where it returns. *)
+  destruct (DyadicRoot.fast_cbrt_dir false x up) as [w |] eqn:F.
+  { exists w. split; [reflexivity |].
+    exact (FastCbrt.fast_cbrt_dir_correct false x up w Fx Hx0 F). }
   destruct (cbrt_odd_correct x Fx Hx0)
     as (d & neg & s & E & b & r & Hd & Od & Vd & Hs & Hw & Hb & Hr).
   rewrite Hd.
@@ -217,6 +222,10 @@ destruct (eq x zero) eqn:Z0; cbn [orb negb].
   + intros H. exfalso. apply H. reflexivity.
 - assert (Hx0 : B2R x <> 0%R).
   { intros H. rewrite (proj2 (cb_eq_zero x Fx) H) in Z0. discriminate Z0. }
+  (* The fast path, where it returns. *)
+  destruct (DyadicRoot.fast_cbrt_near false x) as [w |] eqn:F.
+  { exists w. split; [reflexivity |].
+    exact (FastCbrt.fast_cbrt_near_correct false x w Fx Hx0 F). }
   destruct (cbrt_odd_correct x Fx Hx0)
     as (d & neg & s & E & b & r & Hd & Od & Vd & Hs & Hw & Hb & Hr).
   rewrite Hd.
