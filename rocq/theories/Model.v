@@ -5388,10 +5388,12 @@ Definition odd_parts (x : f64) : Z * Z :=
   let z := trailing_zeros 64 m in
   (Z.shiftr m z, e + z).
 
-(** [fn expo(x: f64) -> i64], where the sum is computed without a
+(** [fn expo(x: f64) -> i64], where the sums are computed without a
     check. *)
 Definition expo (x : f64) : Z :=
-  let '(m, e) := odd_parts x in e + 63 - leading_zeros 64 m.
+  let be := Z.land (Z.shiftr (to_bits x) 52) 0x7ff in
+  if be =? 0 then let '(m, e) := odd_parts x in e + 63 - leading_zeros 64 m
+  else be - 1023.
 
 (** [fn ilog2(v: i64) -> i64], where [v as u64] is [v mod 2 ^ 64]. *)
 Definition ilog2 (v : Z) : Z := 63 - leading_zeros 64 (v mod 2 ^ 64).

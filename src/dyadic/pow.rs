@@ -153,10 +153,17 @@ fn odd_parts(x: f64) -> (u64, i64) {
     (m >> z, e + i64::from(z))
 }
 
-// floor(log2 |x|) for a finite nonzero x: 2^g <= |x| < 2^(g + 1).
+// floor(log2 |x|) for a finite nonzero x: 2^g <= |x| < 2^(g + 1). A normal x is
+// (2^52 + f) 2^(be - 1075), in [2^(be - 1023), 2^(be - 1022)), so that only a subnormal one
+// needs its odd parts.
 fn expo(x: f64) -> i64 {
-    let (m, e) = odd_parts(x);
-    e + 63 - i64::from(m.leading_zeros())
+    let be = ((x.to_bits() >> 52) & 0x7ff) as i64;
+    if be == 0 {
+        let (m, e) = odd_parts(x);
+        e + 63 - i64::from(m.leading_zeros())
+    } else {
+        be - 1023
+    }
 }
 
 // floor(log2 v) for v >= 1, without `ilog2`, which needs a Rust after the MSRV.

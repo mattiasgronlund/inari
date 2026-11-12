@@ -93,6 +93,41 @@ rewrite Hax, Hmag, Hsplit, mult_IZR, bpow_plus, <- (IZR_Zpower radix2 z Hz).
 change (radix_val radix2) with 2. ring.
 Qed.
 
+(** [expo x] is [e + 63 - leading_zeros 64 m] for the odd parts [(m, e)]
+    of [x]: by its definition for a subnormal [x], and for a normal one,
+    whose [be - 1023] it reads, as [|x| = (2^52 + f) 2^(be - 1075)], whose
+    odd part is [(2^52 + f) / 2^z] for its [z <= 52] trailing zeros, with
+    [63 - (52 - z)] leading zeros. *)
+Lemma expo_odd_parts :
+  forall x m e,
+  is_finite x = true -> B2R x <> 0%R -> DyadicPow.odd_parts x = (m, e) ->
+  DyadicPow.expo x = e + 63 - leading_zeros 64 m.
+Proof.
+intros x m e Fx Hx0 Ho.
+unfold DyadicPow.expo. cbv zeta.
+destruct (Z.eqb_spec (Z.land (Z.shiftr (to_bits x) 52) 0x7ff) 0) as [_ | HE].
+{ rewrite Ho. reflexivity. }
+destruct (to_bits_finite x Fx) as (c & Hc & Hb).
+rewrite Hb, biased_finite in HE |- * by exact Hc.
+unfold DyadicPow.odd_parts in Ho. rewrite Hb, biased_finite, frac_finite in Ho by exact Hc.
+destruct (Z.eqb_spec (c / 2^52) 0) as [E | _]; [contradiction|]. cbv beta iota zeta in Ho.
+rewrite lor_implicit in Ho by zlia.
+(* The significand [m0] of a normal [x] has its top bit at [2^52]. *)
+set (m0 := c mod 2^52 + 2^52) in Ho.
+assert (Hl : Z.log2 m0 = 52) by (apply Z.log2_unique; unfold m0; zlia).
+destruct (trailing_zeros_odd m0 ltac:(unfold m0; zlia)) as (Hz & _ & Hsplit).
+set (z := trailing_zeros 64 m0) in *.
+apply pair_equal_spec in Ho as [<- <-].
+set (o := Z.shiftr m0 z) in *.
+assert (Ho0 : 0 < o).
+{ destruct (Z.lt_ge_cases 0 o) as [H|H]; [exact H|].
+  assert (o * 2 ^ z <= 0) by (apply Z.mul_nonpos_nonneg; [lia | apply Z.pow_nonneg; lia]).
+  unfold m0 in Hsplit. zlia. }
+(* [m0 = o 2^z], so [log2 o = 52 - z] and [o] has [63 - (52 - z)] leading zeros. *)
+rewrite Hsplit, Z.log2_mul_pow2 in Hl by assumption.
+rewrite leading_zeros_pos by exact Ho0. lia.
+Qed.
+
 (** [expo x] is the exponent [g] of [2^g <= |x| < 2^(g+1)]. *)
 Lemma expo_spec :
   forall x,
@@ -102,7 +137,7 @@ Proof.
 intros x Fx Hx0.
 destruct (DyadicPow.odd_parts x) as [m e] eqn:Ho.
 destruct (odd_parts_spec x m e Fx Hx0 Ho) as (_ & Hm & _ & Hax).
-unfold DyadicPow.expo. rewrite Ho.
+rewrite (expo_odd_parts x m e Fx Hx0 Ho).
 rewrite leading_zeros_pos by lia.
 replace (e + 63 - (64 - 1 - Z.log2 m)) with (Z.log2 m + e) by ring.
 destruct (Z.log2_spec m) as [H1 H2]; [lia|].
@@ -124,7 +159,7 @@ intros x Fx Hx0.
 destruct (DyadicPow.odd_parts x) as [m e] eqn:Ho.
 destruct (odd_parts_spec x m e Fx Hx0 Ho) as (_ & Hm & He & _).
 split.
-- unfold DyadicPow.expo. rewrite Ho, leading_zeros_pos by lia.
+- rewrite (expo_odd_parts x m e Fx Hx0 Ho), leading_zeros_pos by lia.
   pose proof (Z.log2_nonneg m). lia.
 - destruct (expo_spec x Fx Hx0) as [H _].
   pose proof (abs_B2R_lt_emax _ _ x) as Hm'.
