@@ -21,16 +21,21 @@ jobs:
       - name: Check the places that make an interval
         run: rocq/check-sites.sh
 
-      # The container runs as a user that does not own the checkout, and has
-      # to write the compiled proofs next to the sources.
-      - name: Make the proofs writable by the container
-        run: chmod -R a+w rocq
-
       # Docker pulls the image by its digest and ignores the tag. To update
       # it, write the new tag and the Digest that
       # `docker buildx imagetools inspect rocq/rocq-prover:<tag>` prints.
+      # The container runs as root, as apt needs to install MPFR and Boost,
+      # which Gappa builds against, and root can write the compiled proofs
+      # next to the sources in the checkout. OPAMROOT names the opam root of
+      # the image's user, rocq, and OPAMROOTISOK stops opam from warning that
+      # it runs as root.
       - name: Check the proofs
         run: >
-          docker run --rm -v "$PWD/rocq:/w" -w /w
+          docker run --rm --user root
+          -e OPAMROOT=/home/rocq/.opam -e OPAMROOTISOK=1
+          -v "$PWD/rocq:/w" -w /w
           rocq/rocq-prover:9.1@sha256:9a1e969649a3cc3c6f310d5be5a842e2187384560337c6c0807aba9f8565efba
-          bash -c 'opam install -y coq-flocq.4.2.2 && make'
+          bash -c 'apt-get update -qq
+          && apt-get install -y -qq libmpfr-dev libboost-dev
+          && opam install -y coq-flocq.4.2.2 gappa.1.6.0 coq-gappa.1.11.0
+          && make'

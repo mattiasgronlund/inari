@@ -14,7 +14,7 @@ From Stdlib Require Import ZArith Reals Lra Lia QArith Qreals.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
 From Inari Require Import Model Mpfr TwoSum TwoProduct FastRound FastExpErr FastExpTables
   TrigSeries.
-From Inari Require CancelLanes MulRuTiny PiBounds TrigPieces FastTrigSC.
+From Inari Require CancelLanes MulRuTiny PiBounds TrigPieces FastTrigSC FastTrigGappa.
 
 Open Scope R_scope.
 
@@ -841,10 +841,9 @@ assert (Hrrw : Rabs (B2R rr - (B2R rh + B2R rl)) <=
                bpow radix2 (-53) * 3836e-7 + bpow radix2 (-1075)) by (num; lra).
 assert (Hrr : Rabs (B2R rr) <= 3836e-7)
   by (apply Rabs_le; apply Rabs_le_inv in Hrrw; num; lra).
-(* The polynomials at [rr]. *)
-assert (X10 : 3836e-7 <= bpow radix2 (-10)) by (num; lra).
-destruct (poly_cm rr 3836e-7 Frr Hrr X10) as [Fcm Bcm]. cbv zeta in Fcm, Bcm.
-destruct (poly_s3 rr 3836e-7 Frr Hrr X10) as [Fs3 Bs3]. cbv zeta in Fs3, Bs3.
+(* The polynomials at [rr], with the round-off bounds of [FastTrigGappa]. *)
+destruct (FastTrigGappa.poly_cm_gappa rr Frr Hrr) as [Fcm Bcm]. cbv zeta in Fcm, Bcm.
+destruct (FastTrigGappa.poly_s3_gappa rr Frr Hrr) as [Fs3 Bs3]. cbv zeta in Fs3, Bs3.
 set (cm := mul (mul rr rr) (sub (mul (mul rr rr) (from_bits DyadicTrig.C4)) half)) in *.
 set (s3 := mul (mul rr (mul rr rr))
              (sub (mul (mul rr rr) (from_bits DyadicTrig.S5)) (from_bits DyadicTrig.S3))) in *.

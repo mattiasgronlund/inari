@@ -54,7 +54,7 @@ From Inari Require FastRoundErr FastDiv FastHypPoly FastCoshPoly FastHypPos Fast
   FastHyp.
 From Inari Require FastSign FastLogTables FastLogTaylor FastLogHorner FastLogPoly FastLogReduce
   FastLogCore FastLogNorm FastLogLn FastLogBy FastLog.
-From Inari Require FastTrigTables FastTrigReduce FastTrigSC FastTrigEval FastTrigDiv
+From Inari Require FastTrigTables FastTrigReduce FastTrigSC FastTrigGappa FastTrigEval FastTrigDiv
   FastTrigRound FastTrigBigInt FastTrigBigMul FastTrigBigDec FastTrigBigSum FastTrigBig
   FastTrigBandRed FastTrigBandInt FastTrigBandMul FastTrigBandBig FastTrigBandDiv FastTrigBandEval
   FastTrigCore FastTrigOne FastTrig.
@@ -430,6 +430,10 @@ Print Assumptions FastTrigBig.fast_reduce_big_correct.
 Print Assumptions FastTrigBig.fast_reduce_big_fma.
 Print Assumptions FastTrigSC.fast_sc_correct.
 Print Assumptions FastTrigSC.fast_sc_fma.
+Print Assumptions FastTrigGappa.cm_gappa.
+Print Assumptions FastTrigGappa.s3_gappa.
+Print Assumptions FastTrigGappa.poly_cm_gappa.
+Print Assumptions FastTrigGappa.poly_s3_gappa.
 Print Assumptions FastTrigEval.fast_eval_correct.
 Print Assumptions FastTrigEval.fast_eval_fma.
 Print Assumptions FastTrigEval.fast_sin0_correct.

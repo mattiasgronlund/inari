@@ -1,4 +1,4 @@
-# Checks the proofs with Rocq 9.1 and Flocq 4.2.2 (see README.md).
+# Checks the proofs with Rocq 9.1, Flocq 4.2.2 and Gappa 1.6.0 (see README.md).
 
 # Warnings are errors, like `-Dwarnings` for the Rust code.
 COQEXTRAFLAGS := -w +default

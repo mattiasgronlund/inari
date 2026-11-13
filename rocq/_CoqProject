@@ -231,6 +231,7 @@ theories/FastLog.v
 theories/FastTrigTables.v
 theories/FastTrigReduce.v
 theories/FastTrigSC.v
+theories/FastTrigGappa.v
 theories/FastTrigEval.v
 theories/FastTrigDiv.v
 theories/FastTrigRound.v
