@@ -12,14 +12,16 @@
 // A fast path computes a scaled result y = f(x) 2^-e, for an integer e in [-1021, 1022], as an
 // unevaluated sum h + l of two `f64`s with h = RN(h + l), 1/2 < h < 2, and a proved bound
 // |y - (h + l)| <= 2^-68 (`ERR`). `round_dir` and `round_near` then decide the rounding of y by
-// comparisons of l with bounds that depend only on h, which round nothing, and scale it by 2^e,
-// which is exact as the result is a normal `f64`. Where they cannot decide, they return `None`,
-// and the caller calls `ziv` or `ziv_near` as it did before. The cases:
+// comparisons of l, or of |l| in `round_dir`, with bounds that depend only on h, which round
+// nothing, and scale it by 2^e, which is exact as the result is a normal `f64`. Where they cannot
+// decide, they return `None`, and the caller calls `ziv` or `ziv_near` as it did before. The
+// cases:
 //
 // - Since h = RN(h + l), |l| is at most half the gap between h and the `f64` next to it on the
 //   side of l. If l > 2^-68, then h < h + l - 2^-68 <= y <= h + l + 2^-68 < h + 2 l <= the
 //   `f64` after h, so y rounds down to h and up to the `f64` after h. If l < -2^-68, the same
-//   holds the other way around. Otherwise the test fails: y may be h itself.
+//   holds the other way around. Otherwise the test fails: y may be h itself. So `round_dir`
+//   tests |l| > 2^-68, and then takes the step from h that the sign bit of l gives.
 // - Rounded to nearest, h is y's rounding if y is strictly within half a gap of h on each side.
 //   The gaps above and below h are 2^-52 for 1 < h < 2, and 2^-53 for 1/2 < h < 1, and for
 //   h = 1 the gap below is 2^-53 and the one above 2^-52. So the test passes if l is below
@@ -181,35 +183,29 @@ pub(crate) fn dd_div(nh: f64, nl: f64, dh: f64, dl: f64) -> (f64, f64) {
 }
 
 /// The rounding of y 2^e toward +∞ if `up` and toward -∞ otherwise, for h, l and e from a fast
-/// path, which bounds |y - (h + l)| by 2^-68, or `None` where the comparisons of l cannot
-/// decide it.
+/// path, which bounds |y - (h + l)| by 2^-68, or `None` where l cannot decide it: where
+/// |l| <= 2^-68, or l is NaN.
 pub(crate) fn round_dir(h: f64, l: f64, e: i64, up: bool) -> Option<f64> {
     #[cfg(test)]
     if !fast_enabled() {
         return None;
     }
-    let r = if l > ERR {
-        // h < y < the `f64` after h.
-        if up {
-            f64::from_bits(h.to_bits() + 1)
-        } else {
-            h
-        }
-    } else if l < -ERR {
-        // The `f64` before h < y < h.
-        if up {
-            h
-        } else {
-            f64::from_bits(h.to_bits() - 1)
-        }
-    } else {
-        #[cfg(test)]
-        record_fast(false);
-        return None;
-    };
+    // Where |l| > ERR, h < y < the `f64` after h if l > 0, and the `f64` before h < y < h if
+    // l < 0. The sign of l is unpredictable on random arguments, so the result is computed from
+    // it rather than branched on: its bits are those of h, plus 1 if `up`, less the sign bit of
+    // l, which is 1 for l < 0 as l is not zero. The sum stays within `u64` for 1/2 < h < 2. Only
+    // |l| <= ERR, which is rare, and a NaN l take the branch.
+    let passed = l.abs() > ERR;
     #[cfg(test)]
-    record_fast(true);
-    Some(scale(r, e))
+    record_fast(passed);
+    if passed {
+        Some(scale(
+            f64::from_bits(h.to_bits() + up as u64 - (l.to_bits() >> 63)),
+            e,
+        ))
+    } else {
+        None
+    }
 }
 
 /// The rounding of y 2^e to nearest, for h, l and e from a fast path, which bounds
@@ -240,32 +236,19 @@ pub(crate) fn round_dir_err(h: f64, l: f64, e: i64, err: f64, up: bool) -> Optio
     if !fast_enabled() {
         return None;
     }
-    let r = if !(h > 0.5 && h < 2.0) {
-        #[cfg(test)]
-        record_fast(false);
-        return None;
-    } else if l > err {
-        // h < y < the `f64` after h.
-        if up {
-            f64::from_bits(h.to_bits() + 1)
-        } else {
-            h
-        }
-    } else if l < -err {
-        // The `f64` before h < y < h.
-        if up {
-            h
-        } else {
-            f64::from_bits(h.to_bits() - 1)
-        }
-    } else {
-        #[cfg(test)]
-        record_fast(false);
-        return None;
-    };
+    // The step from h by the sign bit of l, without a branch on it, as in `round_dir`, for the
+    // err > 0 of the fast paths.
+    let passed = h > 0.5 && h < 2.0 && l.abs() > err;
     #[cfg(test)]
-    record_fast(true);
-    Some(scale(r, e))
+    record_fast(passed);
+    if passed {
+        Some(scale(
+            f64::from_bits(h.to_bits() + up as u64 - (l.to_bits() >> 63)),
+            e,
+        ))
+    } else {
+        None
+    }
 }
 
 /// `round_near` for a fast path that bounds |y - (h + l)| by `err` = 2^-p, for an integer p in
@@ -306,11 +289,11 @@ fn sub_unit(e: i64) -> f64 {
 // C = 2^(-1022 - e) >= 1: the `f64`s in [C, 2C] are g = 2^-52 C apart, which is 2^-1074 in units
 // of 2^-e, the gap between the `f64`s from 0 to 2^-1021. s + t = C + h exactly by Fast2Sum
 // [Dekker], as C >= h where s < 2C, and u = RN(t + l) is within 2^-54 g of t + l, as
-// |t + l| <= 3g/4, so C + y is within 2^-67 C (`SUB_ERR`) of s + u. The comparisons of
-// `round_dir` then decide the rounding r of C + y, where s < 2C, and the rounding of y 2^e is
-// (r - C) 2^e = (r - C) / g 2^-1074, whose bits are those of r less those of C: the `f64`s in
-// [C, 2C] have consecutive bits, and so do those from 0 to 2^-1022. s = C never needs the `f64`
-// before it: then t = h, and u = RN(h + l) > 0.
+// |t + l| <= 3g/4, so C + y is within 2^-67 C (`SUB_ERR`) of s + u. The tests of `round_dir`,
+// with u for l and 2^-67 C for `ERR`, then decide the rounding r of C + y, where s < 2C, and the
+// rounding of y 2^e is (r - C) 2^e = (r - C) / g 2^-1074, whose bits are those of r less those
+// of C: the `f64`s in [C, 2C] have consecutive bits, and so do those from 0 to 2^-1022. s = C
+// never needs the `f64` before it: then t = h, and u = RN(h + l) > 0.
 fn round_dir_sub(h: f64, l: f64, e: i64, up: bool) -> Option<f64> {
     #[cfg(test)]
     if !fast_enabled() {
@@ -326,20 +309,13 @@ fn round_dir_sub(h: f64, l: f64, e: i64, up: bool) -> Option<f64> {
         #[cfg(test)]
         record_fast(false);
         return None;
-    } else if u > b {
-        // s < C + y < the `f64` after s.
-        if up {
-            f64::from_bits(s.to_bits() + 1)
-        } else {
-            s
-        }
-    } else if u < -b {
-        // The `f64` before s < C + y < s.
-        if up {
-            s
-        } else {
-            f64::from_bits(s.to_bits() - 1)
-        }
+    } else if u.abs() > b {
+        // s < C + y < the `f64` after s if u > 0, and the `f64` before s < C + y < s if u < 0.
+        // As in `round_dir`, the sign of u is unpredictable on random arguments, so the step
+        // from s is computed from it rather than branched on: the bits of s, plus 1 if `up`,
+        // less the sign bit of u, which is 1 for u < 0 as u is not zero. The sum stays within
+        // `u64` for C <= s < 2C.
+        f64::from_bits(s.to_bits() + up as u64 - (u.to_bits() >> 63))
     } else {
         #[cfg(test)]
         record_fast(false);
@@ -553,4 +529,219 @@ pub(crate) fn dd_sqrt(ah: f64, al: f64) -> (f64, f64) {
     let pe = two_prod_err::<HAS_FMA>(s, s, p);
     let c = (((ah - p) - pe) + al) / (2.0 * s);
     fast_two_sum(s, c)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dyadic::tests::Rng;
+
+    // `round_dir_err` as it was before it took the step from h by the sign bit of l: by the
+    // comparisons l > err and l < -err. `round_dir` was the same without the check of h, at
+    // err = `ERR`.
+    fn by_comparisons(h: f64, l: f64, e: i64, err: f64, up: bool) -> Option<f64> {
+        let r = if l > err {
+            if up {
+                f64::from_bits(h.to_bits() + 1)
+            } else {
+                h
+            }
+        } else if l < -err {
+            if up {
+                h
+            } else {
+                f64::from_bits(h.to_bits() - 1)
+            }
+        } else {
+            return None;
+        };
+        Some(scale(r, e))
+    }
+
+    // Checks `round_dir` (at err = `ERR`) and `round_dir_err` against `by_comparisons` at
+    // (h, l), in both directions and at both ends of the range of e, by the bits of the results.
+    fn check(h: f64, l: f64, err: f64) {
+        let in_range = h > 0.5 && h < 2.0;
+        for up in [false, true] {
+            for e in [-1022, 0, 1023] {
+                let want = if in_range {
+                    by_comparisons(h, l, e, err, up)
+                } else {
+                    None
+                };
+                let got = round_dir_err(h, l, e, err, up);
+                assert_eq!(
+                    got.map(f64::to_bits),
+                    want.map(f64::to_bits),
+                    "round_dir_err({h:e}, {l:e}, {e}, {err:e}, {up})"
+                );
+                if in_range && err == ERR {
+                    let got = round_dir(h, l, e, up);
+                    assert_eq!(
+                        got.map(f64::to_bits),
+                        want.map(f64::to_bits),
+                        "round_dir({h:e}, {l:e}, {e}, {up})"
+                    );
+                }
+            }
+        }
+    }
+
+    // h in (1/2, 2): next to its ends, at and next to 1, where the gap changes, and 3/4 and 3/2.
+    fn h_grid() -> [f64; 7] {
+        [
+            f64::from_bits(0.5f64.to_bits() + 1),
+            0.75,
+            f64::from_bits(1f64.to_bits() - 1),
+            1.0,
+            f64::from_bits(1f64.to_bits() + 1),
+            1.5,
+            f64::from_bits(2f64.to_bits() - 1),
+        ]
+    }
+
+    // A random h in (1/2, 2), and a random l of either sign with |l| in [2^-110, 2^-49).
+    fn random_hl(rng: &mut Rng) -> (f64, f64) {
+        let lo = 0.5f64.to_bits() + 1;
+        let hi = 2f64.to_bits() - 1;
+        let h = f64::from_bits(lo + rng.below(hi - lo + 1));
+        // sign, a biased exponent for -110 to -50, and a random significand.
+        let k = 1023 - 110 + rng.below(61);
+        let l = f64::from_bits((rng.next() & (1 << 63)) | k << 52 | rng.next() >> 12);
+        (h, l)
+    }
+
+    // The step from h by the sign bit of l is the step that the comparisons of l with err and
+    // -err choose: on both signs of l, on the band |l| <= err where both return `None`, at
+    // its ends, on ±0, ±∞ and NaNs of either sign, and on random h in (1/2, 2) and l of either
+    // sign with |l| in [2^-110, 2^-49).
+    #[test]
+    fn round_dir_by_sign_bit() {
+        set_fast_path(true);
+        let errs = [ERR, 2f64.powi(-55), 2f64.powi(-67), 2f64.powi(-105)];
+        let hs = h_grid();
+        let neg_nan = f64::from_bits(f64::NAN.to_bits() | 1 << 63);
+        for err in errs {
+            let ls = [
+                0.0,
+                err,
+                f64::from_bits(err.to_bits() - 1),
+                f64::from_bits(err.to_bits() + 1),
+                err / 2.0,
+                2.0 * err,
+                2f64.powi(-60),
+                2f64.powi(-54),
+                f64::MIN_POSITIVE,
+                f64::from_bits(1),
+                1.0,
+                f64::INFINITY,
+            ];
+            for l in ls {
+                for h in hs {
+                    check(h, l, err);
+                    check(h, -l, err);
+                }
+            }
+            for h in hs {
+                check(h, f64::NAN, err);
+                check(h, neg_nan, err);
+            }
+            // `round_dir_err` checks h itself.
+            for h in [0.5, 2.0, 0.25, 4.0, -1.0, 0.0, f64::NAN] {
+                check(h, 2.0 * err, err);
+                check(h, -2.0 * err, err);
+            }
+        }
+        let mut rng = Rng(117);
+        for _ in 0..100_000 {
+            let (h, l) = random_hl(&mut rng);
+            check(h, l, errs[rng.below(4) as usize]);
+        }
+    }
+
+    // `round_dir_sub` as it was before it took the step from s by the sign bit of u: by the
+    // comparisons u > b and u < -b.
+    fn sub_by_comparisons(h: f64, l: f64, e: i64, up: bool) -> Option<f64> {
+        let c = sub_unit(e);
+        let (s, t) = fast_two_sum(c, h);
+        let u = t + l;
+        let b = c * SUB_ERR;
+        let r = if s >= 2.0 * c {
+            return None;
+        } else if u > b {
+            if up {
+                f64::from_bits(s.to_bits() + 1)
+            } else {
+                s
+            }
+        } else if u < -b {
+            if up {
+                s
+            } else {
+                f64::from_bits(s.to_bits() - 1)
+            }
+        } else {
+            return None;
+        };
+        Some(f64::from_bits(r.to_bits() - c.to_bits()))
+    }
+
+    // Checks `round_dir_sub` against `sub_by_comparisons` at (h, l), in both directions and
+    // across the range of e, by the bits of the results. At e < -1074, C > 2^52 and s can be C,
+    // from which u = -∞ would step below C, and the subtraction of the bits of C would overflow:
+    // the callers' l is finite, and an infinite one is checked at the other e only.
+    fn check_sub(h: f64, l: f64) {
+        for up in [false, true] {
+            for e in [-1085, -1080, -1060, -1023, -1022] {
+                if l.is_infinite() && e < -1074 {
+                    continue;
+                }
+                let want = sub_by_comparisons(h, l, e, up);
+                let got = round_dir_sub(h, l, e, up);
+                assert_eq!(
+                    got.map(f64::to_bits),
+                    want.map(f64::to_bits),
+                    "round_dir_sub({h:e}, {l:e}, {e}, {up})"
+                );
+            }
+        }
+    }
+
+    // The step from s by the sign bit of u is the step that the comparisons of u with b and -b
+    // choose: on both signs of l, on the band |u| <= b where both return `None` (u = l at
+    // h = 3/4 and e = -1022 or -1023, where b is 2^-67 or 2^-66), at its ends, on ±0, ±∞ and
+    // NaNs of either sign, and on random h in (1/2, 2) and l of either sign with |l| in
+    // [2^-110, 2^-49).
+    #[test]
+    fn round_dir_sub_by_sign_bit() {
+        set_fast_path(true);
+        let ls = [
+            0.0,
+            SUB_ERR,
+            f64::from_bits(SUB_ERR.to_bits() - 1),
+            f64::from_bits(SUB_ERR.to_bits() + 1),
+            SUB_ERR / 2.0,
+            2.0 * SUB_ERR,
+            f64::from_bits((2.0 * SUB_ERR).to_bits() + 1),
+            2f64.powi(-60),
+            2f64.powi(-54),
+            f64::MIN_POSITIVE,
+            f64::from_bits(1),
+            f64::INFINITY,
+        ];
+        let neg_nan = f64::from_bits(f64::NAN.to_bits() | 1 << 63);
+        for h in h_grid() {
+            for l in ls {
+                check_sub(h, l);
+                check_sub(h, -l);
+            }
+            check_sub(h, f64::NAN);
+            check_sub(h, neg_nan);
+        }
+        let mut rng = Rng(1117);
+        for _ in 0..100_000 {
+            let (h, l) = random_hl(&mut rng);
+            check_sub(h, l);
+        }
+    }
 }

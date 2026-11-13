@@ -51,6 +51,27 @@ destruct (ge s (mul Fast.two c)) eqn:G0; [discriminate Hv|].
 pose proof (FastRound.ge_false _ _ Fs F2c G0) as Hs2. rewrite R2c in Hs2.
 destruct (Hk Hs2) as (Fu & Hy0 & N & HN & Hbits & HD1 & HD2).
 apply Rabs_def2 in HD1, HD2.
+(* The step from [s] by the sign bit of [u], where [|u| > b], is the one
+   that the comparisons [u > b] and [u < -b] choose, and both fail on the
+   same [u], as [b >= 0] ([FastRound.dir_step_cases]). *)
+assert (Pb : 0 <= B2R b) by (rewrite Rb; unfold g; pose proof (bpow_gt_0 radix2 (-1074 - e)); lra).
+assert (E : (if gt (fabs u) b
+             then Some (from_bits (to_bits s + Z.b2z up - Z.shiftr (to_bits u) 63))
+             else None) =
+            (if gt u b then Some (if up then from_bits (to_bits s + 1) else s)
+             else if lt u (opp b) then Some (if up then s else from_bits (to_bits s - 1))
+             else None)).
+{ destruct (FastRound.dir_step_cases u b Fb Pb)
+    as [(A & B & C) | [(A & B & C & D) | (A & B & C)]].
+  - rewrite A, B, C. cbv beta iota. destruct up.
+    + change (Z.b2z true) with 1%Z. rewrite Z.sub_0_r. reflexivity.
+    + change (Z.b2z false) with 0%Z. rewrite Z.sub_0_r, Z.add_0_r, from_to_bits.
+      reflexivity.
+  - rewrite A, B, C, D. cbv beta iota. destruct up.
+    + change (Z.b2z true) with 1%Z. rewrite Z.add_simpl_r, from_to_bits. reflexivity.
+    + change (Z.b2z false) with 0%Z. rewrite Z.add_0_r. reflexivity.
+  - rewrite A, B, C. reflexivity. }
+rewrite E in Hv. clear E.
 destruct (gt u b) eqn:G1.
 - (* [u > b]: [y] is in [(N g, (N + 1) g)], whose ends are [s - C] and its
      successor, the bits of [s] and [s + 1] less those of [C]. *)

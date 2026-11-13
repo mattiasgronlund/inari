@@ -232,6 +232,23 @@ intros (HR & HF & _).
 split; [exact HF | exact HR].
 Qed.
 
+(** For an [err >= 0], [Fast.round_dir_err] is the test by the
+    comparisons [l > err] and [l < -err] after its check of [h]. *)
+Lemma round_dir_err_eq :
+  forall h l e err up,
+  is_finite err = true -> 0 <= B2R err ->
+  Fast.round_dir_err h l e err up =
+  if negb (gt h Model.half && lt h Fast.two) then None
+  else if gt l err then Some (Fast.scale (if up then from_bits (to_bits h + 1) else h) e)
+  else if lt l (opp err) then
+    Some (Fast.scale (if up then h else from_bits (to_bits h - 1)) e)
+  else None.
+Proof.
+intros h l e err up Fe Pe. unfold Fast.round_dir_err.
+destruct (gt h Model.half && lt h Fast.two); cbn [negb andb]; [|reflexivity].
+exact (dir_step_eq h l err e up Fe Pe).
+Qed.
+
 (** If [|y - (h + l)| <= 2^-p = err] for [55 <= p <= 105], with [h] the
     rounding of [h + l] to nearest, then where [round_dir_err] returns, it
     returns [y 2^e] rounded toward +inf if [up] and toward -inf
@@ -245,7 +262,8 @@ Theorem round_dir_err_correct :
   rounds up (y * bpow radix2 e) v.
 Proof.
 intros h l e err p up v y Fh Fl Hrn He Hp Herr Hy Hv.
-unfold Fast.round_dir_err in Hv.
+assert (Fe : is_finite err = true) by (apply finite_of_pos; rewrite Herr; apply bpow_gt_0).
+rewrite (round_dir_err_eq h l e err up Fe ltac:(rewrite Herr; apply bpow_ge_0)) in Hv.
 destruct (gt h Model.half && lt h Fast.two) eqn:HC; cbn [negb] in Hv; [|discriminate].
 (* The function's own check gives [1/2 < h < 2]. *)
 apply andb_prop in HC as [C1 C2].
@@ -260,7 +278,6 @@ assert (HM : bpow radix2 (- p) < bpow radix2 (-53) / 2).
   cbn [bpow radix_val radix2]; lra. }
 assert (HE : 0 < bpow radix2 e) by apply bpow_gt_0.
 apply Rabs_le_inv in Hy.
-assert (Fe : is_finite err = true) by (apply finite_of_pos; rewrite Herr; apply bpow_gt_0).
 assert (Fo : is_finite (opp err) = true) by (unfold opp; rewrite is_finite_Bopp; exact Fe).
 destruct (gt l err) eqn:G1.
 - (* [l > 2^-p]: [h < y < succ h]. *)

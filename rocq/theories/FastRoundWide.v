@@ -432,7 +432,7 @@ destruct ((e <? -1022)%Z || ((e =? -1022)%Z && le h Fast.one)) eqn:K2.
   assert (HP : bpow radix2 (-53) = 2 * bpow radix2 (-54))
     by (cbn [bpow radix_val radix2]; lra).
   pose proof (bpow_lt radix2 (-68) (-54) ltac:(lia)) as HL.
-  unfold Fast.round_dir in Hv.
+  rewrite round_dir_eq in Hv.
   apply (dir_test h l Fast.err e up v y Fh Fl ltac:(reflexivity) Hrn Hh ltac:(lia) H1);
     [rewrite err_R; lra | rewrite err_R; exact Hy | exact Hv].
 Qed.
@@ -508,7 +508,7 @@ Theorem round_dir_err_wide_correct :
 Proof.
 intros h l e err p up v y Fh Fl Hrn He Hp Herr Hy Hv.
 assert (Fe : is_finite err = true) by (apply finite_of_pos; rewrite Herr; apply bpow_gt_0).
-unfold Fast.round_dir_err in Hv.
+rewrite (round_dir_err_eq h l e err up Fe ltac:(rewrite Herr; apply bpow_ge_0)) in Hv.
 destruct (gt h Model.half && lt h Fast.two) eqn:HC; [|discriminate].
 apply andb_prop in HC as [C3 C4].
 (* The function's own check gives [1/2 < h < 2]. *)
@@ -601,7 +601,7 @@ Theorem round_dir_err_normal_correct :
 Proof.
 intros h l e err p up v y Fh Fl Hrn He H1 Hp Herr Hy Hv.
 assert (Fe : is_finite err = true) by (apply finite_of_pos; rewrite Herr; apply bpow_gt_0).
-unfold Fast.round_dir_err in Hv.
+rewrite (round_dir_err_eq h l e err up Fe ltac:(rewrite Herr; apply bpow_ge_0)) in Hv.
 destruct (gt h Model.half && lt h Fast.two) eqn:HC; [|discriminate].
 apply andb_prop in HC as [C3 C4].
 (* The function's own check gives [1/2 < h < 2]. *)

@@ -531,6 +531,104 @@ destruct (Req_dec (B2R x * B2R y - B2R (mul x y)) 0) as [Z|Z].
   rewrite R1, R0. reflexivity.
 Qed.
 
+(** ** The step from [h] by the sign bit of [l] *)
+
+(** For a finite [err >= 0], the three outcomes of the comparisons in
+    [dir_step_eq]: [l > err] with the sign bit of [l] clear, [l < -err]
+    with it set, or [|l| <= err] and neither. *)
+Local Lemma dir_step_cases :
+  forall l err : f64, is_finite err = true -> 0 <= B2R err ->
+  (gt (fabs l) err = true /\ gt l err = true /\ Z.shiftr (to_bits l) 63 = 0%Z) \/
+  (gt (fabs l) err = true /\ gt l err = false /\ lt l (opp err) = true /\
+   Z.shiftr (to_bits l) 63 = 1%Z) \/
+  (gt (fabs l) err = false /\ gt l err = false /\ lt l (opp err) = false).
+Proof.
+intros l err Fe Pe.
+destruct (is_finite l) eqn:Fl.
+- (* Bit 63 of a finite [l] is its sign, as its other bits are below
+     [2047 * 2^52 < 2^63]. *)
+  assert (Hs : Z.shiftr (to_bits l) 63 = Z.b2z (Bsign l)).
+  { destruct (to_bits_finite l Fl) as (c & Hc & Hb).
+    rewrite Hb, Z.shiftr_div_pow2 by lia. unfold sign_bit.
+    simpl Z.pow in Hc |- *.
+    destruct (Bsign l); cbn [Z.b2z].
+    - symmetry. apply Z.div_unique with (r := c); lia.
+    - apply Z.div_small. lia. }
+  assert (Ga : gt (fabs l) err = Rlt_bool (B2R err) (Rabs (B2R l))).
+  { unfold gt, fabs. rewrite Bltb_correct by (rewrite ?is_finite_Babs; assumption).
+    rewrite B2R_Babs. reflexivity. }
+  assert (Gl : gt l err = Rlt_bool (B2R err) (B2R l))
+    by (unfold gt; apply Bltb_correct; assumption).
+  assert (Ll : lt l (opp err) = Rlt_bool (B2R l) (- B2R err)).
+  { unfold lt, opp. rewrite Bltb_correct by (rewrite ?is_finite_Bopp; assumption).
+    rewrite B2R_Bopp. reflexivity. }
+  rewrite Ga, Gl, Ll, Hs.
+  destruct (Rlt_bool_spec (B2R err) (Rabs (B2R l))) as [A|A].
+  + (* [|l| > err >= 0], so the sign of [l] decides. *)
+    destruct (Bsign l) eqn:Sl.
+    * pose proof (sign_le_0 l Fl Sl) as N. rewrite Rabs_left1 in A by exact N.
+      right; left. rewrite Rlt_bool_false, Rlt_bool_true by lra.
+      repeat split.
+    * pose proof (sign_ge_0 l Fl Sl) as N. rewrite Rabs_pos_eq in A by exact N.
+      left. rewrite Rlt_bool_true by lra.
+      repeat split.
+  + (* [-err <= l <= err]. *)
+    pose proof (Rabs_le_inv _ _ A) as N.
+    right; right. rewrite !Rlt_bool_false by lra.
+    repeat split.
+- destruct l as [s|s| |s m ex Hb]; try discriminate Fl.
+  + (* [l = +-inf] is beyond every finite [err] and [-err]. *)
+    destruct s; [right; left | left];
+      destruct err as [se|se| |se me ee Hbe]; try discriminate Fe;
+      repeat match goal with |- _ /\ _ => split end; vm_compute; reflexivity.
+  + (* Every comparison with a NaN is false. *)
+    right; right.
+    destruct err as [se|se| |se me ee Hbe]; try discriminate Fe;
+      repeat match goal with |- _ /\ _ => split end; vm_compute; reflexivity.
+Qed.
+
+(** For [err >= 0], the step from [h] that [Fast.round_dir] and
+    [Fast.round_dir_err] take where [|l| > err], to the bits of [h] plus
+    [up] less the sign bit of [l], is the one that the comparisons
+    [l > err] and [l < -err] choose, and both fail on the same [l]. *)
+Lemma dir_step_eq :
+  forall (h l err : f64) (e : Z) (up : bool),
+  is_finite err = true -> 0 <= B2R err ->
+  (if gt (fabs l) err
+   then Some (Fast.scale (from_bits (to_bits h + Z.b2z up - Z.shiftr (to_bits l) 63)) e)
+   else None) =
+  (if gt l err then Some (Fast.scale (if up then from_bits (to_bits h + 1) else h) e)
+   else if lt l (opp err) then Some (Fast.scale (if up then h else from_bits (to_bits h - 1)) e)
+   else None).
+Proof.
+intros h l err e up Fe Pe.
+destruct (dir_step_cases l err Fe Pe) as [(A & B & C) | [(A & B & C & D) | (A & B & C)]].
+- (* [l > err]: the bits of [h] plus [up]. *)
+  rewrite A, B, C. cbv beta iota. destruct up.
+  + change (Z.b2z true) with 1%Z. rewrite Z.sub_0_r. reflexivity.
+  + change (Z.b2z false) with 0%Z. rewrite Z.sub_0_r, Z.add_0_r, from_to_bits.
+    reflexivity.
+- (* [l < -err]: the bits of [h] plus [up] less 1. *)
+  rewrite A, B, C, D. cbv beta iota. destruct up.
+  + change (Z.b2z true) with 1%Z. rewrite Z.add_simpl_r, from_to_bits. reflexivity.
+  + change (Z.b2z false) with 0%Z. rewrite Z.add_0_r. reflexivity.
+- rewrite A, B, C. reflexivity.
+Qed.
+
+(** [Fast.round_dir] is the test by the comparisons [l > 2^-68] and
+    [l < -2^-68]. *)
+Lemma round_dir_eq :
+  forall h l e up,
+  Fast.round_dir h l e up =
+  if gt l Fast.err then Some (Fast.scale (if up then from_bits (to_bits h + 1) else h) e)
+  else if lt l (opp Fast.err) then
+    Some (Fast.scale (if up then h else from_bits (to_bits h - 1)) e)
+  else None.
+Proof.
+intros h l e up. unfold Fast.round_dir.
+apply dir_step_eq; [reflexivity|]. rewrite err_R. apply bpow_ge_0.
+Qed.
+
 (** If [|y - (h + l)| <= 2^-68], with [h] the rounding of [h + l] to
     nearest between 1/2 and 2, then where [round_dir] returns, it returns
     [y 2^e] rounded toward +inf if [up] and toward -inf otherwise. *)
@@ -550,7 +648,7 @@ assert (HE : 0 < bpow radix2 e) by apply bpow_gt_0.
 apply Rabs_le_inv in Hy.
 assert (Fe : is_finite Fast.err = true) by reflexivity.
 assert (Fo : is_finite (opp Fast.err) = true) by reflexivity.
-unfold Fast.round_dir in Hv.
+rewrite round_dir_eq in Hv.
 destruct (gt l Fast.err) eqn:G1.
 - (* [l > 2^-68]: [h < y < succ h]. *)
   pose proof (gt_true l Fast.err Fl Fe G1) as L1. rewrite err_R in L1.

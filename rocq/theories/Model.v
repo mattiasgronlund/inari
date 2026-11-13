@@ -1740,13 +1740,16 @@ Definition scale (r : f64) (e : Z) : f64 :=
   mul r (from_bits (Z.shiftl ((e + 1023) mod 2^64) 52 mod 2^64)).
 
 (** [pub(crate) fn round_dir(h: f64, l: f64, e: i64, up: bool) ->
-    Option<f64>], where [h.to_bits() + 1] and [h.to_bits() - 1] are
-    [to_bits h + 1] and [to_bits h - 1]: they stay within [u64] for the
-    [h] between 1/2 and 2 that the fast paths pass, which
-    [FastRound.round_dir_correct] assumes. *)
+    Option<f64>], where [up as u64] is [Z.b2z up], [l.to_bits() >> 63]
+    is [Z.shiftr (to_bits l) 63], and the sum [h.to_bits() + up as u64 -
+    (l.to_bits() >> 63)] is the same sum of integers: it stays within
+    [u64] for the [h] between 1/2 and 2 that the fast paths pass, which
+    [FastRound.round_dir_correct] assumes. [FastRound.round_dir_eq]
+    shows that it is the test by the comparisons [l > ERR] and
+    [l < -ERR]. *)
 Definition round_dir (h l : f64) (e : Z) (up : bool) : option f64 :=
-  if gt l err then Some (scale (if up then from_bits (to_bits h + 1) else h) e)
-  else if lt l (opp err) then Some (scale (if up then h else from_bits (to_bits h - 1)) e)
+  if gt (fabs l) err
+  then Some (scale (from_bits (to_bits h + Z.b2z up - Z.shiftr (to_bits l) 63)) e)
   else None.
 
 (** [pub(crate) fn round_near(h: f64, l: f64, e: i64) -> Option<f64>] *)
@@ -1783,13 +1786,13 @@ Definition dd_div (fma : bool) (nh nl dh dl : f64) : f64 * f64 :=
   fast_two_sum qh (div r dh).
 
 (** [pub(crate) fn round_dir_err(h: f64, l: f64, e: i64, err: f64, up:
-    bool) -> Option<f64>], where [h.to_bits() + 1] and [h.to_bits() - 1]
-    are as in [round_dir], for an [h] between 1/2 and 2, which the
-    function checks. *)
+    bool) -> Option<f64>], where the sum of the bits is as in
+    [round_dir], for an [h] between 1/2 and 2, which the function
+    checks. [FastRoundErr.round_dir_err_eq] shows that, for a finite [err
+    >= 0], it is the test by the comparisons [l > err] and [l < -err]. *)
 Definition round_dir_err (h l : f64) (e : Z) (err : f64) (up : bool) : option f64 :=
-  if negb (gt h half && lt h two) then None
-  else if gt l err then Some (scale (if up then from_bits (to_bits h + 1) else h) e)
-  else if lt l (opp err) then Some (scale (if up then h else from_bits (to_bits h - 1)) e)
+  if gt h half && lt h two && gt (fabs l) err
+  then Some (scale (from_bits (to_bits h + Z.b2z up - Z.shiftr (to_bits l) 63)) e)
   else None.
 
 (** [pub(crate) fn round_near_err(h: f64, l: f64, e: i64, err: f64) ->
@@ -1810,24 +1813,30 @@ Definition sub_far : f64 := from_bits 0x3ca0004000000000.
 Definition sub_unit (e : Z) : f64 := from_bits (Z.shiftl ((1 - e) mod 2^64) 52 mod 2^64).
 
 (** [fn round_dir_sub(h: f64, l: f64, e: i64, up: bool) -> Option<f64>],
-    where [s.to_bits() + 1], [s.to_bits() - 1] and [r.to_bits() -
-    c.to_bits()] are [to_bits s + 1], [to_bits s - 1] and [to_bits r -
-    to_bits c]: they stay within [u64] for the [h] and [e] that
-    [FastRoundSub.round_dir_sub_correct] assumes. *)
+    where [up as u64] is [Z.b2z up], [u.to_bits() >> 63] is [Z.shiftr
+    (to_bits u) 63], and the sums of bits [s.to_bits() + up as u64 -
+    (u.to_bits() >> 63)] and [r.to_bits() - c.to_bits()] are the same
+    sums of integers: they stay within [u64] for the [h] and [e] that
+    [FastRoundSub.round_dir_sub_correct] assumes. As in [round_dir], the
+    step from [s] by the sign bit of [u] is the one that the comparisons
+    [u > b] and [u < -b] choose, for the [b > 0] here
+    ([FastRound.dir_step_cases]). *)
 Definition round_dir_sub (h l : f64) (e : Z) (up : bool) : option f64 :=
   let c := sub_unit e in
   let '(s, t) := fast_two_sum c h in
   let u := add t l in
   let b := mul c sub_err in
   let r := if ge s (mul two c) then None
-    else if gt u b then Some (if up then from_bits (to_bits s + 1) else s)
-    else if lt u (opp b) then Some (if up then s else from_bits (to_bits s - 1))
+    else if gt (fabs u) b
+    then Some (from_bits (to_bits s + Z.b2z up - Z.shiftr (to_bits u) 63))
     else None in
   match r with Some r => Some (from_bits (to_bits r - to_bits c)) | None => None end.
 
 (** [fn round_near_sub(h: f64, l: f64, e: i64) -> Option<f64>], where
     [s.to_bits() + 1], [s.to_bits() - 1] and [r.to_bits() - c.to_bits()]
-    are as in [round_dir_sub]. *)
+    are [to_bits s + 1], [to_bits s - 1] and [to_bits r - to_bits c]:
+    they stay within [u64] for the [h] and [e] that
+    [FastRoundSub.round_near_sub_correct] assumes. *)
 Definition round_near_sub (h l : f64) (e : Z) : option f64 :=
   let c := sub_unit e in
   let '(s, t) := fast_two_sum c h in
@@ -1855,7 +1864,7 @@ Definition round_near_wide (h l : f64) (e : Z) : option f64 :=
 
 (** [fn round_dir_sub_err(h: f64, l: f64, e: i64, err: f64, up: bool) ->
     Option<f64>] and [fn round_near_sub_err(h: f64, l: f64, e: i64, err:
-    f64) -> Option<f64>], with the bits as in [round_dir_sub]. *)
+    f64) -> Option<f64>], with the bits as in [round_near_sub]. *)
 Definition round_dir_sub_err (h l : f64) (e : Z) (err : f64) (up : bool) : option f64 :=
   let c := sub_unit e in
   let '(s, t) := fast_two_sum c h in
