@@ -749,15 +749,15 @@ fn answered(x: f64) -> bool {
 }
 
 // The n = 2048 q + i of items 1 and 2 of `reduction_edges`: q from 0 to 3 and on across the
-// range of the fast path, and i = 0 and next to the ends of [1, 2047], to the multiples of 64 and
-// to 1024, where (n + 1) u is below `LIMIT` too.
+// range of the fast path, and i = 0, next to the ends of [1, 2047] and to 1024, and a few i in
+// between, next to 64, 128 and 1984, where (n + 1) u is below `LIMIT` too.
 fn edge_ns() -> Vec<i64> {
     let mut qs: Vec<i64> = (0..4).chain((4..41_721).step_by(701)).collect();
     qs.push(41_721);
     let mut ns = vec![];
     for q in qs {
         for i in [
-            0, 1, 2, 63, 64, 65, 127, 128, 1024, 1983, 1984, 1985, 2046, 2047,
+            0, 1, 2, 63, 64, 65, 127, 128, 1023, 1024, 1025, 1983, 1984, 1985, 2046, 2047,
         ] {
             let n = 2048 * q + i;
             if ((n + 1) as f64 * STEP) < LIMIT {
@@ -799,10 +799,12 @@ fn fast_parts(i: usize, x: f64) -> Option<(f64, f64)> {
 // argument, as `check_fast` checks them. The reduction writes x = n u + ρ, and with
 // n = 2048 q + i, x is i u + ρ past q π/2.
 // 1. At RN(n u) and the 2 `f64`s on each side of it, the reduction gives n, for q from 0 to 3
-//    and on across the range, and for i = 0 and next to the ends of [1, 2047] and to the
-//    multiples of 64, where `fast_sc` takes a row of `SC1` alone, a row of `SC2` alone or one of
-//    each, and at 1024, where i u = π/4. At i = 0 and n != 0, x is close to q π/2, where sin,
-//    cos or tan is close to 0 or has a pole, and `fast_band` and `fast_tan_band` take x.
+//    and on across the range, and for the i of `edge_ns`: 0; next to the ends of [1, 2047],
+//    where `fast_sc` reads the rows of `SC` at 1 and 2, as they are at i = 1 and 2 and with
+//    their halves swapped at i = 2047 and 2046; next to 1024, its last row, where i u = π/4
+//    and `fast_sc` goes from the row at i to the row at 2048 - i with its halves swapped; and a
+//    few i in between. At i = 0 and n != 0, x is close to q π/2, where sin, cos or tan is close
+//    to 0 or has a pole, and `fast_band` and `fast_tan_band` take x.
 // 2. Next to RN((n + 1/2) u), where |ρ| is at its largest, u/2, the reduction gives n on one side
 //    and n + 1 on the other, and nothing else among the 8 `f64`s on each side of it. The n = 0
 //    of `fast_sin0` and `fast_cos0` meets n = 1 at u/2.
@@ -1306,8 +1308,8 @@ mod mpfr {
         }
     }
 
-    // The precision of the values that the tables, the constants and the results of the fast
-    // path are checked against, far above that of the bounds checked.
+    // The precision of the values that the table `SC`, the constants and the results of the
+    // fast path are checked against, far above that of the bounds checked.
     const PREC: u32 = 300;
 
     // The bits `h` and `l` are those of RN(v) and RN(v - RN(v)), within 2^n of v, with
@@ -1327,21 +1329,18 @@ mod mpfr {
         );
     }
 
-    // The tables and the constants of the fast path of `trig.rs` are what the comments on them
-    // say, with the bounds that `rocq/theories/FastTrigTables.v` proves (`sc1_correct`,
-    // `sc2_correct`, `fast_trig_consts`) and, for `U4`, `rocq/theories/FastTrigBandRed.v`
-    // (`band_consts`). π is to 300 bits, so that the angles and u = π/4096 are within 2^-280 of
-    // theirs.
+    // The table `SC` and the constants of the fast path of `trig.rs` are what the comments on
+    // them say, with the bounds that `rocq/theories/FastTrigTables.v` proves (`sc_correct`,
+    // `fast_trig_consts`) and, for `U4`, `rocq/theories/FastTrigBandRed.v` (`band_consts`). π is
+    // to 300 bits, so that the angles and u = π/4096 are within 2^-280 of theirs.
     #[test]
     fn fast_tables_and_constants() {
         let pi = Float::with_val(PREC, Constant::Pi);
-        for (name, table, d) in [("SC1", &SC1[..], 64u32), ("SC2", &SC2[..], 4096)] {
-            for (i, row) in table.iter().enumerate() {
-                let a: Float = Float::with_val(PREC, &pi * u32::try_from(i).unwrap()) / d;
-                let (s, c) = (a.clone().sin(), a.cos());
-                check_double(&format!("{name}[{i}] sin"), row[0], row[1], &s, -104);
-                check_double(&format!("{name}[{i}] cos"), row[2], row[3], &c, -104);
-            }
+        for (i, row) in SC.iter().enumerate() {
+            let a: Float = Float::with_val(PREC, &pi * u32::try_from(i).unwrap()) / 4096u32;
+            let (s, c) = (a.clone().sin(), a.cos());
+            check_double(&format!("SC[{i}] sin"), row[0], row[1], &s, -104);
+            check_double(&format!("SC[{i}] cos"), row[2], row[3], &c, -104);
         }
         let u = Float::with_val(PREC, &pi / 4096);
         // `U1` and `U2` are cut toward 0 to 26 bits, so that their last 27 bits are 0.
@@ -1385,6 +1384,116 @@ mod mpfr {
         }
         assert_eq!(SHIFTER, 1.5 * pow2(52));
         assert_eq!(LIMIT, pow2(16));
+    }
+
+    // The path of `file` from the root of the crate.
+    fn crate_file(file: &str) -> String {
+        format!("{}/{file}", env!("CARGO_MANIFEST_DIR"))
+    }
+
+    // The text of `src/dyadic/trig/sc_table.rs` with the rows `rows`, laid out as rustfmt lays
+    // it out.
+    fn sc_table_rs(rows: &[[u64; 4]]) -> String {
+        let mut s = String::from(
+            "// Generated from MPFR by the test `write_sc_tables` of `src/dyadic/trig/tests.rs`, \
+             as is\n\
+             // `rocq/theories/ModelTrigTable.v`, which transcribes it: change that test, not \
+             this file.\n\n",
+        );
+        s += &format!(
+            "/// sin and cos of i π/4096 for i from 0 to {} in double-double, each a row \
+             [sh, sl, ch, cl]\n\
+             /// of the bits of `f64`s, as `f64::from_bits` is not `const` before Rust 1.83, \
+             with h = RN(v)\n\
+             /// and l = RN(v - h) for the value v, so that |h + l - v| <= 2^-104.\n\
+             /// `rocq/theories/FastTrigTables.v` proves these bounds (`sc_correct`), and the \
+             test\n\
+             /// `fast_tables_and_constants` checks the rows against MPFR. A `static`, not a \
+             `const`, as\n\
+             /// clippy asks of an array this large.\n\
+             pub(super) static SC: [[u64; 4]; {}] = [\n",
+            rows.len() - 1,
+            rows.len()
+        );
+        for row in rows {
+            s += "    [\n";
+            for b in row {
+                s += &format!("        {b:#018x},\n");
+            }
+            s += "    ],\n";
+        }
+        s + "];\n"
+    }
+
+    // The text of `rocq/theories/ModelTrigTable.v` with the rows `rows`.
+    fn model_trig_table_v(rows: &[[u64; 4]]) -> String {
+        let mut s = format!(
+            "(** Generated from MPFR by the test [write_sc_tables] of\n    \
+             [src/dyadic/trig/tests.rs], as is [src/dyadic/trig/sc_table.rs]: change\n    \
+             that test, not this file. The test [sc_table_in_rocq] checks that\n    \
+             this file transcribes [SC] of [sc_table.rs], sin and cos of i π/4096\n    \
+             for i from 0 to {}, each row [[sh, sl, ch, cl]] a 4-tuple.\n    \
+             [Model.v] reads it as [DyadicTrig.SC]. *)\n\n\
+             From Stdlib Require Import ZArith List.\n\
+             Import ListNotations.\n\
+             Open Scope Z_scope.\n\n\
+             Definition SC : list (Z * Z * Z * Z) := [",
+            rows.len() - 1
+        );
+        for (i, row) in rows.iter().enumerate() {
+            let end = if i + 1 == rows.len() { ")]." } else { ");" };
+            s += &format!(
+                "\n  ({:#018x}, {:#018x}, {:#018x}, {:#018x}{end}",
+                row[0], row[1], row[2], row[3]
+            );
+        }
+        s + "\n"
+    }
+
+    // `rocq/theories/ModelTrigTable.v`, which the proofs read the rows of `SC` from, is what
+    // `model_trig_table_v` makes of them. `rocq/` is not in the package that `cargo package`
+    // makes, so where the file is missing there is nothing to check.
+    #[test]
+    fn sc_table_in_rocq() {
+        let Ok(file) = std::fs::read_to_string(crate_file("rocq/theories/ModelTrigTable.v")) else {
+            return;
+        };
+        assert!(
+            file == model_trig_table_v(&SC),
+            "rocq/theories/ModelTrigTable.v does not transcribe `SC`: run the test \
+             `write_sc_tables`"
+        );
+    }
+
+    // Writes `src/dyadic/trig/sc_table.rs` and `rocq/theories/ModelTrigTable.v`, with the rows
+    // of sin and cos of i π/4096 for i from 0 to 1024 from MPFR, with π to `PREC` bits. Run by
+    // hand, with `--ignored`.
+    #[test]
+    #[ignore]
+    fn write_sc_tables() {
+        let pi = Float::with_val(PREC, Constant::Pi);
+        let rows: Vec<[u64; 4]> = (0..=1024u32)
+            .map(|i| {
+                let a: Float = Float::with_val(PREC, &pi * i) / 4096u32;
+                let mut row = [0; 4];
+                for (k, v) in [a.clone().sin(), a.cos()].iter().enumerate() {
+                    let h = v.to_f64();
+                    row[2 * k] = h.to_bits();
+                    row[2 * k + 1] = Float::with_val(PREC, v - h).to_f64().to_bits();
+                }
+                row
+            })
+            .collect();
+        std::fs::write(
+            crate_file("src/dyadic/trig/sc_table.rs"),
+            sc_table_rs(&rows),
+        )
+        .unwrap();
+        std::fs::write(
+            crate_file("rocq/theories/ModelTrigTable.v"),
+            model_trig_table_v(&rows),
+        )
+        .unwrap();
     }
 
     // The function `i` at `x`, to `PREC` bits.
@@ -1475,6 +1584,93 @@ mod mpfr {
                 err.to_f64()
             );
         }
+    }
+
+    // `fast_sc(i)` meets the conjuncts of `fast_sc_correct` in `rocq/theories/FastTrigSC.v` at
+    // every i in [1, 2047]: sh, sl, ch and cl are finite, sh + sl and ch + cl are within 2^-88 of
+    // sin(i u) and cos(i u) relative to them, |sl| <= 2^-53 sh and |cl| <= 2^-53 ch. Its four
+    // `f64`s are the row of `SC` at i for i <= 1024, and above it the row at 2048 - i with its
+    // halves swapped, bit for bit. π is to `PREC` bits, as in `fast_tables_and_constants`.
+    #[test]
+    fn fast_sc_bound() {
+        let pi = Float::with_val(PREC, Constant::Pi);
+        for i in 1..=2047 {
+            let (sh, sl, ch, cl) = fast_sc(i);
+            let want = if i <= 1024 {
+                SC[i as usize]
+            } else {
+                let r = SC[(2048 - i) as usize];
+                [r[2], r[3], r[0], r[1]]
+            };
+            assert_eq!(
+                [sh, sl, ch, cl].map(f64::to_bits),
+                want,
+                "fast_sc({i}) is not the row of `SC` it reads"
+            );
+            let a: Float = Float::with_val(PREC, &pi * i) / 4096u32;
+            for (name, h, l, v) in [("sin", sh, sl, a.clone().sin()), ("cos", ch, cl, a.cos())] {
+                let mut err = Float::with_val(PREC, &v - h);
+                err -= l;
+                err.abs_mut();
+                // v > 0, as i u is in (0, π/2).
+                let mut bound = v.clone();
+                bound >>= 88;
+                assert!(
+                    h.is_finite() && l.is_finite() && err <= bound && l.abs() <= pow2(-53) * h,
+                    "fast_sc({i}), {name}: ({h:e}, {l:e}), with |v - (h + l)| = 2^{:.2} v",
+                    (err.to_f64() / v.to_f64()).log2()
+                );
+            }
+        }
+    }
+
+    // sin, cos and tan, in their three roundings, at every i in [1, 2047] of `fast_sc`, as
+    // `check_fast` checks them, both signs of each argument, for n = 2048 q + i and q from 0 to
+    // 3. At x = RN(n u) the reduction gives n, so that `fast_sc` reads i, and the fast paths take
+    // x unless rh = 0, as at the x of `exact_rh`, which leaves out fewer than 1 in 100 of these
+    // x. At RN((k + 1/2) u) and the `f64` on each side of it, for k from 2048 q to
+    // 2048 q + 2047, so that k + 1/2 runs over the i - 1/2 and i + 1/2, |ρ| is at its largest
+    // and the reduction gives k or k + 1. With π to `PREC` bits, the computed n u and
+    // (k + 1/2) u are within 2^-296 of theirs, so that their roundings are RN(n u) and
+    // RN((k + 1/2) u) unless n u or (k + 1/2) u is that close to a midpoint between two `f64`s.
+    #[test]
+    fn every_index() {
+        let u = Float::with_val(PREC, Constant::Pi) / 4096u32;
+        let (mut taken, mut exact) = (0, 0);
+        for q in 0..4 {
+            for i in 1..=2047 {
+                let n = 2048 * q + i;
+                let x = Float::with_val(PREC, &u * n).to_f64();
+                for y in [x, -x] {
+                    let (got, rh, _, _) = fast_reduce(y).unwrap();
+                    assert_eq!(got, if y > 0.0 { n } else { -n }, "{y:e}");
+                    if rh == 0.0 {
+                        exact += 1;
+                    } else {
+                        assert!(answered(y), "{y:e}");
+                        taken += 1;
+                    }
+                    for j in [SIN, COS, TAN] {
+                        check_fast(j, y);
+                    }
+                }
+            }
+            for k in 2048 * q..2048 * (q + 1) {
+                let m = Float::with_val(PREC, &u * (2 * k + 1)) / 2u32;
+                for y in around(m.to_f64(), 1) {
+                    let got = reduced(y);
+                    assert!(got == k || got == k + 1, "{y:e}: n = {got}");
+                    for j in [SIN, COS, TAN] {
+                        check_fast(j, y);
+                        check_fast(j, -y);
+                    }
+                }
+            }
+        }
+        assert!(
+            taken > 100 * exact,
+            "the fast paths take {taken} of the RN(n u), and {exact} have rh = 0"
+        );
     }
 
     // (h, l), from the fast path at an argument where the function has the value y, have

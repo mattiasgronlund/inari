@@ -1,5 +1,6 @@
 -R theories Inari
 
+theories/ModelTrigTable.v
 theories/Model.v
 theories/Encoding.v
 theories/Spec.v

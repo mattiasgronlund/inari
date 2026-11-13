@@ -1,28 +1,45 @@
-(** * The tables and constants of the fast paths of [sin], [cos] and [tan]
+(** * The table and constants of the fast paths of [sin], [cos] and [tan]
 
-    The rows of [DyadicTrig.SC1] and [DyadicTrig.SC2] of [Model.v] are
-    sin and cos of i π/64 and of j π/4096 in double-double, within 2^-104,
-    with each low part at most 2^-53 times its high part ([sc1_correct],
-    [sc2_correct]). [INV] is 4096/π within a relative 2^-52, and [U1 + U2
-    + U3] is π/4096 within 2^-119 ([fast_trig_consts]).
+    The rows of [DyadicTrig.SC] of [Model.v] are sin and cos of i π/4096
+    for i in [0, 1024] in double-double, within 2^-104, with each low part
+    at most 2^-53 times its high part ([sc_correct]). [INV] is 4096/π
+    within a relative 2^-52, and [U1 + U2 + U3] is π/4096 within 2^-119
+    ([fast_trig_consts]).
 
-    The bounds are checked by [vm_compute] in integer fixed point with
-    [P = 200] fractional bits. π comes from [PI_bounds] of [DyConstPi.v],
-    [floor(π 2^4222)], cut to [q] fractional bits ([pi_trunc]), so that
-    the angle [b = m π / 2^d] of a row lies between [m Pt 2^-P] and [m (Pt
-    + 1) 2^-P] for [q = P - d] and [Pt = floor(π 2^q)]. For [0 <= b <= 1],
-    sin is increasing and cos decreasing, and the partial sums of their
-    series bracket them ([trig_bounds_even] of [TrigSeries.v]): [sin b]
-    lies between the sum of [2 j] terms at the lower end and the sum of [2
-    j + 1] terms at the upper end, and [cos b] the other way round. The
-    terms [b^n / n!] are bounded below and above in fixed point by
-    multiplying by [b] and dividing by [n] with the quotients rounded down
-    and up ([terms]); [j = 8] leaves a truncation below 2^-160. The angles
-    i π/64 with [i > 16] are above 1, so for them the check uses [b = (32
-    - i) π/64] and [sin(π/2 - b) = cos b], [cos(π/2 - b) = sin b].
+    The bounds are checked by evaluation in the virtual machine, in
+    integer fixed point with [P = 160] fractional bits for the rows
+    ([SC_ok]) and [P = 200] for the constants ([consts_ok]). π comes from
+    [PI_bounds] of [DyConstPi.v], [floor(π 2^4222)], cut to [q] fractional
+    bits ([pi_trunc]), so that the angle [b = m π / 2^d] of a row lies
+    between [m Pt 2^-P] and [m (Pt + 1) 2^-P] for [q = P - d] and [Pt =
+    floor(π 2^q)]. For [0 <= b <= 1], sin is increasing and cos
+    decreasing, and the partial sums of their series bracket them
+    ([trig_bounds_even] of [TrigSeries.v]): [sin b] lies between the sum
+    of [2 j] terms at the lower end and the sum of [2 j + 1] terms at the
+    upper end, and [cos b] between the sum of [2 j] terms at the upper end
+    and the sum of [2 j + 1] terms at the lower end. The terms [b^n / n!]
+    are bounded below and above in fixed point by multiplying by [b] and
+    dividing by [n] with the quotients rounded down and up ([terms]).
+    With [j = 8], the two sums of sin at one angle differ by its term of
+    degree 33, and those of cos by its term of degree 32: below 2^-122 and
+    2^-117 for [b <= 1], and below 2^-134 and 2^-128 for the angles of
+    [SC], which are at most π/4. For [SC], the ends of the interval of the
+    angle are [m 2^-160 <= 2^-150] apart, and the partial sums move by at
+    most as much between them, as their derivatives are partial sums of
+    cos and sin, at most 1 in absolute value for [b <= 1]. Each bound of a
+    term is within 2 2^-160 of the term: the step to degree [n] rounds
+    once, by less than 2^-160, and multiplies the error so far by [b / n],
+    at most 1/2 from [n = 2] on. So the 33 bounds in the two sums of sin
+    or of cos add less than 2^-153, and the bracket is wider than its term
+    of degree 33 or 32 by less than 2^-149.
+
+    [rows_okb] and [table_correct] can also take the rows above an index
+    [h] as cos and sin of [2 h - i] steps, for a table that goes past π/4.
+    [SC] stops at π/4, and [SC_ok] and [sc_correct] take [h = 1024], so no
+    row of it is taken that way.
 
     As in [DyConstPi.v], the 4,222-bit table of π stays behind a variable
-    in every lemma that a tactic other than [vm_compute] works on. *)
+    in every lemma that is not proved by that evaluation. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia List Bool.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
@@ -491,45 +508,17 @@ replace (IZR (mof h i) * bpow radix2 (- dl) * PI) with (IZR (mof h i) * (PI / D)
 exact Hx.
 Qed.
 
-(** [j = 8]: sums of up to 17 terms, of degree up to 33 *)
-Lemma SC1_ok :
-  rows_okb 200 8 (Limbs.val DyadicConsts.PI / 2 ^ (4222 - 194)) 16 DyadicTrig.SC1 0 = true.
-Proof. vm_compute. reflexivity. Qed.
+(** [P = 160] fractional bits and [j = 8]: sums of up to 17 terms, of degree
+    up to 33. With [h = 1024], no row is checked as the cos and sin of [2 h
+    - i]: every angle of the table is at most π/4 < 1. The kernel evaluates
+    the check once, at [Qed] ([vm_cast_no_check], as in [DyConst.v]). *)
+Lemma SC_ok :
+  rows_okb 160 8 (Limbs.val DyadicConsts.PI / 2 ^ (4222 - 148)) 1024 DyadicTrig.SC 0 = true.
+Proof. vm_cast_no_check (eq_refl true). Qed.
 
-Lemma SC2_ok :
-  rows_okb 200 8 (Limbs.val DyadicConsts.PI / 2 ^ (4222 - 188)) 64 DyadicTrig.SC2 0 = true.
-Proof. vm_compute. reflexivity. Qed.
-
-Theorem sc1_correct :
-  forall i, (0 <= i <= 31)%Z ->
-  let '(sh, sl, ch, cl) := DyadicTrig.sc DyadicTrig.SC1 i in
-  is_finite sh = true /\ is_finite sl = true /\ is_finite ch = true /\ is_finite cl = true /\
-  Rabs (B2R sh + B2R sl - sin (IZR i * (PI / 64))) <= bpow radix2 (-104) /\
-  Rabs (B2R ch + B2R cl - cos (IZR i * (PI / 64))) <= bpow radix2 (-104) /\
-  Rabs (B2R sl) <= bpow radix2 (-53) * B2R sh /\
-  Rabs (B2R cl) <= bpow radix2 (-53) * B2R ch.
-Proof.
-intros i Hi.
-pose proof (pi_trunc 194 ltac:(lia)) as HP.
-pose proof SC1_ok as Hok.
-set (Pt := (Limbs.val DyadicConsts.PI / 2 ^ (4222 - 194))%Z) in HP, Hok.
-clearbody Pt.
-change (- (194))%Z with (6 - 200)%Z in HP.
-assert (Hlen : length DyadicTrig.SC1 = 32%nat) by reflexivity.
-assert (Hm : (0 <= mof 16 i)%Z) by (unfold mof; destruct (Z.ltb_spec 16 i); lia).
-pose proof (table_correct DyadicTrig.SC1 200 8 6 64 Pt 16 i ltac:(lia) eq_refl HP Hok
-  ltac:(lia) ltac:(rewrite Hlen; lia) Hm) as T.
-revert T. destruct (DyadicTrig.sc DyadicTrig.SC1 i) as [[[sh sl] ch] cl].
-unfold mof. destruct (Z.ltb_spec 16 i) as [Hs|Hs]; intros T.
-- assert (E : IZR i * (PI / 64) = PI / 2 - IZR (2 * 16 - i) * (PI / 64))
-    by (change (2 * 16)%Z with 32%Z; rewrite minus_IZR; field).
-  rewrite E, sin_shift, cos_shift. exact T.
-- exact T.
-Qed.
-
-Theorem sc2_correct :
-  forall i, (0 <= i <= 63)%Z ->
-  let '(sh, sl, ch, cl) := DyadicTrig.sc DyadicTrig.SC2 i in
+Theorem sc_correct :
+  forall i, (0 <= i <= 1024)%Z ->
+  let '(sh, sl, ch, cl) := DyadicTrig.sc DyadicTrig.SC i in
   is_finite sh = true /\ is_finite sl = true /\ is_finite ch = true /\ is_finite cl = true /\
   Rabs (B2R sh + B2R sl - sin (IZR i * (PI / 4096))) <= bpow radix2 (-104) /\
   Rabs (B2R ch + B2R cl - cos (IZR i * (PI / 4096))) <= bpow radix2 (-104) /\
@@ -537,17 +526,17 @@ Theorem sc2_correct :
   Rabs (B2R cl) <= bpow radix2 (-53) * B2R ch.
 Proof.
 intros i Hi.
-pose proof (pi_trunc 188 ltac:(lia)) as HP.
-pose proof SC2_ok as Hok.
-set (Pt := (Limbs.val DyadicConsts.PI / 2 ^ (4222 - 188))%Z) in HP, Hok.
+pose proof (pi_trunc 148 ltac:(lia)) as HP.
+pose proof SC_ok as Hok.
+set (Pt := (Limbs.val DyadicConsts.PI / 2 ^ (4222 - 148))%Z) in HP, Hok.
 clearbody Pt.
-change (- (188))%Z with (12 - 200)%Z in HP.
-assert (Hlen : length DyadicTrig.SC2 = 64%nat) by reflexivity.
-assert (Hm : (0 <= mof 64 i)%Z) by (unfold mof; destruct (Z.ltb_spec 64 i); lia).
-pose proof (table_correct DyadicTrig.SC2 200 8 12 4096 Pt 64 i ltac:(lia) eq_refl HP Hok
+change (- (148))%Z with (12 - 160)%Z in HP.
+assert (Hlen : length DyadicTrig.SC = 1025%nat) by reflexivity.
+assert (Hm : (0 <= mof 1024 i)%Z) by (unfold mof; destruct (Z.ltb_spec 1024 i); lia).
+pose proof (table_correct DyadicTrig.SC 160 8 12 4096 Pt 1024 i ltac:(lia) eq_refl HP Hok
   ltac:(lia) ltac:(rewrite Hlen; lia) Hm) as T.
-revert T. destruct (DyadicTrig.sc DyadicTrig.SC2 i) as [[[sh sl] ch] cl].
-unfold mof. destruct (Z.ltb_spec 64 i) as [Hs|Hs]; intros T; [lia|]. exact T.
+revert T. destruct (DyadicTrig.sc DyadicTrig.SC i) as [[[sh sl] ch] cl].
+unfold mof. destruct (Z.ltb_spec 1024 i) as [Hs|Hs]; intros T; [lia|]. exact T.
 Qed.
 
 (** ** The constants *)

@@ -94,7 +94,7 @@
 // Payne and Hanek do [Payne-Hanek], in integers, from 192 bits of 1/(2π) in `INV2PI` picked by
 // the exponent of x (`fast_reduce_big`), which gives n only modulo 8192, as 8192 u = 2π. With
 // n = 2048 q + i, so that x is i u + ρ past q π/2 up to a multiple of 2π, it takes
-// sin(i u + ρ) = sin(i u) cos ρ + cos(i u) sin ρ, with sin and cos of i u from two tables
+// sin(i u + ρ) = sin(i u) cos ρ + cos(i u) sin ρ, with sin and cos of i u from the table `SC`
 // (`fast_sc`) and the Taylor polynomials of cos ρ - 1 to degree 4 and of sin ρ - ρ to degree 5
 // (`fast_eval`), and tan x as the quotient of the two (`fast_div`). At n = 0, which only
 // `fast_reduce` returns, the Taylor polynomials of sin x and cos x themselves (`fast_sin0` and
@@ -116,11 +116,17 @@
 // up fails at h = ±1, as it does in the band where the result is ±cos ρ and |ρ| is below about
 // 2^-34, `fast_one_dir` decides the rounding, as the result then lies strictly between
 // 1 - 2^-53 and 1 in magnitude. The shape, a reduction by a multiple of a fraction of π, sin and
-// cos of that multiple from two tables and short polynomials of the remainder, is that of
-// CORE-MATH's `sin` [CORE-MATH], whose fast path takes multiples of π/2^14, two tables of 128
-// rows, minimax polynomials and a bound on the absolute error, and `fast_reduce_big` has the
-// shape of its `reduce_large`, a window of the bits of 1/(2π) picked by the exponent and
-// products of integers, with three 64-bit limbs where it takes two.
+// cos of that multiple from tables and short polynomials of the remainder, is that of
+// CORE-MATH's `sin` [CORE-MATH], whose fast path takes multiples of π/2^14, minimax polynomials
+// and a bound on the absolute error. That fast path takes sin and cos of its multiple, mod π,
+// from a row of each of two tables of 128 rows, of j π/2^7 and of j π/2^14, 4,096 bytes each,
+// by the formulas for the sine and cosine of a sum, over all of [0, π), with no fold into
+// [0, π/2] (sin.c notes that halving the first table by its symmetries leads to slower code).
+// Here the multiple is i u past q π/2, with i in [0, 2047], and one table of 1,025 rows, of i u
+// for i in [0, 1024], 32,800 bytes, gives sin and cos of i u with no such formula: the row at i
+// up to 1024, and above it the row at 2048 - i with sin and cos swapped. `fast_reduce_big` has
+// the shape of CORE-MATH's `reduce_large`, a window of the bits of 1/(2π) picked by the
+// exponent and products of integers, with three 64-bit limbs where it takes two.
 // `rocq/theories/FastTrigCore.v` bounds the error of `fast_sin`, `fast_cos` and `fast_tan`
 // relative to sin x, cos t and tan x by 2^-71, 2^-71 and 3 2^-71, from
 // `rocq/theories/FastTrigReduce.v` and `rocq/theories/FastTrigBig.v` for the reductions, the
@@ -128,7 +134,7 @@
 // `rocq/theories/FastTrigBigDec.v` and `rocq/theories/FastTrigBigSum.v`,
 // `rocq/theories/FastTrigBandRed.v` and `rocq/theories/FastTrigBandBig.v` for those of the
 // band, the latter with `rocq/theories/FastTrigBandInt.v` and `rocq/theories/FastTrigBandMul.v`,
-// `rocq/theories/FastTrigTables.v` for the tables and constants other than `INV2PI` and `U4`,
+// `rocq/theories/FastTrigTables.v` for `SC`, `INV`, `U1`, `U2` and `U3`,
 // `rocq/theories/FastTrigSC.v`, `rocq/theories/FastTrigEval.v` and
 // `rocq/theories/FastTrigDiv.v` for the steps, and `rocq/theories/FastTrigBandEval.v` and
 // `rocq/theories/FastTrigBandDiv.v` for those of the band. `rocq/theories/FastTrigRound.v`
@@ -151,9 +157,11 @@ use super::{
 };
 use crate::limbs;
 use crate::simd::{two_prod_err, HAS_FMA};
+use sc_table::SC;
 use std::cmp::Ordering;
-use tables::{INV2PI, SC1, SC2};
+use tables::INV2PI;
 
+mod sc_table;
 mod tables;
 #[cfg(test)]
 mod tests;
@@ -630,45 +638,35 @@ fn fast_reduce_band_big(x: f64) -> Option<(i64, f64, f64, f64)> {
 }
 
 // (sh, sl, ch, cl) with sh + sl and ch + cl sin and cos of i u, for i in [1, 2047], from the
-// tables at i = 64 i1 + i2 by sin(a + b) = sin a cos b + cos a sin b and
-// cos(a + b) = cos a cos b - sin a sin b. `rocq/theories/FastTrigSC.v` proves that they are
-// within 2^-88 of sin(i u) and cos(i u) relative to them (`fast_sc_correct`).
-// Always inlined: out of line, `sin` and `cos` take 23 to 27 more instructions per call and `tan`
-// 12 to 13 more, on each of five sets of 4,096 arguments: uniform in [0.1, 10), [-10, 10) and
-// [-π/4, π/4), and of either sign with a magnitude log-uniform in [2^-30, 2^1024) and in
-// [2^60, 2^1024) (cachegrind, row 107).
+// row of `SC` at i for i <= 1024, and above it from the row at 2048 - i with its halves
+// swapped, as sin(i u) = cos((2048 - i) u) and cos(i u) = sin((2048 - i) u) with 2048 u = π/2.
+// `rocq/theories/FastTrigSC.v` proves that they are within 2^-88 of sin(i u) and cos(i u)
+// relative to them (`fast_sc_correct`).
+// The row is read in one arm per side of 1024 rather than at the one index 1024 - |1024 - i|:
+// with that index, the release build of the tests for x86-64 with haswell kept a bounds check
+// there, and with it `sin` and `cos` saved registers before their first tests, about 4 more
+// instructions per call when rounding down or up on arguments of magnitude next to 2^-26
+// (cachegrind, row 119). With the two arms, that build and the library built for the same
+// target read the row without a branch or a bounds check.
+// Always inlined: out of line, `sin` and `cos` took 23 to 27 more instructions per call and
+// `tan` 12 to 13 more, when this was a product of two rows, on each of five sets of 4,096
+// arguments: uniform in [0.1, 10), [-10, 10) and [-π/4, π/4), and of either sign with a
+// magnitude log-uniform in [2^-30, 2^1024) and in [2^60, 2^1024) (cachegrind, row 107).
 #[inline(always)]
 fn fast_sc(i: i64) -> (f64, f64, f64, f64) {
-    let row = |r: [u64; 4]| {
-        (
-            f64::from_bits(r[0]),
-            f64::from_bits(r[1]),
-            f64::from_bits(r[2]),
-            f64::from_bits(r[3]),
-        )
+    let r = if i > 1024 {
+        &SC[(2048 - i) as usize]
+    } else {
+        &SC[i as usize]
     };
-    let (s1h, s1l, c1h, c1l) = row(SC1[(i >> 6) as usize]);
-    let (s2h, s2l, c2h, c2l) = row(SC2[(i & 63) as usize]);
-    if i & 63 == 0 {
-        return (s1h, s1l, c1h, c1l);
-    }
-    if i >> 6 == 0 {
-        return (s2h, s2l, c2h, c2l);
-    }
-    // With a = i1 π/64 > b = i2 u, sin a cos b > cos a sin b, and with a + b < π/2,
-    // cos a cos b > sin a sin b, so that each `fast_two_sum` has its larger term first.
-    let (ps, es) = fast_mul(s1h, s1l, c2h, c2l);
-    let (qs, fs) = fast_mul(c1h, c1l, s2h, s2l);
-    let (sh, t) = fast_two_sum(ps, qs);
-    let (pc, ec) = fast_mul(c1h, c1l, c2h, c2l);
-    let (qc, fc) = fast_mul(s1h, s1l, s2h, s2l);
-    let (ch, w) = fast_two_sum(pc, -qc);
-    // Renormalized, so that |sl| <= 2^-53 sh and |cl| <= 2^-53 ch, as in the tables: near
-    // a + b = π/2, cos(a + b) is much smaller than pc, and ec - fc can be 2^-44 ch, which
-    // `fast_eval` would multiply by cos ρ - 1 if it were not folded into ch.
-    let (sh, sl) = fast_two_sum(sh, t + (es + fs));
-    let (ch, cl) = fast_two_sum(ch, w + (ec - fc));
-    (sh, sl, ch, cl)
+    // The halves are picked by index, k = 2 above 1024, so that the swap needs no branch.
+    let k = if i > 1024 { 2 } else { 0 };
+    (
+        f64::from_bits(r[k]),
+        f64::from_bits(r[k + 1]),
+        f64::from_bits(r[2 - k]),
+        f64::from_bits(r[3 - k]),
+    )
 }
 
 // sin(j u + ρ) = S cos ρ + C sin ρ as h + l, h = RN(h + l), for S = sh + sl and C = ch + cl
@@ -775,7 +773,7 @@ fn fast_band_big(x: f64, s: i64) -> Option<(f64, f64)> {
 // (q + s) π/2 + i u + ρ, and sin(i u + ρ) and cos(i u + ρ) = sin((2048 - i) u - ρ) are both
 // `fast_eval` with j in [1, 2047]. At i = 0, which only `fast_reduce` gives, the result can be
 // near 0, and `fast_band` takes x.
-// Always inlined: out of line, `sin` and `cos` take 8 to 18 more instructions per call on the
+// Always inlined: out of line, `sin` and `cos` took 8 to 18 more instructions per call on the
 // same arguments as `fast_sc` (cachegrind, row 107).
 #[inline(always)]
 fn fast_quad(n: i64, s: i64, rh: f64, rl: f64, rr: f64) -> Option<(f64, f64)> {
@@ -868,7 +866,7 @@ fn fast_tan_band_big(x: f64) -> Option<(f64, f64)> {
     Some(fast_band_tan(n, rh, rl, rr))
 }
 
-// tan x as h + l, as `fast_sin` does sin x: sin and cos from the same reduction and tables,
+// tan x as h + l, as `fast_sin` does sin x: sin and cos from the same reduction and `fast_sc`,
 // and their quotient, tan(i u + ρ) at an even q and -1 / tan(i u + ρ) at an odd one, within
 // 3 2^-71 |tan x| of tan x (`fast_tan_correct` in `rocq/theories/FastTrigCore.v`).
 fn fast_tan(x: f64) -> Option<(f64, f64)> {

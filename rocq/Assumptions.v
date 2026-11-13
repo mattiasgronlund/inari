@@ -421,8 +421,7 @@ Print Assumptions FastLog.fast_log10_dir_fma.
 Print Assumptions FastLog.fast_log10_near_fma.
 Print Assumptions FastLog.fast_ln_one.
 Print Assumptions FastLog.fast_log2_one.
-Print Assumptions FastTrigTables.sc1_correct.
-Print Assumptions FastTrigTables.sc2_correct.
+Print Assumptions FastTrigTables.sc_correct.
 Print Assumptions FastTrigTables.fast_trig_consts.
 Print Assumptions FastTrigReduce.fast_reduce_correct.
 Print Assumptions FastTrigBigInt.inv2pi_bounds.

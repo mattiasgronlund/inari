@@ -295,7 +295,7 @@ assert (bpow radix2 21 <= bpow radix2 1000) by (apply bpow_le; lia).
 split; [exact Fh |]. split; [exact Fl |]. split; [exact Hrn |]. split; [lra | exact Hy].
 Qed.
 
-(** ** The tables and the two evaluations *)
+(** ** The table and the two evaluations *)
 
 (** The row of [fast_sc] at [i], with [sh] and [ch] between 2^-12 and 1. *)
 Lemma sc_facts :
