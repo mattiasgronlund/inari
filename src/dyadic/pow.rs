@@ -453,11 +453,23 @@ fn fast_pow_wide_near<const FMA: bool>(th: f64, tl: f64) -> Option<f64> {
 // as well, the fast path took 10 to 16 more than left to the compiler on four sets of x^y at
 // other y; behind these calls, the sets of x^y take at most half an instruction more. These two,
 // `pown_pos` and `pown_pos_near`, are the entries of this file (`level_entry!`): each picks its
-// copy with or without an FMA, so that `pow`, `pow_near`, `pown` and `pown_near` keep one copy
-// of their rules.
+// copy with or without an FMA, so that `pow`, `pow_near`, `pown` and `pown_near` do not copy
+// their rules for each value of `FMA`.
+// A copy of `fast_pow_dir_call` per direction, where `UP` is a constant: as one function, with
+// `up` in a register, it made x^y rounded toward -∞ or +∞ take 3.6 to 6.3 more instructions per
+// call on random x and y and on the hard cases of x^y, other than the x^y that are `f64`s,
+// which `exact` returns before the call, in a crate that links `cr`, built for Haswell
+// (cachegrind). Built for `x86-64`, it took 1.4 to 3.0 more on a CPU with FMA, and 4.4 to 7.3
+// more on one without.
 level_entry! {
     #[inline(never)]
-    fn fast_pow_dir_call(x: f64, y: f64, up: bool) -> Option<f64> = fast_pow_dir;
+    fn fast_pow_dir_call<const UP: bool>(x: f64, y: f64) -> Option<f64> = fast_pow_dir_call_with;
+}
+
+// The body of `fast_pow_dir_call` (`level_entry!`).
+#[inline(always)]
+fn fast_pow_dir_call_with<const FMA: bool, const UP: bool>(x: f64, y: f64) -> Option<f64> {
+    fast_pow_dir::<FMA>(x, y, UP)
 }
 
 level_entry! {
@@ -539,7 +551,7 @@ fn pow_dir<const UP: bool>(x: f64, y: f64) -> f64 {
                     return v;
                 }
             }
-            if let Some(v) = fast_pow_dir_call(x, y, UP) {
+            if let Some(v) = fast_pow_dir_call::<UP>(x, y) {
                 return v;
             }
             if !first {
@@ -675,7 +687,10 @@ level_entry! {
     // x in [2^g, 2^(g + 1)), x^n is in [2^(g n), 2^((g + 1) n)) for n > 0, and in
     // (2^((g + 1) n), 2^(g n)] for n < 0. |g n| < 2^42, so that the exponents of the kernel stay
     // in range.
-    #[cfg_attr(inari_kernel_dispatch, inline(always))]
+    // Inlined into `pown`, and with it into `cr::powi_rd` and `cr::powi_ru` and into `pown_rd`
+    // and `pown_ru` of `src/mpfr_calls/kernel.rs`, where `up` is a constant, also in a build
+    // without the dispatch.
+    #[inline(always)]
     fn pown_pos(x: f64, n: i32, up: bool) -> f64 = pown_pos_with;
 }
 
@@ -785,6 +800,17 @@ fn pown_pos_near_ziv(x: f64, n: i32) -> f64 {
 }
 
 /// x^n rounded toward +∞ if `up` and toward -∞ otherwise.
+// Inlined into `cr::powi_rd` and `cr::powi_ru`, and into `pown_rd` and `pown_ru` of
+// `src/mpfr_calls/kernel.rs`, where `up` is a constant, with both calls of `pown_pos`. Built
+// for Haswell, that makes each of `cr::powi_rd` and `cr::powi_ru` about 2.3 KB, and when they
+// called one `pown_pos` out of line, with `up` in a register, they took 4.0 to 6.5 more
+// instructions per call on random x and n, in a crate that links `cr` (cachegrind). With
+// `pown_pos` always inlined into `pown` and no attribute on `pown`, the compiler kept `pown` out
+// of line, and `cr::powi_rd` and `cr::powi_ru` passed it `up` in a register again. Built for
+// `x86-64`, where they called `pown` out of line, they took 4.0 to 5.0 more on a CPU with FMA,
+// and 2.0 to 2.5 more on one without, where `pown_pos` still takes `up` at run time
+// (`level_entry!`).
+#[inline(always)]
 pub(crate) fn pown(x: f64, n: i32, up: bool) -> f64 {
     if n == 0 {
         1.0

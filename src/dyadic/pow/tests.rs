@@ -1007,8 +1007,8 @@ fn fast_pow_copies(x: f64, y: f64) -> [[Option<f64>; 3]; 3] {
             fast_pow_near::<true>(x, y),
         ],
         [
-            fast_pow_dir_call(x, y, false),
-            fast_pow_dir_call(x, y, true),
+            fast_pow_dir_call::<false>(x, y),
+            fast_pow_dir_call::<true>(x, y),
             fast_pow_near_call(x, y),
         ],
     ]

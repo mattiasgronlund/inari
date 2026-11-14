@@ -5759,15 +5759,16 @@ Definition fast_pow_near (fma : bool) (x y : f64) : option f64 :=
   | None => fast_pow_wide_near fma th tl
   end.
 
-(** [fn fast_pow_dir_call(x: f64, y: f64, up: bool) -> Option<f64>] and
-    [fn fast_pow_near_call(x: f64, y: f64) -> Option<f64>], which [pow]
-    and [pow_near] call: entries that [level_entry!] defines from the
-    bodies [fast_pow_dir] and [fast_pow_near] (see the section [Driver]),
-    behind [#[inline(never)]], where those are [#[inline(always)]], so
-    that [pown_pos] and [pown_pos_near] inline the fast path and [pow] and
-    [pow_near] call it, and [fma] is the [FMA] with which the entry runs
-    its body. [Model.v] has no attributes. [DyPow.v] and
-    [DyPowNear.v] use them. *)
+(** [fn fast_pow_dir_call<const UP: bool>(x: f64, y: f64) -> Option<f64>],
+    with [up] for [UP], and [fn fast_pow_near_call(x: f64, y: f64) ->
+    Option<f64>], which [pow] and [pow_near] call: entries that
+    [level_entry!] defines from the bodies [fast_pow_dir_call_with], which
+    is [fast_pow_dir(x, y, UP)], and [fast_pow_near] (see the section
+    [Driver]), behind [#[inline(never)]], where [fast_pow_dir] and
+    [fast_pow_near] are [#[inline(always)]], so that [pown_pos] and
+    [pown_pos_near] inline the fast path and [pow] and [pow_near] call it,
+    and [fma] is the [FMA] with which the entry runs its body. [Model.v]
+    has no attributes. [DyPow.v] and [DyPowNear.v] use them. *)
 Definition fast_pow_dir_call (fma : bool) (x y : f64) (up : bool) : option f64 :=
   fast_pow_dir fma x y up.
 
