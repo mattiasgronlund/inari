@@ -63,7 +63,7 @@ fn bound(x: f64, prec: Option<usize>, conv: char, up: bool) -> String {
 
 // Appends `n` zeros.
 fn push_zeros(s: &mut String, n: usize) {
-    s.extend(std::iter::repeat('0').take(n));
+    s.extend(std::iter::repeat_n('0', n));
 }
 
 // `|x|` as `%.pf` writes it: the digits before the point, and the point and `p` digits after it

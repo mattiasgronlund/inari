@@ -166,7 +166,8 @@ fn expo(x: f64) -> i64 {
     }
 }
 
-// floor(log2 v) for v >= 1, without `ilog2`, which needs a Rust after the MSRV.
+// floor(log2 v) for v >= 1, without `ilog2`, which came with Rust 1.67, after the MSRV of the
+// time, 1.65.
 fn ilog2(v: i64) -> i64 {
     63 - i64::from((v as u64).leading_zeros())
 }

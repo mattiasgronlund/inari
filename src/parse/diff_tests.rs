@@ -94,7 +94,7 @@ impl Rng {
                 x
             }
             _ => {
-                let limbs: Vec<u64> = (0..(bits + 63) / 64).map(|_| self.next()).collect();
+                let limbs: Vec<u64> = (0..bits.div_ceil(64)).map(|_| self.next()).collect();
                 let mut x = Integer::from_digits(&limbs, Order::Lsf);
                 x.keep_bits_mut(bits);
                 x.set_bit(bits - 1, true);

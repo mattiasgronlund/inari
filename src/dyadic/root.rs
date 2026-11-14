@@ -163,7 +163,7 @@ fn cbrt_odd(x: f64) -> Dyadic<1> {
 
 // The bits of the coefficients of a cubic c0 + c1 z + (c2 + c3 z) z^2 with a relative error
 // against z^(1/3) on [1, 2] measured below 7.4e-5, not proved (a Remez fit), of RN(1/3) and
-// RN(2/9), and of RN(2^(i/3)) for i = 0, 1, 2. `f64::from_bits` is not `const` at the MSRV.
+// RN(2/9), and of RN(2^(i/3)) for i = 0, 1, 2. `f64::from_bits` is not `const` before Rust 1.83.
 const CBRT_C: [u64; 4] = [
     0x3fe1_b0ba_bcb6_1b30,
     0x3fe2_c9a3_e9ac_d5ba,

@@ -313,7 +313,7 @@ mod mpfr_tests {
         // A positive integer of at most `max_bits` bits, whose limbs are often 0 or all ones.
         fn int(&mut self, max_bits: u32) -> Integer {
             let bits = self.below(u64::from(max_bits)) as u32 + 1;
-            let limbs: Vec<u64> = (0..(bits + 63) / 64)
+            let limbs: Vec<u64> = (0..bits.div_ceil(64))
                 .map(|_| match self.below(4) {
                     0 => 0,
                     1 => u64::MAX,

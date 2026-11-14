@@ -313,8 +313,7 @@ fn check(errs: &mut Vec<String>, levels: &mut [Levels; 3], k: usize, xs: &[f64],
 // threads: the levels that the kernel used, and the mismatches with MPFR in the order of
 // `entries`.
 fn check_all(k: usize, entries: &[(Vec<f64>, String)]) -> ([Levels; 3], Vec<String>) {
-    // (`div_ceil` needs Rust 1.73, and the `msrv` job of CI checks the tests with Rust 1.65.)
-    let chunk = ((entries.len() + 15) / 16).max(1);
+    let chunk = entries.len().div_ceil(16).max(1);
     // Each thread records its own levels, as `ziv_level` gives those of its thread.
     let parts: Vec<([Levels; 3], Vec<String>)> = std::thread::scope(|s| {
         let threads: Vec<_> = entries
@@ -575,7 +574,7 @@ fn hardest(entries: &[Entry], idx: impl Iterator<Item = usize>) -> Option<usize>
     let mut best: Option<(i32, usize)> = None;
     for i in idx {
         if let Hard::H(h) = entries[i].hard {
-            if best.map_or(true, |(b, _)| h > b) {
+            if best.is_none_or(|(b, _)| h > b) {
                 best = Some((h, i));
             }
         }
@@ -611,7 +610,7 @@ fn sample_hard_cases() {
         let mut entries = vec![];
         let mut seen = HashSet::new();
         for line in &lines[20..] {
-            let new_section = sections.last().map_or(true, |(_, es)| !es.is_empty());
+            let new_section = sections.last().is_none_or(|(_, es)| !es.is_empty());
             if line.starts_with('#') {
                 if new_section {
                     sections.push((vec![], vec![]));
@@ -639,9 +638,8 @@ fn sample_hard_cases() {
                 hard: Hard::Special,
             });
         }
-        // MPFR, on 16 threads. (`div_ceil` needs Rust 1.73, and the `msrv` job of CI checks
-        // the tests with Rust 1.65.)
-        let chunk = ((entries.len() + 15) / 16).max(1);
+        // MPFR, on 16 threads.
+        let chunk = entries.len().div_ceil(16).max(1);
         std::thread::scope(|s| {
             for part in entries.chunks_mut(chunk) {
                 s.spawn(move || {
@@ -687,7 +685,7 @@ fn sample_hard_cases() {
         if unary {
             let mut by_value: Vec<usize> = (0..entries.len()).filter(|&i| entries[i].hex).collect();
             by_value.sort_by(|&i, &j| entries[i].xs[0].total_cmp(&entries[j].xs[0]));
-            let size = ((by_value.len() + SLICES - 1) / SLICES).max(1);
+            let size = by_value.len().div_ceil(SLICES).max(1);
             for slice in by_value.chunks(size) {
                 if let Some(i) = hardest(&entries, slice.iter().copied()) {
                     pick[i] = true;

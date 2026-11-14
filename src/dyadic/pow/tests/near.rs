@@ -123,7 +123,7 @@ fn tie(x: f64, y: f64, t: Tie) {
 
 // The least r with r^n >= 2^b, for b <= 54 and n >= 2.
 fn root(b: u32, n: u32) -> u64 {
-    let at_least = |r: u64| u128::from(r).checked_pow(n).map_or(true, |p| p >= 1 << b);
+    let at_least = |r: u64| u128::from(r).checked_pow(n).is_none_or(|p| p >= 1 << b);
     // `at_least` fails at lo and holds at hi, as (2^27)^2 = 2^54.
     let (mut lo, mut hi) = (0, 1 << 27);
     while hi - lo > 1 {
@@ -145,7 +145,7 @@ fn odd_bases(n: u32, rng: &mut Rng) -> Vec<u64> {
     if first >= end {
         return vec![];
     }
-    let count = (end - first + 1) / 2;
+    let count = (end - first).div_ceil(2);
     if count <= LIMIT {
         (0..count).map(|i| first + 2 * i).collect()
     } else {

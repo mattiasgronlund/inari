@@ -27,7 +27,7 @@ type Near = fn(f64) -> f64;
 const NEAR: [Near; 3] = [sin_near, cos_near, tan_near];
 
 // The `f64` after `x` toward +∞, for `x` below +∞: 2^-1074 after either zero, and -0 after
-// -2^-1074. `f64::next_up` needs a Rust after the MSRV.
+// -2^-1074. `f64::next_up` came with Rust 1.86, after the MSRV of the time, 1.65.
 fn next_up(x: f64) -> f64 {
     if x == 0.0 {
         f64::from_bits(1)
@@ -213,7 +213,8 @@ fn regressions_hold() {
 // results, and finite values from the least to the greatest.
 const SPECIAL: [f64; 9] = [
     0.0,
-    // 2^-1074, the least `f64` above 0. `f64::from_bits` is `const` only after the MSRV.
+    // 2^-1074, the least `f64` above 0. `f64::from_bits` became `const` in Rust 1.83, after
+    // the MSRV of the time, 1.65.
     5e-324,
     f64::MIN_POSITIVE,
     0.5,
@@ -535,7 +536,7 @@ fn small_rules_near_their_centres() {
         for be in 997..=last {
             let s = 2086 - 2 * be;
             // The least C with C f 2^(s + 64) >= 2^156, and so m >= 2^52.
-            let c0 = ((1u128 << (92 - s)) + f - 1) / f;
+            let c0 = (1u128 << (92 - s)).div_ceil(f);
             for c in (c0.max(1)..c0.max(1) + 64).take_while(|c| (c * f) << s < 1 << 95) {
                 near(i, be, ceil_cbrt((c * f) << s));
             }
@@ -1167,7 +1168,7 @@ fn near_multiples() {
     let mut outcomes = [[0usize; 3]; 3];
     // ±cos ρ is sin at an odd k and cos at an even one, at 10 arguments in 2 directions each.
     let last = usize::try_from(LAST_K).unwrap();
-    let cos_half = [20 * ((last + 1) / 2), 20 * (last / 2), 0];
+    let cos_half = [20 * last.div_ceil(2), 20 * (last / 2), 0];
     for k in 1..=LAST_K {
         for y in around(near_multiple(k), 2) {
             for (z, n) in [(y, 2048 * k), (-y, -2048 * k)] {

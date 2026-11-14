@@ -140,7 +140,7 @@ jobs:
 
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.65.0
+          toolchain: 1.86.0
           override: true
           profile: minimal
 
@@ -151,7 +151,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # No step in this job sets `-Ctarget-feature=+avx512f`. On Rust 1.65.0 that
+      # No step in this job sets `-Ctarget-feature=+avx512f`. On Rust 1.86.0 that
       # flag sets no `cfg(target_feature = "avx512f")`, so `src/simd/x86_64.rs`
       # would select the `fma` backend, which this step already checks. Stable Rust
       # selects the `avx512f` backend only from 1.89 on. The `avx512f` job checks

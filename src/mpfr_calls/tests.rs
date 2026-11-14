@@ -206,8 +206,8 @@ const EXPONENTS: [i32; 26] = [
     i32::MAX,
 ];
 
-// The `f64` after `x` toward +∞, and NaN and +∞ themselves. `f64::next_up` needs a Rust after
-// the MSRV.
+// The `f64` after `x` toward +∞, and NaN and +∞ themselves. `f64::next_up` came with Rust
+// 1.86, after the MSRV of the time, 1.65.
 fn next_up(x: f64) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
         x
@@ -233,7 +233,7 @@ fn structured() -> Vec<f64> {
         0.0,
         f64::INFINITY,
         f64::NAN,
-        // 2^-1074 and 2^-1073. `f64::from_bits` is `const` only after the MSRV.
+        // 2^-1074 and 2^-1073.
         5e-324,
         1e-323,
         // The greatest subnormal, the least normal number, and some tiny ones.

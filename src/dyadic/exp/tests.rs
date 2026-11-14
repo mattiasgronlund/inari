@@ -39,7 +39,7 @@ const NEAR: [Near; 6] = [
 const SMALL: f64 = 5.0 / 268_435_456.0;
 
 // The `f64` after `x` toward +∞, for `x` below +∞: 2^-1074 after either zero, and -0 after
-// -2^-1074. `f64::next_up` needs a Rust after the MSRV.
+// -2^-1074. `f64::next_up` came with Rust 1.86, after the MSRV of the time, 1.65.
 fn next_up(x: f64) -> f64 {
     if x == 0.0 {
         f64::from_bits(1)

@@ -9,7 +9,8 @@
 use super::*;
 use crate::dyadic::tests::Rng;
 
-// The `f64` after `x` toward +∞, for `x` below +∞. `f64::next_up` needs a Rust after the MSRV.
+// The `f64` after `x` toward +∞, for `x` below +∞. `f64::next_up` came with Rust 1.86, after
+// the MSRV of the time, 1.65.
 fn next_up(x: f64) -> f64 {
     if x == 0.0 {
         f64::from_bits(1)
