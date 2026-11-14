@@ -35,7 +35,8 @@ cfg_if::cfg_if! {
         mod generic;
         pub(crate) use generic::{round_up_exact, two_prod_err, HAS_FMA};
     } else if #[cfg(all(target_arch = "x86_64", target_feature = "sse4.2"))] {
-        // Plain `x86-64`, without `sse4.2`, takes the portable backend below, and the kernel
+        // Plain `x86-64`, without `sse4.2`, takes the portable backend below. On every x86-64
+        // target without `fma`, among them `x86-64-v2`, which takes this backend, the kernel
         // picks the copy of its entries that uses an FMA at run time (`src/dyadic/level.rs`).
         mod x86_64;
         pub(crate) use x86_64::*;
@@ -43,7 +44,8 @@ cfg_if::cfg_if! {
         // The generic backend provides the slow paths and the scalar operations of
         // `fma` and `sse42`, and is tested against whichever backend the target
         // selects. `src/parse.rs` and `src/dyadic.rs` call its `round_up_exact`, and the fast
-        // paths of `src/dyadic` its `two_prod_err` and `HAS_FMA`.
+        // paths of `src/dyadic` its `two_prod_err` and `HAS_FMA`, the latter only in a build
+        // without `cfg(inari_kernel_dispatch)` (`src/dyadic/level.rs`) or in the tests.
         //
         // Only part of it is used. Under `fma` and `sse42`: the functions that they call
         // (`add_ru`, `div_ru`, `mul_add_ru`, `mul_ru`, `sqrt_rd_ru`, `sqrt1_rd`, `sqrt1_ru`
@@ -54,7 +56,9 @@ cfg_if::cfg_if! {
         // functions and the functions these call.
         #[allow(dead_code)]
         mod generic;
-        pub(crate) use generic::{round_up_exact, two_prod_err, HAS_FMA};
+        pub(crate) use generic::{round_up_exact, two_prod_err};
+        #[cfg(any(test, not(inari_kernel_dispatch)))]
+        pub(crate) use generic::HAS_FMA;
         #[cfg(test)]
         mod differential_tests;
     } else if #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))] {

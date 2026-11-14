@@ -52,6 +52,11 @@ jobs:
           RUSTFLAGS: ${{ env.RUSTFLAGS }} -Ctarget-feature=+avx512f
           RUSTDOCFLAGS: ${{ env.RUSTDOCFLAGS }} -Ctarget-feature=+avx512f
 
+      # A Nehalem has `sse4.2` but no `fma`, like `x86-64-v2`: `Interval` uses the
+      # `sse42` backend, and each entry of the kernel of the elementary functions
+      # (`src/dyadic`) picks its copy at run time (`src/dyadic/level.rs`). On a
+      # runner whose CPU has FMA, this step runs the copies compiled with `fma`;
+      # the `baseline` job runs the others in QEMU.
       - name: Test (target Nehalem)
         run: cargo test --release
         env:
@@ -101,7 +106,8 @@ jobs:
   # elementary functions (`src/dyadic`) picks at run time between its copy
   # compiled with the target feature `fma` and its copy with Dekker's products
   # (`src/dyadic/level.rs`). On a runner whose CPU has FMA, `Test` runs the
-  # first; the two steps named "without FMA" run the second.
+  # first; the steps named "without FMA" run the second, and the last of them
+  # does so in a build for a Nehalem, whose kernel picks its copy in the same way.
   baseline:
     runs-on: ubuntu-latest
 
@@ -164,6 +170,17 @@ jobs:
           ulimit -c 0
           cargo test --release --lib dyadic
         env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: qemu-x86_64 -cpu Nehalem
+
+      # The same in a build for a Nehalem, whose `Interval` uses the `sse42`
+      # backend.
+      - name: Test the kernel without FMA (QEMU, Nehalem, target Nehalem)
+        run: |
+          cargo test --release --lib --no-run
+          ulimit -c 0
+          cargo test --release --lib dyadic
+        env:
+          RUSTFLAGS: -Ctarget-cpu=nehalem -Dwarnings
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: qemu-x86_64 -cpu Nehalem
 
       - name: Clippy

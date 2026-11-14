@@ -1,6 +1,6 @@
 // The run-time choice of the copy of the kernel's entries that uses an FMA.
 //
-// Under `cfg(inari_kernel_dispatch)`, which `build.rs` sets for x86-64 targets without `sse4.2`
+// Under `cfg(inari_kernel_dispatch)`, which `build.rs` sets for x86-64 targets without `fma`
 // and without the feature `force-generic`, `HAS_FMA` is false, and each entry that
 // `level_entry!` defines calls one of two copies of its body `<f>_with::<FMA>`: on a CPU that has
 // `fma`, `fma_copy`, compiled with that target feature, in which `two_prod_err::<true>` is one
@@ -33,12 +33,13 @@ cfg_if::cfg_if! {
         }
 
         // Whether the CPU has `fma`, detected on the first call. The test on the entries' cold
-        // path.
+        // path, which a CPU without `fma` takes on every call, so it tests 1 first.
         #[inline(always)]
         pub(super) fn fma_detected() -> bool {
             match LEVEL.load(Ordering::Relaxed) {
-                0 => detect(),
-                level => level == 2,
+                1 => false,
+                2 => true,
+                _ => detect(),
             }
         }
 
