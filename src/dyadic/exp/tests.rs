@@ -756,18 +756,18 @@ fn fast_path_agrees_with_kernel() {
 fn bodies<const FMA: bool>(i: usize, x: f64) -> [f64; 3] {
     match i {
         EXP => [
-            exp_with::<FMA>(x, false),
-            exp_with::<FMA>(x, true),
+            exp_dir_with::<FMA, false>(x),
+            exp_dir_with::<FMA, true>(x),
             exp_near_with::<FMA>(x),
         ],
         EXP2 => [
-            exp2_with::<FMA>(x, false),
-            exp2_with::<FMA>(x, true),
+            exp2_dir_with::<FMA, false>(x),
+            exp2_dir_with::<FMA, true>(x),
             exp2_near_with::<FMA>(x),
         ],
         EXP10 => [
-            exp10_with::<FMA>(x, false),
-            exp10_with::<FMA>(x, true),
+            exp10_dir_with::<FMA, false>(x),
+            exp10_dir_with::<FMA, true>(x),
             exp10_near_with::<FMA>(x),
         ],
         SINH => [
@@ -781,8 +781,8 @@ fn bodies<const FMA: bool>(i: usize, x: f64) -> [f64; 3] {
             cosh_near_with::<FMA>(x),
         ],
         TANH => [
-            tanh_with::<FMA>(x, false),
-            tanh_with::<FMA>(x, true),
+            tanh_dir_with::<FMA, false>(x),
+            tanh_dir_with::<FMA, true>(x),
             tanh_near_with::<FMA>(x),
         ],
         _ => unreachable!(),
@@ -791,7 +791,8 @@ fn bodies<const FMA: bool>(i: usize, x: f64) -> [f64; 3] {
 
 // The function `i` at `x`, as `bodies` gives it, by the copy of each entry without an FMA in its
 // products, by the copy with one (`level_entry!`), and by the functions of `FUNCTIONS` and
-// `NEAR`, which call the entries (sinh through `sinh_dir`).
+// `NEAR`, which call the entries (e^x, 2^x, 10^x, sinh and tanh through `exp_dir` and the other
+// `_dir` entries).
 fn copies(i: usize, x: f64) -> [[f64; 3]; 3] {
     [
         bodies::<false>(i, x),

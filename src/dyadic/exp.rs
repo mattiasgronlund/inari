@@ -483,7 +483,13 @@ const ERR68: f64 = f64::EPSILON / 65536.0;
 //
 // [CORE-MATH] P. Zimmermann et al., the CORE-MATH project, `src/binary64/exp/exp.c` (MIT
 // license); no constant or table is copied from it.
-#[cfg_attr(inari_kernel_dispatch, inline(always))]
+// Always inlined, also in a build without the dispatch (`level_entry!`): out of line, it
+// returns its triple through memory, and the edge paths call it a second time through
+// `fast_exp_edge`. Without the attribute, `exp_dir` and `exp2_dir` called it out of line, and
+// took 7 to 8 more instructions per call than the one function `exp` or `exp2` before them,
+// with `up` a run-time argument, on random x with a result below 2^-1019 or above 2^1022.8, in
+// a crate that links `cr`, built for Haswell (cachegrind, row 121).
+#[inline(always)]
 pub(super) fn fast_exp<const FMA: bool>(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
     if !(-707.0..=709.0).contains(&zh) {
         return None;
@@ -570,7 +576,10 @@ fn fast_exp_by_edge<const FMA: bool>(x: f64, c: [u64; 2]) -> Option<(f64, f64, i
 // e^x, 2^x and 10^x rounded toward +∞ if `up` and toward -∞ otherwise, and to nearest, by the
 // fast path, or `None` where its rounding test fails or x is out of its range; outside the
 // range of `fast_exp`, by `fast_exp_edge` with `round_dir_wide` and `round_near_wide`.
-#[cfg_attr(inari_kernel_dispatch, inline(always))]
+// The `_dir` ones are always inlined, also in a build without the dispatch: LLVM did not inline
+// them into `exp_dir`, `exp2_dir` and `exp10_dir` on its own, and the calls there took `up` in
+// a register.
+#[inline(always)]
 fn fast_exp_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
     match fast_exp::<FMA>(x, 0.0) {
         Some((h, l, e)) => round_dir(h, l, e, up),
@@ -581,7 +590,7 @@ fn fast_exp_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
     }
 }
 
-#[cfg_attr(inari_kernel_dispatch, inline(always))]
+#[inline(always)]
 fn fast_exp2_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
     match fast_exp_by::<FMA>(x, LN2) {
         Some((h, l, e)) => round_dir(h, l, e, up),
@@ -592,7 +601,7 @@ fn fast_exp2_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
     }
 }
 
-#[cfg_attr(inari_kernel_dispatch, inline(always))]
+#[inline(always)]
 fn fast_exp10_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
     match fast_exp_by::<FMA>(x, LN10) {
         Some((h, l, e)) => round_dir(h, l, e, up),
@@ -798,7 +807,12 @@ fn fast_cosh_dir<const FMA: bool>(t: f64, up: bool) -> Option<f64> {
     round_dir_err(h, l, e, err, up)
 }
 
-#[cfg_attr(inari_kernel_dispatch, inline(always))]
+// Always inlined, also in a build without the dispatch: LLVM did not inline it into `tanh_dir`
+// on its own, and the call there, with `up` in a register, cost 14 to 15 instructions per
+// directed tanh on random x in [0.1, 10), [-10, 10) and [-20, 20), and 9.4 on its hard cases
+// in `src/cr/tests/mpfr/hard_cases.wc`, in a crate that links `cr`, built for Haswell
+// (cachegrind).
+#[inline(always)]
 fn fast_tanh_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
     let (h, l, e, err) = fast_tanh_pos::<FMA>(x.abs())?;
     let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
@@ -825,32 +839,42 @@ fn fast_tanh_near<const FMA: bool>(x: f64) -> Option<f64> {
     Some(if x < 0.0 { -r } else { r })
 }
 
-level_entry! {
-    /// e^x rounded toward +∞ if `up` and toward -∞ otherwise.
-    #[cfg_attr(inari_kernel_dispatch, inline(always))]
-    pub(crate) fn exp(x: f64, up: bool) -> f64 = exp_with;
+/// e^x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
+pub(crate) fn exp(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        exp_dir::<true>(x)
+    } else {
+        exp_dir::<false>(x)
+    }
 }
 
-// The body of `exp`, with `FMA` for the products (`level_entry!`).
+level_entry! {
+    // `exp` toward +∞ if `UP` and toward -∞ otherwise.
+    fn exp_dir<const UP: bool>(x: f64) -> f64 = exp_dir_with;
+}
+
+// The body of `exp_dir`, with `FMA` for the products (`level_entry!`).
 #[inline(always)]
-fn exp_with<const FMA: bool>(x: f64, up: bool) -> f64 {
+fn exp_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
         x
     } else if x == f64::NEG_INFINITY {
         0.0
     } else if x >= 710.0 {
         // e^x > 2^1024, as 710 > 1024 ln 2 = 709.78...
-        overflow(up)
+        overflow(UP)
     } else if x <= -746.0 {
         // e^x < 2^-1075, as -746 < -1075 ln 2 = -745.13...
-        underflow(up)
+        underflow(UP)
     } else if x.abs() < TINY_EXP {
         // 1 + x <= e^x <= 1 / (1 - x) for x < 1.
-        near_one(x, up)
-    } else if let Some(r) = fast_exp_dir::<FMA>(x, up) {
+        near_one(x, UP)
+    } else if let Some(r) = fast_exp_dir::<FMA>(x, UP) {
         r
     } else {
-        ziv(&Exp(x), up, 1)
+        ziv(&Exp(x), UP, 1)
     }
 }
 
@@ -881,30 +905,40 @@ fn exp_near_with<const FMA: bool>(x: f64) -> f64 {
     }
 }
 
-level_entry! {
-    /// 2^x rounded toward +∞ if `up` and toward -∞ otherwise.
-    #[cfg_attr(inari_kernel_dispatch, inline(always))]
-    pub(crate) fn exp2(x: f64, up: bool) -> f64 = exp2_with;
+/// 2^x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
+pub(crate) fn exp2(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        exp2_dir::<true>(x)
+    } else {
+        exp2_dir::<false>(x)
+    }
 }
 
-// The body of `exp2`, with `FMA` for the products (`level_entry!`).
+level_entry! {
+    // `exp2` toward +∞ if `UP` and toward -∞ otherwise.
+    fn exp2_dir<const UP: bool>(x: f64) -> f64 = exp2_dir_with;
+}
+
+// The body of `exp2_dir`, with `FMA` for the products (`level_entry!`).
 #[inline(always)]
-fn exp2_with<const FMA: bool>(x: f64, up: bool) -> f64 {
+fn exp2_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
         x
     } else if x == f64::NEG_INFINITY {
         0.0
     } else if x >= 1024.0 {
-        overflow(up)
+        overflow(UP)
     } else if x < -1075.0 {
-        underflow(up)
+        underflow(UP)
     } else if x.abs() < TINY_EXP {
         // 2^x = e^(x ln 2), and |x ln 2| < |x|.
-        near_one(x, up)
-    } else if let Some(r) = fast_exp2_dir::<FMA>(x, up) {
+        near_one(x, UP)
+    } else if let Some(r) = fast_exp2_dir::<FMA>(x, UP) {
         r
     } else {
-        ziv(&Exp2(x), up, 1)
+        ziv(&Exp2(x), UP, 1)
     }
 }
 
@@ -935,34 +969,44 @@ fn exp2_near_with<const FMA: bool>(x: f64) -> f64 {
     }
 }
 
-level_entry! {
-    /// 10^x rounded toward +∞ if `up` and toward -∞ otherwise.
-    #[cfg_attr(inari_kernel_dispatch, inline(always))]
-    pub(crate) fn exp10(x: f64, up: bool) -> f64 = exp10_with;
+/// 10^x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
+pub(crate) fn exp10(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        exp10_dir::<true>(x)
+    } else {
+        exp10_dir::<false>(x)
+    }
 }
 
-// The body of `exp10`, with `FMA` for the products (`level_entry!`).
+level_entry! {
+    // `exp10` toward +∞ if `UP` and toward -∞ otherwise.
+    fn exp10_dir<const UP: bool>(x: f64) -> f64 = exp10_dir_with;
+}
+
+// The body of `exp10_dir`, with `FMA` for the products (`level_entry!`).
 #[inline(always)]
-fn exp10_with<const FMA: bool>(x: f64, up: bool) -> f64 {
+fn exp10_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
         x
     } else if x == f64::NEG_INFINITY {
         0.0
     } else if x >= 309.0 {
         // 10^x > 2^1024, as 309 > 1024 log10(2) = 308.25...
-        overflow(up)
+        overflow(UP)
     } else if x <= -324.0 {
         // 10^x < 2^-1075, as -324 < -1075 log10(2) = -323.6...
-        underflow(up)
+        underflow(UP)
     } else if x.abs() < TINY_EXP10 {
         // 10^x = e^(x ln 10), and |x ln 10| < 4 |x| < 2^-54.
-        near_one(x, up)
+        near_one(x, UP)
     } else if (1.0..=22.0).contains(&x) && x == x.floor() {
         POW10[x as usize]
-    } else if let Some(r) = fast_exp10_dir::<FMA>(x, up) {
+    } else if let Some(r) = fast_exp10_dir::<FMA>(x, UP) {
         r
     } else {
-        ziv(&Exp10(x), up, 1)
+        ziv(&Exp10(x), UP, 1)
     }
 }
 
@@ -1108,15 +1152,25 @@ fn cosh_near_with<const FMA: bool>(x: f64) -> f64 {
     }
 }
 
-level_entry! {
-    /// tanh x rounded toward +∞ if `up` and toward -∞ otherwise.
-    #[cfg_attr(inari_kernel_dispatch, inline(always))]
-    pub(crate) fn tanh(x: f64, up: bool) -> f64 = tanh_with;
+/// tanh x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
+pub(crate) fn tanh(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        tanh_dir::<true>(x)
+    } else {
+        tanh_dir::<false>(x)
+    }
 }
 
-// The body of `tanh`, with `FMA` for the products (`level_entry!`).
+level_entry! {
+    // `tanh` toward +∞ if `UP` and toward -∞ otherwise.
+    fn tanh_dir<const UP: bool>(x: f64) -> f64 = tanh_dir_with;
+}
+
+// The body of `tanh_dir`, with `FMA` for the products (`level_entry!`).
 #[inline(always)]
-fn tanh_with<const FMA: bool>(x: f64, up: bool) -> f64 {
+fn tanh_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     if x.is_nan() {
         x
     } else if x == f64::INFINITY {
@@ -1125,24 +1179,24 @@ fn tanh_with<const FMA: bool>(x: f64, up: bool) -> f64 {
         -1.0
     } else if x >= 19.0 {
         // 1 - 2^-53 < tanh x < 1, as 1 - tanh x = 2 / (e^2x + 1) and 38 > 54 ln 2 = 37.43...
-        if up {
+        if UP {
             1.0
         } else {
             1.0 - f64::EPSILON / 2.0
         }
     } else if x <= -19.0 {
-        if up {
+        if UP {
             -(1.0 - f64::EPSILON / 2.0)
         } else {
             -1.0
         }
     } else if x.abs() < TINY_HYP {
         // x - x^3 / 3 <= tanh x <= x for x in [0, 1], and tanh is odd.
-        toward_zero(x, up)
-    } else if let Some(r) = fast_tanh_dir::<FMA>(x, up) {
+        toward_zero(x, UP)
+    } else if let Some(r) = fast_tanh_dir::<FMA>(x, UP) {
         r
     } else {
-        ziv(&Tanh(x), up, 1)
+        ziv(&Tanh(x), UP, 1)
     }
 }
 

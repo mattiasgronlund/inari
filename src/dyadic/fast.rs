@@ -372,6 +372,15 @@ fn round_near_sub(h: f64, l: f64, e: i64) -> Option<f64> {
 /// `round_dir_sub`; elsewhere `round_dir` is right: at e = -1022 with h > 1 the `f64`s next to h
 /// are in [1, 2] and their scaling is exact, and at e = 1023 the scaling of the `f64` after
 /// h = 2 - 2^-52 is +∞, the rounding up of a y 2^1023 above the largest `f64`.
+// Always inlined: LLVM did not inline it into `exp_dir`, `exp2_dir` and `exp10_dir`
+// (`src/dyadic/exp.rs`) on its own, and the call there, with `up` in a register, cost 11 to 12
+// instructions per directed e^x, 2^x or 10^x on random x with a result above 2^1022.8 (through
+// `fast_exp_edge` above e^709), and 0.7 on their hard cases in
+// `src/cr/tests/mpfr/hard_cases.wc`, in a crate that links `cr`, built for Haswell (cachegrind).
+// Built for `x86-64`, where the FMA copies of `level_entry!` called it out of line too, it cost
+// 13 to 14 on that set, 1.4 to 1.5 on random x with a result below 2^-1019, and 0.8 on the hard
+// cases, on a CPU with FMA.
+#[inline(always)]
 pub(crate) fn round_dir_wide(h: f64, l: f64, e: i64, up: bool) -> Option<f64> {
     if e > 1023 {
         None

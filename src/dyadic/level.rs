@@ -59,11 +59,11 @@ cfg_if::cfg_if! {
 // `#[inline(always)]`. Three forms, by how the entry takes its direction:
 //
 //     level_entry! { fn sin_dir<const UP: bool>(x: f64) -> f64 = sin_dir_with; }
-//     level_entry! { fn exp(x: f64, up: bool) -> f64 = exp_with; }
+//     level_entry! { fn cosh(x: f64, up: bool) -> f64 = cosh_with; }
 //     level_entry! { fn sin_near(x: f64) -> f64 = sin_near_with; }
 //
 // with `$with` declared as `fn sin_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64`,
-// `fn exp_with<const FMA: bool>(x: f64, up: bool) -> f64` and
+// `fn cosh_with<const FMA: bool>(x: f64, up: bool) -> f64` and
 // `fn sin_near_with<const FMA: bool>(x: f64) -> f64`. Attributes, doc comments and a visibility
 // before `fn` go to the entry. The macro adds no `inline` attribute of its own to the entry, so
 // that a build without the dispatch keeps the entry's attributes as they were.
