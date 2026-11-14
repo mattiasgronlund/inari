@@ -525,11 +525,17 @@ fn fast_ln_dir(x: f64, up: bool) -> Option<f64> {
     round_dir_signed(h, l, k, up)
 }
 
+// Always inlined, as is `fast_log10_dir`: LLVM did not inline them into `log2_dir` and
+// `log10_dir` on its own, and the calls there, with `up` in a register, cost 10 to 13
+// instructions per directed `log2` or `log10` on random arguments, in a crate that links
+// `cr` (cachegrind).
+#[inline(always)]
 fn fast_log2_dir(x: f64, up: bool) -> Option<f64> {
     let (h, l, k) = fast_log_by(x, C2, ONE)?;
     round_dir_signed(h, l, k, up)
 }
 
+#[inline(always)]
 fn fast_log10_dir(x: f64, up: bool) -> Option<f64> {
     let (h, l, k) = fast_log_by(x, C10, LG2)?;
     round_dir_signed(h, l, k, up)
@@ -773,12 +779,23 @@ fn fast_atanh_near(x: f64) -> Option<f64> {
 }
 
 /// ln x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
 pub(crate) fn ln(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        ln_dir::<true>(x)
+    } else {
+        ln_dir::<false>(x)
+    }
+}
+
+// `ln` toward +∞ if `UP` and toward -∞ otherwise.
+fn ln_dir<const UP: bool>(x: f64) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => match fast_ln_dir(x, up) {
+        None => match fast_ln_dir(x, UP) {
             Some(r) => r,
-            None => ziv(&Ln(x), up, 1),
+            None => ziv(&Ln(x), UP, 1),
         },
     }
 }
@@ -795,12 +812,23 @@ pub(crate) fn ln_near(x: f64) -> f64 {
 }
 
 /// log2 x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
 pub(crate) fn log2(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        log2_dir::<true>(x)
+    } else {
+        log2_dir::<false>(x)
+    }
+}
+
+// `log2` toward +∞ if `UP` and toward -∞ otherwise.
+fn log2_dir<const UP: bool>(x: f64) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => match fast_log2_dir(x, up) {
+        None => match fast_log2_dir(x, UP) {
             Some(r) => r,
-            None => ziv(&Log2(x), up, 1),
+            None => ziv(&Log2(x), UP, 1),
         },
     }
 }
@@ -817,15 +845,26 @@ pub(crate) fn log2_near(x: f64) -> f64 {
 }
 
 /// log10 x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
 pub(crate) fn log10(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        log10_dir::<true>(x)
+    } else {
+        log10_dir::<false>(x)
+    }
+}
+
+// `log10` toward +∞ if `UP` and toward -∞ otherwise.
+fn log10_dir<const UP: bool>(x: f64) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => match fast_log10_dir(x, up) {
+        None => match fast_log10_dir(x, UP) {
             Some(r) => r,
             None => match POW10.iter().position(|&p| p == x) {
                 // log10(10^k) = k.
                 Some(k) => k as f64,
-                None => ziv(&Log10(x), up, 1),
+                None => ziv(&Log10(x), UP, 1),
             },
         },
     }

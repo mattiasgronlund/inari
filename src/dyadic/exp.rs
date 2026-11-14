@@ -941,21 +941,32 @@ pub(crate) fn exp10_near(x: f64) -> f64 {
 }
 
 /// sinh x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
 pub(crate) fn sinh(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        sinh_dir::<true>(x)
+    } else {
+        sinh_dir::<false>(x)
+    }
+}
+
+// `sinh` toward +∞ if `UP` and toward -∞ otherwise.
+fn sinh_dir<const UP: bool>(x: f64) -> f64 {
     if x.is_nan() || x.is_infinite() {
         x
     } else if x >= 711.0 {
         // sinh x > 2^1024, as 711 > 1025 ln 2 = 710.47...
-        overflow(up)
+        overflow(UP)
     } else if x <= -711.0 {
-        -overflow(!up)
+        -overflow(!UP)
     } else if x.abs() < TINY_HYP {
         // x <= sinh x <= x + x^3 / 3 for x in [0, 1], and sinh is odd.
-        away(x, up)
-    } else if let Some(r) = fast_sinh_dir(x, up) {
+        away(x, UP)
+    } else if let Some(r) = fast_sinh_dir(x, UP) {
         r
     } else {
-        ziv(&Sinh(x), up, 1)
+        ziv(&Sinh(x), UP, 1)
     }
 }
 

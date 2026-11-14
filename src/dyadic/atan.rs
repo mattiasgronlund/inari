@@ -764,6 +764,14 @@ fn split(v: f64) -> (f64, i64) {
 // relatively, with the angle at least 2^-1020, where f is that angle itself (`octant_correct`),
 // and bounds |f 2^-e - (h + l)| by 3 d for r within d of the angle in the same senses, for
 // 2^-100 <= d <= 2^-60, which the first stages need (`octant_bound`).
+//
+// Always inlined: LLVM by itself called it out of line from the first stage of `acos_dir`, at
+// 15 to 19 more instructions per directed `acos` on x uniform in [-1, 1), on x of either sign
+// with |x| log-uniform in [2^-30, 1) or with 1 - 2^-8 < |x| <= 1, and on CORE-MATH's hard
+// cases, in a crate that links `cr` (cachegrind). For |x| < 2^-27, where acos does not reach
+// it, the attribute costs up to 1 more, and 0.56 more on |x| log-uniform over every exponent
+// below 0, most of which are below 2^-27.
+#[inline(always)]
 fn octant(swap: bool, neg: bool, rh: f64, rl: f64) -> (f64, f64, i64, f64) {
     match (swap, neg) {
         (false, false) => {
@@ -1036,6 +1044,14 @@ fn stage1_enabled() -> bool {
 // tries its first stage (`fast_atan_dir1` and the others, from `fast_atan_pos1` and the others),
 // and its second stage (`fast_atan_dir2` and the others, from `fast_atan_pos` and the others)
 // where that returns `None`. The comment of the second stages says which of them are inlined.
+//
+// Always inlined, as `fast_acos_dir` and the first stages `fast_atan_dir1` and
+// `fast_acos_dir1`, so that `up` is a constant in `atan_dir` and `acos_dir`: in a test build,
+// LLVM called the first stages there with `up` in a register. With the attributes (and
+// `octant`'s), the two copies of `atan` and of `acos` take 4.8 to 6.4 and 4.5 to 6 fewer
+// instructions per directed call than one copy with `up` at run time, on random arguments and
+// on CORE-MATH's hard cases, in a crate that links `cr` (cachegrind).
+#[inline(always)]
 fn fast_atan_dir(x: f64, up: bool) -> Option<f64> {
     if let Some(r) = fast_atan_dir1(x, up) {
         return Some(r);
@@ -1043,6 +1059,11 @@ fn fast_atan_dir(x: f64, up: bool) -> Option<f64> {
     fast_atan_dir2(x, up)
 }
 
+// Always inlined, so that `up` is a constant in `asin_dir`: in a test build, LLVM called it there
+// with `up` in a register. With the attribute, the two copies of `asin` take 4.5 to 6.4 fewer
+// instructions per directed call than one copy with `up` at run time, on random arguments and on
+// CORE-MATH's hard cases, in a crate that links `cr` (cachegrind).
+#[inline(always)]
 fn fast_asin_dir(x: f64, up: bool) -> Option<f64> {
     if let Some(r) = fast_asin_dir1(x, up) {
         return Some(r);
@@ -1050,6 +1071,8 @@ fn fast_asin_dir(x: f64, up: bool) -> Option<f64> {
     fast_asin_dir2(x, up)
 }
 
+// Always inlined, as `fast_atan_dir`.
+#[inline(always)]
 fn fast_acos_dir(x: f64, up: bool) -> Option<f64> {
     if let Some(r) = fast_acos_dir1(x, up) {
         return Some(r);
@@ -1092,6 +1115,8 @@ fn fast_atan2_near(y: f64, x: f64) -> Option<f64> {
     fast_atan2_near2(y, x)
 }
 
+// Always inlined, as `fast_atan_dir`.
+#[inline(always)]
 fn fast_atan_dir1(x: f64, up: bool) -> Option<f64> {
     #[cfg(test)]
     if !stage1_enabled() {
@@ -1112,6 +1137,8 @@ fn fast_asin_dir1(x: f64, up: bool) -> Option<f64> {
     Some(if x < 0.0 { -r } else { r })
 }
 
+// Always inlined, as `fast_atan_dir`.
+#[inline(always)]
 fn fast_acos_dir1(x: f64, up: bool) -> Option<f64> {
     #[cfg(test)]
     if !stage1_enabled() {
@@ -1245,19 +1272,30 @@ fn atan2_fast_near(y: f64, x: f64) -> f64 {
 }
 
 /// atan x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
 pub(crate) fn atan(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        atan_dir::<true>(x)
+    } else {
+        atan_dir::<false>(x)
+    }
+}
+
+// `atan` toward +∞ if `UP` and toward -∞ otherwise.
+fn atan_dir<const UP: bool>(x: f64) -> f64 {
     if x.is_nan() {
         x
     } else if x.abs() >= HUGE_ATAN {
         // ±∞ among them, where atan is ±π/2.
-        pi_times(0.5_f64.copysign(x), up)
+        pi_times(0.5_f64.copysign(x), UP)
     } else if x.abs() < TINY_HYP {
         // x - x^3 / 3 <= atan x < x for x in (0, 1], and atan is odd.
-        toward_zero(x, up)
-    } else if let Some(r) = fast_atan_dir(x, up) {
+        toward_zero(x, UP)
+    } else if let Some(r) = fast_atan_dir(x, UP) {
         r
     } else {
-        ziv(&Atan(x), up, 1)
+        ziv(&Atan(x), UP, 1)
     }
 }
 
@@ -1280,18 +1318,29 @@ pub(crate) fn atan_near(x: f64) -> f64 {
 }
 
 /// asin x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
 pub(crate) fn asin(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        asin_dir::<true>(x)
+    } else {
+        asin_dir::<false>(x)
+    }
+}
+
+// `asin` toward +∞ if `UP` and toward -∞ otherwise.
+fn asin_dir<const UP: bool>(x: f64) -> f64 {
     if x.is_nan() {
         x
     } else if x.abs() > 1.0 {
         f64::NAN
     } else if x.abs() < TINY_ASIN {
         // x < asin x <= x / √(1 - x^2) <= x + x^3 for x in (0, 1/2], and asin is odd.
-        away(x, up)
-    } else if let Some(r) = fast_asin_dir(x, up) {
+        away(x, UP)
+    } else if let Some(r) = fast_asin_dir(x, UP) {
         r
     } else {
-        ziv(&Asin(x), up, 1)
+        ziv(&Asin(x), UP, 1)
     }
 }
 
@@ -1312,15 +1361,26 @@ pub(crate) fn asin_near(x: f64) -> f64 {
 }
 
 /// acos x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
 pub(crate) fn acos(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        acos_dir::<true>(x)
+    } else {
+        acos_dir::<false>(x)
+    }
+}
+
+// `acos` toward +∞ if `UP` and toward -∞ otherwise.
+fn acos_dir<const UP: bool>(x: f64) -> f64 {
     if x.is_nan() {
         x
     } else if x.abs() > 1.0 {
         f64::NAN
-    } else if let Some(r) = fast_acos_dir(x, up) {
+    } else if let Some(r) = fast_acos_dir(x, UP) {
         r
     } else {
-        ziv(&Acos(x), up, 1)
+        ziv(&Acos(x), UP, 1)
     }
 }
 
@@ -1339,7 +1399,18 @@ pub(crate) fn acos_near(x: f64) -> f64 {
 
 /// atan2(y, x) rounded toward +∞ if `up` and toward -∞ otherwise, with the values of MPFR's
 /// `mpfr_atan2` at the zeros and infinities.
+#[inline(always)]
 pub(crate) fn atan2(y: f64, x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        atan2_dir::<true>(y, x)
+    } else {
+        atan2_dir::<false>(y, x)
+    }
+}
+
+// `atan2` toward +∞ if `UP` and toward -∞ otherwise.
+fn atan2_dir<const UP: bool>(y: f64, x: f64) -> f64 {
     if y.is_nan() || x.is_nan() {
         f64::NAN
     } else if y == 0.0 {
@@ -1347,7 +1418,7 @@ pub(crate) fn atan2(y: f64, x: f64, up: bool) -> f64 {
         if x.is_sign_positive() {
             y
         } else {
-            pi_times(1.0_f64.copysign(y), up)
+            pi_times(1.0_f64.copysign(y), UP)
         }
     } else if y.is_infinite() {
         let c: f64 = if x == f64::INFINITY {
@@ -1357,22 +1428,22 @@ pub(crate) fn atan2(y: f64, x: f64, up: bool) -> f64 {
         } else {
             0.5
         };
-        pi_times(c.copysign(y), up)
+        pi_times(c.copysign(y), UP)
     } else if x == f64::INFINITY {
         0.0_f64.copysign(y)
     } else if x == f64::NEG_INFINITY {
-        pi_times(1.0_f64.copysign(y), up)
+        pi_times(1.0_f64.copysign(y), UP)
     } else if x == 0.0 {
-        pi_times(0.5_f64.copysign(y), up)
+        pi_times(0.5_f64.copysign(y), UP)
     } else {
         // atan2(y, x) = atan(y / x) for x > 0, which the rule of `atan` settles for a tiny
         // `f64` quotient.
         let q = if x > 0.0 { tiny_quotient(y, x) } else { None };
         match q {
-            Some(q) => toward_zero(q, up),
-            None => match fast_atan2_dir(y, x, up) {
+            Some(q) => toward_zero(q, UP),
+            None => match fast_atan2_dir(y, x, UP) {
                 Some(r) => r,
-                None => ziv(&Atan2(y, x), up, 1),
+                None => ziv(&Atan2(y, x), UP, 1),
             },
         }
     }

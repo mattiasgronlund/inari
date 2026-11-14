@@ -461,7 +461,19 @@ fn fast_pow_near_call(x: f64, y: f64) -> Option<f64> {
 
 /// x^y rounded toward +∞ if `up` and toward -∞ otherwise, and NaN for a finite x < 0 and for
 /// x = -∞, as the header says.
+#[inline(always)]
 pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        pow_dir::<true>(x, y)
+    } else {
+        pow_dir::<false>(x, y)
+    }
+}
+
+// `pow` toward +∞ if `UP` and toward -∞ otherwise. Not `pow_dir` of `src/cr.rs`, a private
+// function there that calls `pow`.
+fn pow_dir<const UP: bool>(x: f64, y: f64) -> f64 {
     if y == 0.0 {
         1.0
     } else if x.is_nan() {
@@ -505,13 +517,13 @@ pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64 {
         if s >= 10 {
             // |y ln x| >= 1024 > 1025 ln 2.
             if above {
-                overflow(up)
+                overflow(UP)
             } else {
-                underflow(up)
+                underflow(UP)
             }
         } else if s <= -58 {
             // |y ln x| < 2^-54, as exp's rule near 0.
-            near_one(if above { 1.0 } else { -1.0 }, up)
+            near_one(if above { 1.0 } else { -1.0 }, UP)
         } else {
             // `exact` first where x^y may be an `f64` (`maybe_exact`), and after the fast path
             // otherwise.
@@ -521,7 +533,7 @@ pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64 {
                     return v;
                 }
             }
-            if let Some(v) = fast_pow_dir_call(x, y, up) {
+            if let Some(v) = fast_pow_dir_call(x, y, UP) {
                 return v;
             }
             if !first {
@@ -535,7 +547,7 @@ pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64 {
                 // most 2 log2 |y| products of enclosures, and a quotient for y < 0, where `Pow`
                 // evaluates a logarithm and an exponential, as the header says. Without a
                 // second fast try, as that would repeat this one.
-                pown_pos_ziv(x, y as i32, up)
+                pown_pos_ziv(x, y as i32, UP)
             } else {
                 // The evaluation loses about the bits of |y a| + 1, and
                 // |y a| <= min(|t|, |y| / 2).
@@ -544,7 +556,7 @@ pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64 {
                 } else {
                     1
                 };
-                ziv(&Pow(x, y), up, start)
+                ziv(&Pow(x, y), UP, start)
             }
         }
     }

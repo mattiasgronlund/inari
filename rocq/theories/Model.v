@@ -2678,8 +2678,11 @@ Definition exp10_dir_with (x : f64) (up : bool) : option f64 :=
     Some (pow10 (to_i64 x))
   else match fast_exp10_dir false x up with Some r => Some r | None => ziv (ev_exp10 x) up 1 end.
 
-(** [pub(crate) fn sinh(x: f64, up: bool) -> f64], where [x.is_infinite()]
-    is [x == f64::INFINITY || x == f64::NEG_INFINITY]. *)
+(** [pub(crate) fn sinh(x: f64, up: bool) -> f64], which calls
+    [sinh_dir::<true>(x)] if [up] and [sinh_dir::<false>(x)] otherwise:
+    this is the body of [fn sinh_dir<const UP: bool>(x: f64) -> f64] with
+    [up] for [UP], where [x.is_infinite()] is [x == f64::INFINITY || x ==
+    f64::NEG_INFINITY]. *)
 Definition sinh_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x || (eq x infinity || eq x neg_infinity) then Some x
   else if ge x (from_bits 0x4086380000000000) (* 711.0 *) then Some (overflow up)
@@ -3706,14 +3709,18 @@ Definition fast_atanh_near (fma : bool) (x : f64) : option f64 :=
 Section Driver.
 Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
 
-(** [pub(crate) fn ln(x: f64, up: bool) -> f64] *)
+(** [pub(crate) fn ln(x: f64, up: bool) -> f64], which calls
+    [ln_dir::<true>(x)] if [up] and [ln_dir::<false>(x)] otherwise: this
+    is the body of [fn ln_dir<const UP: bool>(x: f64) -> f64] with [up]
+    for [UP]. *)
 Definition ln_dir_with (x : f64) (up : bool) : option f64 :=
   match log_rules x with
   | Some r => Some r
   | None => match fast_ln_dir false x up with Some r => Some r | None => ziv (ev_ln x) up 1 end
   end.
 
-(** [pub(crate) fn log2(x: f64, up: bool) -> f64] *)
+(** [pub(crate) fn log2(x: f64, up: bool) -> f64], with [log2_dir] as
+    [ln_dir] in [ln]. *)
 Definition log2_dir_with (x : f64) (up : bool) : option f64 :=
   match log_rules x with
   | Some r => Some r
@@ -3721,9 +3728,10 @@ Definition log2_dir_with (x : f64) (up : bool) : option f64 :=
       match fast_log2_dir false x up with Some r => Some r | None => ziv (ev_log2 x) up 1 end
   end.
 
-(** [pub(crate) fn log10(x: f64, up: bool) -> f64], where
-    [POW10.iter().position(|&p| p == x)] is the first [k] of [0, ..., 22]
-    with [eq (DyadicExp.pow10 k) x], and [k as f64] is [of_u64 k]. *)
+(** [pub(crate) fn log10(x: f64, up: bool) -> f64], with [log10_dir] as
+    [ln_dir] in [ln], where [POW10.iter().position(|&p| p == x)] is the
+    first [k] of [0, ..., 22] with [eq (DyadicExp.pow10 k) x], and [k as
+    f64] is [of_u64 k]. *)
 Definition log10_dir_with (x : f64) (up : bool) : option f64 :=
   match log_rules x with
   | Some r => Some r
@@ -4671,30 +4679,38 @@ Definition midpoint_quotient (y x : f64) : option (option f64) :=
           | None => None
           end).
 
-(** [pub(crate) fn atan(x: f64, up: bool) -> f64] *)
+(** [pub(crate) fn atan(x: f64, up: bool) -> f64], which calls
+    [atan_dir::<true>(x)] if [up] and [atan_dir::<false>(x)] otherwise:
+    this is the body of [fn atan_dir<const UP: bool>(x: f64) -> f64] with
+    [up] for [UP]. *)
 Definition atan_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x then Some x
   else if ge (fabs x) huge_atan then pi_times_with (copysign DyadicLog.half x) up
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.toward_zero x up)
   else match fast_atan_dir false x up with Some r => Some r | None => ziv (ev_atan x) up 1 end.
 
-(** [pub(crate) fn asin(x: f64, up: bool) -> f64] *)
+(** [pub(crate) fn asin(x: f64, up: bool) -> f64], with [asin_dir] as
+    [atan_dir] in [atan]. *)
 Definition asin_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x then Some x
   else if gt (fabs x) DyadicExp.one then Some B754_nan
   else if lt (fabs x) tiny_asin then Some (DyadicExp.away x up)
   else match fast_asin_dir false x up with Some r => Some r | None => ziv (ev_asin x) up 1 end.
 
-(** [pub(crate) fn acos(x: f64, up: bool) -> f64] *)
+(** [pub(crate) fn acos(x: f64, up: bool) -> f64], with [acos_dir] as
+    [atan_dir] in [atan]. *)
 Definition acos_dir_with (x : f64) (up : bool) : option f64 :=
   if is_nan x then Some x
   else if gt (fabs x) DyadicExp.one then Some B754_nan
   else match fast_acos_dir false x up with Some r => Some r | None => ziv (ev_acos x) up 1 end.
 
-(** [pub(crate) fn atan2(y: f64, x: f64, up: bool) -> f64], where
-    [x.is_sign_positive()] is [negb (Bsign x)], as [x] is not NaN there,
-    [y.is_infinite()] is [y == f64::INFINITY || y == f64::NEG_INFINITY],
-    and [0.0_f64.copysign(y)] is [copysign zero y]. *)
+(** [pub(crate) fn atan2(y: f64, x: f64, up: bool) -> f64], which calls
+    [atan2_dir::<true>(y, x)] if [up] and [atan2_dir::<false>(y, x)]
+    otherwise: this is the body of [fn atan2_dir<const UP: bool>(y: f64,
+    x: f64) -> f64] with [up] for [UP], where [x.is_sign_positive()] is
+    [negb (Bsign x)], as [x] is not NaN there, [y.is_infinite()] is [y ==
+    f64::INFINITY || y == f64::NEG_INFINITY], and [0.0_f64.copysign(y)]
+    is [copysign zero y]. *)
 Definition atan2_dir_with (y x : f64) (up : bool) : option f64 :=
   if is_nan y || is_nan x then Some B754_nan
   else if eq y zero then
@@ -5397,11 +5413,13 @@ Definition fast_tan_near (fma : bool) (x : f64) : option f64 :=
 Section Driver.
 Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
 
-(** [pub(crate) fn sin(x: f64, up: bool) -> f64], where [f64::NAN] is
-    [B754_nan], [x.abs()] is [fabs x], and, of an [Option<f64>] [o],
-    [o.or_else(|| p)] is [match o with Some v => Some v | None => p end]
-    and [o.unwrap_or_else(|| e)] is [match o with Some v => Some v | None
-    => e end]. *)
+(** [pub(crate) fn sin(x: f64, up: bool) -> f64], which calls
+    [sin_dir::<true>(x)] if [up] and [sin_dir::<false>(x)] otherwise: this
+    is the body of [fn sin_dir<const UP: bool>(x: f64) -> f64] with [up]
+    for [UP], where [f64::NAN] is [B754_nan], [x.abs()] is [fabs x], and,
+    of an [Option<f64>] [o], [o.or_else(|| p)] is [match o with Some v =>
+    Some v | None => p end] and [o.unwrap_or_else(|| e)] is [match o with
+    Some v => Some v | None => e end]. *)
 Definition sin_dir_with (x : f64) (up : bool) : option f64 :=
   if negb (is_finite x) then Some B754_nan
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.toward_zero x up)
@@ -5411,8 +5429,9 @@ Definition sin_dir_with (x : f64) (up : bool) : option f64 :=
          match fast_sin_dir false x up with Some r => Some r | None => ziv (ev_sin x) up 1 end
        end.
 
-(** [pub(crate) fn cos(x: f64, up: bool) -> f64], where [-t] is [opp t],
-    and the rest is as in [sin_dir]. *)
+(** [pub(crate) fn cos(x: f64, up: bool) -> f64], with [cos_dir] as
+    [sin_dir] in [sin], where [-t] is [opp t], and the rest is as in
+    [sin]. *)
 Definition cos_dir_with (x : f64) (up : bool) : option f64 :=
   let t := fabs x in
   if negb (is_finite t) then Some B754_nan
@@ -5423,7 +5442,8 @@ Definition cos_dir_with (x : f64) (up : bool) : option f64 :=
          match fast_cos_dir false t up with Some r => Some r | None => ziv (ev_cos t) up 1 end
        end.
 
-(** [pub(crate) fn tan(x: f64, up: bool) -> f64], as [sin_dir]. *)
+(** [pub(crate) fn tan(x: f64, up: bool) -> f64], with [tan_dir] as
+    [sin_dir] in [sin], and the rest as in [sin]. *)
 Definition tan_dir_with (x : f64) (up : bool) : option f64 :=
   if negb (is_finite x) then Some B754_nan
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.away x up)
@@ -5791,7 +5811,11 @@ Definition pown_pos_ziv_with (x : f64) (k : Z) (up : bool) : option f64 :=
   else if hi <=? -1075 then Some (DyadicExp.underflow up)
   else ziv (ev_pown x k) up (if 2 ^ pown_start_bits <=? Z.abs k then 2%nat else 1%nat).
 
-(** [pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64], where
+(** [pub(crate) fn pow(x: f64, y: f64, up: bool) -> f64], which calls
+    [pow_dir::<true>(x, y)] if [up] and [pow_dir::<false>(x, y)]
+    otherwise: this is the body of [fn pow_dir<const UP: bool>(x: f64, y:
+    f64) -> f64] of [src/dyadic/pow.rs] with [up] for [UP], not the
+    [pow_dir] of [src/cr.rs] that [Cr.pow_dir_with] transcribes, where
     [f64::NAN] is [B754_nan], [y.is_infinite()] is [eq y infinity || eq
     y DyadicExp.neg_infinity], [x.is_sign_negative()] is [Bsign x], as
     [x] is not NaN there, [a == b] of two [bool]s is [Bool.eqb], the
@@ -6209,10 +6233,12 @@ Definition fast_hypot_near (fma : bool) (x y : f64) : option f64 :=
     | None => None
     end.
 
-(** [pub(crate) fn hypot(x: f64, y: f64, up: bool) -> f64], with the fast
-    path as in [cbrt]: [FastHypot.fast_hypot_dir_fma] and
-    [FastHypot.fast_hypot_near_fma] show that [true] gives the same
-    result. *)
+(** [pub(crate) fn hypot(x: f64, y: f64, up: bool) -> f64], which calls
+    [hypot_dir::<true>(x, y)] if [up] and [hypot_dir::<false>(x, y)]
+    otherwise: this is the body of [fn hypot_dir<const UP: bool>(x: f64,
+    y: f64) -> f64] with [up] for [UP], with the fast path as in [cbrt]:
+    [FastHypot.fast_hypot_dir_fma] and [FastHypot.fast_hypot_near_fma]
+    show that [true] gives the same result. *)
 Definition hypot (x y : f64) (up : bool) : option f64 :=
   if (eq x infinity || eq x DyadicExp.neg_infinity)
      || (eq y infinity || eq y DyadicExp.neg_infinity) then Some infinity

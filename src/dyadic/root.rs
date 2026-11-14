@@ -399,7 +399,18 @@ fn fast_hypot_near(x: f64, y: f64) -> Option<f64> {
 /// hypot(x, y) = √(x^2 + y^2) rounded toward +∞ if `up` and toward -∞ otherwise, with the values
 /// of MPFR's `mpfr_hypot` at the zeros, the infinities and NaN: +∞ if `x` or `y` is infinite,
 /// even if the other is NaN, NaN otherwise if one is NaN, and |x| at y = ±0, +0 at two zeros.
+#[inline(always)]
 pub(crate) fn hypot(x: f64, y: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        hypot_dir::<true>(x, y)
+    } else {
+        hypot_dir::<false>(x, y)
+    }
+}
+
+// `hypot` toward +∞ if `UP` and toward -∞ otherwise.
+fn hypot_dir<const UP: bool>(x: f64, y: f64) -> f64 {
     if x.is_infinite() || y.is_infinite() {
         f64::INFINITY
     } else if x.is_nan() || y.is_nan() {
@@ -408,10 +419,10 @@ pub(crate) fn hypot(x: f64, y: f64, up: bool) -> f64 {
         x.abs()
     } else if x == 0.0 {
         y.abs()
-    } else if let Some(r) = fast_hypot(x, y, up) {
+    } else if let Some(r) = fast_hypot(x, y, UP) {
         r
     } else {
-        hypot_odd(x, y).to_f64(up)
+        hypot_odd(x, y).to_f64(UP)
     }
 }
 

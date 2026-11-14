@@ -770,7 +770,8 @@ fn fast_band_eval(q: i64, rh: f64, rl: f64, rr: f64) -> (f64, f64) {
 
 // sin(x + s π/2) as h + l, from the reduction (n, rh, rl, rr) of `fast_reduce` at an x with
 // n mod 2048 = 0 and n != 0: x is within u/2 (1 + 2^-24) of n u = (n / 2048) π/2. Out of line,
-// as `fast_quad` is inlined into `sin` and `cos` and only these x take it.
+// as `fast_quad` is inlined into both copies of `sin_dir` and of `cos_dir` and into `sin_near`
+// and `cos_near`, and only these x take it.
 #[inline(never)]
 fn fast_band(n: i64, s: i64, rh: f64, rl: f64) -> (f64, f64) {
     let (rh, rl, rr) = fast_band_reduce(n, rh, rl);
@@ -948,11 +949,13 @@ fn fast_round_near(h: f64, l: f64) -> Option<f64> {
 // cos t.
 // `rocq/theories/FastTrig.v` proves that they return those roundings (`fast_sin_dir_correct`
 // and the others), and the same with and without an FMA (`fast_sin_dir_fma` and the others).
-// Always inlined: LLVM inlines the three into `sin`, `cos` and `tan` by itself since 09e972a,
-// where sin and cos rounded down and up take 2.71 to 2.89 times the instructions of CORE-MATH
-// in the same rounding (cachegrind, 4,096 arguments in [0.1, 10), [-10, 10) or [-π/4, π/4)).
-// Out of line, they cost 7 to 15 more instructions per call, 2.88 to 3.00 times. The attribute
-// keeps that layout if the fast path grows.
+// Always inlined, into the copies `sin_dir`, `cos_dir` and `tan_dir`, where sin and cos rounded
+// down and up take 1.6 to 1.7 times the instructions of CORE-MATH in the same rounding
+// (cachegrind, row 121, 4,096 arguments in [0.1, 10), [-10, 10) or [-π/4, π/4), in the release
+// build of the tests for x86-64 with haswell). Before those copies, LLVM inlined the three into
+// `sin`, `cos` and `tan` by itself from 09e972a on; out of line, they cost 7 to 15 more
+// instructions per call there (cachegrind, at 09e972a). The attribute keeps that layout if the
+// fast path grows.
 #[inline(always)]
 fn fast_sin_dir(x: f64, up: bool) -> Option<f64> {
     let (h, l) = fast_sin(x)?;
@@ -1009,16 +1012,27 @@ fn fast_tan_near(x: f64) -> Option<f64> {
 }
 
 /// sin x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
 pub(crate) fn sin(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        sin_dir::<true>(x)
+    } else {
+        sin_dir::<false>(x)
+    }
+}
+
+// `sin` toward +∞ if `UP` and toward -∞ otherwise.
+fn sin_dir<const UP: bool>(x: f64) -> f64 {
     if !x.is_finite() {
         f64::NAN
     } else if x.abs() < TINY_HYP {
         // x - x^3 / 6 <= sin x < x for x in (0, 1], and sin is odd.
-        toward_zero(x, up)
+        toward_zero(x, UP)
     } else {
-        sin_small(x, up)
-            .or_else(|| fast_sin_dir(x, up))
-            .unwrap_or_else(|| ziv(&Sin(x), up, 1))
+        sin_small(x, UP)
+            .or_else(|| fast_sin_dir(x, UP))
+            .unwrap_or_else(|| ziv(&Sin(x), UP, 1))
     }
 }
 
@@ -1037,18 +1051,29 @@ pub(crate) fn sin_near(x: f64) -> f64 {
 }
 
 /// cos x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
 pub(crate) fn cos(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        cos_dir::<true>(x)
+    } else {
+        cos_dir::<false>(x)
+    }
+}
+
+// `cos` toward +∞ if `UP` and toward -∞ otherwise.
+fn cos_dir<const UP: bool>(x: f64) -> f64 {
     let t = x.abs();
     if !t.is_finite() {
         f64::NAN
     } else if t < TINY_HYP {
         // 1 - t^2 / 2 <= cos t < 1 for t in (0, 1], and 1 - t^2 / 2 > 1 - 2^-53 for
         // t < 2^-26. cos 0 = 1.
-        near_one(-t, up)
+        near_one(-t, UP)
     } else {
-        cos_small(t, up)
-            .or_else(|| fast_cos_dir(t, up))
-            .unwrap_or_else(|| ziv(&Cos(t), up, 1))
+        cos_small(t, UP)
+            .or_else(|| fast_cos_dir(t, UP))
+            .unwrap_or_else(|| ziv(&Cos(t), UP, 1))
     }
 }
 
@@ -1066,16 +1091,27 @@ pub(crate) fn cos_near(x: f64) -> f64 {
 }
 
 /// tan x rounded toward +∞ if `up` and toward -∞ otherwise.
+#[inline(always)]
 pub(crate) fn tan(x: f64, up: bool) -> f64 {
+    // A copy per direction, where `up` is a constant.
+    if up {
+        tan_dir::<true>(x)
+    } else {
+        tan_dir::<false>(x)
+    }
+}
+
+// `tan` toward +∞ if `UP` and toward -∞ otherwise.
+fn tan_dir<const UP: bool>(x: f64) -> f64 {
     if !x.is_finite() {
         f64::NAN
     } else if x.abs() < TINY_HYP {
         // x < tan x < x + x^3 / 2 for x in (0, 2^-26), and tan is odd.
-        away(x, up)
+        away(x, UP)
     } else {
-        tan_small(x, up)
-            .or_else(|| fast_tan_dir(x, up))
-            .unwrap_or_else(|| ziv(&Tan(x), up, 1))
+        tan_small(x, UP)
+            .or_else(|| fast_tan_dir(x, UP))
+            .unwrap_or_else(|| ziv(&Tan(x), UP, 1))
     }
 }
 
