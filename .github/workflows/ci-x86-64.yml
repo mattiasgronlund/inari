@@ -96,6 +96,87 @@ jobs:
       - name: Check docs.rs configuration
         run: cargo rustc --lib --all-features --profile check -- --cfg docsrs
 
+  # A build for plain `x86-64`, the baseline every x86-64 CPU has. There
+  # `Interval` uses the portable backend, and each entry of the kernel of the
+  # elementary functions (`src/dyadic`) picks at run time between its copy
+  # compiled with the target feature `fma` and its copy with Dekker's products
+  # (`src/dyadic/level.rs`). On a runner whose CPU has FMA, `Test` runs the
+  # first; the two steps named "without FMA" run the second.
+  baseline:
+    runs-on: ubuntu-latest
+
+    env:
+      RUSTDOCFLAGS: -Ctarget-cpu=x86-64 -Dwarnings
+      RUSTFLAGS: -Ctarget-cpu=x86-64 -Dwarnings
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/gmp-mpfr-sys
+          key: ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-${{ hashFiles('Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          profile: minimal
+          components: clippy
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.86.0
+          profile: minimal
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes qemu-user
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Test (--no-default-features)
+        run: cargo test --release --no-default-features --lib --tests
+
+      # The kernel's copies with Dekker's products, on the runner's CPU:
+      # `--cfg inari_force_no_fma` makes the kernel take them on any CPU.
+      - name: Test the kernel without FMA (--cfg inari_force_no_fma)
+        run: cargo test --release --lib dyadic
+        env:
+          RUSTFLAGS: -Ctarget-cpu=x86-64 --cfg inari_force_no_fma -Dwarnings
+
+      # The same tests in QEMU's user mode, emulating a Nehalem, which has neither
+      # FMA nor AVX: the kernel detects that and takes the same copies, and an FMA
+      # or AVX instruction that runs, as in a copy compiled with `fma` reached
+      # without the check, ends the tests with SIGILL. `-cpu` is needed, as QEMU's
+      # default model, `max`, has FMA. `ulimit -c 0` keeps QEMU from writing its
+      # own core file into the working directory on SIGILL.
+      - name: Test the kernel without FMA (QEMU, Nehalem)
+        run: |
+          cargo test --release --lib --no-run
+          ulimit -c 0
+          cargo test --release --lib dyadic
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: qemu-x86_64 -cpu Nehalem
+
+      - name: Clippy
+        run: cargo clippy --all-targets
+
+      # The newest versions of some dependencies need a newer Rust. Pick the newest
+      # versions that support the `rust-version` in Cargo.toml.
+      - name: Generate lockfile (MSRV)
+        run: cargo +stable --config 'resolver.incompatible-rust-versions="fallback"' generate-lockfile
+
+      - name: Check (MSRV)
+        run: cargo +1.86.0 check --all-targets
+
   coverage:
     runs-on: ubuntu-latest
 

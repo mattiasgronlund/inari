@@ -17,7 +17,7 @@ The following CPUs are supported and continuously tested:
 
   Haswell-based and newer processors are supported by a backend that needs AVX and FMA (`fma`). Nehalem-based and newer ones are supported by a separate backend that uses only SSE instructions (`sse42`), which is selected at compile time when the target CPU lacks AVX or FMA. A third backend (`avx512f`) uses the embedded rounding of AVX-512F, and is selected when the target CPU has AVX-512F and Rust is 1.89 or later; earlier stable versions do not report `avx512f` to `cfg(target_feature)`, so they select `fma` instead. CI tests `avx512f` only when its runner has AVX-512F. No backend for x86-64 changes the rounding mode; the SSE-only one is slower because it has to emulate the fused multiply-add, most of all for `sqrt`, `mul_add` and division (see [BENCHMARKS.md](BENCHMARKS.md)).
 
-  Unless you enable `force-generic` (see below), you need to specify the target CPU when building a crate that depends on inari. One way to do that is by using a [configuration file](https://doc.rust-lang.org/cargo/reference/config.html) in your project (see [example](https://github.com/unageek/graphest/blob/main/.cargo/config.toml); you may want to change `native` to `haswell`, or to `nehalem` for even wider compatibility, if you are going to distribute binaries).
+  To get one of these backends, you need to specify the target CPU when building a crate that depends on inari. A build for a target CPU without SSE4.2, such as `x86-64`, the default for `x86_64-unknown-linux-gnu`, uses the portable backend (see below), and, unless `force-generic` is enabled, the multi-precision kernel of the elementary functions checks at run time whether the CPU has FMA (see [Building for Several x86-64 Levels](#building-for-several-x86-64-levels)). One way to specify the target CPU is by using a [configuration file](https://doc.rust-lang.org/cargo/reference/config.html) in your project (see [example](https://github.com/unageek/graphest/blob/main/.cargo/config.toml); you may want to change `native` to `haswell`, or to `nehalem` for even wider compatibility, if you are going to distribute binaries).
 
 - **AArch64 (ARM64)**
 
@@ -27,19 +27,19 @@ Interval literals, formatting and the elementary functions need neither GMP nor 
 
 ## Building for Several x86-64 Levels
 
-inari picks its x86-64 backend at compile time, from the target features that `cfg(target_feature)` reports for the target CPU, not by detecting the CPU at run time. As target CPUs, the microarchitecture levels of the [x86-64 psABI](https://gitlab.com/x86-psABIs/x86-64-ABI) select these backends: `x86-64`, the default for `x86_64-unknown-linux-gnu`, selects none, and the build fails unless `force-generic` is enabled; `x86-64-v2` selects `sse42`; `x86-64-v3` selects `fma`, as `haswell` does; and `x86-64-v4` selects `avx512f` with Rust 1.89 or later, and `fma` with earlier stable versions (see above). CI does not build for these levels by name.
+inari picks its x86-64 backend at compile time, from the target features that `cfg(target_feature)` reports for the target CPU, not by detecting the CPU at run time. As target CPUs, the microarchitecture levels of the [x86-64 psABI](https://gitlab.com/x86-psABIs/x86-64-ABI) select these backends: `x86-64`, the default for `x86_64-unknown-linux-gnu`, selects none of them, so that intervals use the portable backend; `x86-64-v2` selects `sse42`; `x86-64-v3` selects `fma`, as `haswell` does; and `x86-64-v4` selects `avx512f` with Rust 1.89 or later, and `fma` with earlier stable versions (see above).
+
+The one part of inari that detects the CPU at run time is the multi-precision kernel with which the elementary functions and those of `inari::cr` are computed, and only in a build for a target CPU without SSE4.2, such as `x86-64`, unless `force-generic` is enabled. There each function of the kernel runs its fast path in a copy compiled with the target feature `fma` on a CPU that has FMA, and in a copy that computes the exact errors of its products with Dekker's algorithm on any other. The two return the same results: the Rocq proofs show that the fast paths of the kernel return the same with and without an FMA. The kernel detects FMA on its first call and keeps the answer, which each later call tests. CI builds for `x86-64`, and tests both copies there, but does not build for the other levels by name.
 
 To give each CPU the code for its level without your users having to compile anything, build the whole program once per level, and pick one of the builds when it starts:
 
 ```bash
-for level in x86-64-v2 x86-64-v3 x86-64-v4; do
+for level in x86-64 x86-64-v2 x86-64-v3 x86-64-v4; do
     RUSTFLAGS="-Ctarget-cpu=$level" cargo build --release --target x86_64-unknown-linux-gnu --target-dir target/$level
 done
-# Below x86-64-v2, only the portable backend builds.
-RUSTFLAGS="-Ctarget-cpu=x86-64" cargo build --release --target x86_64-unknown-linux-gnu --target-dir target/x86-64 --features inari/force-generic
 ```
 
-Each build lands in `target/<level>/x86_64-unknown-linux-gnu/release/`. `--features inari/force-generic` needs inari as a direct dependency of the package you build. The separate `--target-dir`s keep the builds from overwriting one another, and `--target` keeps `RUSTFLAGS` away from build scripts and procedural macros, which run on the build machine (see [`build.rustflags`](https://doc.rust-lang.org/cargo/reference/config.html#buildrustflags)): without it, a build for `x86-64-v4` on a machine without AVX-512 can die with SIGILL in one of them.
+Each build lands in `target/<level>/x86_64-unknown-linux-gnu/release/`. The separate `--target-dir`s keep the builds from overwriting one another, and `--target` keeps `RUSTFLAGS` away from build scripts and procedural macros, which run on the build machine (see [`build.rustflags`](https://doc.rust-lang.org/cargo/reference/config.html#buildrustflags)): without it, a build for `x86-64-v4` on a machine without AVX-512 can die with SIGILL in one of them.
 
 For a program, a small launcher, itself built for `x86-64`, can run the build for the highest level the CPU has. It must test the whole level as the psABI defines it, not only the features that select inari's backend, because a build for a level lets the compiler use any feature of the level in any code it compiles. In Rust 1.96, `std::is_x86_feature_detected!` has a name for each feature that `x86-64-v2`, `x86-64-v3` and `x86-64-v4` add to `x86-64` but LAHF-SAHF and OSXSAVE; it tests OSXSAVE as part of AVX, and for AVX and AVX-512 it also tests that the operating system has enabled them.
 
@@ -63,7 +63,7 @@ The module also has `cbrt`, `hypot` (of two `f64`s) and `sqrt` in the same three
 ## Cargo Features
 
 - `gmp` - Deprecated, and does nothing; to be removed in the next major release. It used to be enabled by default, and to enable interval literals, formatting and the elementary functions, which need neither GMP nor MPFR now (see above). The features `gmp-mpfr-sys`, `nom` and `rug`, which Cargo used to derive from the optional dependencies of `gmp`, are deprecated and do nothing too.
-- `force-generic` - Uses the portable backend (see above) on x86-64, AArch64 and WebAssembly with `simd128` too. It is slower. Unlike the AArch64 backend, it does not change the rounding mode, and on x86-64 it also builds for target CPUs without SSE4.2, such as the default `x86-64`.
+- `force-generic` - Uses the portable backend (see above) on x86-64, AArch64 and WebAssembly with `simd128` too. It is slower. Unlike the AArch64 backend, it does not change the rounding mode, and on x86-64 it also keeps the multi-precision kernel from detecting the CPU at run time (see [Building for Several x86-64 Levels](#building-for-several-x86-64-levels)): the kernel then uses FMA instructions only where the target CPU has FMA.
 
 ## [Changelog](CHANGELOG.md)
 

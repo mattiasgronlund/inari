@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::dyadic::tests::Rng;
+use crate::simd::HAS_FMA;
 use std::f64::consts::{FRAC_1_SQRT_2, SQRT_2};
 
 type Directed = fn(f64, bool) -> f64;
@@ -272,8 +273,16 @@ fn rules_at_their_thresholds() {
 #[test]
 fn pow10_after_the_fast_path() {
     for (k, &p) in POW10.iter().enumerate() {
-        assert_eq!(fast_log10_dir(p, false), None, "log10(1e{k}) rounded down");
-        assert_eq!(fast_log10_dir(p, true), None, "log10(1e{k}) rounded up");
+        assert_eq!(
+            fast_log10_dir::<HAS_FMA>(p, false),
+            None,
+            "log10(1e{k}) rounded down"
+        );
+        assert_eq!(
+            fast_log10_dir::<HAS_FMA>(p, true),
+            None,
+            "log10(1e{k}) rounded up"
+        );
         for x in around(p, 1) {
             let fast = (log10(x, false), log10(x, true), log10_near(x));
             crate::dyadic::fast::set_fast_path(false);
@@ -585,18 +594,7 @@ fn fast_path_agrees_with_kernel() {
     for i in [LN, LOG2, LOG10, ASINH, ACOSH, ATANH] {
         crate::dyadic::fast::reset_fast_counts();
         for n in 0..3000 {
-            let x = if n % 2 == 0 {
-                // Any positive finite `f64`, subnormals included.
-                f64::from_bits(1 + rng.below(0x7fef_ffff_ffff_ffff))
-            } else {
-                // Within 2^-8 of 1.
-                1.0 + (rng.below(1 << 53) as f64 / (1u64 << 53) as f64 - 0.5) / 128.0
-            };
-            let x = if (i == ASINH || i == ATANH) && rng.below(2) == 0 {
-                -x
-            } else {
-                x
-            };
+            let x = fast_path_arg(&mut rng, i, n);
             let fast = (
                 FUNCTIONS[i].1(x, false),
                 FUNCTIONS[i].1(x, true),
@@ -630,13 +628,115 @@ fn fast_path_agrees_with_kernel() {
     }
 }
 
+// The `n`-th random argument of the function `i` in `fast_path_agrees_with_kernel`: any positive
+// finite `f64`, subnormals included, at an even n, and one within 2^-8 of 1 at an odd n, with a
+// random sign for asinh and atanh.
+fn fast_path_arg(rng: &mut Rng, i: usize, n: usize) -> f64 {
+    let x = if n % 2 == 0 {
+        any_positive(rng)
+    } else {
+        1.0 + (rng.below(1 << 53) as f64 / (1u64 << 53) as f64 - 0.5) / 128.0
+    };
+    if (i == ASINH || i == ATANH) && rng.below(2) == 0 {
+        -x
+    } else {
+        x
+    }
+}
+
+// The function `i` at `x` toward -∞, toward +∞ and to nearest, by the copies of its entries
+// without an FMA in their products (`FMA` false) or with one (`level_entry!`).
+fn copy<const FMA: bool>(i: usize, x: f64) -> [f64; 3] {
+    match i {
+        LN => [
+            ln_dir_with::<FMA, false>(x),
+            ln_dir_with::<FMA, true>(x),
+            ln_near_with::<FMA>(x),
+        ],
+        LOG2 => [
+            log2_dir_with::<FMA, false>(x),
+            log2_dir_with::<FMA, true>(x),
+            log2_near_with::<FMA>(x),
+        ],
+        LOG10 => [
+            log10_dir_with::<FMA, false>(x),
+            log10_dir_with::<FMA, true>(x),
+            log10_near_with::<FMA>(x),
+        ],
+        ASINH => [
+            asinh_with::<FMA>(x, false),
+            asinh_with::<FMA>(x, true),
+            asinh_near_with::<FMA>(x),
+        ],
+        ACOSH => [
+            acosh_with::<FMA>(x, false),
+            acosh_with::<FMA>(x, true),
+            acosh_near_with::<FMA>(x),
+        ],
+        ATANH => [
+            atanh_with::<FMA>(x, false),
+            atanh_with::<FMA>(x, true),
+            atanh_near_with::<FMA>(x),
+        ],
+        _ => unreachable!(),
+    }
+}
+
+// Checks that the function `i` at `x` gives the same `f64`s, bit for bit, by the copies without
+// an FMA, by those with one, and by the entries, which call one of the two.
+fn assert_copies_agree(i: usize, x: f64) {
+    let (name, f) = FUNCTIONS[i];
+    let copies = [
+        copy::<false>(i, x),
+        copy::<true>(i, x),
+        [f(x, false), f(x, true), NEAR[i](x)],
+    ];
+    let bits = copies.map(|row| row.map(f64::to_bits));
+    assert!(
+        bits[0] == bits[1] && bits[1] == bits[2],
+        "{name}({x:e}): {:?} without an FMA, {:?} with one, {:?} by the entries",
+        copies[0],
+        copies[1],
+        copies[2]
+    );
+}
+
+// The copies of ln, log2, log10, asinh, acosh and atanh without an FMA and with one, and the
+// entries, give the same `f64`s, bit for bit, in both directions and to nearest, on the random
+// arguments of `fast_path_agrees_with_kernel` and `fast_ahyp_range_random`, on `HARD_CASES` and
+// on `regressions()`. `rocq/theories/FastLog.v` and `rocq/theories/FastAhyp.v` prove it of the
+// fast paths (`fast_ln_dir_fma`, `fast_asinh_dir_fma` and the others); this test checks the code
+// as compiled, where the entries call the copy built with the target feature `fma` in a build
+// with the dispatch, on a CPU that has it.
+#[test]
+fn copies_agree() {
+    let mut rng = Rng(89);
+    for i in [LN, LOG2, LOG10, ASINH, ACOSH, ATANH] {
+        for n in 0..3000 {
+            assert_copies_agree(i, fast_path_arg(&mut rng, i, n));
+        }
+    }
+    for (i, a, b) in AHYP_BRANCHES {
+        for n in 0..3000 {
+            let t = ahyp_arg(&mut rng, a, b, n);
+            assert_copies_agree(i, ahyp_sign(&mut rng, i, t));
+        }
+    }
+    for (i, x) in HARD_CASES {
+        assert_copies_agree(i, x);
+    }
+    for (name, x) in regressions() {
+        assert_copies_agree(index(name), x.parse().unwrap());
+    }
+}
+
 // (h, l, k) of the fast path of ln, log2 or log10 (the function `i`) at a finite x > 0, as the
 // function computes them, or `None` at x = 1.
 fn fast_parts(i: usize, x: f64) -> Option<(f64, f64, i64)> {
     match i {
-        LN => fast_ln(x),
-        LOG2 => fast_log_by(x, C2, ONE),
-        LOG10 => fast_log_by(x, C10, LG2),
+        LN => fast_ln::<HAS_FMA>(x),
+        LOG2 => fast_log_by::<HAS_FMA>(x, C2, ONE),
+        LOG10 => fast_log_by::<HAS_FMA>(x, C10, LG2),
         _ => unreachable!(),
     }
 }
@@ -855,11 +955,11 @@ fn ahyp_parts(i: usize, x: f64) -> Option<(f64, f64, i64)> {
     };
     match i {
         ASINH if ahyp_near(i, x) => odd(ASINH_ODD),
-        ASINH => fast_asinh(x),
-        ACOSH if ahyp_near(i, x) => fast_acosh_near1(x),
-        ACOSH => fast_acosh(x),
+        ASINH => fast_asinh::<HAS_FMA>(x),
+        ACOSH if ahyp_near(i, x) => fast_acosh_near1::<HAS_FMA>(x),
+        ACOSH => fast_acosh::<HAS_FMA>(x),
         ATANH if ahyp_near(i, x) => odd(ATANH_ODD),
-        ATANH => fast_atanh(x),
+        ATANH => fast_atanh::<HAS_FMA>(x),
         _ => unreachable!(),
     }
 }
@@ -1134,9 +1234,9 @@ fn ahyp_near_taken() {
                 // The counts and the result of the other branch at x.
                 crate::dyadic::fast::reset_fast_counts();
                 let other = match i {
-                    ASINH => fast_asinh(x),
-                    ACOSH => fast_acosh(x),
-                    _ => fast_atanh(x),
+                    ASINH => fast_asinh::<HAS_FMA>(x),
+                    ACOSH => fast_acosh::<HAS_FMA>(x),
+                    _ => fast_atanh::<HAS_FMA>(x),
                 }
                 .and_then(|(h, l, k)| match up {
                     None => round_near_signed(h, l, k),
@@ -1354,7 +1454,7 @@ mod mpfr {
             args.push(near_one(&mut rng, -53, -9));
         }
         for x in args {
-            let (e, ah, al) = ln_core(x);
+            let (e, ah, al) = ln_core::<HAS_FMA>(x);
             // m = 2^-e x is exact in 300 bits.
             let mut lm = Float::with_val(PREC, x) >> i32::try_from(e).unwrap();
             lm.ln_mut();
@@ -1471,7 +1571,7 @@ mod mpfr {
                 _ => rng.below(1 << 53) as f64 / (1u64 << 53) as f64 * pow2(-52),
             };
             let al = if rng.below(2) == 0 { ah * u } else { -(ah * u) };
-            let (sh, sl) = dd_sqrt(ah, al);
+            let (sh, sl) = dd_sqrt::<HAS_FMA>(ah, al);
             let s = (Float::with_val(PREC, ah) + al).sqrt();
             let mut d = Float::with_val(PREC, &s - sh);
             d -= sl;
@@ -1515,7 +1615,7 @@ mod mpfr {
             args.push(f64::from_bits((1 << w) | rng.below(1 << w)));
         }
         for x in args {
-            let (e, ah, al) = ln_core_acc(x);
+            let (e, ah, al) = ln_core_acc::<HAS_FMA>(x);
             // m = 2^-e x is exact in 300 bits.
             let mut lm = Float::with_val(PREC, x) >> i32::try_from(e).unwrap();
             lm.ln_mut();
@@ -1532,7 +1632,7 @@ mod mpfr {
                 d.to_f64(),
                 lm.to_f64()
             );
-            let (lh, ll) = ln_acc(x);
+            let (lh, ll) = ln_acc::<HAS_FMA>(x);
             let lx = Float::with_val(PREC, x).ln();
             let mut d = Float::with_val(PREC, &lx - lh);
             d -= ll;

@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::dyadic::tests::Rng;
+use crate::simd::HAS_FMA;
 
 // The `f64` after `x` toward +∞, for `x` below +∞. `f64::next_up` came with Rust 1.86, after
 // the MSRV of the time, 1.65.
@@ -699,6 +700,15 @@ fn moved(rng: &mut Rng, (x, y): (f64, f64)) -> (f64, f64) {
     }
 }
 
+// The names of the sets of `pow_case` and of `pown_case`, as `fast_path_agrees_with_kernel` and
+// `copies_agree` draw them.
+const POW_SETS: [&str; 9] = [
+    "lu4", "near1", "mid", "int", "intlu", "t745", "edge", "exact", "nexact",
+];
+const POWN_SETS: [&str; 9] = [
+    "pn2", "pnm2", "pn3", "pn17", "pnint", "pnlu", "pnany", "pnexact", "pnnexact",
+];
+
 // The i-th argument (x, y) of `pow` in the set `name` of `fast_path_agrees_with_kernel`, as the
 // counts of `pow` (rows 78, 84 and 89) draw them:
 // - `lu4`: x log-uniform over the positive `f64`s, subnormals included, and y uniform in [-4, 4);
@@ -895,9 +905,7 @@ fn agree_pown(x: f64, n: i32) -> (usize, usize) {
 fn fast_path_agrees_with_kernel() {
     let mut rng = Rng(89);
     let mut total = Tally::default();
-    for name in [
-        "lu4", "near1", "mid", "int", "intlu", "t745", "edge", "exact", "nexact",
-    ] {
+    for name in POW_SETS {
         let (mut t, mut normal) = (Tally::default(), Tally::default());
         for i in 0..2000 {
             let (x, y) = pow_case(name, &mut rng, i);
@@ -927,9 +935,7 @@ fn fast_path_agrees_with_kernel() {
         total.passed += t.passed;
         total.failed += t.failed;
     }
-    for name in [
-        "pn2", "pnm2", "pn3", "pn17", "pnint", "pnlu", "pnany", "pnexact", "pnnexact",
-    ] {
+    for name in POWN_SETS {
         let mut t = Tally::default();
         for _ in 0..2000 {
             let (x, n) = pown_case(name, &mut rng);
@@ -964,6 +970,137 @@ fn fast_path_agrees_with_kernel() {
         total.failed += t.failed;
     }
     assert!(total.passed > 0 && total.failed > 0);
+}
+
+// Whether (x, y) passes the rules of `pow` and `pow_near` before their fast path,
+// `fast_pow_dir_call` and `fast_pow_near_call`: a finite x > 0 other than 1 and a finite y != 0
+// at which s = `expo(y) + ln_expo(x)`, with 2^s <= |y ln x| < 2^(s + 4), is from -57 to 9. `pow`
+// still tries `exact` first where `maybe_exact` says so.
+fn calls_fast_pow(x: f64, y: f64) -> bool {
+    x > 0.0
+        && x != 1.0
+        && x < f64::INFINITY
+        && y != 0.0
+        && y.is_finite()
+        && (-57..=9).contains(&(expo(y) + ln_expo(x)))
+}
+
+// Whether `pown` and `pown_near` call `pown_pos` and `pown_pos_near` at (|x|, n): at a finite
+// x != 0 and n != 0.
+fn calls_pown_pos(x: f64, n: i32) -> bool {
+    x != 0.0 && x.is_finite() && n != 0
+}
+
+// The fast path of x^y toward -∞, toward +∞ and to nearest, by the copy of each entry without an
+// FMA in its products, by the copy with one (`level_entry!`), and by the entries
+// `fast_pow_dir_call` and `fast_pow_near_call`, which call one of the two.
+fn fast_pow_copies(x: f64, y: f64) -> [[Option<f64>; 3]; 3] {
+    [
+        [
+            fast_pow_dir::<false>(x, y, false),
+            fast_pow_dir::<false>(x, y, true),
+            fast_pow_near::<false>(x, y),
+        ],
+        [
+            fast_pow_dir::<true>(x, y, false),
+            fast_pow_dir::<true>(x, y, true),
+            fast_pow_near::<true>(x, y),
+        ],
+        [
+            fast_pow_dir_call(x, y, false),
+            fast_pow_dir_call(x, y, true),
+            fast_pow_near_call(x, y),
+        ],
+    ]
+}
+
+// `fast_pow_copies` for x^n, for a finite x > 0 and n != 0, by `pown_pos_with`,
+// `pown_pos_near_with` and the entries `pown_pos` and `pown_pos_near`, each as `Some`, the shape
+// that `assert_copies_agree` takes.
+fn pown_copies(x: f64, n: i32) -> [[Option<f64>; 3]; 3] {
+    [
+        [
+            pown_pos_with::<false>(x, n, false),
+            pown_pos_with::<false>(x, n, true),
+            pown_pos_near_with::<false>(x, n),
+        ],
+        [
+            pown_pos_with::<true>(x, n, false),
+            pown_pos_with::<true>(x, n, true),
+            pown_pos_near_with::<true>(x, n),
+        ],
+        [
+            pown_pos(x, n, false),
+            pown_pos(x, n, true),
+            pown_pos_near(x, n),
+        ],
+    ]
+    .map(|row| row.map(Some))
+}
+
+// Checks that the three rows of `copies` are the same, bit for bit: the same `f64`s, or `None`.
+fn assert_copies_agree(what: &str, copies: [[Option<f64>; 3]; 3]) {
+    let bits = copies.map(|row| row.map(|v| v.map(f64::to_bits)));
+    assert!(
+        bits[0] == bits[1] && bits[1] == bits[2],
+        "{what}: {:?} without an FMA, {:?} with one, {:?} by the entries",
+        copies[0],
+        copies[1],
+        copies[2]
+    );
+}
+
+// The copies of the fast path of x^y and of `pown_pos` and `pown_pos_near` without an FMA and
+// with one, and the entries, give the same `f64`s, or `None`, bit for bit, in both directions and
+// to nearest, on 2000 arguments of each set of `pow_case` and `pown_case` (drawn as in
+// `fast_path_agrees_with_kernel`, from another seed) and on `regressions()`, where they pass the
+// rules before the fast path (`calls_fast_pow`) or before `pown_pos` and `pown_pos_near`, which
+// take them at |x| (`calls_pown_pos`). `rocq/theories/FastPow.v` proves it of the fast path
+// (`fast_pow_dir_fma` and `fast_pow_near_fma`), the only part of `pown_pos_with` and
+// `pown_pos_near_with` that takes their `FMA`; this test checks the code as compiled, where the
+// entries call the copy built with the target feature `fma` in a build with the dispatch, on a
+// CPU that has it.
+#[test]
+fn copies_agree() {
+    let mut rng = Rng(894);
+    let mut checked = 0;
+    for name in POW_SETS {
+        for i in 0..2000 {
+            let (x, y) = pow_case(name, &mut rng, i);
+            if calls_fast_pow(x, y) {
+                checked += 1;
+                assert_copies_agree(&format!("pow({x:e}, {y:e})"), fast_pow_copies(x, y));
+            }
+        }
+    }
+    for name in POWN_SETS {
+        for _ in 0..2000 {
+            let (x, n) = pown_case(name, &mut rng);
+            if calls_pown_pos(x, n) {
+                checked += 1;
+                let x = x.abs();
+                assert_copies_agree(&format!("pown({x:e}, {n})"), pown_copies(x, n));
+            }
+        }
+    }
+    // Every argument of `pown_case`, and all but about 1 in 30 of those of `pow_case`, at which
+    // `pow` and `pow_near` apply a rule instead.
+    assert!(checked > 35_000, "{checked} arguments checked");
+    for (name, x, y) in regressions() {
+        let x: f64 = x.parse().unwrap();
+        if name == "pow" {
+            let y: f64 = y.parse().unwrap();
+            if calls_fast_pow(x, y) {
+                assert_copies_agree(&format!("pow({x:e}, {y:e})"), fast_pow_copies(x, y));
+            }
+        } else {
+            let n: i32 = y.parse().unwrap();
+            if calls_pown_pos(x, n) {
+                let x = x.abs();
+                assert_copies_agree(&format!("pown({x:e}, {n})"), pown_copies(x, n));
+            }
+        }
+    }
 }
 
 // x^y and x^n next to the edges of the fast path, as `agree_pow` and `agree_pown` check them:
@@ -1143,7 +1280,7 @@ fn fast_path_wide_edges() {
         for x in edge_xs() {
             let ys = around(s / x.ln(), 8);
             if [T_OVER, T_UNDER, -707.0, 709.0].contains(&s) {
-                let ths: Vec<f64> = ys.iter().map(|&y| pow_t(x, y).0).collect();
+                let ths: Vec<f64> = ys.iter().map(|&y| pow_t::<HAS_FMA>(x, y).0).collect();
                 assert!(
                     ths.iter().any(|&th| th < s) && ths.iter().any(|&th| th > s),
                     "x = {x:e}: th does not cross {s}"
@@ -1168,8 +1305,8 @@ fn fast_path_wide_edges() {
 // or `None` where th is out of the range of `fast_exp`: the part of `fast_pow_dir` and
 // `fast_pow_near` before their rounding tests in that range (`fast_pow_correct`).
 fn fast_pow(x: f64, y: f64) -> Option<(f64, f64, i64)> {
-    let (th, tl) = pow_t(x, y);
-    fast_exp(th, tl)
+    let (th, tl) = pow_t::<HAS_FMA>(x, y);
+    fast_exp::<HAS_FMA>(th, tl)
 }
 
 // 2^-57, 2^10 times the bound 2^-67 of the fast path (`ERR67`).

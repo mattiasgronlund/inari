@@ -153,10 +153,11 @@ use super::{
     consts::PI,
     exp::{away, near_one, toward_zero, TINY_HYP, TINY_NEAR},
     fast::{fast_two_sum, round_dir_signed, round_near_signed, two_sum},
+    level::level_entry,
     round, ziv, ziv_near, Dyadic, Encl, Eval,
 };
 use crate::limbs;
-use crate::simd::{two_prod_err, HAS_FMA};
+use crate::simd::two_prod_err;
 use sc_table::SC;
 use std::cmp::Ordering;
 use tables::INV2PI;
@@ -504,9 +505,10 @@ fn fast_reduce(x: f64) -> Option<(i64, f64, f64, f64)> {
 
 // (ah + al) (bh + bl) as p + e, with p = RN(ah bh), from the exact error of that product
 // [Dekker] and the cross products. al bl is left out.
-fn fast_mul(ah: f64, al: f64, bh: f64, bl: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_mul<const FMA: bool>(ah: f64, al: f64, bh: f64, bl: f64) -> (f64, f64) {
     let p = ah * bh;
-    (p, two_prod_err::<HAS_FMA>(ah, bh, p) + (ah * bl + al * bh))
+    (p, two_prod_err::<FMA>(ah, bh, p) + (ah * bl + al * bh))
 }
 
 // (n, rh, rl, rr) for a finite x with |x| >= `LIMIT`, as `fast_reduce` gives them below it, but
@@ -518,7 +520,7 @@ fn fast_mul(ah: f64, al: f64, bh: f64, bl: f64) -> (f64, f64) {
 // `rocq/theories/FastTrigBig.v` proves these bounds (`fast_reduce_big_correct`).
 // Always inlined, into `fast_reduce_any`, whose comment gives the count of the two attributes.
 #[inline(always)]
-fn fast_reduce_big(x: f64) -> Option<(i64, f64, f64, f64)> {
+fn fast_reduce_big<const FMA: bool>(x: f64) -> Option<(i64, f64, f64, f64)> {
     // |x| = m 2^e, with m in [2^52, 2^53) and e = be - 1075 for the biased exponent be, which
     // is in [1039, 2046] for a finite |x| >= 2^16.
     let b = x.to_bits() & (u64::MAX >> 1);
@@ -568,7 +570,7 @@ fn fast_reduce_big(x: f64) -> Option<(i64, f64, f64, f64)> {
     // place of u. U1 + U2 is exact: U1 is a multiple of 2^-35 below 2^-10, and U2 a multiple of
     // 2^-60 below 2^-35.
     let uh = f64::from_bits(U1) + f64::from_bits(U2);
-    let (rh, rl) = fast_mul(fh, fl, uh, f64::from_bits(U3));
+    let (rh, rl) = fast_mul::<FMA>(fh, fl, uh, f64::from_bits(U3));
     if rh.abs() < f64::from_bits(0x3be0000000000000) {
         return None;
     }
@@ -591,10 +593,10 @@ fn fast_reduce_big(x: f64) -> Option<(i64, f64, f64, f64)> {
 // of the tests the three took 24 to 31 more instructions per call on the first two sets than
 // with neither attribute.
 #[inline(always)]
-fn fast_reduce_any(x: f64) -> Option<(i64, f64, f64, f64)> {
+fn fast_reduce_any<const FMA: bool>(x: f64) -> Option<(i64, f64, f64, f64)> {
     match fast_reduce(x) {
         Some(r) => Some(r),
-        None => fast_reduce_big(x),
+        None => fast_reduce_big::<FMA>(x),
     }
 }
 
@@ -609,7 +611,8 @@ fn fast_reduce_any(x: f64) -> Option<(i64, f64, f64, f64)> {
 // 106 of the 128 bits of R below those of n. The last 13 of those 128 come from the low limb r0
 // of R, which `fast_reduce_big` does not read. `rocq/theories/FastTrigBandBig.v` proves these
 // bounds (`fast_reduce_band_big_correct`).
-fn fast_reduce_band_big(x: f64) -> Option<(i64, f64, f64, f64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_reduce_band_big<const FMA: bool>(x: f64) -> Option<(i64, f64, f64, f64)> {
     let b = x.to_bits() & (u64::MAX >> 1);
     let be = b >> 52;
     if !(1039..=2046).contains(&be) {
@@ -652,7 +655,7 @@ fn fast_reduce_band_big(x: f64) -> Option<(i64, f64, f64, f64)> {
         (n, fh, fl)
     };
     let uh = f64::from_bits(U1) + f64::from_bits(U2);
-    let (rh, rl) = fast_mul(fh, fl, uh, f64::from_bits(U3));
+    let (rh, rl) = fast_mul::<FMA>(fh, fl, uh, f64::from_bits(U3));
     Some((n, rh, rl, rh + rl))
 }
 
@@ -693,10 +696,19 @@ fn fast_sc(i: i64) -> (f64, f64, f64, f64) {
 // Taylor polynomials of cos ρ - 1 to degree 4 and of sin ρ - ρ to degree 5 are evaluated in
 // plain `f64` from rr, and C ρ in double-double. `rocq/theories/FastTrigEval.v` bounds the
 // error (`fast_eval_correct`).
-fn fast_eval(sh: f64, sl: f64, ch: f64, cl: f64, rh: f64, rl: f64, rr: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_eval<const FMA: bool>(
+    sh: f64,
+    sl: f64,
+    ch: f64,
+    cl: f64,
+    rh: f64,
+    rl: f64,
+    rr: f64,
+) -> (f64, f64) {
     // ch rh exactly [Dekker], and ch rl + cl rr, which leaves out cl (rh + rl - rr).
     let a = ch * rh;
-    let ae = two_prod_err::<HAS_FMA>(ch, rh, a) + (ch * rl + cl * rr);
+    let ae = two_prod_err::<FMA>(ch, rh, a) + (ch * rl + cl * rr);
     let z = rr * rr;
     let cm = z * (z * f64::from_bits(C4) - 0.5);
     let s3 = rr * z * (z * f64::from_bits(S5) - f64::from_bits(S3));
@@ -732,9 +744,10 @@ fn fast_cos0(x: f64) -> (f64, f64) {
 // the two sums of the tail and n (u - U1 - U2 - U3 - U4) are not, less than 2^-143 + 2^-105 |ρ|
 // together.
 // `rocq/theories/FastTrigBandRed.v` proves the bound (`fast_band_reduce_correct`).
-fn fast_band_reduce(n: i64, rh: f64, rl: f64) -> (f64, f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_band_reduce<const FMA: bool>(n: i64, rh: f64, rl: f64) -> (f64, f64, f64) {
     let kf = n as f64;
-    let pl = two_prod_err::<HAS_FMA>(kf, f64::from_bits(U3), -rl);
+    let pl = two_prod_err::<FMA>(kf, f64::from_bits(U3), -rl);
     let (s, e) = two_sum(rh, rl);
     let t = e - (pl + kf * f64::from_bits(U4));
     (s, t, s + t)
@@ -773,8 +786,8 @@ fn fast_band_eval(q: i64, rh: f64, rl: f64, rr: f64) -> (f64, f64) {
 // as `fast_quad` is inlined into both copies of `sin_dir` and of `cos_dir` and into `sin_near`
 // and `cos_near`, and only these x take it.
 #[inline(never)]
-fn fast_band(n: i64, s: i64, rh: f64, rl: f64) -> (f64, f64) {
-    let (rh, rl, rr) = fast_band_reduce(n, rh, rl);
+fn fast_band<const FMA: bool>(n: i64, s: i64, rh: f64, rl: f64) -> (f64, f64) {
+    let (rh, rl, rr) = fast_band_reduce::<FMA>(n, rh, rl);
     fast_band_eval((n >> 11) + s, rh, rl, rr)
 }
 
@@ -783,8 +796,8 @@ fn fast_band(n: i64, s: i64, rh: f64, rl: f64) -> (f64, f64) {
 // as those where it declines x as |rh| < 2^-65, NaN and the infinities. Out of line, as
 // `fast_band`.
 #[inline(never)]
-fn fast_band_big(x: f64, s: i64) -> Option<(f64, f64)> {
-    let (n, rh, rl, rr) = fast_reduce_band_big(x)?;
+fn fast_band_big<const FMA: bool>(x: f64, s: i64) -> Option<(f64, f64)> {
+    let (n, rh, rl, rr) = fast_reduce_band_big::<FMA>(x)?;
     Some(fast_band_eval((n >> 11) + s, rh, rl, rr))
 }
 
@@ -796,10 +809,10 @@ fn fast_band_big(x: f64, s: i64) -> Option<(f64, f64)> {
 // Always inlined: out of line, `sin` and `cos` took 8 to 18 more instructions per call on the
 // same arguments as `fast_sc` (cachegrind, row 107).
 #[inline(always)]
-fn fast_quad(n: i64, s: i64, rh: f64, rl: f64, rr: f64) -> Option<(f64, f64)> {
+fn fast_quad<const FMA: bool>(n: i64, s: i64, rh: f64, rl: f64, rr: f64) -> Option<(f64, f64)> {
     let i = n & 2047;
     if i == 0 {
-        return Some(fast_band(n, s, rh, rl));
+        return Some(fast_band::<FMA>(n, s, rh, rl));
     }
     if rh == 0.0 {
         return None;
@@ -807,9 +820,9 @@ fn fast_quad(n: i64, s: i64, rh: f64, rl: f64, rr: f64) -> Option<(f64, f64)> {
     let q = (n >> 11) + s;
     let (sh, sl, ch, cl) = fast_sc(i);
     let (h, l) = if q & 1 == 0 {
-        fast_eval(sh, sl, ch, cl, rh, rl, rr)
+        fast_eval::<FMA>(sh, sl, ch, cl, rh, rl, rr)
     } else {
-        fast_eval(ch, cl, sh, sl, -rh, -rl, -rr)
+        fast_eval::<FMA>(ch, cl, sh, sl, -rh, -rl, -rr)
     };
     Some(if q & 2 == 0 { (h, l) } else { (-h, -l) })
 }
@@ -821,39 +834,40 @@ fn fast_quad(n: i64, s: i64, rh: f64, rl: f64, rr: f64) -> Option<(f64, f64)> {
 // cost 15 to 21 more instructions per call on the same arguments as `fast_sc` (cachegrind, row
 // 107).
 #[inline(always)]
-fn fast_sin(x: f64) -> Option<(f64, f64)> {
-    let (n, rh, rl, rr) = match fast_reduce_any(x) {
+fn fast_sin<const FMA: bool>(x: f64) -> Option<(f64, f64)> {
+    let (n, rh, rl, rr) = match fast_reduce_any::<FMA>(x) {
         Some(r) => r,
-        None => return fast_band_big(x, 0),
+        None => return fast_band_big::<FMA>(x, 0),
     };
     if n == 0 {
         Some(fast_sin0(x))
     } else {
-        fast_quad(n, 0, rh, rl, rr)
+        fast_quad::<FMA>(n, 0, rh, rl, rr)
     }
 }
 
 // cos t as h + l, as `fast_sin` does sin x, for t = |x| (`fast_cos_correct`).
 #[inline(always)]
-fn fast_cos(t: f64) -> Option<(f64, f64)> {
-    let (n, rh, rl, rr) = match fast_reduce_any(t) {
+fn fast_cos<const FMA: bool>(t: f64) -> Option<(f64, f64)> {
+    let (n, rh, rl, rr) = match fast_reduce_any::<FMA>(t) {
         Some(r) => r,
-        None => return fast_band_big(t, 1),
+        None => return fast_band_big::<FMA>(t, 1),
     };
     if n == 0 {
         Some(fast_cos0(t))
     } else {
-        fast_quad(n, 1, rh, rl, rr)
+        fast_quad::<FMA>(n, 1, rh, rl, rr)
     }
 }
 
 // (nh + nl) / (dh + dl) as h + l, h = RN(h + l): qh = RN(nh / dh), and the remainder
 // nh - qh dh exactly [Dekker], with nl - qh dl, divided by dh. `rocq/theories/FastTrigDiv.v`
 // bounds the error (`fast_div_correct`).
-fn fast_div(nh: f64, nl: f64, dh: f64, dl: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_div<const FMA: bool>(nh: f64, nl: f64, dh: f64, dl: f64) -> (f64, f64) {
     let qh = nh / dh;
     let p = qh * dh;
-    let pe = two_prod_err::<HAS_FMA>(qh, dh, p);
+    let pe = two_prod_err::<FMA>(qh, dh, p);
     fast_two_sum(qh, (((nh - p) - pe) + (nl - qh * dl)) / dh)
 }
 
@@ -861,12 +875,13 @@ fn fast_div(nh: f64, nl: f64, dh: f64, dl: f64) -> (f64, f64) {
 // h = RN(h + l), for n mod 2048 = 0 and ρ as in `fast_band_sin`: the quotient of sin ρ and
 // cos ρ from `fast_band_sin` and `fast_cos0`. `rocq/theories/FastTrigBandEval.v` bounds the
 // error (`band_tan_correct`).
-fn fast_band_tan(n: i64, rh: f64, rl: f64, rr: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_band_tan<const FMA: bool>(n: i64, rh: f64, rl: f64, rr: f64) -> (f64, f64) {
     let ((sh, sl), (ch, cl)) = (fast_band_sin(rh, rl, rr), fast_cos0(rr));
     if n & 2048 == 0 {
-        fast_div(sh, sl, ch, cl)
+        fast_div::<FMA>(sh, sl, ch, cl)
     } else {
-        let (h, l) = fast_div(ch, cl, sh, sl);
+        let (h, l) = fast_div::<FMA>(ch, cl, sh, sl);
         (-h, -l)
     }
 }
@@ -874,46 +889,47 @@ fn fast_band_tan(n: i64, rh: f64, rl: f64, rr: f64) -> (f64, f64) {
 // tan x as h + l, as `fast_band` does sin x, from the reduction (n, rh, rl, rr) of
 // `fast_reduce` at an x with n mod 2048 = 0 and n != 0. Out of line, as `fast_band`.
 #[inline(never)]
-fn fast_tan_band(n: i64, rh: f64, rl: f64) -> (f64, f64) {
-    let (rh, rl, rr) = fast_band_reduce(n, rh, rl);
-    fast_band_tan(n, rh, rl, rr)
+fn fast_tan_band<const FMA: bool>(n: i64, rh: f64, rl: f64) -> (f64, f64) {
+    let (rh, rl, rr) = fast_band_reduce::<FMA>(n, rh, rl);
+    fast_band_tan::<FMA>(n, rh, rl, rr)
 }
 
 // tan x as h + l, as `fast_band_big` does sin x. Out of line, as `fast_band`.
 #[inline(never)]
-fn fast_tan_band_big(x: f64) -> Option<(f64, f64)> {
-    let (n, rh, rl, rr) = fast_reduce_band_big(x)?;
-    Some(fast_band_tan(n, rh, rl, rr))
+fn fast_tan_band_big<const FMA: bool>(x: f64) -> Option<(f64, f64)> {
+    let (n, rh, rl, rr) = fast_reduce_band_big::<FMA>(x)?;
+    Some(fast_band_tan::<FMA>(n, rh, rl, rr))
 }
 
 // tan x as h + l, as `fast_sin` does sin x: sin and cos from the same reduction and `fast_sc`,
 // and their quotient, tan(i u + ρ) at an even q and -1 / tan(i u + ρ) at an odd one, within
 // 3 2^-71 |tan x| of tan x (`fast_tan_correct` in `rocq/theories/FastTrigCore.v`).
-fn fast_tan(x: f64) -> Option<(f64, f64)> {
-    let (n, rh, rl, rr) = match fast_reduce_any(x) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_tan<const FMA: bool>(x: f64) -> Option<(f64, f64)> {
+    let (n, rh, rl, rr) = match fast_reduce_any::<FMA>(x) {
         Some(r) => r,
-        None => return fast_tan_band_big(x),
+        None => return fast_tan_band_big::<FMA>(x),
     };
     if n == 0 {
         let ((sh, sl), (ch, cl)) = (fast_sin0(x), fast_cos0(x));
-        return Some(fast_div(sh, sl, ch, cl));
+        return Some(fast_div::<FMA>(sh, sl, ch, cl));
     }
     let i = n & 2047;
     if i == 0 {
-        return Some(fast_tan_band(n, rh, rl));
+        return Some(fast_tan_band::<FMA>(n, rh, rl));
     }
     if rh == 0.0 {
         return None;
     }
     let (sh, sl, ch, cl) = fast_sc(i);
     let (s, c) = (
-        fast_eval(sh, sl, ch, cl, rh, rl, rr),
-        fast_eval(ch, cl, sh, sl, -rh, -rl, -rr),
+        fast_eval::<FMA>(sh, sl, ch, cl, rh, rl, rr),
+        fast_eval::<FMA>(ch, cl, sh, sl, -rh, -rl, -rr),
     );
     Some(if n & 2048 == 0 {
-        fast_div(s.0, s.1, c.0, c.1)
+        fast_div::<FMA>(s.0, s.1, c.0, c.1)
     } else {
-        let (h, l) = fast_div(c.0, c.1, s.0, s.1);
+        let (h, l) = fast_div::<FMA>(c.0, c.1, s.0, s.1);
         (-h, -l)
     })
 }
@@ -957,14 +973,14 @@ fn fast_round_near(h: f64, l: f64) -> Option<f64> {
 // instructions per call there (cachegrind, at 09e972a). The attribute keeps that layout if the
 // fast path grows.
 #[inline(always)]
-fn fast_sin_dir(x: f64, up: bool) -> Option<f64> {
-    let (h, l) = fast_sin(x)?;
+fn fast_sin_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    let (h, l) = fast_sin::<FMA>(x)?;
     fast_round_dir(h, l, up).or_else(|| fast_one_dir(h, up))
 }
 
 #[inline(always)]
-fn fast_cos_dir(t: f64, up: bool) -> Option<f64> {
-    let (h, l) = fast_cos(t)?;
+fn fast_cos_dir<const FMA: bool>(t: f64, up: bool) -> Option<f64> {
+    let (h, l) = fast_cos::<FMA>(t)?;
     fast_round_dir(h, l, up).or_else(|| fast_one_dir(h, up))
 }
 
@@ -991,23 +1007,26 @@ fn fast_one_dir(h: f64, up: bool) -> Option<f64> {
 }
 
 #[inline(always)]
-fn fast_tan_dir(x: f64, up: bool) -> Option<f64> {
-    let (h, l) = fast_tan(x)?;
+fn fast_tan_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    let (h, l) = fast_tan::<FMA>(x)?;
     fast_round_dir(h, l, up)
 }
 
-fn fast_sin_near(x: f64) -> Option<f64> {
-    let (h, l) = fast_sin(x)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_sin_near<const FMA: bool>(x: f64) -> Option<f64> {
+    let (h, l) = fast_sin::<FMA>(x)?;
     fast_round_near(h, l)
 }
 
-fn fast_cos_near(t: f64) -> Option<f64> {
-    let (h, l) = fast_cos(t)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_cos_near<const FMA: bool>(t: f64) -> Option<f64> {
+    let (h, l) = fast_cos::<FMA>(t)?;
     fast_round_near(h, l)
 }
 
-fn fast_tan_near(x: f64) -> Option<f64> {
-    let (h, l) = fast_tan(x)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_tan_near<const FMA: bool>(x: f64) -> Option<f64> {
+    let (h, l) = fast_tan::<FMA>(x)?;
     fast_round_near(h, l)
 }
 
@@ -1022,22 +1041,49 @@ pub(crate) fn sin(x: f64, up: bool) -> f64 {
     }
 }
 
-// `sin` toward +∞ if `UP` and toward -∞ otherwise.
-fn sin_dir<const UP: bool>(x: f64) -> f64 {
+level_entry! {
+    // `sin` toward +∞ if `UP` and toward -∞ otherwise.
+    fn sin_dir<const UP: bool>(x: f64) -> f64 = sin_dir_with;
+}
+
+// The body of `sin_dir`, with `FMA` for the products (`level_entry!`). Without the dispatch,
+// the rule and the fast path are tried with `Option::or_else`, as before the dispatch: in an
+// `if let` chain, LLVM kept `fast_eval` out of line in those builds, and with `fast_eval`
+// inlined, `sin_dir` and `cos_dir` still grew. With the dispatch, they are tried in an `if let`
+// chain: where LLVM keeps `or_else` or its closure out of line, they are compiled without
+// `fma`, also in the copy that has it, and the fast path with them.
+#[inline(always)]
+fn sin_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     if !x.is_finite() {
         f64::NAN
     } else if x.abs() < TINY_HYP {
         // x - x^3 / 6 <= sin x < x for x in (0, 1], and sin is odd.
         toward_zero(x, UP)
     } else {
-        sin_small(x, UP)
-            .or_else(|| fast_sin_dir(x, UP))
-            .unwrap_or_else(|| ziv(&Sin(x), UP, 1))
+        #[cfg(not(inari_kernel_dispatch))]
+        let r = sin_small(x, UP)
+            .or_else(|| fast_sin_dir::<FMA>(x, UP))
+            .unwrap_or_else(|| ziv(&Sin(x), UP, 1));
+        #[cfg(inari_kernel_dispatch)]
+        let r = if let Some(r) = sin_small(x, UP) {
+            r
+        } else if let Some(r) = fast_sin_dir::<FMA>(x, UP) {
+            r
+        } else {
+            ziv(&Sin(x), UP, 1)
+        };
+        r
     }
 }
 
-/// sin x rounded to nearest, ties to even.
-pub(crate) fn sin_near(x: f64) -> f64 {
+level_entry! {
+    /// sin x rounded to nearest, ties to even.
+    pub(crate) fn sin_near(x: f64) -> f64 = sin_near_with;
+}
+
+// The body of `sin_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn sin_near_with<const FMA: bool>(x: f64) -> f64 {
     if !x.is_finite() {
         f64::NAN
     } else if x.abs() < TINY_NEAR {
@@ -1046,7 +1092,7 @@ pub(crate) fn sin_near(x: f64) -> f64 {
     } else {
         // No rule as `sin_small`, which only saves levels (the header says why `ziv_near`
         // does without one).
-        fast_sin_near(x).unwrap_or_else(|| ziv_near(&Sin(x), 1))
+        fast_sin_near::<FMA>(x).unwrap_or_else(|| ziv_near(&Sin(x), 1))
     }
 }
 
@@ -1061,8 +1107,15 @@ pub(crate) fn cos(x: f64, up: bool) -> f64 {
     }
 }
 
-// `cos` toward +∞ if `UP` and toward -∞ otherwise.
-fn cos_dir<const UP: bool>(x: f64) -> f64 {
+level_entry! {
+    // `cos` toward +∞ if `UP` and toward -∞ otherwise.
+    fn cos_dir<const UP: bool>(x: f64) -> f64 = cos_dir_with;
+}
+
+// The body of `cos_dir`, with `FMA` for the products (`level_entry!`), in the two forms of
+// `sin_dir_with`, for the same reasons.
+#[inline(always)]
+fn cos_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     let t = x.abs();
     if !t.is_finite() {
         f64::NAN
@@ -1071,14 +1124,30 @@ fn cos_dir<const UP: bool>(x: f64) -> f64 {
         // t < 2^-26. cos 0 = 1.
         near_one(-t, UP)
     } else {
-        cos_small(t, UP)
-            .or_else(|| fast_cos_dir(t, UP))
-            .unwrap_or_else(|| ziv(&Cos(t), UP, 1))
+        #[cfg(not(inari_kernel_dispatch))]
+        let r = cos_small(t, UP)
+            .or_else(|| fast_cos_dir::<FMA>(t, UP))
+            .unwrap_or_else(|| ziv(&Cos(t), UP, 1));
+        #[cfg(inari_kernel_dispatch)]
+        let r = if let Some(r) = cos_small(t, UP) {
+            r
+        } else if let Some(r) = fast_cos_dir::<FMA>(t, UP) {
+            r
+        } else {
+            ziv(&Cos(t), UP, 1)
+        };
+        r
     }
 }
 
-/// cos x rounded to nearest, ties to even.
-pub(crate) fn cos_near(x: f64) -> f64 {
+level_entry! {
+    /// cos x rounded to nearest, ties to even.
+    pub(crate) fn cos_near(x: f64) -> f64 = cos_near_with;
+}
+
+// The body of `cos_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn cos_near_with<const FMA: bool>(x: f64) -> f64 {
     let t = x.abs();
     if !t.is_finite() {
         f64::NAN
@@ -1086,7 +1155,7 @@ pub(crate) fn cos_near(x: f64) -> f64 {
         // 1 - 2^-55 < 1 - t^2 / 2 <= cos t <= 1.
         1.0
     } else {
-        fast_cos_near(t).unwrap_or_else(|| ziv_near(&Cos(t), 1))
+        fast_cos_near::<FMA>(t).unwrap_or_else(|| ziv_near(&Cos(t), 1))
     }
 }
 
@@ -1101,28 +1170,51 @@ pub(crate) fn tan(x: f64, up: bool) -> f64 {
     }
 }
 
-// `tan` toward +∞ if `UP` and toward -∞ otherwise.
-fn tan_dir<const UP: bool>(x: f64) -> f64 {
+level_entry! {
+    // `tan` toward +∞ if `UP` and toward -∞ otherwise.
+    fn tan_dir<const UP: bool>(x: f64) -> f64 = tan_dir_with;
+}
+
+// The body of `tan_dir`, with `FMA` for the products (`level_entry!`), in the two forms of
+// `sin_dir_with`, for the same reasons.
+#[inline(always)]
+fn tan_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     if !x.is_finite() {
         f64::NAN
     } else if x.abs() < TINY_HYP {
         // x < tan x < x + x^3 / 2 for x in (0, 2^-26), and tan is odd.
         away(x, UP)
     } else {
-        tan_small(x, UP)
-            .or_else(|| fast_tan_dir(x, UP))
-            .unwrap_or_else(|| ziv(&Tan(x), UP, 1))
+        #[cfg(not(inari_kernel_dispatch))]
+        let r = tan_small(x, UP)
+            .or_else(|| fast_tan_dir::<FMA>(x, UP))
+            .unwrap_or_else(|| ziv(&Tan(x), UP, 1));
+        #[cfg(inari_kernel_dispatch)]
+        let r = if let Some(r) = tan_small(x, UP) {
+            r
+        } else if let Some(r) = fast_tan_dir::<FMA>(x, UP) {
+            r
+        } else {
+            ziv(&Tan(x), UP, 1)
+        };
+        r
     }
 }
 
-/// tan x rounded to nearest, ties to even.
-pub(crate) fn tan_near(x: f64) -> f64 {
+level_entry! {
+    /// tan x rounded to nearest, ties to even.
+    pub(crate) fn tan_near(x: f64) -> f64 = tan_near_with;
+}
+
+// The body of `tan_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn tan_near_with<const FMA: bool>(x: f64) -> f64 {
     if !x.is_finite() {
         f64::NAN
     } else if x.abs() < TINY_NEAR {
         // x < tan x < x + x^3 / 2 for x in (0, 2^-26), and tan is odd.
         x
     } else {
-        fast_tan_near(x).unwrap_or_else(|| ziv_near(&Tan(x), 1))
+        fast_tan_near::<FMA>(x).unwrap_or_else(|| ziv_near(&Tan(x), 1))
     }
 }

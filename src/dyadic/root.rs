@@ -81,10 +81,12 @@
 
 use super::{
     fast::{dd_sqrt, fast_two_sum, round_dir_err, round_near_err},
-    isqrt, round, Dyadic,
+    isqrt,
+    level::level_entry,
+    round, Dyadic,
 };
 use crate::limbs;
-use crate::simd::{two_prod_err, HAS_FMA};
+use crate::simd::two_prod_err;
 use std::cmp::Ordering;
 
 #[cfg(test)]
@@ -189,15 +191,16 @@ const ERR_CBRT: f64 = f64::EPSILON / 8192.0;
 // (1 - 2 eps^2 - 4 eps^3/3 - eps^4/3) cbrt zz. [CORE-MATH] `rocq/theories/FastCbrtStep.v`
 // proves the bound (`cbrt_step_correct`), from `rocq/theories/FastCbrtNewton.v` for the step on
 // real numbers and its roundings.
-fn cbrt_step(y: f64, zz: f64, rr: f64) -> Option<(f64, f64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn cbrt_step<const FMA: bool>(y: f64, zz: f64, rr: f64) -> Option<(f64, f64)> {
     let y2 = y * y;
     let y3 = y * y2;
     // Exact by Sterbenz's lemma where the check passes.
     let d = y3 - zz;
     if d.abs() <= CBRT_RES {
         // y^3 = y3 + (y y2 - y3) + y y2l exactly, with y2l = y^2 - y2. [Dekker]
-        let y2l = two_prod_err::<HAS_FMA>(y, y, y2);
-        let y3l = two_prod_err::<HAS_FMA>(y, y2, y3) + y * y2l;
+        let y2l = two_prod_err::<FMA>(y, y, y2);
+        let y3l = two_prod_err::<FMA>(y, y2, y3) + y * y2l;
         let h = (d + y3l) * rr;
         let dy = h * (y * f64::from_bits(THIRD));
         Some(fast_two_sum(y, -dy))
@@ -210,7 +213,8 @@ fn cbrt_step(y: f64, zz: f64, rr: f64) -> Option<(f64, f64)> {
 // finite nonzero x, or `None` where `cbrt_step` returns it. [CORE-MATH]
 // `rocq/theories/FastCbrt.v` proves the bound (`fast_cbrt_correct`), from
 // `rocq/theories/FastCbrtReduce.v` for the reduction.
-fn fast_cbrt(x: f64) -> Option<(f64, f64, i64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_cbrt<const FMA: bool>(x: f64) -> Option<(f64, f64, i64)> {
     // |x| = z 2^(e - 1023) with z in [1, 2) from its bits, after shifting the significand of a
     // subnormal to the top.
     let bits = x.to_bits() & 0x7fff_ffff_ffff_ffff;
@@ -238,7 +242,7 @@ fn fast_cbrt(x: f64) -> Option<(f64, f64, i64)> {
     let t = y2 * (y * r) - 1.0;
     y -= (t * y) * (f64::from_bits(THIRD) - f64::from_bits(TWO_NINTHS) * t);
     y *= f64::from_bits(ESCALE[i as usize]);
-    let (h, l) = cbrt_step(y, zz, rr)?;
+    let (h, l) = cbrt_step::<FMA>(y, zz, rr)?;
     Some((h, l, et - 1365))
 }
 
@@ -247,36 +251,51 @@ fn fast_cbrt(x: f64) -> Option<(f64, f64, i64)> {
 // is odd: for x < 0, cbrt x rounded up is -cbrt(-x) rounded down. `rocq/theories/FastCbrt.v`
 // proves both (`fast_cbrt_dir_correct`, `fast_cbrt_near_correct`), and that an FMA changes
 // neither (`fast_cbrt_dir_fma`, `fast_cbrt_near_fma`).
-fn fast_cbrt_dir(x: f64, up: bool) -> Option<f64> {
-    let (h, l, e) = fast_cbrt(x)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_cbrt_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    let (h, l, e) = fast_cbrt::<FMA>(x)?;
     let r = round_dir_err(h, l, e, ERR_CBRT, up != (x < 0.0))?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_cbrt_near(x: f64) -> Option<f64> {
-    let (h, l, e) = fast_cbrt(x)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_cbrt_near<const FMA: bool>(x: f64) -> Option<f64> {
+    let (h, l, e) = fast_cbrt::<FMA>(x)?;
     let r = round_near_err(h, l, e, ERR_CBRT)?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-/// cbrt x rounded toward +∞ if `up` and toward -∞ otherwise, with ±0, ±∞ and NaN at ±0, ±∞
-/// and NaN, as MPFR's `mpfr_cbrt` gives them.
-pub(crate) fn cbrt(x: f64, up: bool) -> f64 {
+level_entry! {
+    /// cbrt x rounded toward +∞ if `up` and toward -∞ otherwise, with ±0, ±∞ and NaN at ±0, ±∞
+    /// and NaN, as MPFR's `mpfr_cbrt` gives them.
+    #[cfg_attr(inari_kernel_dispatch, inline(always))]
+    pub(crate) fn cbrt(x: f64, up: bool) -> f64 = cbrt_with;
+}
+
+// The body of `cbrt`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn cbrt_with<const FMA: bool>(x: f64, up: bool) -> f64 {
     if x == 0.0 || !x.is_finite() {
         x
-    } else if let Some(r) = fast_cbrt_dir(x, up) {
+    } else if let Some(r) = fast_cbrt_dir::<FMA>(x, up) {
         r
     } else {
         cbrt_odd(x).to_f64(up)
     }
 }
 
-/// cbrt x rounded to nearest, ties to even, with ±0, ±∞ and NaN at ±0, ±∞ and NaN, as MPFR's
-/// `mpfr_cbrt` gives them.
-pub(crate) fn cbrt_near(x: f64) -> f64 {
+level_entry! {
+    /// cbrt x rounded to nearest, ties to even, with ±0, ±∞ and NaN at ±0, ±∞ and NaN, as MPFR's
+    /// `mpfr_cbrt` gives them.
+    pub(crate) fn cbrt_near(x: f64) -> f64 = cbrt_near_with;
+}
+
+// The body of `cbrt_near` (`level_entry!`).
+#[inline(always)]
+fn cbrt_near_with<const FMA: bool>(x: f64) -> f64 {
     if x == 0.0 || !x.is_finite() {
         x
-    } else if let Some(r) = fast_cbrt_near(x) {
+    } else if let Some(r) = fast_cbrt_near::<FMA>(x) {
         r
     } else {
         cbrt_odd(x).to_f64_near()
@@ -331,7 +350,8 @@ const ERR_HYPOT: f64 = f64::EPSILON / 70_368_744_177_664.0;
 // x^2 + y^2 = r2 + e2 + dx2 + dy2 exactly. [CORE-MATH] `rocq/theories/FastHypotDd.v` proves
 // the bound (`hypot_dd_correct`), from `rocq/theories/FastHypotSum.v` for the sum of the
 // squares and `rocq/theories/FastDdSqrt.v` for `dd_sqrt`.
-fn hypot_dd(big: f64, small: f64) -> Option<(f64, f64, i64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn hypot_dd<const FMA: bool>(big: f64, small: f64) -> Option<(f64, f64, i64)> {
     let eb = (big.to_bits() >> 52) as i64;
     if eb == 0 || eb > 2044 {
         return None;
@@ -340,12 +360,12 @@ fn hypot_dd(big: f64, small: f64) -> Option<(f64, f64, i64)> {
     let s = f64::from_bits(((2045 - eb) as u64) << 52);
     let (x, y) = (big * s, small * s);
     let (x2, y2) = (x * x, y * y);
-    let dx2 = two_prod_err::<HAS_FMA>(x, x, x2);
-    let dy2 = two_prod_err::<HAS_FMA>(y, y, y2);
+    let dx2 = two_prod_err::<FMA>(x, x, x2);
+    let dy2 = two_prod_err::<FMA>(y, y, y2);
     let (r2, e2) = fast_two_sum(x2, y2);
     // Renormalized, so that |al| <= 2^-52 ah, as `dd_sqrt` takes it.
     let (ah, al) = fast_two_sum(r2, e2 + (dx2 + dy2));
-    let (h, l) = dd_sqrt(ah, al);
+    let (h, l) = dd_sqrt::<FMA>(ah, al);
     Some((h, l, eb - 1022))
 }
 
@@ -358,7 +378,8 @@ fn hypot_dd(big: f64, small: f64) -> Option<(f64, f64, i64)> {
 // `rocq/theories/FastHypot.v` both functions (`fast_hypot_dir_correct`,
 // `fast_hypot_near_correct`), and that an FMA changes neither (`fast_hypot_dir_fma`,
 // `fast_hypot_near_fma`).
-fn fast_hypot(x: f64, y: f64, up: bool) -> Option<f64> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_hypot<const FMA: bool>(x: f64, y: f64, up: bool) -> Option<f64> {
     #[cfg(test)]
     if !super::fast::fast_enabled() {
         return None;
@@ -375,11 +396,12 @@ fn fast_hypot(x: f64, y: f64, up: bool) -> Option<f64> {
             big
         });
     }
-    let (h, l, e) = hypot_dd(big, small)?;
+    let (h, l, e) = hypot_dd::<FMA>(big, small)?;
     round_dir_err(h, l, e, ERR_HYPOT, up)
 }
 
-fn fast_hypot_near(x: f64, y: f64) -> Option<f64> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_hypot_near<const FMA: bool>(x: f64, y: f64) -> Option<f64> {
     #[cfg(test)]
     if !super::fast::fast_enabled() {
         return None;
@@ -392,7 +414,7 @@ fn fast_hypot_near(x: f64, y: f64) -> Option<f64> {
     if (big.to_bits() >> 52) as i64 - (small.to_bits() >> 52) as i64 >= 27 {
         return Some(big);
     }
-    let (h, l, e) = hypot_dd(big, small)?;
+    let (h, l, e) = hypot_dd::<FMA>(big, small)?;
     round_near_err(h, l, e, ERR_HYPOT)
 }
 
@@ -409,8 +431,16 @@ pub(crate) fn hypot(x: f64, y: f64, up: bool) -> f64 {
     }
 }
 
-// `hypot` toward +∞ if `UP` and toward -∞ otherwise.
-fn hypot_dir<const UP: bool>(x: f64, y: f64) -> f64 {
+level_entry! {
+    // `hypot` toward +∞ if `UP` and toward -∞ otherwise. Never inlined in the build without the
+    // dispatch, which keeps that build as it was: LLVM inlines the one-call wrapper otherwise.
+    #[cfg_attr(not(inari_kernel_dispatch), inline(never))]
+    fn hypot_dir<const UP: bool>(x: f64, y: f64) -> f64 = hypot_dir_with;
+}
+
+// The body of `hypot_dir` (`level_entry!`).
+#[inline(always)]
+fn hypot_dir_with<const FMA: bool, const UP: bool>(x: f64, y: f64) -> f64 {
     if x.is_infinite() || y.is_infinite() {
         f64::INFINITY
     } else if x.is_nan() || y.is_nan() {
@@ -419,16 +449,22 @@ fn hypot_dir<const UP: bool>(x: f64, y: f64) -> f64 {
         x.abs()
     } else if x == 0.0 {
         y.abs()
-    } else if let Some(r) = fast_hypot(x, y, UP) {
+    } else if let Some(r) = fast_hypot::<FMA>(x, y, UP) {
         r
     } else {
         hypot_odd(x, y).to_f64(UP)
     }
 }
 
-/// hypot(x, y) = √(x^2 + y^2) rounded to nearest, ties to even, with the values of `hypot` at
-/// the zeros, the infinities and NaN.
-pub(crate) fn hypot_near(x: f64, y: f64) -> f64 {
+level_entry! {
+    /// hypot(x, y) = √(x^2 + y^2) rounded to nearest, ties to even, with the values of `hypot` at
+    /// the zeros, the infinities and NaN.
+    pub(crate) fn hypot_near(x: f64, y: f64) -> f64 = hypot_near_with;
+}
+
+// The body of `hypot_near` (`level_entry!`).
+#[inline(always)]
+fn hypot_near_with<const FMA: bool>(x: f64, y: f64) -> f64 {
     if x.is_infinite() || y.is_infinite() {
         f64::INFINITY
     } else if x.is_nan() || y.is_nan() {
@@ -437,7 +473,7 @@ pub(crate) fn hypot_near(x: f64, y: f64) -> f64 {
         x.abs()
     } else if x == 0.0 {
         y.abs()
-    } else if let Some(r) = fast_hypot_near(x, y) {
+    } else if let Some(r) = fast_hypot_near::<FMA>(x, y) {
         r
     } else {
         hypot_odd(x, y).to_f64_near()

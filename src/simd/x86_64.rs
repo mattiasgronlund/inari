@@ -176,6 +176,7 @@ cfg_if::cfg_if! {
         mod sse42;
         pub(crate) use sse42::*;
     } else {
-        compile_error!("RUSTFLAGS='-Ctarget-cpu=nehalem' or later is required. See https://doc.rust-lang.org/rustc/codegen-options/#target-cpu");
+        // `src/simd.rs` selects this module only for targets with `sse4.2`.
+        compile_error!("the x86-64 backends need the target feature `sse4.2`");
     }
 }

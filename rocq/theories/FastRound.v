@@ -9,7 +9,7 @@
     hypotheses leave room for the fast paths of other functions to reuse
     them. [two_prod_err_fma_eq] shows that the
     error of an exact product is the same [f64] with and without an FMA,
-    which lets [Model.v] pass [false] for [HAS_FMA] to the fast paths. *)
+    which lets [Model.v] pass [false] for [FMA] to the fast paths. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia.
 From Flocq Require Import Core.Core IEEE754.BinarySingleNaN Plus_error Mult_error.

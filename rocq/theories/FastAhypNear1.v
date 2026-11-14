@@ -22,7 +22,7 @@
     The error is at most [2^-69 h] before the scaling, so within [2^-68]
     after it. [acosh_near1_correct] states [2^-67], the bound of the
     [ERR67] rounding tests of the wrappers ([FastAhyp.v]), and
-    [acosh_near1_fma] that the branch does not depend on [HAS_FMA].
+    [acosh_near1_fma] that the branch does not depend on [fma].
 
     Both rest on five bounds on the steps of the branch: [near1_u],
     [near1_w] and [near1_ml_fma] of [FastAhypNear1Poly.v] for [u], [mh]
@@ -318,7 +318,7 @@ num. lra.
 Qed.
 
 (** The square in [dd_sqrt], [ml] and [pe] are exact products, so
-    [HAS_FMA] does not change them. *)
+    [fma] does not change them. *)
 Theorem acosh_near1_fma :
   forall x,
   is_finite x = true -> 1 <= B2R x < 1 + bpow radix2 (-8) ->

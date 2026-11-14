@@ -119,9 +119,10 @@ use super::{
         dd_div, dd_sqrt, fast_two_sum, normalize as normalize_pos, round_dir_err, round_dir_signed,
         round_near_err, round_near_signed, two_sum,
     },
+    level::level_entry,
     ziv, ziv_near, Dyadic, Encl, Eval,
 };
-use crate::simd::{two_prod_err, HAS_FMA};
+use crate::simd::two_prod_err;
 use tables::LOG_TABLE;
 
 mod tables;
@@ -374,9 +375,10 @@ fn ln_split(x: f64) -> (i64, f64, usize) {
 // exact as sh + sl (`two_prod_err`) and Fast2Sum is exact as |sh / 2| < |z1| [Dekker], the
 // terms of degree 3 to 8 by Horner's scheme in `f64`, and z2 (1 - z1), the term of ln(1 + z) of
 // first order in z2. `rocq/theories/FastLogPoly.v` proves the bound (`log1p_poly_correct`).
-fn log1p_poly(z1: f64, z2: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn log1p_poly<const FMA: bool>(z1: f64, z2: f64) -> (f64, f64) {
     let sh = z1 * z1;
-    let sl = two_prod_err::<HAS_FMA>(z1, z1, sh);
+    let sl = two_prod_err::<FMA>(z1, z1, sh);
     let (q3, q5, q6, q7) = (
         f64::from_bits(Q3),
         f64::from_bits(Q5),
@@ -400,7 +402,8 @@ fn log1p_poly(z1: f64, z2: f64) -> (f64, f64) {
 //
 // [CORE-MATH] P. Zimmermann et al., the CORE-MATH project, `src/binary64/log/log.c` (MIT
 // license); no constant or table is copied from it.
-fn ln_core(x: f64) -> (i64, f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn ln_core<const FMA: bool>(x: f64) -> (i64, f64, f64) {
     let (e, m, i) = ln_split(x);
     let [r, th, tl] = LOG_TABLE[i];
     let (r, th, tl) = (f64::from_bits(r), f64::from_bits(th), f64::from_bits(tl));
@@ -408,9 +411,9 @@ fn ln_core(x: f64) -> (i64, f64, f64) {
     // (Sterbenz), pe = r m - p exactly (`two_prod_err`), and |pe| <= ulp(p) / 2 <= |p - 1|
     // unless p = 1, so Fast2Sum is exact. [Dekker]
     let p = r * m;
-    let pe = two_prod_err::<HAS_FMA>(r, m, p);
+    let pe = two_prod_err::<FMA>(r, m, p);
     let (z1, z2) = fast_two_sum(p - 1.0, pe);
-    let (ah, pl) = log1p_poly(z1, z2);
+    let (ah, pl) = log1p_poly::<FMA>(z1, z2);
     // ln m = th + tl + ah + pl, where |th| >= 2^-9 > |ah| unless r = 1 and th = tl = 0.
     let (u, v) = fast_two_sum(th, ah);
     let (a_h, a_l) = fast_two_sum(u, v + (tl + pl));
@@ -434,8 +437,9 @@ fn normalize(h: f64, l: f64) -> Option<(f64, f64, i64)> {
 // finite x > 0, or `None` for x = 1, where ln x = 0. e LN2H is exact, and |e LN2H| > 1/2 > |a_h|
 // unless e = 0. `rocq/theories/FastLogLn.v` proves it, with 1/2 < |h| < 2, which the rounding
 // tests take (`fast_ln_correct`).
-fn fast_ln(x: f64) -> Option<(f64, f64, i64)> {
-    let (e, a_h, a_l) = ln_core(x);
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_ln<const FMA: bool>(x: f64) -> Option<(f64, f64, i64)> {
+    let (e, a_h, a_l) = ln_core::<FMA>(x);
     let ef = e as f64;
     let (s, t) = fast_two_sum(ef * f64::from_bits(LN2H), a_h);
     let (h, l) = fast_two_sum(s, t + (a_l + ef * f64::from_bits(LN2L)));
@@ -447,13 +451,14 @@ fn fast_ln(x: f64) -> Option<(f64, f64, i64)> {
 // and d = log10(2) (`LG2`). a_h ch is exact as ph + `two_prod_err`, e dh is exact, and
 // |e dh| > |ph| unless e = 0, as |a_h| < 0.35. `rocq/theories/FastLogBy.v` proves it for log2
 // and log10, with 1/2 < |h| < 2 as for ln (`fast_log2_correct`, `fast_log10_correct`).
-fn fast_log_by(x: f64, c: [u64; 2], d: [u64; 2]) -> Option<(f64, f64, i64)> {
-    let (e, a_h, a_l) = ln_core(x);
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_log_by<const FMA: bool>(x: f64, c: [u64; 2], d: [u64; 2]) -> Option<(f64, f64, i64)> {
+    let (e, a_h, a_l) = ln_core::<FMA>(x);
     let ef = e as f64;
     let (ch, cl) = (f64::from_bits(c[0]), f64::from_bits(c[1]));
     let (dh, dl) = (f64::from_bits(d[0]), f64::from_bits(d[1]));
     let ph = a_h * ch;
-    let pl = two_prod_err::<HAS_FMA>(a_h, ch, ph) + (a_h * cl + a_l * ch);
+    let pl = two_prod_err::<FMA>(a_h, ch, ph) + (a_h * cl + a_l * ch);
     let (s, t) = fast_two_sum(ef * dh, ph);
     let (h, l) = fast_two_sum(s, t + (pl + ef * dl));
     normalize(h, l)
@@ -468,14 +473,15 @@ fn fast_log_by(x: f64, c: [u64; 2], d: [u64; 2]) -> Option<(f64, f64, i64)> {
 // is dh + dl up to the roundings of cl Q3, ch Q3L and the two sums in dl, with Q3 + Q3L within
 // 2^-109 of 1/3. The two Fast2Sums are exact, as |sh / 2| < |z1| and |dh| < |ah| [Dekker].
 // `rocq/theories/FastPowPoly.v` proves the bound (`log1p_poly_acc_correct`).
-fn log1p_poly_acc(z1: f64, z2: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn log1p_poly_acc<const FMA: bool>(z1: f64, z2: f64) -> (f64, f64) {
     let sh = z1 * z1;
-    let sl = two_prod_err::<HAS_FMA>(z1, z1, sh);
+    let sl = two_prod_err::<FMA>(z1, z1, sh);
     let ch = z1 * sh;
-    let cl = two_prod_err::<HAS_FMA>(z1, sh, ch) + z1 * sl;
+    let cl = two_prod_err::<FMA>(z1, sh, ch) + z1 * sl;
     let (q3, q3l) = (f64::from_bits(Q3), f64::from_bits(Q3L));
     let dh = ch * q3;
-    let dl = two_prod_err::<HAS_FMA>(ch, q3, dh) + (cl * q3 + ch * q3l);
+    let dl = two_prod_err::<FMA>(ch, q3, dh) + (cl * q3 + ch * q3l);
     let (q5, q6, q7, q9) = (
         f64::from_bits(Q5),
         f64::from_bits(Q6),
@@ -494,15 +500,16 @@ fn log1p_poly_acc(z1: f64, z2: f64) -> (f64, f64) {
 // ln x = e ln 2 + a_h + a_l up to 2^-79 |ln m|, for a finite x > 0, as (e, a_h, a_l), with
 // m = x / 2^e and a_h = RN(a_h + a_l): `ln_core` with `log1p_poly_acc`.
 // `rocq/theories/FastPowCore.v` proves the bound (`ln_core_acc_correct`).
-fn ln_core_acc(x: f64) -> (i64, f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn ln_core_acc<const FMA: bool>(x: f64) -> (i64, f64, f64) {
     let (e, m, i) = ln_split(x);
     let [r, th, tl] = LOG_TABLE[i];
     let (r, th, tl) = (f64::from_bits(r), f64::from_bits(th), f64::from_bits(tl));
     // z = r m - 1 = z1 + z2 exactly, as in `ln_core`.
     let p = r * m;
-    let pe = two_prod_err::<HAS_FMA>(r, m, p);
+    let pe = two_prod_err::<FMA>(r, m, p);
     let (z1, z2) = fast_two_sum(p - 1.0, pe);
-    let (ah, pl) = log1p_poly_acc(z1, z2);
+    let (ah, pl) = log1p_poly_acc::<FMA>(z1, z2);
     let (u, v) = fast_two_sum(th, ah);
     let (a_h, a_l) = fast_two_sum(u, v + (tl + pl));
     (e, a_h, a_l)
@@ -511,8 +518,9 @@ fn ln_core_acc(x: f64) -> (i64, f64, f64) {
 // ln x as lh + ll, with lh = RN(lh + ll) and |ln x - (lh + ll)| <= 17/16 2^-79 |ln x|, for a
 // finite x > 0, for x^y in `src/dyadic/pow.rs`: e ln 2 + a_h + a_l as in `fast_ln`, without its
 // normalization. `rocq/theories/FastPowLn.v` proves it (`ln_acc_correct`).
-pub(super) fn ln_acc(x: f64) -> (f64, f64) {
-    let (e, a_h, a_l) = ln_core_acc(x);
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+pub(super) fn ln_acc<const FMA: bool>(x: f64) -> (f64, f64) {
+    let (e, a_h, a_l) = ln_core_acc::<FMA>(x);
     let ef = e as f64;
     let (s, t) = fast_two_sum(ef * f64::from_bits(LN2H), a_h);
     fast_two_sum(s, t + (a_l + ef * f64::from_bits(LN2L)))
@@ -520,8 +528,9 @@ pub(super) fn ln_acc(x: f64) -> (f64, f64) {
 
 // ln x, log2 x and log10 x rounded toward +∞ if `up` and toward -∞ otherwise, and to nearest,
 // by the fast path, or `None` where its rounding test fails or x = 1.
-fn fast_ln_dir(x: f64, up: bool) -> Option<f64> {
-    let (h, l, k) = fast_ln(x)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_ln_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    let (h, l, k) = fast_ln::<FMA>(x)?;
     round_dir_signed(h, l, k, up)
 }
 
@@ -530,29 +539,32 @@ fn fast_ln_dir(x: f64, up: bool) -> Option<f64> {
 // instructions per directed `log2` or `log10` on random arguments, in a crate that links
 // `cr` (cachegrind).
 #[inline(always)]
-fn fast_log2_dir(x: f64, up: bool) -> Option<f64> {
-    let (h, l, k) = fast_log_by(x, C2, ONE)?;
+fn fast_log2_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    let (h, l, k) = fast_log_by::<FMA>(x, C2, ONE)?;
     round_dir_signed(h, l, k, up)
 }
 
 #[inline(always)]
-fn fast_log10_dir(x: f64, up: bool) -> Option<f64> {
-    let (h, l, k) = fast_log_by(x, C10, LG2)?;
+fn fast_log10_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    let (h, l, k) = fast_log_by::<FMA>(x, C10, LG2)?;
     round_dir_signed(h, l, k, up)
 }
 
-fn fast_ln_near(x: f64) -> Option<f64> {
-    let (h, l, k) = fast_ln(x)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_ln_near<const FMA: bool>(x: f64) -> Option<f64> {
+    let (h, l, k) = fast_ln::<FMA>(x)?;
     round_near_signed(h, l, k)
 }
 
-fn fast_log2_near(x: f64) -> Option<f64> {
-    let (h, l, k) = fast_log_by(x, C2, ONE)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_log2_near<const FMA: bool>(x: f64) -> Option<f64> {
+    let (h, l, k) = fast_log_by::<FMA>(x, C2, ONE)?;
     round_near_signed(h, l, k)
 }
 
-fn fast_log10_near(x: f64) -> Option<f64> {
-    let (h, l, k) = fast_log_by(x, C10, LG2)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_log10_near<const FMA: bool>(x: f64) -> Option<f64> {
+    let (h, l, k) = fast_log_by::<FMA>(x, C10, LG2)?;
     round_near_signed(h, l, k)
 }
 
@@ -602,15 +614,16 @@ fn odd_series(t: f64, c: [u64; 4]) -> (f64, f64, i64) {
 // sh - sh mh + (sl - sl mh + sh wl) up to sl wl, below 2^-74 sh, with sh mh = ph + pe exactly,
 // and the factor 2 is k + 1. `rocq/theories/FastAhypNear1.v` proves it (`acosh_near1_correct`),
 // within 2^-67 of the result scaled by 2^-k.
-fn fast_acosh_near1(x: f64) -> Option<(f64, f64, i64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_acosh_near1<const FMA: bool>(x: f64) -> Option<(f64, f64, i64)> {
     if x <= 1.0 {
         return None;
     }
     let u = 0.5 * (x - 1.0);
-    let (sh, sl) = dd_sqrt(u, 0.0);
+    let (sh, sl) = dd_sqrt::<FMA>(u, 0.0);
     let c3 = f64::from_bits(SH3[0]);
     let mh = u * c3;
-    let ml = two_prod_err::<HAS_FMA>(u, c3, mh);
+    let ml = two_prod_err::<FMA>(u, c3, mh);
     let r = u
         * u
         * (f64::from_bits(A5)
@@ -620,7 +633,7 @@ fn fast_acosh_near1(x: f64) -> Option<(f64, f64, i64)> {
                         + u * (f64::from_bits(A13) + u * f64::from_bits(A15))))));
     let wl = r - (ml + u * f64::from_bits(SH3[1]));
     let ph = sh * mh;
-    let pe = two_prod_err::<HAS_FMA>(sh, mh, ph);
+    let pe = two_prod_err::<FMA>(sh, mh, ph);
     let (a, b) = fast_two_sum(sh, -ph);
     let (h, l) = fast_two_sum(a, b + ((sl + sh * wl) - (pe + sl * mh)));
     let (h, l, k) = normalize_pos(h, l);
@@ -632,8 +645,9 @@ fn fast_acosh_near1(x: f64) -> Option<(f64, f64, i64)> {
 // is d within d^2 / (2 (1 - |d|)), below 2^-102 for |d| <= 2^-51, so that `ln_core` of xh
 // serves unchanged and xl / xh joins the low sum. `rocq/theories/FastLogDd.v` proves it where
 // the result is at least 2^-20 (`fast_ln_dd_correct`).
-fn fast_ln_dd(xh: f64, xl: f64, e0: i64) -> Option<(f64, f64, i64)> {
-    let (e, a_h, a_l) = ln_core(xh);
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_ln_dd<const FMA: bool>(xh: f64, xl: f64, e0: i64) -> Option<(f64, f64, i64)> {
+    let (e, a_h, a_l) = ln_core::<FMA>(xh);
     let ef = (e + e0) as f64;
     let (s, t) = fast_two_sum(ef * f64::from_bits(LN2H), a_h);
     let (h, l) = fast_two_sum(s, t + (a_l + (ef * f64::from_bits(LN2L) + xl / xh)));
@@ -643,60 +657,65 @@ fn fast_ln_dd(xh: f64, xl: f64, e0: i64) -> Option<(f64, f64, i64)> {
 // asinh t as (h, l, k) as for `fast_ln`, for a finite t >= 2^-8: ln(t + c) with c = √(1 + t^2)
 // by `dd_sqrt`, and as ln 2 + ln(t + 1/(4t)) from 2^26 on, where 2 (t + 1/(4t)) is t + c within
 // 1/(8 t^3), 2^-108 of it. `rocq/theories/FastAhypAsinh.v` proves it (`fast_asinh_pos_correct`).
-fn fast_asinh_pos(t: f64) -> Option<(f64, f64, i64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_asinh_pos<const FMA: bool>(t: f64) -> Option<(f64, f64, i64)> {
     if t >= AHYP_LARGE {
-        return fast_ln_dd(t, 0.25 / t, 1);
+        return fast_ln_dd::<FMA>(t, 0.25 / t, 1);
     }
     // 1 + t^2 = ah + al + pl exactly (`two_prod_err`, TwoSum [Knuth]), and al + pl rounds by at
     // most 2^-105 ah, as |al| and |pl| are at most half an ulp of ah.
     let ph = t * t;
-    let pl = two_prod_err::<HAS_FMA>(t, t, ph);
+    let pl = two_prod_err::<FMA>(t, t, ph);
     let (ah, al) = two_sum(1.0, ph);
-    let (ch, cl) = dd_sqrt(ah, al + pl);
+    let (ch, cl) = dd_sqrt::<FMA>(ah, al + pl);
     let (xh, xl) = fast_two_sum(ch, t);
-    fast_ln_dd(xh, xl + cl, 0)
+    fast_ln_dd::<FMA>(xh, xl + cl, 0)
 }
 
 // asinh x as (h, l, k) as for `fast_ln`, for a finite x with |x| >= 2^-8: asinh is odd.
-fn fast_asinh(x: f64) -> Option<(f64, f64, i64)> {
-    let (h, l, k) = fast_asinh_pos(x.abs())?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_asinh<const FMA: bool>(x: f64) -> Option<(f64, f64, i64)> {
+    let (h, l, k) = fast_asinh_pos::<FMA>(x.abs())?;
     Some(if x < 0.0 { (-h, -l, k) } else { (h, l, k) })
 }
 
 // acosh x as (h, l, k) as for `fast_ln`, for a finite x >= 1 + 2^-8: ln(x + r) with
 // r = √(x^2 - 1) by `dd_sqrt`, and as ln 2 + ln(x - 1/(4x)) from 2^26 on, where 2 (x - 1/(4x)) is
 // x + r within 1/(4 x^3). `rocq/theories/FastAhypAcosh.v` proves it (`fast_acosh_correct`).
-fn fast_acosh(x: f64) -> Option<(f64, f64, i64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_acosh<const FMA: bool>(x: f64) -> Option<(f64, f64, i64)> {
     if x >= AHYP_LARGE {
-        return fast_ln_dd(x, -0.25 / x, 1);
+        return fast_ln_dd::<FMA>(x, -0.25 / x, 1);
     }
     // x^2 - 1 = ah + al exactly: x^2 = ph + pl (`two_prod_err`), ph - 1 is exact for
     // 1 < ph < 2^53, and |pl| <= ulp(ph) / 2 <= |ph - 1|, so Fast2Sum is exact [Dekker].
     let ph = x * x;
-    let pl = two_prod_err::<HAS_FMA>(x, x, ph);
+    let pl = two_prod_err::<FMA>(x, x, ph);
     let (ah, al) = fast_two_sum(ph - 1.0, pl);
-    let (rh, rl) = dd_sqrt(ah, al);
+    let (rh, rl) = dd_sqrt::<FMA>(ah, al);
     let (xh, xl) = fast_two_sum(x, rh);
-    fast_ln_dd(xh, xl + rl, 0)
+    fast_ln_dd::<FMA>(xh, xl + rl, 0)
 }
 
 // atanh t as (h, l, k) as for `fast_ln`, for a finite t with 2^-8 <= t < 1, from
 // 2 atanh t = ln((1 + t) / (1 - t)) as (h, l, k + 1): as -j ln 2 + ln q for the quotient
 // q = (1 + t) / ((1 - t) 2^-j) by `dd_div`, where `normalize` scales 1 - t into [1, 2) by 2^-j.
 // `rocq/theories/FastAhypAtanh.v` proves it (`fast_atanh_pos_correct`).
-fn fast_atanh_pos(t: f64) -> Option<(f64, f64, i64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atanh_pos<const FMA: bool>(t: f64) -> Option<(f64, f64, i64)> {
     // 1 - t and 1 + t are exact as double-doubles (Fast2Sum [Dekker]).
     let (dh, dl) = fast_two_sum(1.0, -t);
     let (nh, nl) = fast_two_sum(1.0, t);
     let (dh, dl, j) = normalize_pos(dh, dl);
-    let (qh, ql) = dd_div(nh, nl, dh, dl);
-    let (h, l, k) = fast_ln_dd(qh, ql, -j)?;
+    let (qh, ql) = dd_div::<FMA>(nh, nl, dh, dl);
+    let (h, l, k) = fast_ln_dd::<FMA>(qh, ql, -j)?;
     Some((h, l, k - 1))
 }
 
 // atanh x as (h, l, k) as for `fast_ln`, for a finite x with 2^-8 <= |x| < 1: atanh is odd.
-fn fast_atanh(x: f64) -> Option<(f64, f64, i64)> {
-    let (h, l, k) = fast_atanh_pos(x.abs())?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atanh<const FMA: bool>(x: f64) -> Option<(f64, f64, i64)> {
+    let (h, l, k) = fast_atanh_pos::<FMA>(x.abs())?;
     Some(if x < 0.0 { (-h, -l, k) } else { (h, l, k) })
 }
 
@@ -711,70 +730,70 @@ fn fast_atanh(x: f64) -> Option<(f64, f64, i64)> {
 // a constant, which cost up to about 8 instructions per call also on the arguments outside the
 // near ranges (cachegrind).
 #[inline(always)]
-fn fast_asinh_dir(x: f64, up: bool) -> Option<f64> {
+fn fast_asinh_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
     let t = x.abs();
     if t < AHYP_NEAR {
         let (h, l, k) = odd_series(t, ASINH_ODD);
         let r = round_dir_err(h, l, k, ERR67, up != (x < 0.0))?;
         return Some(if x < 0.0 { -r } else { r });
     }
-    let (h, l, k) = fast_asinh(x)?;
+    let (h, l, k) = fast_asinh::<FMA>(x)?;
     round_dir_signed(h, l, k, up)
 }
 
 #[inline(always)]
-fn fast_acosh_dir(x: f64, up: bool) -> Option<f64> {
+fn fast_acosh_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
     if x < ACOSH_NEAR1 {
-        let (h, l, k) = fast_acosh_near1(x)?;
+        let (h, l, k) = fast_acosh_near1::<FMA>(x)?;
         return round_dir_err(h, l, k, ERR67, up);
     }
-    let (h, l, k) = fast_acosh(x)?;
+    let (h, l, k) = fast_acosh::<FMA>(x)?;
     round_dir_signed(h, l, k, up)
 }
 
 #[inline(always)]
-fn fast_atanh_dir(x: f64, up: bool) -> Option<f64> {
+fn fast_atanh_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
     let t = x.abs();
     if t < AHYP_NEAR {
         let (h, l, k) = odd_series(t, ATANH_ODD);
         let r = round_dir_err(h, l, k, ERR67, up != (x < 0.0))?;
         return Some(if x < 0.0 { -r } else { r });
     }
-    let (h, l, k) = fast_atanh(x)?;
+    let (h, l, k) = fast_atanh::<FMA>(x)?;
     round_dir_signed(h, l, k, up)
 }
 
 #[inline(always)]
-fn fast_asinh_near(x: f64) -> Option<f64> {
+fn fast_asinh_near<const FMA: bool>(x: f64) -> Option<f64> {
     let t = x.abs();
     if t < AHYP_NEAR {
         let (h, l, k) = odd_series(t, ASINH_ODD);
         let r = round_near_err(h, l, k, ERR67)?;
         return Some(if x < 0.0 { -r } else { r });
     }
-    let (h, l, k) = fast_asinh(x)?;
+    let (h, l, k) = fast_asinh::<FMA>(x)?;
     round_near_signed(h, l, k)
 }
 
 #[inline(always)]
-fn fast_acosh_near(x: f64) -> Option<f64> {
+fn fast_acosh_near<const FMA: bool>(x: f64) -> Option<f64> {
     if x < ACOSH_NEAR1 {
-        let (h, l, k) = fast_acosh_near1(x)?;
+        let (h, l, k) = fast_acosh_near1::<FMA>(x)?;
         return round_near_err(h, l, k, ERR67);
     }
-    let (h, l, k) = fast_acosh(x)?;
+    let (h, l, k) = fast_acosh::<FMA>(x)?;
     round_near_signed(h, l, k)
 }
 
 #[inline(always)]
-fn fast_atanh_near(x: f64) -> Option<f64> {
+fn fast_atanh_near<const FMA: bool>(x: f64) -> Option<f64> {
     let t = x.abs();
     if t < AHYP_NEAR {
         let (h, l, k) = odd_series(t, ATANH_ODD);
         let r = round_near_err(h, l, k, ERR67)?;
         return Some(if x < 0.0 { -r } else { r });
     }
-    let (h, l, k) = fast_atanh(x)?;
+    let (h, l, k) = fast_atanh::<FMA>(x)?;
     round_near_signed(h, l, k)
 }
 
@@ -789,22 +808,34 @@ pub(crate) fn ln(x: f64, up: bool) -> f64 {
     }
 }
 
-// `ln` toward +∞ if `UP` and toward -∞ otherwise.
-fn ln_dir<const UP: bool>(x: f64) -> f64 {
+level_entry! {
+    // `ln` toward +∞ if `UP` and toward -∞ otherwise.
+    fn ln_dir<const UP: bool>(x: f64) -> f64 = ln_dir_with;
+}
+
+// The body of `ln_dir`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn ln_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => match fast_ln_dir(x, UP) {
+        None => match fast_ln_dir::<FMA>(x, UP) {
             Some(r) => r,
             None => ziv(&Ln(x), UP, 1),
         },
     }
 }
 
-/// ln x rounded to nearest, ties to even.
-pub(crate) fn ln_near(x: f64) -> f64 {
+level_entry! {
+    /// ln x rounded to nearest, ties to even.
+    pub(crate) fn ln_near(x: f64) -> f64 = ln_near_with;
+}
+
+// The body of `ln_near` (`level_entry!`).
+#[inline(always)]
+fn ln_near_with<const FMA: bool>(x: f64) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => match fast_ln_near(x) {
+        None => match fast_ln_near::<FMA>(x) {
             Some(r) => r,
             None => ziv_near(&Ln(x), 1),
         },
@@ -822,22 +853,34 @@ pub(crate) fn log2(x: f64, up: bool) -> f64 {
     }
 }
 
-// `log2` toward +∞ if `UP` and toward -∞ otherwise.
-fn log2_dir<const UP: bool>(x: f64) -> f64 {
+level_entry! {
+    // `log2` toward +∞ if `UP` and toward -∞ otherwise.
+    fn log2_dir<const UP: bool>(x: f64) -> f64 = log2_dir_with;
+}
+
+// The body of `log2_dir` (`level_entry!`).
+#[inline(always)]
+fn log2_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => match fast_log2_dir(x, UP) {
+        None => match fast_log2_dir::<FMA>(x, UP) {
             Some(r) => r,
             None => ziv(&Log2(x), UP, 1),
         },
     }
 }
 
-/// log2 x rounded to nearest, ties to even.
-pub(crate) fn log2_near(x: f64) -> f64 {
+level_entry! {
+    /// log2 x rounded to nearest, ties to even.
+    pub(crate) fn log2_near(x: f64) -> f64 = log2_near_with;
+}
+
+// The body of `log2_near` (`level_entry!`).
+#[inline(always)]
+fn log2_near_with<const FMA: bool>(x: f64) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => match fast_log2_near(x) {
+        None => match fast_log2_near::<FMA>(x) {
             Some(r) => r,
             None => ziv_near(&Log2(x), 1),
         },
@@ -855,11 +898,17 @@ pub(crate) fn log10(x: f64, up: bool) -> f64 {
     }
 }
 
-// `log10` toward +∞ if `UP` and toward -∞ otherwise.
-fn log10_dir<const UP: bool>(x: f64) -> f64 {
+level_entry! {
+    // `log10` toward +∞ if `UP` and toward -∞ otherwise.
+    fn log10_dir<const UP: bool>(x: f64) -> f64 = log10_dir_with;
+}
+
+// The body of `log10_dir` (`level_entry!`).
+#[inline(always)]
+fn log10_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => match fast_log10_dir(x, UP) {
+        None => match fast_log10_dir::<FMA>(x, UP) {
             Some(r) => r,
             None => match POW10.iter().position(|&p| p == x) {
                 // log10(10^k) = k.
@@ -870,11 +919,17 @@ fn log10_dir<const UP: bool>(x: f64) -> f64 {
     }
 }
 
-/// log10 x rounded to nearest, ties to even.
-pub(crate) fn log10_near(x: f64) -> f64 {
+level_entry! {
+    /// log10 x rounded to nearest, ties to even.
+    pub(crate) fn log10_near(x: f64) -> f64 = log10_near_with;
+}
+
+// The body of `log10_near` (`level_entry!`).
+#[inline(always)]
+fn log10_near_with<const FMA: bool>(x: f64) -> f64 {
     match log_rules(x) {
         Some(r) => r,
-        None => match fast_log10_near(x) {
+        None => match fast_log10_near::<FMA>(x) {
             Some(r) => r,
             None => match POW10.iter().position(|&p| p == x) {
                 // log10(10^k) = k.
@@ -885,72 +940,102 @@ pub(crate) fn log10_near(x: f64) -> f64 {
     }
 }
 
-/// asinh x rounded toward +∞ if `up` and toward -∞ otherwise.
-// Always inlined, as are the five drivers below (see `fast_asinh_dir`).
+level_entry! {
+    /// asinh x rounded toward +∞ if `up` and toward -∞ otherwise.
+    // Always inlined, as are the five drivers below (see `fast_asinh_dir`).
+    #[inline(always)]
+    pub(crate) fn asinh(x: f64, up: bool) -> f64 = asinh_with;
+}
+
+// The body of `asinh` (`level_entry!`).
 #[inline(always)]
-pub(crate) fn asinh(x: f64, up: bool) -> f64 {
+fn asinh_with<const FMA: bool>(x: f64, up: bool) -> f64 {
     if x.is_nan() || x.is_infinite() {
         x
     } else if x.abs() < TINY_HYP {
         // x - x^3 / 6 <= asinh x <= x for x in [0, 1], and asinh is odd.
         toward_zero(x, up)
     } else {
-        match fast_asinh_dir(x, up) {
+        match fast_asinh_dir::<FMA>(x, up) {
             Some(r) => r,
             None => ziv(&Asinh(x), up, 1),
         }
     }
 }
 
-/// asinh x rounded to nearest, ties to even.
+level_entry! {
+    /// asinh x rounded to nearest, ties to even.
+    #[inline(always)]
+    pub(crate) fn asinh_near(x: f64) -> f64 = asinh_near_with;
+}
+
+// The body of `asinh_near` (`level_entry!`).
 #[inline(always)]
-pub(crate) fn asinh_near(x: f64) -> f64 {
+fn asinh_near_with<const FMA: bool>(x: f64) -> f64 {
     if x.is_nan() || x.is_infinite() {
         x
     } else if x.abs() < TINY_NEAR {
         // x - x^3 / 6 <= asinh x <= x for x in [0, 1], and asinh is odd.
         x
     } else {
-        match fast_asinh_near(x) {
+        match fast_asinh_near::<FMA>(x) {
             Some(r) => r,
             None => ziv_near(&Asinh(x), 1),
         }
     }
 }
 
-/// acosh x rounded toward +∞ if `up` and toward -∞ otherwise.
+level_entry! {
+    /// acosh x rounded toward +∞ if `up` and toward -∞ otherwise.
+    #[inline(always)]
+    pub(crate) fn acosh(x: f64, up: bool) -> f64 = acosh_with;
+}
+
+// The body of `acosh` (`level_entry!`).
 #[inline(always)]
-pub(crate) fn acosh(x: f64, up: bool) -> f64 {
+fn acosh_with<const FMA: bool>(x: f64, up: bool) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
         x
     } else if x < 1.0 {
         f64::NAN
     } else {
-        match fast_acosh_dir(x, up) {
+        match fast_acosh_dir::<FMA>(x, up) {
             Some(r) => r,
             None => ziv(&Acosh(x), up, 1),
         }
     }
 }
 
-/// acosh x rounded to nearest, ties to even.
+level_entry! {
+    /// acosh x rounded to nearest, ties to even.
+    #[inline(always)]
+    pub(crate) fn acosh_near(x: f64) -> f64 = acosh_near_with;
+}
+
+// The body of `acosh_near` (`level_entry!`).
 #[inline(always)]
-pub(crate) fn acosh_near(x: f64) -> f64 {
+fn acosh_near_with<const FMA: bool>(x: f64) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
         x
     } else if x < 1.0 {
         f64::NAN
     } else {
-        match fast_acosh_near(x) {
+        match fast_acosh_near::<FMA>(x) {
             Some(r) => r,
             None => ziv_near(&Acosh(x), 1),
         }
     }
 }
 
-/// atanh x rounded toward +∞ if `up` and toward -∞ otherwise.
+level_entry! {
+    /// atanh x rounded toward +∞ if `up` and toward -∞ otherwise.
+    #[inline(always)]
+    pub(crate) fn atanh(x: f64, up: bool) -> f64 = atanh_with;
+}
+
+// The body of `atanh` (`level_entry!`).
 #[inline(always)]
-pub(crate) fn atanh(x: f64, up: bool) -> f64 {
+fn atanh_with<const FMA: bool>(x: f64, up: bool) -> f64 {
     let t = x.abs();
     if x.is_nan() {
         x
@@ -967,16 +1052,22 @@ pub(crate) fn atanh(x: f64, up: bool) -> f64 {
         // x <= atanh x <= x + x^3 / (3 (1 - x^2)) for x in [0, 1), and atanh is odd.
         away(x, up)
     } else {
-        match fast_atanh_dir(x, up) {
+        match fast_atanh_dir::<FMA>(x, up) {
             Some(r) => r,
             None => ziv(&Atanh(x), up, 1),
         }
     }
 }
 
-/// atanh x rounded to nearest, ties to even.
+level_entry! {
+    /// atanh x rounded to nearest, ties to even.
+    #[inline(always)]
+    pub(crate) fn atanh_near(x: f64) -> f64 = atanh_near_with;
+}
+
+// The body of `atanh_near` (`level_entry!`).
 #[inline(always)]
-pub(crate) fn atanh_near(x: f64) -> f64 {
+fn atanh_near_with<const FMA: bool>(x: f64) -> f64 {
     let t = x.abs();
     if x.is_nan() {
         x
@@ -992,7 +1083,7 @@ pub(crate) fn atanh_near(x: f64) -> f64 {
         // x <= atanh x <= x + x^3 / (3 (1 - x^2)) for x in [0, 1), and atanh is odd.
         x
     } else {
-        match fast_atanh_near(x) {
+        match fast_atanh_near::<FMA>(x) {
             Some(r) => r,
             None => ziv_near(&Atanh(x), 1),
         }

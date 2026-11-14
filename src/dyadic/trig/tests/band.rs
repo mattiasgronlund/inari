@@ -22,9 +22,9 @@ use super::*;
 // too. On 64-bit Linux and macOS, where the tests have MPFR, `mpfr::check_band_big_bound`
 // checks those that need π. Returns whether `fast_reduce_band_big` takes x.
 fn check_band_big(x: f64) -> bool {
-    let band = fast_reduce_band_big(x);
+    let band = fast_reduce_band_big::<HAS_FMA>(x);
     assert!(
-        fast_reduce_big(x).is_none() || band.is_none(),
+        fast_reduce_big::<HAS_FMA>(x).is_none() || band.is_none(),
         "fast_reduce_big({x:e}) and fast_reduce_band_big({x:e}) both take it"
     );
     let Some((n, rh, rl, rr)) = band else {
@@ -70,7 +70,7 @@ fn check_band_small(x: f64) -> bool {
     if n & 2047 != 0 || n == 0 {
         return false;
     }
-    let (sh, sl, sr) = fast_band_reduce(n, rh, rl);
+    let (sh, sl, sr) = fast_band_reduce::<HAS_FMA>(n, rh, rl);
     assert!(
         sh.is_finite()
             && sl.is_finite()
@@ -205,7 +205,7 @@ mod mpfr {
     // `src/dyadic/trig/tests.rs` assumes for `fast_reduce_big` too. Returns |ρ| rounded to an
     // `f64`.
     pub(super) fn check_band_big_bound(x: f64) -> f64 {
-        let (n, rh, rl, rr) = fast_reduce_band_big(x).unwrap();
+        let (n, rh, rl, rr) = fast_reduce_band_big::<HAS_FMA>(x).unwrap();
         let k = Float::with_val(BIG_PREC, x / &big_u())
             .to_integer()
             .unwrap();
@@ -222,7 +222,7 @@ mod mpfr {
     // rounded to an `f64`.
     pub(super) fn check_band_small_bound(x: f64) -> f64 {
         let (n, rh, rl, _) = fast_reduce(x).unwrap();
-        let (sh, sl, _) = fast_band_reduce(n, rh, rl);
+        let (sh, sl, _) = fast_band_reduce::<HAS_FMA>(n, rh, rl);
         check_rho("fast_band_reduce", x, &Integer::from(n), (sh, sl))
     }
 

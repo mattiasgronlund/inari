@@ -63,7 +63,7 @@ fn midpoint_if_any(y: f64, x: f64) -> Option<f64> {
 fn check_exact_div(y: f64, x: f64) -> bool {
     let expected = quotient_if_f64(y, x);
     assert_eq!(
-        exact_div(y, x).map(f64::to_bits),
+        exact_div::<HAS_FMA>(y, x).map(f64::to_bits),
         expected.map(f64::to_bits),
         "exact_div({:e}, {:e})",
         y,
@@ -89,14 +89,14 @@ fn check_rules(y: f64, x: f64) -> [bool; 2] {
         None
     };
     assert_eq!(
-        tiny_quotient(y, x).map(f64::to_bits),
+        tiny_quotient::<HAS_FMA>(y, x).map(f64::to_bits),
         tiny.map(f64::to_bits),
         "tiny_quotient({:e}, {:e})",
         y,
         x
     );
     assert_eq!(
-        midpoint_quotient(y, x).map(f64::to_bits),
+        midpoint_quotient::<HAS_FMA>(y, x).map(f64::to_bits),
         midpoint_if_any(y, x).map(f64::to_bits),
         "midpoint_quotient({:e}, {:e})",
         y,
@@ -192,8 +192,8 @@ fn exact_div_random() {
         let false_positives = check_rules(y, x);
         counts[0] += usize::from(false_positives[0]);
         counts[1] += usize::from(false_positives[1]);
-        counts[2] += usize::from(tiny_quotient(y, x).is_some());
-        counts[3] += usize::from(midpoint_quotient(y, x).is_some());
+        counts[2] += usize::from(tiny_quotient::<HAS_FMA>(y, x).is_some());
+        counts[3] += usize::from(midpoint_quotient::<HAS_FMA>(y, x).is_some());
         if n % 16 == 0 {
             check2_fast(y, x);
         }
@@ -269,8 +269,8 @@ fn exact_div_same_map() {
                 x >= TWO_996
             };
             check_rules(y, x);
-            counts[0] += usize::from(tiny_quotient(y, x).is_some());
-            counts[1] += usize::from(midpoint_quotient(y, x).is_some());
+            counts[0] += usize::from(tiny_quotient::<HAS_FMA>(y, x).is_some());
+            counts[1] += usize::from(midpoint_quotient::<HAS_FMA>(y, x).is_some());
             counts[2 + usize::from(side)] += 1;
         }
         assert!(

@@ -35,7 +35,7 @@ fn binade_arg(rng: &mut Rng, k: i64, r: usize) -> (f64, f64) {
 // strictly between the bounds of the rules, so that `fast_pow_wide_dir` and
 // `fast_pow_wide_near` round e^(th + tl) from `fast_exp_edge`.
 fn edge_arm(x: f64, y: f64) -> bool {
-    let th = pow_t(x, y).0;
+    let th = pow_t::<HAS_FMA>(x, y).0;
     fast_pow(x, y).is_none() && T_UNDER < th && th < T_OVER
 }
 
@@ -182,8 +182,8 @@ fn edges_widened() {
             if !edge_arm(x, y) {
                 continue;
             }
-            let (th, tl) = pow_t(x, y);
-            let (h, l, e) = fast_exp_edge(th, tl).unwrap();
+            let (th, tl) = pow_t::<HAS_FMA>(x, y);
+            let (h, l, e) = fast_exp_edge::<HAS_FMA>(th, tl).unwrap();
             let (narrow_dir, narrow_near) = narrow(h, l, e);
             for up in [false, true].into_iter().filter(|_| narrow_dir) {
                 assert!(
@@ -253,8 +253,8 @@ fn far_side_ties() {
                     continue;
                 }
                 calls += 1;
-                let (th, tl) = pow_t(x, y);
-                let (h, l, e) = fast_exp_edge(th, tl).unwrap();
+                let (th, tl) = pow_t::<HAS_FMA>(x, y);
+                let (h, l, e) = fast_exp_edge::<HAS_FMA>(th, tl).unwrap();
                 let Some(u) = sub_tie(h, l, e) else {
                     continue;
                 };
@@ -386,9 +386,9 @@ fn edge_counts() {
             edge_arm(x, y),
             "pow({x:e}, {y:e}) does not take the edge arm"
         );
-        fast_pow_dir(x, y, false);
-        fast_pow_dir(x, y, true);
-        fast_pow_near(x, y);
+        fast_pow_dir::<HAS_FMA>(x, y, false);
+        fast_pow_dir::<HAS_FMA>(x, y, true);
+        fast_pow_near::<HAS_FMA>(x, y);
     }
     let (p, f) = fast_counts();
     assert!(p + f == 900 && p > 20 * f, "random: {p} passed, {f} failed");
@@ -406,11 +406,15 @@ fn edge_counts() {
         reset_fast_counts();
         for up in [false, true] {
             assert!(
-                fast_pow_dir(x, y, up).is_none(),
+                fast_pow_dir::<HAS_FMA>(x, y, up).is_none(),
                 "pow({x:e}, {y:e}), up = {up}"
             );
         }
-        assert_eq!(fast_pow_near(x, y), Some(v), "pow({x:e}, {y:e}) to nearest");
+        assert_eq!(
+            fast_pow_near::<HAS_FMA>(x, y),
+            Some(v),
+            "pow({x:e}, {y:e}) to nearest"
+        );
         assert_eq!(fast_counts(), (1, 2), "pow({x:e}, {y:e})");
         (passed, failed) = (passed + 1, failed + 2);
     }
@@ -422,20 +426,20 @@ fn edge_counts() {
         band.push((x, t / x.ln()));
     }
     for (x, y) in band {
-        let (th, tl) = pow_t(x, y);
+        let (th, tl) = pow_t::<HAS_FMA>(x, y);
         assert!(
-            edge_arm(x, y) && fast_exp_edge(th, tl).unwrap().2 == 1024,
+            edge_arm(x, y) && fast_exp_edge::<HAS_FMA>(th, tl).unwrap().2 == 1024,
             "pow({x:e}, {y:e}): th = {th} is not in the band of e = 1024"
         );
         reset_fast_counts();
         for up in [false, true] {
             assert!(
-                fast_pow_dir(x, y, up).is_none(),
+                fast_pow_dir::<HAS_FMA>(x, y, up).is_none(),
                 "pow({x:e}, {y:e}), up = {up}"
             );
         }
         assert!(
-            fast_pow_near(x, y).is_none(),
+            fast_pow_near::<HAS_FMA>(x, y).is_none(),
             "pow({x:e}, {y:e}) to nearest"
         );
         assert_eq!(fast_counts(), (0, 0), "pow({x:e}, {y:e})");
@@ -456,12 +460,12 @@ fn edge_counts() {
         ys.extend(around(T_UNDER / x.ln(), 4));
         ys.extend([800.0, -800.0, 1e4, -1e4].map(|t| t / x.ln()));
         for y in ys {
-            let th = pow_t(x, y).0;
+            let th = pow_t::<HAS_FMA>(x, y).0;
             reset_fast_counts();
             let (lo, hi, near) = (
-                fast_pow_dir(x, y, false),
-                fast_pow_dir(x, y, true),
-                fast_pow_near(x, y),
+                fast_pow_dir::<HAS_FMA>(x, y, false),
+                fast_pow_dir::<HAS_FMA>(x, y, true),
+                fast_pow_near::<HAS_FMA>(x, y),
             );
             let counts = fast_counts();
             if th >= T_OVER {

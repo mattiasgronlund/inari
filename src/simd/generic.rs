@@ -739,10 +739,15 @@ fn split(x: f64) -> (f64, f64) {
 /// |x|, |y| < 2^996 (for `split`) and |p| < 2^1023 (so that x_hi * y_hi, which
 /// may exceed |x * y| by a factor of 1 + 2^-25, does not overflow).
 ///
-/// The fast path of `src/dyadic/exp.rs` calls it too, with `HAS_FMA`. `rocq/theories/Model.v`
-/// transcribes it as `Generic.two_prod_err` for the proofs of that fast path in
-/// `rocq/theories/FastExpCore.v` and `rocq/theories/FastExp.v`, among others, so it has to be
-/// updated along with it.
+/// The fast paths of `src/dyadic` call it too, with the `FMA` that their entries pick
+/// (`src/dyadic/level.rs`). `rocq/theories/Model.v` transcribes it as `Generic.two_prod_err` for
+/// the proofs of those fast paths in `rocq/theories/FastExpCore.v` and `rocq/theories/FastExp.v`,
+/// among others, so it has to be updated along with it.
+///
+/// Under `cfg(inari_kernel_dispatch)` (`build.rs`), `FMA` is true in the copies of the kernel's
+/// entries that are compiled with the target feature `fma`, and `f64::mul_add` is one instruction
+/// only where this function is inlined into them.
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
 pub(crate) fn two_prod_err<const FMA: bool>(x: f64, y: f64, p: f64) -> f64 {
     if FMA {
         x.mul_add(y, -p)

@@ -10,6 +10,7 @@
 use super::*;
 use crate::dyadic::fast::{fast_counts, reset_fast_counts, set_fast_path};
 use crate::dyadic::tests::Rng;
+use crate::simd::HAS_FMA;
 
 type Directed = fn(f64, bool) -> f64;
 
@@ -704,6 +705,98 @@ fn fast_path_agrees_with_kernel() {
     }
 }
 
+// The function `i` at `x`, toward -∞, toward +∞ and to nearest, by the bodies of its entries
+// with `FMA` for the products (`level_entry!`). `cos_dir_with` and `cos_near_with` take x, as
+// `cos_dir` and `cos_near` do, and |x| themselves.
+fn bodies<const FMA: bool>(i: usize, x: f64) -> [f64; 3] {
+    match i {
+        SIN => [
+            sin_dir_with::<FMA, false>(x),
+            sin_dir_with::<FMA, true>(x),
+            sin_near_with::<FMA>(x),
+        ],
+        COS => [
+            cos_dir_with::<FMA, false>(x),
+            cos_dir_with::<FMA, true>(x),
+            cos_near_with::<FMA>(x),
+        ],
+        TAN => [
+            tan_dir_with::<FMA, false>(x),
+            tan_dir_with::<FMA, true>(x),
+            tan_near_with::<FMA>(x),
+        ],
+        _ => unreachable!(),
+    }
+}
+
+// The function `i` at `x`, as `bodies` gives it, by the copy of each entry without an FMA in its
+// products, by the copy with one (`level_entry!`), and by the entries, `sin_dir::<UP>`,
+// `sin_near` and the others, which call the body with an FMA or the one without.
+fn copies(i: usize, x: f64) -> [[f64; 3]; 3] {
+    let entries = match i {
+        SIN => [sin_dir::<false>(x), sin_dir::<true>(x), sin_near(x)],
+        COS => [cos_dir::<false>(x), cos_dir::<true>(x), cos_near(x)],
+        TAN => [tan_dir::<false>(x), tan_dir::<true>(x), tan_near(x)],
+        _ => unreachable!(),
+    };
+    [bodies::<false>(i, x), bodies::<true>(i, x), entries]
+}
+
+// Checks that the three rows of `copies` are the same `f64`s, at `x` and at -x.
+fn assert_copies_agree(i: usize, x: f64) {
+    for x in [x, -x] {
+        let copies = copies(i, x);
+        let bits = copies.map(|row| row.map(f64::to_bits));
+        assert!(
+            bits[0] == bits[1] && bits[1] == bits[2],
+            "{}({x:e}): {:?} without an FMA, {:?} with one, {:?} by the entries",
+            FUNCTIONS[i].0,
+            copies[0],
+            copies[1],
+            copies[2]
+        );
+    }
+}
+
+// The copies of sin, cos and tan without an FMA and with one, and the entries, give the same
+// `f64`s, bit for bit, in both directions and to nearest, at each of these arguments and its
+// negation: random arguments of the fast path (`fast_arg`, both sets) and of `fast_reduce_big`
+// (`big_arg`); and, at each of the three functions, `SPECIAL`, the x of `SMALL_FALL_THROUGH` and
+// of `HARD_CASES`, `f64`s close to multiples of π/2, in the band, below `LIMIT`
+// (`near_multiple`) and above it (`KM`), the x of `NEAR_STEPS`, some of which
+// `fast_reduce_big` declines, a few others above `LIMIT`, and `regressions()`. This checks the
+// code as compiled, where the entries call the copy built with the target feature `fma` in a
+// build with the dispatch, on a CPU that has it, and the copy without an FMA with
+// `--cfg inari_force_no_fma`.
+#[test]
+fn copies_agree() {
+    let mut rng = Rng(907);
+    for i in [SIN, COS, TAN] {
+        for k in 0..2000 {
+            assert_copies_agree(i, fast_arg(&mut rng, k % 2 == 0));
+        }
+        for _ in 0..500 {
+            assert_copies_agree(i, big_arg(&mut rng));
+        }
+    }
+    let fixed = SPECIAL
+        .into_iter()
+        .chain(SMALL_FALL_THROUGH.map(|(_, x)| x))
+        .chain(HARD_CASES.map(|(_, x)| x))
+        .chain([1, 2, 3, 255, 256, LAST_K].map(near_multiple))
+        .chain([KM, 1e5, 3e5, 1e10, 1e22, 1e300])
+        .chain(NEAR_STEPS.map(|(x, _)| x));
+    for x in fixed {
+        for i in [SIN, COS, TAN] {
+            assert_copies_agree(i, x);
+        }
+    }
+    for (name, x) in regressions() {
+        let i = FUNCTIONS.iter().position(|(n, _)| *n == name).unwrap();
+        assert_copies_agree(i, x.parse().unwrap());
+    }
+}
+
 // sin, cos and tan on random arguments of the fast path, as `check` checks them (against MPFR
 // where the tests have it): uniform over its range, and of each exponent from -27 to 15. Most of
 // its rounding tests pass on both sets.
@@ -740,13 +833,17 @@ fn reduced(x: f64) -> i64 {
 // Whether the fast paths of sin, cos and tan all decline `x`, before any rounding test: cos at
 // |x|, as `cos` takes it.
 fn declined(x: f64) -> bool {
-    fast_sin(x).is_none() && fast_cos(x.abs()).is_none() && fast_tan(x).is_none()
+    fast_sin::<HAS_FMA>(x).is_none()
+        && fast_cos::<HAS_FMA>(x.abs()).is_none()
+        && fast_tan::<HAS_FMA>(x).is_none()
 }
 
 // Whether the fast paths of sin, cos and tan all take `x`, before any rounding test, as
 // `declined` reads them.
 fn answered(x: f64) -> bool {
-    fast_sin(x).is_some() && fast_cos(x.abs()).is_some() && fast_tan(x).is_some()
+    fast_sin::<HAS_FMA>(x).is_some()
+        && fast_cos::<HAS_FMA>(x.abs()).is_some()
+        && fast_tan::<HAS_FMA>(x).is_some()
 }
 
 // The n = 2048 q + i of items 1 and 2 of `reduction_edges`: q from 0 to 3 and on across the
@@ -790,9 +887,9 @@ fn exact_rh() -> Vec<(i64, f64)> {
 // it.
 fn fast_parts(i: usize, x: f64) -> Option<(f64, f64)> {
     match i {
-        SIN => fast_sin(x),
-        COS => fast_cos(x.abs()),
-        _ => fast_tan(x),
+        SIN => fast_sin::<HAS_FMA>(x),
+        COS => fast_cos::<HAS_FMA>(x.abs()),
+        _ => fast_tan::<HAS_FMA>(x),
     }
 }
 
@@ -869,7 +966,7 @@ fn reduction_edges() {
     }
     for x in [LIMIT, -LIMIT] {
         assert!(
-            fast_reduce(x).is_none() && fast_reduce_big(x).is_some(),
+            fast_reduce(x).is_none() && fast_reduce_big::<HAS_FMA>(x).is_some(),
             "{x:e}"
         );
         assert!(
@@ -961,10 +1058,10 @@ fn reduction_bits(r: Option<(i64, f64, f64, f64)>) -> Option<(i64, u64, u64, u64
 // |x| <= u/2 (1 + 2^-24), rh, rl and rr are finite, rr = RN(rh + rl), |rl| <= 2^-37 and
 // |rh| >= 2^-65. Returns whether `fast_reduce_big` takes x.
 fn check_big(x: f64) -> bool {
-    let big = fast_reduce_big(x);
+    let big = fast_reduce_big::<HAS_FMA>(x);
     let want = if x.abs() < LIMIT { fast_reduce(x) } else { big };
     assert_eq!(
-        reduction_bits(fast_reduce_any(x)),
+        reduction_bits(fast_reduce_any::<HAS_FMA>(x)),
         reduction_bits(want),
         "fast_reduce_any({x:e})"
     );
@@ -1511,9 +1608,9 @@ mod mpfr {
     // too: its core takes either sign.
     fn core(i: usize, x: f64) -> Option<(f64, f64)> {
         match i {
-            SIN => fast_sin(x),
-            COS => fast_cos(x),
-            _ => fast_tan(x),
+            SIN => fast_sin::<HAS_FMA>(x),
+            COS => fast_cos::<HAS_FMA>(x),
+            _ => fast_tan::<HAS_FMA>(x),
         }
     }
 
@@ -1754,9 +1851,9 @@ mod mpfr {
                 }
                 for up in [false, true] {
                     let r = match i {
-                        SIN => fast_sin_dir(x, up),
-                        COS => fast_cos_dir(x, up),
-                        _ => fast_tan_dir(x, up),
+                        SIN => fast_sin_dir::<HAS_FMA>(x, up),
+                        COS => fast_cos_dir::<HAS_FMA>(x, up),
+                        _ => fast_tan_dir::<HAS_FMA>(x, up),
                     };
                     let want = if i != TAN && y.to_f64().abs() == 1.0 {
                         Some(if up { MPFR[i].1(x) } else { MPFR[i].0(x) })
@@ -1856,7 +1953,7 @@ mod mpfr {
         let step_hi = Float::with_val(BIG_PREC, &step + margin);
         let step_lo = Float::with_val(BIG_PREC, &step - margin);
         let at_zero = k.mod_u(2048) == 0;
-        let Some((n, rh, rl, rr)) = fast_reduce_big(x) else {
+        let Some((n, rh, rl, rr)) = fast_reduce_big::<HAS_FMA>(x) else {
             assert!(
                 at_zero || (s_rho >= -margin && s_rho <= step_hi),
                 "fast_reduce_big({x:e}) declines it, with k = {k} and ρ = {:e}",
@@ -1999,7 +2096,7 @@ mod mpfr {
             for y in around(x, 2) {
                 for z in [y, -y] {
                     let (n, rh, rl, _) = fast_reduce(z).unwrap();
-                    let (sh, sl, sr) = fast_band_reduce(n, rh, rl);
+                    let (sh, sl, sr) = fast_band_reduce::<HAS_FMA>(n, rh, rl);
                     let rho = Float::with_val(PREC, z) - Float::with_val(PREC, &u * n);
                     let mut err = Float::with_val(PREC, &rho - sh) - sl;
                     err.abs_mut();

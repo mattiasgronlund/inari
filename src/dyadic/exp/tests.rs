@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::dyadic::tests::Rng;
+use crate::simd::HAS_FMA;
 use std::f64::consts::{LN_10, LN_2, LOG10_2};
 
 type Directed = fn(f64, bool) -> f64;
@@ -690,25 +691,34 @@ fn random_arguments() {
     }
 }
 
-// Every function of `FUNCTIONS` gives the same `f64`s, in both directions and to nearest, with
-// the fast paths as with them disabled, on random arguments uniform in [-a, a), and most of
-// their rounding tests pass. a is beyond the range of the fast path: 800 for e^x, 2^x and 10^x,
+// The random arguments of `fast_path_agrees_with_kernel`, as (function, a) for arguments uniform
+// in [-a, a) (`symmetric`). a is beyond the range of the fast path: 800 for e^x, 2^x and 10^x,
 // 712 for sinh and cosh, whose fast paths stop near 710.48, and 21 for tanh, whose rules settle
 // |x| >= 20.
+const FAST_PATH_RANGES: [(usize, f64); 6] = [
+    (EXP, 800.0),
+    (EXP2, 800.0),
+    (EXP10, 800.0),
+    (SINH, 712.0),
+    (COSH, 712.0),
+    (TANH, 21.0),
+];
+
+// A random `f64` uniform in [-a, a).
+fn symmetric(rng: &mut Rng, a: f64) -> f64 {
+    (rng.below(1 << 53) as f64 / (1u64 << 52) as f64 - 1.0) * a
+}
+
+// Every function of `FUNCTIONS` gives the same `f64`s, in both directions and to nearest, with
+// the fast paths as with them disabled, on random arguments uniform in [-a, a)
+// (`FAST_PATH_RANGES`), and most of their rounding tests pass.
 #[test]
 fn fast_path_agrees_with_kernel() {
     let mut rng = Rng(87);
-    for (i, a) in [
-        (EXP, 800.0),
-        (EXP2, 800.0),
-        (EXP10, 800.0),
-        (SINH, 712.0),
-        (COSH, 712.0),
-        (TANH, 21.0),
-    ] {
+    for (i, a) in FAST_PATH_RANGES {
         crate::dyadic::fast::reset_fast_counts();
         for _ in 0..2000 {
-            let x = (rng.below(1 << 53) as f64 / (1u64 << 52) as f64 - 1.0) * a;
+            let x = symmetric(&mut rng, a);
             let fast = (
                 FUNCTIONS[i].1(x, false),
                 FUNCTIONS[i].1(x, true),
@@ -741,6 +751,100 @@ fn fast_path_agrees_with_kernel() {
     }
 }
 
+// The function `i` of `FUNCTIONS` at `x`, toward -∞, toward +∞ and to nearest, by the bodies of
+// its entries with `FMA` for the products (`level_entry!`).
+fn bodies<const FMA: bool>(i: usize, x: f64) -> [f64; 3] {
+    match i {
+        EXP => [
+            exp_with::<FMA>(x, false),
+            exp_with::<FMA>(x, true),
+            exp_near_with::<FMA>(x),
+        ],
+        EXP2 => [
+            exp2_with::<FMA>(x, false),
+            exp2_with::<FMA>(x, true),
+            exp2_near_with::<FMA>(x),
+        ],
+        EXP10 => [
+            exp10_with::<FMA>(x, false),
+            exp10_with::<FMA>(x, true),
+            exp10_near_with::<FMA>(x),
+        ],
+        SINH => [
+            sinh_dir_with::<FMA, false>(x),
+            sinh_dir_with::<FMA, true>(x),
+            sinh_near_with::<FMA>(x),
+        ],
+        COSH => [
+            cosh_with::<FMA>(x, false),
+            cosh_with::<FMA>(x, true),
+            cosh_near_with::<FMA>(x),
+        ],
+        TANH => [
+            tanh_with::<FMA>(x, false),
+            tanh_with::<FMA>(x, true),
+            tanh_near_with::<FMA>(x),
+        ],
+        _ => unreachable!(),
+    }
+}
+
+// The function `i` at `x`, as `bodies` gives it, by the copy of each entry without an FMA in its
+// products, by the copy with one (`level_entry!`), and by the functions of `FUNCTIONS` and
+// `NEAR`, which call the entries (sinh through `sinh_dir`).
+fn copies(i: usize, x: f64) -> [[f64; 3]; 3] {
+    [
+        bodies::<false>(i, x),
+        bodies::<true>(i, x),
+        [
+            FUNCTIONS[i].1(x, false),
+            FUNCTIONS[i].1(x, true),
+            NEAR[i](x),
+        ],
+    ]
+}
+
+// Checks that the three rows of `copies` are the same `f64`s.
+fn assert_copies_agree(what: &str, copies: [[f64; 3]; 3]) {
+    let bits = copies.map(|row| row.map(f64::to_bits));
+    assert!(
+        bits[0] == bits[1] && bits[1] == bits[2],
+        "{what}: {:?} without an FMA, {:?} with one, {:?} by the entries",
+        copies[0],
+        copies[1],
+        copies[2]
+    );
+}
+
+// The copies of the exponentials and hyperbolic functions without an FMA and with one, and the
+// entries, give the same `f64`s, bit for bit, in both directions and to nearest, on the random
+// arguments of `fast_path_agrees_with_kernel` and of `fast_hyp_range_random` (`HYP_BRANCHES`)
+// and on `regressions()`. `rocq/theories/FastExp.v` and `rocq/theories/FastHyp.v` prove it of
+// the fast paths (`fast_exp_dir_fma`, `fast_sinh_dir_fma` and the others) at the arguments that
+// the entries give them; this test checks the code as compiled, where the entries call the copy
+// built with the target feature `fma` in a build with the dispatch, on a CPU that has it.
+#[test]
+fn copies_agree() {
+    let mut rng = Rng(876);
+    for (i, a) in FAST_PATH_RANGES {
+        for _ in 0..2000 {
+            let x = symmetric(&mut rng, a);
+            assert_copies_agree(&format!("{}({x:e})", FUNCTIONS[i].0), copies(i, x));
+        }
+    }
+    for (i, a, b) in HYP_BRANCHES {
+        for n in 0..2000 {
+            let t = in_range(&mut rng, a, b, n % 2 == 1);
+            let x = either_sign(&mut rng, t);
+            assert_copies_agree(&format!("{}({x:e})", FUNCTIONS[i].0), copies(i, x));
+        }
+    }
+    for (name, x) in regressions() {
+        let x: f64 = x.parse().unwrap();
+        assert_copies_agree(&format!("{name}({x:e})"), copies(index(name), x));
+    }
+}
+
 // c in z = x c, the argument of e^z that the fast path computes, for exp, exp2 and exp10 in the
 // order of `FUNCTIONS`. The fast path takes z in [-707, 709].
 const SCALES: [f64; 3] = [1.0, LN_2, LN_10];
@@ -749,9 +853,9 @@ const SCALES: [f64; 3] = [1.0, LN_2, LN_10];
 // computes them, or `None` out of the range of the fast path.
 fn fast_parts(i: usize, x: f64) -> Option<(f64, f64, i64)> {
     match i {
-        EXP => fast_exp(x, 0.0),
-        EXP2 => fast_exp_by(x, LN2),
-        EXP10 => fast_exp_by(x, LN10),
+        EXP => fast_exp::<HAS_FMA>(x, 0.0),
+        EXP2 => fast_exp_by::<HAS_FMA>(x, LN2),
+        EXP10 => fast_exp_by::<HAS_FMA>(x, LN10),
         _ => unreachable!(),
     }
 }
@@ -760,9 +864,9 @@ fn fast_parts(i: usize, x: f64) -> Option<(f64, f64, i64)> {
 // range of `fast_parts`, from `fast_exp_edge`, as the function computes them.
 fn edge_parts(i: usize, x: f64) -> Option<(f64, f64, i64)> {
     match i {
-        EXP => fast_exp_edge(x, 0.0),
-        EXP2 => fast_exp_by_edge(x, LN2),
-        EXP10 => fast_exp_by_edge(x, LN10),
+        EXP => fast_exp_edge::<HAS_FMA>(x, 0.0),
+        EXP2 => fast_exp_by_edge::<HAS_FMA>(x, LN2),
+        EXP10 => fast_exp_by_edge::<HAS_FMA>(x, LN10),
         _ => unreachable!(),
     }
 }
@@ -1390,9 +1494,9 @@ const HYP_BRANCHES: [(usize, f64, f64); 9] = [
 // function computes them, or `None` out of the range of the fast path.
 fn hyp_parts(i: usize, t: f64) -> Option<(f64, f64, i64, f64)> {
     match i {
-        SINH => fast_sinh_pos(t),
-        COSH => fast_cosh_pos(t),
-        TANH => fast_tanh_pos(t),
+        SINH => fast_sinh_pos::<HAS_FMA>(t),
+        COSH => fast_cosh_pos::<HAS_FMA>(t),
+        TANH => fast_tanh_pos::<HAS_FMA>(t),
         _ => unreachable!(),
     }
 }
@@ -1710,7 +1814,7 @@ mod mpfr {
             check_parts(
                 &format!("fast_exp({zh:e}, {zl:e})"),
                 y,
-                fast_exp(zh, zl).unwrap(),
+                fast_exp::<HAS_FMA>(zh, zl).unwrap(),
                 -1021..=1022,
                 pow2(-68) - pow2(-72),
             );
@@ -1732,7 +1836,7 @@ mod mpfr {
                     uniform(&mut rng, -707.0 / s, 709.0 / s),
                     log_uniform(&mut rng, -56, 9),
                 ] {
-                    if let Some(parts) = fast_exp_by(x, c) {
+                    if let Some(parts) = fast_exp_by::<HAS_FMA>(x, c) {
                         let mut y = Float::with_val(PREC, k * x);
                         y.exp_mut();
                         let what = format!("fast_exp_by({x:e}) of {}", FUNCTIONS[i].0);
@@ -1768,7 +1872,7 @@ mod mpfr {
         }
         for (zh, zl) in args {
             let what = format!("fast_exp_edge({zh:e}, {zl:e})");
-            let parts = fast_exp_edge(zh, zl).expect(&what);
+            let parts = fast_exp_edge::<HAS_FMA>(zh, zl).expect(&what);
             // zh + zl is exact in 300 bits.
             let mut y = Float::with_val(PREC, zh) + zl;
             y.exp_mut();
@@ -1783,10 +1887,10 @@ mod mpfr {
             for (a, b) in ranges {
                 for _ in 0..2000 {
                     let x = uniform(&mut rng, a, b);
-                    if fast_exp_by(x, c).is_some() {
+                    if fast_exp_by::<HAS_FMA>(x, c).is_some() {
                         continue;
                     }
-                    let parts = fast_exp_by_edge(x, c).unwrap();
+                    let parts = fast_exp_by_edge::<HAS_FMA>(x, c).unwrap();
                     let mut y = Float::with_val(PREC, k * x);
                     y.exp_mut();
                     let what = format!("fast_exp_by_edge({x:e}) of {}", FUNCTIONS[i].0);
@@ -1948,9 +2052,9 @@ mod mpfr {
             for t in args {
                 let y = hyp(i, t);
                 let (h, l) = if i == SINH {
-                    fast_sinh_poly(t)
+                    fast_sinh_poly::<HAS_FMA>(t)
                 } else {
-                    fast_cosh_poly(t)
+                    fast_cosh_poly::<HAS_FMA>(t)
                 };
                 let mut d = Float::with_val(PREC, &y - h);
                 d -= l;
@@ -1999,7 +2103,7 @@ mod mpfr {
             let dh = high(&mut rng, 0.5, 4.0);
             let nl = low(&mut rng, nh, -50);
             let dl = low(&mut rng, dh, -52);
-            let (qh, ql) = dd_div(nh, nl, dh, dl);
+            let (qh, ql) = dd_div::<HAS_FMA>(nh, nl, dh, dl);
             let q = (Float::with_val(PREC, nh) + nl) / (Float::with_val(PREC, dh) + dl);
             let mut d = Float::with_val(PREC, &q - qh);
             d -= ql;

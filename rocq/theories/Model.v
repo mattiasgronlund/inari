@@ -47,7 +47,14 @@
     toward +inf, to nearest with ties away from zero, and toward zero, and
     [f64::abs] is Flocq's [Babs]. Flocq has no remainder, so [%] of [f64]s
     is [frem] below. A const generic parameter, such as [FMA], is an
-    ordinary argument.
+    ordinary argument. The functions of the dyadic kernel on the way from
+    its entries to [two_prod_err], in the sections from [Fast] to
+    [DyadicRoot], take a const generic [FMA] and pass it on, and the
+    signatures in the comments of those sections leave it out. A
+    definition there with an argument [fma] takes it for [FMA], unless its
+    comment says otherwise, and one without, of a function that takes
+    [FMA], transcribes it with [false] for [FMA], as the section [Driver]
+    of [DyadicExp] explains.
 
     NaN payloads and signs are not modelled: all NaNs are the same value, so
     [opp] keeps a NaN as it is where Rust's unary [-] flips its sign bit,
@@ -1778,7 +1785,7 @@ Definition normalize (h l : f64) : f64 * f64 * Z :=
   (scale h (- k), scale l (- k), k).
 
 (** [pub(crate) fn dd_div(nh: f64, nl: f64, dh: f64, dl: f64) -> (f64,
-    f64)], where [fma] is [HAS_FMA], as in [DyadicExp.fast_exp]. *)
+    f64)], where [fma] is [FMA], as in [DyadicExp.fast_exp]. *)
 Definition dd_div (fma : bool) (nh nl dh dl : f64) : f64 * f64 :=
   let qh := div nh dh in
   let p := mul qh dh in
@@ -1915,7 +1922,7 @@ Definition round_near_signed (h l : f64) (e : Z) : option f64 :=
   else round_near h l e.
 
 (** [pub(crate) fn dd_sqrt(ah: f64, al: f64) -> (f64, f64)], where
-    [ah.sqrt()] is [fsqrt ah] and [fma] is [HAS_FMA], as in [dd_div].
+    [ah.sqrt()] is [fsqrt ah] and [fma] is [FMA], as in [dd_div].
     [FastDdSqrt.v] proves it. *)
 Definition dd_sqrt (fma : bool) (ah al : f64) : f64 * f64 :=
   let s := fsqrt ah in
@@ -2344,7 +2351,7 @@ Definition tbl (t : list (Z * Z)) (i : Z) : f64 * f64 :=
     [(-707.0..=709.0).contains(&zh)] is [-707.0 <= zh && zh <= 709.0],
     [ks.to_bits() as i32 as i64] is [low_i32 (to_bits ks)], [k & 63] and
     [(k >> 6) & 63] are [Z.land] and [Z.shiftr] of the integer [k], [k >>
-    12] is [Z.shiftr k 12], and [fma] is [HAS_FMA] (see the section
+    12] is [Z.shiftr k 12], and [fma] is [FMA] (see the section
     [Driver]). It never panics, so its [option] is Rust's [Option].
     [FastExpReduce.v] and [FastExpCore.v] prove it. *)
 Definition fast_exp (fma : bool) (zh zl : f64) : option (f64 * f64 * Z) :=
@@ -2484,7 +2491,7 @@ Definition err68 : f64 := from_bits 0x3bb0000000000000.
     mod 2^64], and [<< 52] drops the bits above 64. *)
 Definition two_pow (e : Z) : f64 := from_bits (Z.shiftl ((e + 1023) mod 2^64) 52 mod 2^64).
 
-(** [fn fast_sinh_poly(t: f64) -> (f64, f64)], where [fma] is [HAS_FMA],
+(** [fn fast_sinh_poly(t: f64) -> (f64, f64)], where [fma] is [FMA],
     as in [fast_exp]. [FastHypPoly.v] proves it. *)
 Definition fast_sinh_poly (fma : bool) (t : f64) : f64 * f64 :=
   let uh := mul t t in
@@ -2639,8 +2646,15 @@ Definition fast_tanh_near (fma : bool) (x : f64) : option f64 :=
 
     [exp], [exp2], [exp10], [sinh], [cosh] and [tanh] try the fast path
     before [ziv], and their forms rounded to nearest before [ziv_near].
-    [HAS_FMA] depends on the target. The fast path takes it as an
-    argument, and the functions below pass [false]:
+    The fast path takes [FMA] as the argument [fma]. Each entry of the
+    file, such as [exp], [sinh_dir] and [exp_near], is defined by the
+    macro [level_entry!] of [src/dyadic/level.rs] from its body, a
+    function such as [exp_with] that takes [FMA], and the definitions
+    below transcribe the bodies. The entry runs its body with [FMA] equal
+    to [HAS_FMA], which depends on the target, or, in a build with
+    [cfg(inari_kernel_dispatch)] (see [build.rs]), with [true] in a copy
+    compiled with the target feature [fma] on a CPU that has [fma], and
+    with [false] on any other. The functions below pass [false]:
     [FastExp.fast_exp_dir_fma], [FastHyp.fast_sinh_dir_fma] and the others
     show that [true] gives the same result at every argument that reaches
     it. *)
@@ -3381,7 +3395,7 @@ Definition ln_split (x : f64) : Z * f64 * Z :=
    if Z.eqb c 1 then Z.shiftr j 1 - 106 else j + 150).
 
 (** [fn log1p_poly(z1: f64, z2: f64) -> (f64, f64)], where [fma] is
-    [HAS_FMA] (see the section [Driver]). [FastLogPoly.v] proves it. *)
+    [FMA] (see the section [Driver]). [FastLogPoly.v] proves it. *)
 Definition log1p_poly (fma : bool) (z1 z2 : f64) : f64 * f64 :=
   let sh := mul z1 z1 in
   let sl := Generic.two_prod_err fma z1 z1 sh in
@@ -3439,7 +3453,7 @@ Definition fast_log_by (fma : bool) (x : f64) (c d : Z * Z) : option (f64 * f64 
   normalize h l.
 
 (** [fn log1p_poly_acc(z1: f64, z2: f64) -> (f64, f64)], where [fma] is
-    [HAS_FMA], [-0.5 * sh] is [mul neg_half sh] and [0.5 * sl] is [mul
+    [FMA], [-0.5 * sh] is [mul neg_half sh] and [0.5 * sl] is [mul
     half sl]. [FastPowPoly.v] proves it. *)
 Definition log1p_poly_acc (fma : bool) (z1 z2 : f64) : f64 * f64 :=
   let sh := mul z1 z1 in
@@ -3702,8 +3716,9 @@ Definition fast_atanh_near (fma : bool) (x : f64) : option f64 :=
     [ln], [log2], [log10], [asinh], [acosh] and [atanh] try the fast path
     after their rules and before [ziv], and their forms rounded to nearest
     before [ziv_near].
-    [HAS_FMA] depends on the target. The fast path takes it as an
-    argument, and the functions below pass [false]: [FastLog.fast_ln_dir_fma]
+    The fast path takes [FMA] as an argument, which the entries of the
+    file pick as in [DyadicExp] (the section [Driver]), and the functions
+    below pass [false]: [FastLog.fast_ln_dir_fma]
     and the others show that [true] gives the same result at every
     argument that reaches it. *)
 Section Driver.
@@ -4135,7 +4150,7 @@ Definition atbl (i : Z) : f64 * f64 :=
   let '(h, l) := nth (Z.to_nat i) ATAN_TABLE (0, 0) in (from_bits h, from_bits l).
 
 (** [fn fast_atan_poly(uh: f64, ul: f64) -> (f64, f64)], where [fma] is
-    [HAS_FMA] (see the section [Driver]) and the literal [2.0] is
+    [FMA] (see the section [Driver]) and the literal [2.0] is
     [DyadicExp.two]. [FastAtanPoly.v] proves it. *)
 Definition fast_atan_poly (fma : bool) (uh ul : f64) : f64 * f64 :=
   let vh := mul uh uh in
@@ -4579,8 +4594,9 @@ Definition two_128 : f64 := from_bits 0x47f0000000000000.
 Definition two_996 : f64 := from_bits 0x7e30000000000000.
 Definition two_m1021 : f64 := from_bits 0x0020000000000000.
 
-(** [fn exact_div(y: f64, x: f64) -> Option<f64>], with [HAS_FMA] the
-    parameter [fma]. [tiny_quotient] and [midpoint_quotient] pass [false]:
+(** [fn exact_div(y: f64, x: f64) -> Option<f64>], with [FMA] the
+    parameter [fma]. [tiny_quotient] and [midpoint_quotient] pass their
+    [FMA], and their definitions below [false]:
     [AtanExactDiv.exact_div_fma] shows that [true] gives the same for
     finite [y <> 0] and [|y| < x < 2^996], at which they call it.
     [AtanExactDiv.v] proves it. *)
@@ -4599,8 +4615,9 @@ Definition exact_div (fma : bool) (y x : f64) : option f64 :=
 
     [atan], [asin], [acos] and [atan2] try the fast path after their rules
     and before [ziv], and their forms rounded to nearest before
-    [ziv_near]. The fast path takes [HAS_FMA] as an argument, and the
-    functions below pass [false], as in [DyadicExp]:
+    [ziv_near]. The fast path takes [FMA] as an argument, which the
+    entries of the file pick as in [DyadicExp] (the section [Driver]), and
+    the functions below pass [false]:
     [FastAtan.fast_atan_dir_fma], [FastAsin.fast_asin_dir_fma] and the
     others show that [true] gives the same result at every argument that
     reaches it. *)
@@ -5061,7 +5078,7 @@ Definition fast_reduce (x : f64) : option (Z * f64 * f64 * f64) :=
     Some (DyadicExp.low_i32 (to_bits ks), rh, rl, add rh rl).
 
 (** [fn fast_mul(ah: f64, al: f64, bh: f64, bl: f64) -> (f64, f64)], where
-    [fma] is [HAS_FMA] (see the section [Driver]). *)
+    [fma] is [FMA] (see the section [Driver]). *)
 Definition fast_mul (fma : bool) (ah al bh bl : f64) : f64 * f64 :=
   let p := mul ah bh in
   (p, add (Generic.two_prod_err fma ah bh p) (add (mul ah bl) (mul al bh))).
@@ -5405,9 +5422,10 @@ Definition fast_tan_near (fma : bool) (x : f64) : option f64 :=
     returns only where a rounding test passes ([DyDriver.ziv_strict]).
 
     [sin], [cos] and [tan] try the fast path after their rules and before
-    [ziv], and their forms rounded to nearest before [ziv_near]. [HAS_FMA]
-    depends on the target. The fast path takes it as an argument, and the
-    functions below pass [false]: [FastTrig.fast_sin_dir_fma] and the
+    [ziv], and their forms rounded to nearest before [ziv_near]. The fast
+    path takes [FMA] as an argument, which the entries of the file pick as
+    in [DyadicExp] (the section [Driver]), and the functions below pass
+    [false]: [FastTrig.fast_sin_dir_fma] and the
     others show that [true] gives the same result at every argument that
     reaches it. *)
 Section Driver.
@@ -5419,7 +5437,9 @@ Variable ziv : (nat -> option Dyadic.encl) -> bool -> nat -> option f64.
     for [UP], where [f64::NAN] is [B754_nan], [x.abs()] is [fabs x], and,
     of an [Option<f64>] [o], [o.or_else(|| p)] is [match o with Some v =>
     Some v | None => p end] and [o.unwrap_or_else(|| e)] is [match o with
-    Some v => Some v | None => e end]. *)
+    Some v => Some v | None => e end]. In a build with
+    [cfg(inari_kernel_dispatch)], the body ends in an [if let] chain
+    instead, which is the same [match]. *)
 Definition sin_dir_with (x : f64) (up : bool) : option f64 :=
   if negb (is_finite x) then Some B754_nan
   else if lt (fabs x) DyadicExp.tiny_hyp then Some (DyadicExp.toward_zero x up)
@@ -5683,7 +5703,7 @@ Definition ev_pow (x y : f64) (n : nat) : option Dyadic.encl :=
   let* w := if less then Dyadic.encl_add n zl ya else Dyadic.encl_sub n zl ya in
   DyadicExp.scaled n w k h l.
 
-(** [fn pow_t(x: f64, y: f64) -> (f64, f64)], where [fma] is [HAS_FMA].
+(** [fn pow_t(x: f64, y: f64) -> (f64, f64)], where [fma] is [FMA].
     [FastPowMul.v] bounds it. *)
 Definition pow_t (fma : bool) (x y : f64) : f64 * f64 :=
   let '(lh, ll) := DyadicLog.ln_acc fma x in
@@ -5736,10 +5756,12 @@ Definition fast_pow_near (fma : bool) (x y : f64) : option f64 :=
 
 (** [fn fast_pow_dir_call(x: f64, y: f64, up: bool) -> Option<f64>] and
     [fn fast_pow_near_call(x: f64, y: f64) -> Option<f64>], which [pow]
-    and [pow_near] call: [fast_pow_dir] and [fast_pow_near] behind
-    [#[inline(never)]], where those are [#[inline(always)]], so that
-    [pown_pos] and [pown_pos_near] inline the fast path and [pow] and
-    [pow_near] call it. [Model.v] has no attributes. [DyPow.v] and
+    and [pow_near] call: entries that [level_entry!] defines from the
+    bodies [fast_pow_dir] and [fast_pow_near] (see the section [Driver]),
+    behind [#[inline(never)]], where those are [#[inline(always)]], so
+    that [pown_pos] and [pown_pos_near] inline the fast path and [pow] and
+    [pow_near] call it, and [fma] is the [FMA] with which the entry runs
+    its body. [Model.v] has no attributes. [DyPow.v] and
     [DyPowNear.v] use them. *)
 Definition fast_pow_dir_call (fma : bool) (x y : f64) (up : bool) : option f64 :=
   fast_pow_dir fma x y up.
@@ -5758,8 +5780,10 @@ Definition fast_pow_near_call (fma : bool) (x y : f64) : option f64 :=
     integer [y] to [pown_pos_ziv], which is [pown_pos] without the fast
     path, and any other [y] to [ziv]. Their forms rounded to nearest do the
     same before [ziv_near], with [exact_near] after the fast path.
-    [HAS_FMA] depends on the target. The fast path takes it as
-    an argument, and the functions below pass [false]:
+    The fast path takes [FMA] as an argument. The entries of the file,
+    [fast_pow_dir_call], [fast_pow_near_call], [pown_pos] and
+    [pown_pos_near], pick it as in [DyadicExp] (the section [Driver]), and
+    the functions below pass [false]:
     [FastPow.fast_pow_dir_fma] and [FastPow.fast_pow_near_fma] show that
     [true] gives the same result at every argument that reaches it. *)
 Section Driver.
@@ -6062,7 +6086,7 @@ Definition cbrt_res : f64 := from_bits 0x3df0000000000000.
 Definition err_cbrt : f64 := from_bits 0x3be0000000000000.
 
 (** [fn cbrt_step(y: f64, zz: f64, rr: f64) -> Option<(f64, f64)>], where
-    [fma] is [HAS_FMA], as in [DyadicExp.fast_exp], and [-dy] is
+    [fma] is [FMA], as in [DyadicExp.fast_exp], and [-dy] is
     [opp dy]. [FastCbrtStep.v] proves it. *)
 Definition cbrt_step (fma : bool) (y zz rr : f64) : option (f64 * f64) :=
   let y2 := mul y y in
@@ -6137,11 +6161,12 @@ Definition fast_cbrt_near (fma : bool) (x : f64) : option f64 :=
   | None => None
   end.
 
-(** [pub(crate) fn cbrt(x: f64, up: bool) -> f64]. [HAS_FMA] depends on
-    the target. The fast path takes it as an argument, and [cbrt] and
-    [cbrt_near] pass [false]: [FastCbrt.fast_cbrt_dir_fma] and
-    [FastCbrt.fast_cbrt_near_fma] show that [true] gives the same result
-    at every argument that reaches it. *)
+(** [pub(crate) fn cbrt(x: f64, up: bool) -> f64]. The fast path takes
+    [FMA] as an argument, which the entries of the file, [cbrt],
+    [cbrt_near], [hypot_dir] and [hypot_near], pick as in [DyadicExp]
+    (the section [Driver]), and [cbrt] and [cbrt_near] pass [false]:
+    [FastCbrt.fast_cbrt_dir_fma] and [FastCbrt.fast_cbrt_near_fma] show
+    that [true] gives the same result at every argument that reaches it. *)
 Definition cbrt (x : f64) (up : bool) : option f64 :=
   if eq x zero || negb (is_finite x) then Some x
   else match fast_cbrt_dir false x up with
@@ -6191,7 +6216,7 @@ Definition err_hypot : f64 := from_bits 0x39d0000000000000.
     [(big.to_bits() >> 52) as i64] is [Z.shiftr (to_bits big) 52],
     [((2045 - eb) as u64) << 52] is [Z.shiftl (2045 - eb) 52], as
     [2045 - eb] is in [1, 2044] there, the [i64] operations, which cannot
-    overflow, are computed without a check, and [fma] is [HAS_FMA].
+    overflow, are computed without a check, and [fma] is [FMA].
     [FastHypotDd.v] proves it. *)
 Definition hypot_dd (fma : bool) (big small : f64) : option (f64 * f64 * Z) :=
   let eb := Z.shiftr (to_bits big) 52 in

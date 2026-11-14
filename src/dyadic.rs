@@ -60,6 +60,7 @@ mod atan;
 mod consts;
 mod exp;
 mod fast;
+mod level;
 mod log;
 mod pow;
 mod root;

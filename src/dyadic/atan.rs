@@ -125,9 +125,10 @@ use super::{
     consts::pi,
     exp::{away, toward_zero, two_pow, SHIFTER, TINY_HYP, TINY_NEAR},
     fast::{dd_div, dd_sqrt, fast_two_sum, normalize, round_dir_err, round_near_err, two_sum},
+    level::level_entry,
     ziv, ziv_near, Dyadic, Encl, Eval,
 };
-use crate::simd::{two_prod_err, HAS_FMA};
+use crate::simd::two_prod_err;
 use tables::ATAN_TABLE;
 
 mod tables;
@@ -414,12 +415,12 @@ const TWO_M1021: f64 = 2.0 * f64::MIN_POSITIVE;
 // (`exact_div_correct`), and that the function returns the same with and without an FMA
 // (`exact_div_fma`).
 #[inline(always)]
-fn exact_div(y: f64, x: f64) -> Option<f64> {
+fn exact_div<const FMA: bool>(y: f64, x: f64) -> Option<f64> {
     let q = y / x;
     let s = if y.abs() < TWO_M968 { TWO_128 } else { 1.0 };
     let (qs, ys) = (q * s, y * s);
     let p = qs * x;
-    if p == ys && two_prod_err::<HAS_FMA>(qs, x, p) == 0.0 {
+    if p == ys && two_prod_err::<FMA>(qs, x, p) == 0.0 {
         Some(q)
     } else {
         None
@@ -444,14 +445,14 @@ fn exact_div(y: f64, x: f64) -> Option<f64> {
 // log-uniform radii in [2^-4, 2^4)), against 2.11 to 2.17 without the attributes, 10 to 14 more
 // instructions per call. The attributes keep that layout if the `Dyadic` parts change.
 #[inline(always)]
-fn tiny_quotient(y: f64, x: f64) -> Option<f64> {
+fn tiny_quotient<const FMA: bool>(y: f64, x: f64) -> Option<f64> {
     if y.abs() * TWO_25 >= x {
         return None;
     }
     if x >= TWO_996 {
         return tiny_quotient_dyadic(y, x);
     }
-    match exact_div(y, x) {
+    match exact_div::<FMA>(y, x) {
         Some(q) if q.abs() < TINY_HYP => Some(q),
         _ => None,
     }
@@ -497,14 +498,14 @@ fn tiny_quotient_dyadic(y: f64, x: f64) -> Option<f64> {
 // the function returns every such quotient, the same map as the `Dyadic` division alone, the
 // tests check and Rocq does not prove.
 #[inline(always)]
-fn midpoint_quotient(y: f64, x: f64) -> Option<f64> {
+fn midpoint_quotient<const FMA: bool>(y: f64, x: f64) -> Option<f64> {
     if y.abs() * TWO_1021 >= x {
         return None;
     }
     if x >= TWO_996 {
         return midpoint_quotient_dyadic(y, x);
     }
-    match exact_div(2.0 * y, x) {
+    match exact_div::<FMA>(2.0 * y, x) {
         Some(q) if q.abs() < TWO_M1021 && q.to_bits() & 1 == 1 => {
             Some(f64::from_bits(q.to_bits() - 1) * 0.5)
         }
@@ -592,17 +593,18 @@ const A11: u64 = 0x3fb745d1745d1746;
 // |u| = 2^-7. `rocq/theories/FastAtanPoly.v` proves that ph + pl is within 2^-78 |u| of atan u,
 // and that it is the same with and without an FMA (`fast_atan_poly_correct` and
 // `fast_atan_poly_fma`).
-fn fast_atan_poly(uh: f64, ul: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan_poly<const FMA: bool>(uh: f64, ul: f64) -> (f64, f64) {
     let vh = uh * uh;
-    let vl = two_prod_err::<HAS_FMA>(uh, uh, vh) + 2.0 * (uh * ul);
+    let vl = two_prod_err::<FMA>(uh, uh, vh) + 2.0 * (uh * ul);
     let a = f64::from_bits(A5)
         - vh * (f64::from_bits(A7) - vh * (f64::from_bits(A9) - vh * f64::from_bits(A11)));
     let (bh, b0) = fast_two_sum(f64::from_bits(A3[0]), -(vh * a));
     let bl = b0 + f64::from_bits(A3[1]);
     let wh = uh * vh;
-    let wl = two_prod_err::<HAS_FMA>(uh, vh, wh) + (uh * vl + ul * vh);
+    let wl = two_prod_err::<FMA>(uh, vh, wh) + (uh * vl + ul * vh);
     let ch = wh * bh;
-    let cl = two_prod_err::<HAS_FMA>(wh, bh, ch) + (wh * bl + wl * bh);
+    let cl = two_prod_err::<FMA>(wh, bh, ch) + (wh * bl + wl * bh);
     // ch is about u^3 / 3, below |u| 2^-15, so that Fast2Sum applies, twice.
     let (sh, s0) = fast_two_sum(uh, -ch);
     fast_two_sum(sh, (s0 + ul) - cl)
@@ -617,14 +619,15 @@ fn fast_atan_poly(uh: f64, ul: f64) -> (f64, f64) {
 // exact as a pair, as the comments below say.
 // `rocq/theories/FastAtanCore.v` proves the bound, and that the result is the same with and
 // without an FMA (`fast_atan_core_correct` and `fast_atan_core_fma`).
-fn fast_atan_core(th: f64, tl: f64) -> Option<(f64, f64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan_core<const FMA: bool>(th: f64, tl: f64) -> Option<(f64, f64)> {
     // 64 th < 2^51, so adding and subtracting `SHIFTER` rounds it to an integer, within 1/2, and
     // i is in [0, 64]. ks is the integer SHIFTER + i, so its low 32 bits are i.
     let ks = th * 64.0 + SHIFTER;
     let kf = ks - SHIFTER;
     let i = ks.to_bits() as i32 as i64;
     if i == 0 {
-        return Some(fast_atan_poly(th, tl));
+        return Some(fast_atan_poly::<FMA>(th, tl));
     }
     let [gh, gl] = ATAN_TABLE[i as usize];
     let (gh, gl) = (f64::from_bits(gh), f64::from_bits(gl));
@@ -643,17 +646,17 @@ fn fast_atan_core(th: f64, tl: f64) -> Option<(f64, f64)> {
     // d = 1 + t c = dh + dl up to 2^-104 d: th c = p + pe exactly [Dekker], and 1 + p = s + s0
     // exactly by TwoSum [Knuth], as p may exceed 1.
     let p = th * c;
-    let pe = two_prod_err::<HAS_FMA>(th, c, p);
+    let pe = two_prod_err::<FMA>(th, c, p);
     let (s, s0) = two_sum(1.0, p);
     let (dh, dl) = fast_two_sum(s, s0 + (pe + tl * c));
     // u = n / d, by `dd_div`, which takes a positive numerator.
     let (uh, ul) = if nh > 0.0 {
-        dd_div(nh, nl, dh, dl)
+        dd_div::<FMA>(nh, nl, dh, dl)
     } else {
-        let (qh, ql) = dd_div(-nh, -nl, dh, dl);
+        let (qh, ql) = dd_div::<FMA>(-nh, -nl, dh, dl);
         (-qh, -ql)
     };
-    let (ph, pl) = fast_atan_poly(uh, ul);
+    let (ph, pl) = fast_atan_poly::<FMA>(uh, ul);
     // atan c >= atan(1/64) > 2^-7 >= |atan u|, so that Fast2Sum applies, twice.
     let (sh, s1) = fast_two_sum(gh, ph);
     Some(fast_two_sum(sh, s1 + (gl + pl)))
@@ -669,7 +672,8 @@ fn fast_atan_core(th: f64, tl: f64) -> Option<(f64, f64)> {
 // below |u|^11 / 11 < 2^-80 for |u| <= 2^-7. Where i = 0, the polynomial takes th itself.
 // `rocq/theories/FastAtan1.v` proves the bound, and that the result is the same with and
 // without an FMA (`fast_atan1_correct` and `fast_atan1_fma`).
-fn fast_atan1(th: f64, tl: f64) -> Option<(f64, f64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan1<const FMA: bool>(th: f64, tl: f64) -> Option<(f64, f64)> {
     // ks is the integer SHIFTER + i, so its low 32 bits are i.
     let ks = th * 64.0 + SHIFTER;
     let kf = ks - SHIFTER;
@@ -690,14 +694,14 @@ fn fast_atan1(th: f64, tl: f64) -> Option<(f64, f64)> {
         return None;
     }
     let p = th * c;
-    let pe = two_prod_err::<HAS_FMA>(th, c, p);
+    let pe = two_prod_err::<FMA>(th, c, p);
     let (s, s0) = two_sum(1.0, p);
     let (dh, dl) = fast_two_sum(s, s0 + (pe + tl * c));
     // (nh - q) - qe = nh - uh dh exactly: q + qe = uh dh exactly [Dekker], and nh - q is exact
     // by Sterbenz's lemma.
     let uh = nh / dh;
     let q = uh * dh;
-    let qe = two_prod_err::<HAS_FMA>(uh, dh, q);
+    let qe = two_prod_err::<FMA>(uh, dh, q);
     let ul = ((((nh - q) - qe) + nl) - uh * dl) / dh;
     let v = uh * uh;
     let b = f64::from_bits(A3[0])
@@ -712,10 +716,11 @@ fn fast_atan1(th: f64, tl: f64) -> Option<(f64, f64)> {
 // the remainder n - qh d is an `f64` [Boldo-Daumas], so that n / d = qh + (n - qh d) / d.
 // `rocq/theories/FastAtan1Quot.v` proves that qh + ql is within 2^-105 of n / d relatively
 // (`fast_quot_correct`).
-fn fast_quot(n: f64, d: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_quot<const FMA: bool>(n: f64, d: f64) -> (f64, f64) {
     let qh = n / d;
     let p = qh * d;
-    let pe = two_prod_err::<HAS_FMA>(qh, d, p);
+    let pe = two_prod_err::<FMA>(qh, d, p);
     (qh, ((n - p) - pe) / d)
 }
 
@@ -723,10 +728,11 @@ fn fast_quot(n: f64, d: f64) -> (f64, f64) {
 // r = 1 - qh t times qh in place of r / t: 1 / t = qh + r / t, and r / t - r qh = r^2 / t.
 // `rocq/theories/FastAtan1Quot.v` proves that qh + ql is within 2^-104 of 1 / t relatively
 // (`fast_recip_correct`).
-fn fast_recip(t: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_recip<const FMA: bool>(t: f64) -> (f64, f64) {
     let qh = 1.0 / t;
     let p = qh * t;
-    let pe = two_prod_err::<HAS_FMA>(qh, t, p);
+    let pe = two_prod_err::<FMA>(qh, t, p);
     (qh, ((1.0 - p) - pe) * qh)
 }
 
@@ -804,15 +810,16 @@ fn octant(swap: bool, neg: bool, rh: f64, rl: f64) -> (f64, f64, i64, f64) {
 // [-1021, 1022], and that the result is the same with and without an FMA
 // (`fast_atan_pos_correct` and `fast_atan_pos_fma`), and the same of `fast_atan2_pos` below
 // (`fast_atan2_pos_correct` and `fast_atan2_pos_fma`).
-fn fast_atan_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan_pos<const FMA: bool>(t: f64) -> Option<(f64, f64, i64, f64)> {
     if t <= 1.0 {
-        let (ah, al) = fast_atan_core(t, 0.0)?;
+        let (ah, al) = fast_atan_core::<FMA>(t, 0.0)?;
         Some(octant(false, false, ah, al))
     } else {
         let (m, k) = split(t);
-        let (qh, ql) = dd_div(1.0, 0.0, m, 0.0);
+        let (qh, ql) = dd_div::<FMA>(1.0, 0.0, m, 0.0);
         let p = two_pow(-k);
-        let (ah, al) = fast_atan_core(qh * p, ql * p)?;
+        let (ah, al) = fast_atan_core::<FMA>(qh * p, ql * p)?;
         Some(octant(true, false, ah, al))
     }
 }
@@ -822,17 +829,18 @@ fn fast_atan_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
 // d = max(a, b) and q = n / d in (0, 1], atan2(a, x) is atan q, π - atan q, π/2 - atan q or
 // π/2 + atan q, by the octant, as in the kernel's `Atan2`. q is (mn / md) 2^(en - ed) for
 // n = mn 2^en and d = md 2^ed with mn and md in [1, 2), whose quotient `dd_div` takes.
-fn fast_atan2_pos(a: f64, b: f64, neg: bool) -> Option<(f64, f64, i64, f64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan2_pos<const FMA: bool>(a: f64, b: f64, neg: bool) -> Option<(f64, f64, i64, f64)> {
     let swap = a > b;
     let (n, d) = if swap { (b, a) } else { (a, b) };
     let (mn, en) = split(n);
     let (md, ed) = split(d);
     let e = en - ed;
-    let (qh, ql) = dd_div(mn, 0.0, md, 0.0);
+    let (qh, ql) = dd_div::<FMA>(mn, 0.0, md, 0.0);
     let (rh, rl) = if e >= -60 {
         // q >= 2^-61, scaled as in `fast_atan_pos`.
         let p = two_pow(e);
-        fast_atan_core(qh * p, ql * p)?
+        fast_atan_core::<FMA>(qh * p, ql * p)?
     } else if swap || neg {
         // q < 2^-59, and atan q is within q^3 / 3 + 2^-53 q + 2^-1075 < 2^-110 of RN(n / d), which
         // only adds to π/2 or π.
@@ -855,35 +863,38 @@ fn fast_atan2_pos(a: f64, b: f64, neg: bool) -> Option<(f64, f64, i64, f64)> {
 // which `dd_sqrt` takes. Where p >= 1/2, 1 - p is exact by Sterbenz's lemma, and so is m.
 // `rocq/theories/FastAsinSqrt.v` proves that the result is within 2^-99 of √(1 - t^2)
 // relatively (`fast_sqrt1m_correct`).
-fn fast_sqrt1m(t: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_sqrt1m<const FMA: bool>(t: f64) -> (f64, f64) {
     let p = t * t;
-    let pe = two_prod_err::<HAS_FMA>(t, t, p);
+    let pe = two_prod_err::<FMA>(t, t, p);
     let (s, s0) = fast_two_sum(1.0, -p);
     let (mh, ml) = fast_two_sum(s, s0 - pe);
-    dd_sqrt(mh, ml)
+    dd_sqrt::<FMA>(mh, ml)
 }
 
 // atan(t / r), which is asin t, for t <= `ASIN_S`, and atan(r / t), which is acos t, above it,
 // for r = √(1 - t^2) and t in [2^-27, 1), as the kernel's `asin_parts`, in double-double.
 // `rocq/theories/FastAsin.v` proves that it is within 2^-73 of that relatively
 // (`fast_asin_atan_correct`).
-fn fast_asin_atan(t: f64) -> Option<(f64, f64)> {
-    let (rh, rl) = fast_sqrt1m(t);
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_asin_atan<const FMA: bool>(t: f64) -> Option<(f64, f64)> {
+    let (rh, rl) = fast_sqrt1m::<FMA>(t);
     let (qh, ql) = if t <= ASIN_S {
-        dd_div(t, 0.0, rh, rl)
+        dd_div::<FMA>(t, 0.0, rh, rl)
     } else {
-        dd_div(rh, rl, t, 0.0)
+        dd_div::<FMA>(rh, rl, t, 0.0)
     };
-    fast_atan_core(qh, ql)
+    fast_atan_core::<FMA>(qh, ql)
 }
 
 // asin t as (h, l, e, err), for t in [2^-27, 1], or `None` where the core returns `None`:
 // asin 1 = π/2, and π/2 - acos t above `ASIN_S`.
-fn fast_asin_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_asin_pos<const FMA: bool>(t: f64) -> Option<(f64, f64, i64, f64)> {
     if t == 1.0 {
         return Some((f64::from_bits(PIO2[0]), f64::from_bits(PIO2[1]), 0, ERR70));
     }
-    let (ch, cl) = fast_asin_atan(t)?;
+    let (ch, cl) = fast_asin_atan::<FMA>(t)?;
     Some(octant(t > ASIN_S, false, ch, cl))
 }
 
@@ -895,7 +906,8 @@ fn fast_asin_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
 // `fast_atan_pos` has them, and that they are the same with and without an FMA
 // (`fast_asin_pos_correct`, `fast_acos_val_correct`, `fast_asin_pos_fma` and
 // `fast_acos_val_fma`).
-fn fast_acos_val(x: f64) -> Option<(f64, f64, i64, f64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_acos_val<const FMA: bool>(x: f64) -> Option<(f64, f64, i64, f64)> {
     if x == 1.0 {
         return None;
     }
@@ -909,7 +921,7 @@ fn fast_acos_val(x: f64) -> Option<(f64, f64, i64, f64)> {
     }
     // π/2 - asin t and π/2 + asin t up to `ASIN_S`, and acos t and π - acos t above it.
     let t = x.abs();
-    let (ch, cl) = fast_asin_atan(t)?;
+    let (ch, cl) = fast_asin_atan::<FMA>(t)?;
     Some(octant(t <= ASIN_S, x < 0.0, ch, cl))
 }
 
@@ -917,14 +929,15 @@ fn fast_acos_val(x: f64) -> Option<(f64, f64, i64, f64)> {
 // err = `ERR62`, and with 1 / t from `fast_recip` above 1. `rocq/theories/FastAtan.v` proves it
 // as `fast_atan_pos` (`fast_atan_pos1_correct` and `fast_atan_pos1_fma`), and the same of the
 // first stages of `fast_atan2_pos` below (`fast_atan2_pos1_correct` and `fast_atan2_pos1_fma`).
-fn fast_atan_pos1(t: f64) -> Option<(f64, f64, i64, f64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan_pos1<const FMA: bool>(t: f64) -> Option<(f64, f64, i64, f64)> {
     if t <= 1.0 {
-        let (ah, al) = fast_atan1(t, 0.0)?;
+        let (ah, al) = fast_atan1::<FMA>(t, 0.0)?;
         let (h, l, e, _) = octant(false, false, ah, al);
         Some((h, l, e, ERR62))
     } else {
-        let (qh, ql) = fast_recip(t);
-        let (ah, al) = fast_atan1(qh, ql)?;
+        let (qh, ql) = fast_recip::<FMA>(t);
+        let (ah, al) = fast_atan1::<FMA>(qh, ql)?;
         let (h, l, e, _) = octant(true, false, ah, al);
         Some((h, l, e, ERR62))
     }
@@ -941,16 +954,20 @@ fn fast_atan_pos1(t: f64) -> Option<(f64, f64, i64, f64)> {
 // radii in [2^-4, 2^4) (cachegrind, 4,096 arguments per set, in a test build for haswell
 // without the tests module of this file).
 #[inline(always)]
-fn fast_atan2_pos1(a: f64, b: f64, neg: bool) -> Option<Option<(f64, f64, i64, f64)>> {
+fn fast_atan2_pos1<const FMA: bool>(
+    a: f64,
+    b: f64,
+    neg: bool,
+) -> Option<Option<(f64, f64, i64, f64)>> {
     let swap = a > b;
     let (n, d) = if swap { (b, a) } else { (a, b) };
     let (mn, en) = split(n);
     let (md, ed) = split(d);
     let e = en - ed;
-    let (qh, ql) = fast_quot(mn, md);
+    let (qh, ql) = fast_quot::<FMA>(mn, md);
     if e >= -60 {
         let p = two_pow(e);
-        let (rh, rl) = fast_atan1(qh * p, ql * p)?;
+        let (rh, rl) = fast_atan1::<FMA>(qh * p, ql * p)?;
         let (h, l, k, _) = octant(swap, neg, rh, rl);
         Some(Some((h, l, k, ERR62)))
     } else if swap || neg {
@@ -968,25 +985,27 @@ fn fast_atan2_pos1(a: f64, b: f64, neg: bool) -> Option<Option<(f64, f64, i64, f
 // The first stage of `fast_asin_atan`: the same, from `fast_atan1` in place of the core.
 // `rocq/theories/FastAsin.v` proves that it is within 2^-64 + 2^-84 of that relatively
 // (`fast_asin_atan1_correct`).
-fn fast_asin_atan1(t: f64) -> Option<(f64, f64)> {
-    let (rh, rl) = fast_sqrt1m(t);
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_asin_atan1<const FMA: bool>(t: f64) -> Option<(f64, f64)> {
+    let (rh, rl) = fast_sqrt1m::<FMA>(t);
     let (qh, ql) = if t <= ASIN_S {
-        dd_div(t, 0.0, rh, rl)
+        dd_div::<FMA>(t, 0.0, rh, rl)
     } else {
-        dd_div(rh, rl, t, 0.0)
+        dd_div::<FMA>(rh, rl, t, 0.0)
     };
-    fast_atan1(qh, ql)
+    fast_atan1::<FMA>(qh, ql)
 }
 
 // The first stages of `fast_asin_pos` and `fast_acos_val`: the same, from `fast_asin_atan1`, with
 // err = `ERR62` where it is taken. `rocq/theories/FastAsin.v` proves them as those
 // (`fast_asin_pos1_correct`, `fast_acos_val1_correct`, `fast_asin_pos1_fma` and
 // `fast_acos_val1_fma`).
-fn fast_asin_pos1(t: f64) -> Option<(f64, f64, i64, f64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_asin_pos1<const FMA: bool>(t: f64) -> Option<(f64, f64, i64, f64)> {
     if t == 1.0 {
         return Some((f64::from_bits(PIO2[0]), f64::from_bits(PIO2[1]), 0, ERR70));
     }
-    let (ch, cl) = fast_asin_atan1(t)?;
+    let (ch, cl) = fast_asin_atan1::<FMA>(t)?;
     let (h, l, e, _) = octant(t > ASIN_S, false, ch, cl);
     Some((h, l, e, ERR62))
 }
@@ -998,7 +1017,7 @@ fn fast_asin_pos1(t: f64) -> Option<(f64, f64, i64, f64)> {
 // 186.5 and 186.5 on 1 - 2^-8 < |x| <= 1, and 15 to 17 more on 2^-60 <= |x| < 2^-27, 62.0, 61.3
 // and 61.3 against 45.0, 46.2 and 46.7 (counted as for `fast_atan2_pos1`).
 #[inline(always)]
-fn fast_acos_val1(x: f64) -> Option<(f64, f64, i64, f64)> {
+fn fast_acos_val1<const FMA: bool>(x: f64) -> Option<(f64, f64, i64, f64)> {
     if x == 1.0 {
         return None;
     }
@@ -1010,7 +1029,7 @@ fn fast_acos_val1(x: f64) -> Option<(f64, f64, i64, f64)> {
         return Some((f64::from_bits(PIO2[0]), f64::from_bits(PIO2[1]), 1, ERR70));
     }
     let t = x.abs();
-    let (ch, cl) = fast_asin_atan1(t)?;
+    let (ch, cl) = fast_asin_atan1::<FMA>(t)?;
     let (h, l, e, _) = octant(t <= ASIN_S, x < 0.0, ch, cl);
     Some((h, l, e, ERR62))
 }
@@ -1052,11 +1071,11 @@ fn stage1_enabled() -> bool {
 // instructions per directed call than one copy with `up` at run time, on random arguments and
 // on CORE-MATH's hard cases, in a crate that links `cr` (cachegrind).
 #[inline(always)]
-fn fast_atan_dir(x: f64, up: bool) -> Option<f64> {
-    if let Some(r) = fast_atan_dir1(x, up) {
+fn fast_atan_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    if let Some(r) = fast_atan_dir1::<FMA>(x, up) {
         return Some(r);
     }
-    fast_atan_dir2(x, up)
+    fast_atan_dir2::<FMA>(x, up)
 }
 
 // Always inlined, so that `up` is a constant in `asin_dir`: in a test build, LLVM called it there
@@ -1064,98 +1083,105 @@ fn fast_atan_dir(x: f64, up: bool) -> Option<f64> {
 // instructions per directed call than one copy with `up` at run time, on random arguments and on
 // CORE-MATH's hard cases, in a crate that links `cr` (cachegrind).
 #[inline(always)]
-fn fast_asin_dir(x: f64, up: bool) -> Option<f64> {
-    if let Some(r) = fast_asin_dir1(x, up) {
+fn fast_asin_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    if let Some(r) = fast_asin_dir1::<FMA>(x, up) {
         return Some(r);
     }
-    fast_asin_dir2(x, up)
+    fast_asin_dir2::<FMA>(x, up)
 }
 
 // Always inlined, as `fast_atan_dir`.
 #[inline(always)]
-fn fast_acos_dir(x: f64, up: bool) -> Option<f64> {
-    if let Some(r) = fast_acos_dir1(x, up) {
+fn fast_acos_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    if let Some(r) = fast_acos_dir1::<FMA>(x, up) {
         return Some(r);
     }
-    fast_acos_dir2(x, up)
+    fast_acos_dir2::<FMA>(x, up)
 }
 
-fn fast_atan2_dir(y: f64, x: f64, up: bool) -> Option<f64> {
-    if let Some(r) = fast_atan2_dir1(y, x, up) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan2_dir<const FMA: bool>(y: f64, x: f64, up: bool) -> Option<f64> {
+    if let Some(r) = fast_atan2_dir1::<FMA>(y, x, up) {
         return r;
     }
-    fast_atan2_dir2(y, x, up)
+    fast_atan2_dir2::<FMA>(y, x, up)
 }
 
-fn fast_atan_near(x: f64) -> Option<f64> {
-    if let Some(r) = fast_atan_near1(x) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan_near<const FMA: bool>(x: f64) -> Option<f64> {
+    if let Some(r) = fast_atan_near1::<FMA>(x) {
         return Some(r);
     }
-    fast_atan_near2(x)
+    fast_atan_near2::<FMA>(x)
 }
 
-fn fast_asin_near(x: f64) -> Option<f64> {
-    if let Some(r) = fast_asin_near1(x) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_asin_near<const FMA: bool>(x: f64) -> Option<f64> {
+    if let Some(r) = fast_asin_near1::<FMA>(x) {
         return Some(r);
     }
-    fast_asin_near2(x)
+    fast_asin_near2::<FMA>(x)
 }
 
-fn fast_acos_near(x: f64) -> Option<f64> {
-    if let Some(r) = fast_acos_near1(x) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_acos_near<const FMA: bool>(x: f64) -> Option<f64> {
+    if let Some(r) = fast_acos_near1::<FMA>(x) {
         return Some(r);
     }
-    fast_acos_near2(x)
+    fast_acos_near2::<FMA>(x)
 }
 
-fn fast_atan2_near(y: f64, x: f64) -> Option<f64> {
-    if let Some(r) = fast_atan2_near1(y, x) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan2_near<const FMA: bool>(y: f64, x: f64) -> Option<f64> {
+    if let Some(r) = fast_atan2_near1::<FMA>(y, x) {
         return r;
     }
-    fast_atan2_near2(y, x)
+    fast_atan2_near2::<FMA>(y, x)
 }
 
 // Always inlined, as `fast_atan_dir`.
 #[inline(always)]
-fn fast_atan_dir1(x: f64, up: bool) -> Option<f64> {
+fn fast_atan_dir1<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
     #[cfg(test)]
     if !stage1_enabled() {
         return None;
     }
-    let (h, l, e, err) = fast_atan_pos1(x.abs())?;
+    let (h, l, e, err) = fast_atan_pos1::<FMA>(x.abs())?;
     let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_asin_dir1(x: f64, up: bool) -> Option<f64> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_asin_dir1<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
     #[cfg(test)]
     if !stage1_enabled() {
         return None;
     }
-    let (h, l, e, err) = fast_asin_pos1(x.abs())?;
+    let (h, l, e, err) = fast_asin_pos1::<FMA>(x.abs())?;
     let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
     Some(if x < 0.0 { -r } else { r })
 }
 
 // Always inlined, as `fast_atan_dir`.
 #[inline(always)]
-fn fast_acos_dir1(x: f64, up: bool) -> Option<f64> {
+fn fast_acos_dir1<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
     #[cfg(test)]
     if !stage1_enabled() {
         return None;
     }
-    let (h, l, e, err) = fast_acos_val1(x)?;
+    let (h, l, e, err) = fast_acos_val1::<FMA>(x)?;
     round_dir_err(h, l, e, err, up)
 }
 
 // `Some(r)` is the answer of the fast path, where r = `None` sends atan2 to the kernel, and
 // `None` is the second stage's turn, also where the rounding test fails.
-fn fast_atan2_dir1(y: f64, x: f64, up: bool) -> Option<Option<f64>> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan2_dir1<const FMA: bool>(y: f64, x: f64, up: bool) -> Option<Option<f64>> {
     #[cfg(test)]
     if !stage1_enabled() {
         return None;
     }
-    let (h, l, e, err) = match fast_atan2_pos1(y.abs(), x.abs(), x < 0.0)? {
+    let (h, l, e, err) = match fast_atan2_pos1::<FMA>(y.abs(), x.abs(), x < 0.0)? {
         Some(v) => v,
         None => return Some(None),
     };
@@ -1163,41 +1189,45 @@ fn fast_atan2_dir1(y: f64, x: f64, up: bool) -> Option<Option<f64>> {
     Some(Some(if y < 0.0 { -r } else { r }))
 }
 
-fn fast_atan_near1(x: f64) -> Option<f64> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan_near1<const FMA: bool>(x: f64) -> Option<f64> {
     #[cfg(test)]
     if !stage1_enabled() {
         return None;
     }
-    let (h, l, e, err) = fast_atan_pos1(x.abs())?;
+    let (h, l, e, err) = fast_atan_pos1::<FMA>(x.abs())?;
     let r = round_near_err(h, l, e, err)?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_asin_near1(x: f64) -> Option<f64> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_asin_near1<const FMA: bool>(x: f64) -> Option<f64> {
     #[cfg(test)]
     if !stage1_enabled() {
         return None;
     }
-    let (h, l, e, err) = fast_asin_pos1(x.abs())?;
+    let (h, l, e, err) = fast_asin_pos1::<FMA>(x.abs())?;
     let r = round_near_err(h, l, e, err)?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_acos_near1(x: f64) -> Option<f64> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_acos_near1<const FMA: bool>(x: f64) -> Option<f64> {
     #[cfg(test)]
     if !stage1_enabled() {
         return None;
     }
-    let (h, l, e, err) = fast_acos_val1(x)?;
+    let (h, l, e, err) = fast_acos_val1::<FMA>(x)?;
     round_near_err(h, l, e, err)
 }
 
-fn fast_atan2_near1(y: f64, x: f64) -> Option<Option<f64>> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan2_near1<const FMA: bool>(y: f64, x: f64) -> Option<Option<f64>> {
     #[cfg(test)]
     if !stage1_enabled() {
         return None;
     }
-    let (h, l, e, err) = match fast_atan2_pos1(y.abs(), x.abs(), x < 0.0)? {
+    let (h, l, e, err) = match fast_atan2_pos1::<FMA>(y.abs(), x.abs(), x < 0.0)? {
         Some(v) => v,
         None => return Some(None),
     };
@@ -1216,56 +1246,66 @@ fn fast_atan2_near1(y: f64, x: f64) -> Option<Option<f64>> {
 // `fast_atan2_pos1`, and all these counts are made as there. Either way, the first stage runs
 // in a stack frame, which its call of `fast_atan1` or `fast_asin_atan1` needs, as their result
 // comes back through memory.
-fn fast_atan_dir2(x: f64, up: bool) -> Option<f64> {
-    let (h, l, e, err) = fast_atan_pos(x.abs())?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan_dir2<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    let (h, l, e, err) = fast_atan_pos::<FMA>(x.abs())?;
     let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_asin_dir2(x: f64, up: bool) -> Option<f64> {
-    let (h, l, e, err) = fast_asin_pos(x.abs())?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_asin_dir2<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    let (h, l, e, err) = fast_asin_pos::<FMA>(x.abs())?;
     let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_acos_dir2(x: f64, up: bool) -> Option<f64> {
-    let (h, l, e, err) = fast_acos_val(x)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_acos_dir2<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    let (h, l, e, err) = fast_acos_val::<FMA>(x)?;
     round_dir_err(h, l, e, err, up)
 }
 
+// In the build with the dispatch, this stays out of line too, without the target feature `fma`,
+// so that its copy with `FMA` computes `two_prod_err` with a call of the library's `fma`.
 #[inline(never)]
-fn fast_atan2_dir2(y: f64, x: f64, up: bool) -> Option<f64> {
-    let (h, l, e, err) = fast_atan2_pos(y.abs(), x.abs(), x < 0.0)?;
+fn fast_atan2_dir2<const FMA: bool>(y: f64, x: f64, up: bool) -> Option<f64> {
+    let (h, l, e, err) = fast_atan2_pos::<FMA>(y.abs(), x.abs(), x < 0.0)?;
     let r = round_dir_err(h, l, e, err, up != (y < 0.0))?;
     Some(if y < 0.0 { -r } else { r })
 }
 
-fn fast_atan_near2(x: f64) -> Option<f64> {
-    let (h, l, e, err) = fast_atan_pos(x.abs())?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan_near2<const FMA: bool>(x: f64) -> Option<f64> {
+    let (h, l, e, err) = fast_atan_pos::<FMA>(x.abs())?;
     let r = round_near_err(h, l, e, err)?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_asin_near2(x: f64) -> Option<f64> {
-    let (h, l, e, err) = fast_asin_pos(x.abs())?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_asin_near2<const FMA: bool>(x: f64) -> Option<f64> {
+    let (h, l, e, err) = fast_asin_pos::<FMA>(x.abs())?;
     let r = round_near_err(h, l, e, err)?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_acos_near2(x: f64) -> Option<f64> {
-    let (h, l, e, err) = fast_acos_val(x)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_acos_near2<const FMA: bool>(x: f64) -> Option<f64> {
+    let (h, l, e, err) = fast_acos_val::<FMA>(x)?;
     round_near_err(h, l, e, err)
 }
 
-fn fast_atan2_near2(y: f64, x: f64) -> Option<f64> {
-    let (h, l, e, err) = fast_atan2_pos(y.abs(), x.abs(), x < 0.0)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_atan2_near2<const FMA: bool>(y: f64, x: f64) -> Option<f64> {
+    let (h, l, e, err) = fast_atan2_pos::<FMA>(y.abs(), x.abs(), x < 0.0)?;
     let r = round_near_err(h, l, e, err)?;
     Some(if y < 0.0 { -r } else { r })
 }
 
 // atan2(y, x) rounded to nearest by the fast path, or by `ziv_near` where it returns `None`.
-fn atan2_fast_near(y: f64, x: f64) -> f64 {
-    match fast_atan2_near(y, x) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn atan2_fast_near<const FMA: bool>(y: f64, x: f64) -> f64 {
+    match fast_atan2_near::<FMA>(y, x) {
         Some(r) => r,
         None => ziv_near(&Atan2(y, x), 1),
     }
@@ -1282,8 +1322,14 @@ pub(crate) fn atan(x: f64, up: bool) -> f64 {
     }
 }
 
-// `atan` toward +∞ if `UP` and toward -∞ otherwise.
-fn atan_dir<const UP: bool>(x: f64) -> f64 {
+level_entry! {
+    // `atan` toward +∞ if `UP` and toward -∞ otherwise.
+    fn atan_dir<const UP: bool>(x: f64) -> f64 = atan_dir_with;
+}
+
+// The body of `atan_dir`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn atan_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     if x.is_nan() {
         x
     } else if x.abs() >= HUGE_ATAN {
@@ -1292,15 +1338,21 @@ fn atan_dir<const UP: bool>(x: f64) -> f64 {
     } else if x.abs() < TINY_HYP {
         // x - x^3 / 3 <= atan x < x for x in (0, 1], and atan is odd.
         toward_zero(x, UP)
-    } else if let Some(r) = fast_atan_dir(x, UP) {
+    } else if let Some(r) = fast_atan_dir::<FMA>(x, UP) {
         r
     } else {
         ziv(&Atan(x), UP, 1)
     }
 }
 
-/// atan x rounded to nearest, ties to even.
-pub(crate) fn atan_near(x: f64) -> f64 {
+level_entry! {
+    /// atan x rounded to nearest, ties to even.
+    pub(crate) fn atan_near(x: f64) -> f64 = atan_near_with;
+}
+
+// The body of `atan_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn atan_near_with<const FMA: bool>(x: f64) -> f64 {
     if x.is_nan() {
         x
     } else if x.abs() >= HUGE_ATAN {
@@ -1310,7 +1362,7 @@ pub(crate) fn atan_near(x: f64) -> f64 {
     } else if x.abs() < TINY_NEAR {
         // x - x^3 / 3 <= atan x < x for x in (0, 1], and atan is odd.
         x
-    } else if let Some(r) = fast_atan_near(x) {
+    } else if let Some(r) = fast_atan_near::<FMA>(x) {
         r
     } else {
         ziv_near(&Atan(x), 1)
@@ -1328,8 +1380,14 @@ pub(crate) fn asin(x: f64, up: bool) -> f64 {
     }
 }
 
-// `asin` toward +∞ if `UP` and toward -∞ otherwise.
-fn asin_dir<const UP: bool>(x: f64) -> f64 {
+level_entry! {
+    // `asin` toward +∞ if `UP` and toward -∞ otherwise.
+    fn asin_dir<const UP: bool>(x: f64) -> f64 = asin_dir_with;
+}
+
+// The body of `asin_dir`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn asin_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     if x.is_nan() {
         x
     } else if x.abs() > 1.0 {
@@ -1337,15 +1395,21 @@ fn asin_dir<const UP: bool>(x: f64) -> f64 {
     } else if x.abs() < TINY_ASIN {
         // x < asin x <= x / √(1 - x^2) <= x + x^3 for x in (0, 1/2], and asin is odd.
         away(x, UP)
-    } else if let Some(r) = fast_asin_dir(x, UP) {
+    } else if let Some(r) = fast_asin_dir::<FMA>(x, UP) {
         r
     } else {
         ziv(&Asin(x), UP, 1)
     }
 }
 
-/// asin x rounded to nearest, ties to even.
-pub(crate) fn asin_near(x: f64) -> f64 {
+level_entry! {
+    /// asin x rounded to nearest, ties to even.
+    pub(crate) fn asin_near(x: f64) -> f64 = asin_near_with;
+}
+
+// The body of `asin_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn asin_near_with<const FMA: bool>(x: f64) -> f64 {
     if x.is_nan() {
         x
     } else if x.abs() > 1.0 {
@@ -1353,7 +1417,7 @@ pub(crate) fn asin_near(x: f64) -> f64 {
     } else if x.abs() < TINY_ASIN {
         // x < asin x <= x + x^3 for x in (0, 1/2], and asin is odd.
         x
-    } else if let Some(r) = fast_asin_near(x) {
+    } else if let Some(r) = fast_asin_near::<FMA>(x) {
         r
     } else {
         ziv_near(&Asin(x), 1)
@@ -1371,26 +1435,38 @@ pub(crate) fn acos(x: f64, up: bool) -> f64 {
     }
 }
 
-// `acos` toward +∞ if `UP` and toward -∞ otherwise.
-fn acos_dir<const UP: bool>(x: f64) -> f64 {
+level_entry! {
+    // `acos` toward +∞ if `UP` and toward -∞ otherwise.
+    fn acos_dir<const UP: bool>(x: f64) -> f64 = acos_dir_with;
+}
+
+// The body of `acos_dir`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn acos_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     if x.is_nan() {
         x
     } else if x.abs() > 1.0 {
         f64::NAN
-    } else if let Some(r) = fast_acos_dir(x, UP) {
+    } else if let Some(r) = fast_acos_dir::<FMA>(x, UP) {
         r
     } else {
         ziv(&Acos(x), UP, 1)
     }
 }
 
-/// acos x rounded to nearest, ties to even.
-pub(crate) fn acos_near(x: f64) -> f64 {
+level_entry! {
+    /// acos x rounded to nearest, ties to even.
+    pub(crate) fn acos_near(x: f64) -> f64 = acos_near_with;
+}
+
+// The body of `acos_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn acos_near_with<const FMA: bool>(x: f64) -> f64 {
     if x.is_nan() {
         x
     } else if x.abs() > 1.0 {
         f64::NAN
-    } else if let Some(r) = fast_acos_near(x) {
+    } else if let Some(r) = fast_acos_near::<FMA>(x) {
         r
     } else {
         ziv_near(&Acos(x), 1)
@@ -1409,8 +1485,14 @@ pub(crate) fn atan2(y: f64, x: f64, up: bool) -> f64 {
     }
 }
 
-// `atan2` toward +∞ if `UP` and toward -∞ otherwise.
-fn atan2_dir<const UP: bool>(y: f64, x: f64) -> f64 {
+level_entry! {
+    // `atan2` toward +∞ if `UP` and toward -∞ otherwise.
+    fn atan2_dir<const UP: bool>(y: f64, x: f64) -> f64 = atan2_dir_with;
+}
+
+// The body of `atan2_dir`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn atan2_dir_with<const FMA: bool, const UP: bool>(y: f64, x: f64) -> f64 {
     if y.is_nan() || x.is_nan() {
         f64::NAN
     } else if y == 0.0 {
@@ -1438,10 +1520,14 @@ fn atan2_dir<const UP: bool>(y: f64, x: f64) -> f64 {
     } else {
         // atan2(y, x) = atan(y / x) for x > 0, which the rule of `atan` settles for a tiny
         // `f64` quotient.
-        let q = if x > 0.0 { tiny_quotient(y, x) } else { None };
+        let q = if x > 0.0 {
+            tiny_quotient::<FMA>(y, x)
+        } else {
+            None
+        };
         match q {
             Some(q) => toward_zero(q, UP),
-            None => match fast_atan2_dir(y, x, UP) {
+            None => match fast_atan2_dir::<FMA>(y, x, UP) {
                 Some(r) => r,
                 None => ziv(&Atan2(y, x), UP, 1),
             },
@@ -1449,9 +1535,15 @@ fn atan2_dir<const UP: bool>(y: f64, x: f64) -> f64 {
     }
 }
 
-/// atan2(y, x) rounded to nearest, ties to even, with the values of MPFR's `mpfr_atan2` at the
-/// zeros and infinities.
-pub(crate) fn atan2_near(y: f64, x: f64) -> f64 {
+level_entry! {
+    /// atan2(y, x) rounded to nearest, ties to even, with the values of MPFR's `mpfr_atan2` at
+    /// the zeros and infinities.
+    pub(crate) fn atan2_near(y: f64, x: f64) -> f64 = atan2_near_with;
+}
+
+// The body of `atan2_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn atan2_near_with<const FMA: bool>(y: f64, x: f64) -> f64 {
     if y.is_nan() || x.is_nan() {
         f64::NAN
     } else if y == 0.0 {
@@ -1480,14 +1572,14 @@ pub(crate) fn atan2_near(y: f64, x: f64) -> f64 {
         // atan2(y, x) = atan(y / x) for x > 0, which `midpoint_quotient` settles for a
         // quotient midway between two `f64`s below 2^-1021, and the rule of `atan_near` for an
         // `f64` quotient below 2^-27.
-        match midpoint_quotient(y, x) {
+        match midpoint_quotient::<FMA>(y, x) {
             Some(f) => f,
-            None => match tiny_quotient(y, x) {
+            None => match tiny_quotient::<FMA>(y, x) {
                 Some(q) if q.abs() < TINY_NEAR => q,
-                _ => atan2_fast_near(y, x),
+                _ => atan2_fast_near::<FMA>(y, x),
             },
         }
     } else {
-        atan2_fast_near(y, x)
+        atan2_fast_near::<FMA>(y, x)
     }
 }

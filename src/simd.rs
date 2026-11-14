@@ -14,10 +14,13 @@ cfg_if::cfg_if! {
 
         // The generic backend provides `round_up_exact`, which `src/parse.rs` and
         // `src/dyadic.rs` call, and `two_prod_err` and `HAS_FMA`, which the fast paths of
-        // `src/dyadic` use.
+        // `src/dyadic` use. The entries of the kernel use `HAS_FMA` only in a build without
+        // `cfg(inari_kernel_dispatch)` (`src/dyadic/level.rs`), and its tests in every build.
         #[allow(dead_code)] // Only these and the functions that they call are used.
         mod generic;
-        pub(crate) use generic::{round_up_exact, two_prod_err, HAS_FMA};
+        pub(crate) use generic::{round_up_exact, two_prod_err};
+        #[cfg(any(test, not(inari_kernel_dispatch)))]
+        pub(crate) use generic::HAS_FMA;
     } else if #[cfg(feature = "force-generic")] {
         mod generic;
         pub(crate) use generic::*;
@@ -31,7 +34,9 @@ cfg_if::cfg_if! {
         #[allow(dead_code)] // Only these and the functions that they call are used.
         mod generic;
         pub(crate) use generic::{round_up_exact, two_prod_err, HAS_FMA};
-    } else if #[cfg(target_arch = "x86_64")] {
+    } else if #[cfg(all(target_arch = "x86_64", target_feature = "sse4.2"))] {
+        // Plain `x86-64`, without `sse4.2`, takes the portable backend below, and the kernel
+        // picks the copy of its entries that uses an FMA at run time (`src/dyadic/level.rs`).
         mod x86_64;
         pub(crate) use x86_64::*;
 

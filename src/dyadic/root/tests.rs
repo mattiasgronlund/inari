@@ -26,6 +26,7 @@
 use super::*;
 use crate::dyadic::fast::{fast_counts, reset_fast_counts, set_fast_path};
 use crate::dyadic::tests::Rng;
+use crate::simd::HAS_FMA;
 use std::cmp::Ordering;
 
 // A natural number, as digits in base 2^32 from the least significant, with no zero digit at
@@ -765,63 +766,20 @@ fn far_pair(x: f64, y: f64) -> (f64, f64, bool) {
 type CbrtSet = (&'static str, fn(&mut Rng) -> f64);
 type HypotSet = (&'static str, fn(&mut Rng) -> (f64, f64), bool);
 
-// A pair with a gap of g in [0, `max`] binades, as in `random_gaps`, but from an x whose bits are
-// uniform from those of `least` to those of MAX, in a random order and with random signs.
-fn gap_pair(rng: &mut Rng, least: f64, max: u64) -> (f64, f64) {
-    let x = f64::from_bits(least.to_bits() + rng.below(0x7ff0_0000_0000_0000 - least.to_bits()));
-    let field = (x.to_bits() >> 52).saturating_sub(rng.below(max + 1));
-    let y = f64::from_bits((field << 52) | rng.below(1 << 52));
-    let (x, y) = (x * sign(rng), y * sign(rng));
-    if rng.below(2) == 0 {
-        (x, y)
-    } else {
-        (y, x)
-    }
-}
-
-// cbrt with the fast path agrees with the kernel on random arguments: log-uniform over (0, MAX]
-// and subnormal, each with a random sign, and uniform in (-1, 1). `fast_cbrt` takes every one of
-// them (its check of the residual does not fail), and the rounding tests fail only where l is
-// within `ERR_CBRT` = 2^-65 of 0 (toward ±∞) or of half the gap at h (to nearest), for about 2^-12
-// of the arguments each.
-#[test]
-fn fast_cbrt_agrees_with_kernel() {
-    let sets: [CbrtSet; 3] = [
+// The random arguments of cbrt of `fast_cbrt_agrees_with_kernel`.
+fn cbrt_sets() -> [CbrtSet; 3] {
+    [
         ("log-uniform", |rng| log_uniform(rng) * sign(rng)),
         ("uniform", uniform),
         ("subnormal", |rng| {
             f64::from_bits(rng.below(1 << 52)) * sign(rng)
         }),
-    ];
-    let mut rng = Rng(106);
-    for (name, arg) in sets {
-        reset_fast_counts();
-        for _ in 0..10_000 {
-            let x = arg(&mut rng);
-            assert!(x == 0.0 || fast_cbrt(x).is_some(), "fast_cbrt({:e})", x);
-            check_fast_cbrt(x);
-        }
-        let (passed, failed) = fast_counts();
-        assert!(
-            passed > 500 * failed && passed > 29_000,
-            "cbrt, {}: {} passed, {} failed",
-            name,
-            passed,
-            failed
-        );
-    }
+    ]
 }
 
-// hypot with the fast path agrees with the kernel on random pairs: uniform in (-1, 1),
-// log-uniform over (0, MAX] with random signs, and with gaps of 0 to 40 and of 0 to 26 binades,
-// which the fast path takes; and two that `hypot_dd` declines unless the gap is 27 or more (at a
-// big of 2^1022 or more), or always (two subnormals). On each set, every pair goes to the rule
-// for a gap of 27 or more (a pass without a rounding test), to a decline of `hypot_dd` (a failure
-// without one) or to three rounding tests, which fail only where l is within `ERR_HYPOT` = 2^-98
-// of 0 or of half the gap at h, or where h is 1/2.
-#[test]
-fn fast_hypot_agrees_with_kernel() {
-    let sets: [HypotSet; 6] = [
+// The random pairs of hypot of `fast_hypot_agrees_with_kernel`.
+fn hypot_sets() -> [HypotSet; 6] {
+    [
         ("uniform", |rng| (uniform(rng), uniform(rng)), true),
         (
             "log-uniform",
@@ -851,9 +809,64 @@ fn fast_hypot_agrees_with_kernel() {
             },
             false,
         ),
-    ];
+    ]
+}
+
+// A pair with a gap of g in [0, `max`] binades, as in `random_gaps`, but from an x whose bits are
+// uniform from those of `least` to those of MAX, in a random order and with random signs.
+fn gap_pair(rng: &mut Rng, least: f64, max: u64) -> (f64, f64) {
+    let x = f64::from_bits(least.to_bits() + rng.below(0x7ff0_0000_0000_0000 - least.to_bits()));
+    let field = (x.to_bits() >> 52).saturating_sub(rng.below(max + 1));
+    let y = f64::from_bits((field << 52) | rng.below(1 << 52));
+    let (x, y) = (x * sign(rng), y * sign(rng));
+    if rng.below(2) == 0 {
+        (x, y)
+    } else {
+        (y, x)
+    }
+}
+
+// cbrt with the fast path agrees with the kernel on random arguments: log-uniform over (0, MAX]
+// and subnormal, each with a random sign, and uniform in (-1, 1). `fast_cbrt` takes every one of
+// them (its check of the residual does not fail), and the rounding tests fail only where l is
+// within `ERR_CBRT` = 2^-65 of 0 (toward ±∞) or of half the gap at h (to nearest), for about 2^-12
+// of the arguments each.
+#[test]
+fn fast_cbrt_agrees_with_kernel() {
+    let mut rng = Rng(106);
+    for (name, arg) in cbrt_sets() {
+        reset_fast_counts();
+        for _ in 0..10_000 {
+            let x = arg(&mut rng);
+            assert!(
+                x == 0.0 || fast_cbrt::<HAS_FMA>(x).is_some(),
+                "fast_cbrt({:e})",
+                x
+            );
+            check_fast_cbrt(x);
+        }
+        let (passed, failed) = fast_counts();
+        assert!(
+            passed > 500 * failed && passed > 29_000,
+            "cbrt, {}: {} passed, {} failed",
+            name,
+            passed,
+            failed
+        );
+    }
+}
+
+// hypot with the fast path agrees with the kernel on random pairs: uniform in (-1, 1),
+// log-uniform over (0, MAX] with random signs, and with gaps of 0 to 40 and of 0 to 26 binades,
+// which the fast path takes; and two that `hypot_dd` declines unless the gap is 27 or more (at a
+// big of 2^1022 or more), or always (two subnormals). On each set, every pair goes to the rule
+// for a gap of 27 or more (a pass without a rounding test), to a decline of `hypot_dd` (a failure
+// without one) or to three rounding tests, which fail only where l is within `ERR_HYPOT` = 2^-98
+// of 0 or of half the gap at h, or where h is 1/2.
+#[test]
+fn fast_hypot_agrees_with_kernel() {
     let mut rng = Rng(1060);
-    for (name, pair, taken) in sets {
+    for (name, pair, taken) in hypot_sets() {
         reset_fast_counts();
         let (mut nonzero, mut far, mut declined) = (0, 0, 0);
         for _ in 0..5_000 {
@@ -863,7 +876,7 @@ fn fast_hypot_agrees_with_kernel() {
                 let (big, small, is_far) = far_pair(x, y);
                 if is_far {
                     far += 1;
-                } else if hypot_dd(big, small).is_none() {
+                } else if hypot_dd::<HAS_FMA>(big, small).is_none() {
                     declined += 1;
                 }
             }
@@ -889,6 +902,86 @@ fn fast_hypot_agrees_with_kernel() {
     }
 }
 
+// cbrt at `x` as `cbrt3` gives it, by the copy of each entry without an FMA in its products, by
+// the copy with one (`level_entry!`), and by the entries, which call one of the two.
+fn cbrt_copies(x: f64) -> [[f64; 3]; 3] {
+    [
+        [
+            cbrt_with::<false>(x, false),
+            cbrt_with::<false>(x, true),
+            cbrt_near_with::<false>(x),
+        ],
+        [
+            cbrt_with::<true>(x, false),
+            cbrt_with::<true>(x, true),
+            cbrt_near_with::<true>(x),
+        ],
+        cbrt3(x),
+    ]
+}
+
+// `cbrt_copies` for hypot at (x, y).
+fn hypot_copies(x: f64, y: f64) -> [[f64; 3]; 3] {
+    [
+        [
+            hypot_dir_with::<false, false>(x, y),
+            hypot_dir_with::<false, true>(x, y),
+            hypot_near_with::<false>(x, y),
+        ],
+        [
+            hypot_dir_with::<true, false>(x, y),
+            hypot_dir_with::<true, true>(x, y),
+            hypot_near_with::<true>(x, y),
+        ],
+        hypot3(x, y),
+    ]
+}
+
+// Checks that the three rows of `copies` are the same `f64`s.
+fn assert_copies_agree(what: &str, copies: [[f64; 3]; 3]) {
+    let bits = copies.map(|row| row.map(f64::to_bits));
+    assert!(
+        bits[0] == bits[1] && bits[1] == bits[2],
+        "{what}: {:?} without an FMA, {:?} with one, {:?} by the entries",
+        copies[0],
+        copies[1],
+        copies[2]
+    );
+}
+
+// The copies of cbrt and hypot without an FMA and with one, and the entries, give the same `f64`s,
+// bit for bit, in both directions and to nearest, on the random arguments of
+// `fast_cbrt_agrees_with_kernel` and `fast_hypot_agrees_with_kernel` and on `regressions()`.
+// `rocq/theories/FastCbrt.v` and `rocq/theories/FastHypot.v` prove it of the fast paths
+// (`fast_cbrt_dir_fma`, `fast_hypot_dir_fma` and the others); this test checks the code as
+// compiled, where the entries call the copy built with the target feature `fma` in a build with
+// the dispatch, on a CPU that has it.
+#[test]
+fn copies_agree() {
+    let mut rng = Rng(1062);
+    for (_, arg) in cbrt_sets() {
+        for _ in 0..10_000 {
+            let x = arg(&mut rng);
+            assert_copies_agree(&format!("cbrt({x:e})"), cbrt_copies(x));
+        }
+    }
+    for (_, pair, _) in hypot_sets() {
+        for _ in 0..5_000 {
+            let (x, y) = pair(&mut rng);
+            assert_copies_agree(&format!("hypot({x:e}, {y:e})"), hypot_copies(x, y));
+        }
+    }
+    for (name, x, y) in regressions() {
+        let x: f64 = x.parse().unwrap();
+        if name == "cbrt" {
+            assert_copies_agree(&format!("cbrt({x:e})"), cbrt_copies(x));
+        } else {
+            let y: f64 = y.parse().unwrap();
+            assert_copies_agree(&format!("hypot({x:e}, {y:e})"), hypot_copies(x, y));
+        }
+    }
+}
+
 // The exact cubes x = y^3 of y = r 2^a for small odd r at every a, and for random r as in
 // `cbrt_cubes`, at both signs: the fast path to nearest gives y, and the directed ones decline,
 // as l is within `ERR_CBRT` of 0 there, so that `cbrt_odd` decides them.
@@ -906,10 +999,20 @@ fn fast_cbrt_declines_cubes() {
             for s in [-1.0, 1.0] {
                 let (x, y) = (s * x, s * y);
                 let what = format!("cbrt({:e})", x);
-                assert_eq!(fast_cbrt_dir(x, false), None, "{} toward -∞", what);
-                assert_eq!(fast_cbrt_dir(x, true), None, "{} toward +∞", what);
                 assert_eq!(
-                    fast_cbrt_near(x).map(f64::to_bits),
+                    fast_cbrt_dir::<HAS_FMA>(x, false),
+                    None,
+                    "{} toward -∞",
+                    what
+                );
+                assert_eq!(
+                    fast_cbrt_dir::<HAS_FMA>(x, true),
+                    None,
+                    "{} toward +∞",
+                    what
+                );
+                assert_eq!(
+                    fast_cbrt_near::<HAS_FMA>(x).map(f64::to_bits),
                     Some(y.to_bits()),
                     "{} to nearest",
                     what
@@ -932,12 +1035,12 @@ fn fast_cbrt_near_two() {
             for x in [x, -x] {
                 let odd = cbrt_odd(x);
                 for up in [false, true] {
-                    if let Some(r) = fast_cbrt_dir(x, up) {
+                    if let Some(r) = fast_cbrt_dir::<HAS_FMA>(x, up) {
                         let want = odd.to_f64(up);
                         assert_eq!(r.to_bits(), want.to_bits(), "cbrt({:e}, {})", x, up);
                     }
                 }
-                if let Some(r) = fast_cbrt_near(x) {
+                if let Some(r) = fast_cbrt_near::<HAS_FMA>(x) {
                     let want = odd.to_f64_near();
                     assert_eq!(r.to_bits(), want.to_bits(), "cbrt_near({:e})", x);
                 }
@@ -946,12 +1049,12 @@ fn fast_cbrt_near_two() {
         if p >= pow2(-1021) {
             twos += 1;
             let x = next_down(p);
-            let h = fast_cbrt(x).map(|(h, _, _)| h);
+            let h = fast_cbrt::<HAS_FMA>(x).map(|(h, _, _)| h);
             assert_eq!(h, Some(2.0), "fast_cbrt({:e})", x);
             let fast = [
-                fast_cbrt_dir(x, false),
-                fast_cbrt_dir(x, true),
-                fast_cbrt_near(x),
+                fast_cbrt_dir::<HAS_FMA>(x, false),
+                fast_cbrt_dir::<HAS_FMA>(x, true),
+                fast_cbrt_near::<HAS_FMA>(x),
             ];
             assert_eq!(fast, [None; 3], "cbrt({:e})", x);
         }
@@ -974,9 +1077,24 @@ fn fast_hypot_declines_345() {
         };
         for (x, y) in [(x, y), (-y, x), (y, -x), (-x, -y)] {
             let what = format!("hypot({:e}, {:e})", x, y);
-            assert_eq!(fast_hypot(x, y, false), None, "{} toward -∞", what);
-            assert_eq!(fast_hypot(x, y, true), None, "{} toward +∞", what);
-            assert_eq!(fast_hypot_near(x, y), near, "{} to nearest", what);
+            assert_eq!(
+                fast_hypot::<HAS_FMA>(x, y, false),
+                None,
+                "{} toward -∞",
+                what
+            );
+            assert_eq!(
+                fast_hypot::<HAS_FMA>(x, y, true),
+                None,
+                "{} toward +∞",
+                what
+            );
+            assert_eq!(
+                fast_hypot_near::<HAS_FMA>(x, y),
+                near,
+                "{} to nearest",
+                what
+            );
         }
     }
 }
@@ -990,9 +1108,15 @@ fn fast_hypot_declines_345() {
 #[test]
 fn fast_hypot_declines_triples() {
     let (x, y) = (134_217_729.0, 9_007_199_388_958_720.0);
-    assert_eq!(fast_hypot_near(x, y), None);
-    assert_eq!(fast_hypot(x, y, false), Some(9_007_199_388_958_720.0));
-    assert_eq!(fast_hypot(x, y, true), Some(9_007_199_388_958_722.0));
+    assert_eq!(fast_hypot_near::<HAS_FMA>(x, y), None);
+    assert_eq!(
+        fast_hypot::<HAS_FMA>(x, y, false),
+        Some(9_007_199_388_958_720.0)
+    );
+    assert_eq!(
+        fast_hypot::<HAS_FMA>(x, y, true),
+        Some(9_007_199_388_958_722.0)
+    );
     let mut rng = Rng(10602);
     let (mut exact, mut midpoints) = (0, 0);
     while exact + midpoints < 4_000 {
@@ -1023,8 +1147,11 @@ fn fast_hypot_declines_triples() {
         }
         let (x, y) = (x * sign(&mut rng), y * sign(&mut rng));
         let what = format!("hypot({:e}, {:e})", x, y);
-        let dir = [fast_hypot(x, y, false), fast_hypot(x, y, true)];
-        let near = fast_hypot_near(x, y);
+        let dir = [
+            fast_hypot::<HAS_FMA>(x, y, false),
+            fast_hypot::<HAS_FMA>(x, y, true),
+        ];
+        let near = fast_hypot_near::<HAS_FMA>(x, y);
         if is_f64(c) {
             exact += 1;
             let r = c as f64 * pow2(k);
@@ -1076,7 +1203,7 @@ fn hypot_dd_range() {
         for small in [big, next_down(big), big * 0.5, big * pow2(-26)] {
             if small > 0.0 {
                 assert_eq!(
-                    hypot_dd(big, small).is_some(),
+                    hypot_dd::<HAS_FMA>(big, small).is_some(),
                     taken,
                     "hypot_dd({:e}, {:e})",
                     big,
@@ -1112,9 +1239,9 @@ fn fast_hypot_gap_rule() {
             }
             reset_fast_counts();
             let fast = [
-                fast_hypot(big, small, false),
-                fast_hypot(big, small, true),
-                fast_hypot_near(big, small),
+                fast_hypot::<HAS_FMA>(big, small, false),
+                fast_hypot::<HAS_FMA>(big, small, true),
+                fast_hypot_near::<HAS_FMA>(big, small),
             ];
             let tests = fast_counts();
             let what = format!("hypot({:e}, {:e}), g = {}", big, small, g);
@@ -1132,7 +1259,7 @@ fn fast_hypot_gap_rule() {
                 assert_eq!(fast, want, "{}", what);
                 assert_eq!(fast[1], Some(next_up(big)), "{}", what);
                 assert_eq!(odd.to_f64_near(), big, "{}", what);
-            } else if hypot_dd(big, small).is_some() {
+            } else if hypot_dd::<HAS_FMA>(big, small).is_some() {
                 assert_eq!(tests.0 + tests.1, 3, "{}", what);
             } else {
                 assert!(

@@ -99,7 +99,7 @@ fn signed_pow_wide_edges() {
         for x in signed_xs() {
             let ys = integers_near(s / x.ln());
             if [T_OVER, T_UNDER, -707.0, 709.0].contains(&s) {
-                let ths: Vec<f64> = ys.iter().map(|&y| pow_t(x, y).0).collect();
+                let ths: Vec<f64> = ys.iter().map(|&y| pow_t::<HAS_FMA>(x, y).0).collect();
                 assert!(
                     ths.iter().any(|&th| th < s) && ths.iter().any(|&th| th > s),
                     "x = {x:e}: th does not cross {s}"
@@ -108,7 +108,7 @@ fn signed_pow_wide_edges() {
             for y in ys {
                 let counts = agree_signed(-x, y);
                 if is_odd_integer(y) {
-                    odd_edge |= in_edge_arm(pow_t(x, y).0);
+                    odd_edge |= in_edge_arm(pow_t::<HAS_FMA>(x, y).0);
                     odd.add(counts);
                 } else {
                     even.add(counts);
@@ -147,7 +147,7 @@ fn signed_pown_wide_edges() {
                 let results = (pown(-x, m, false), pown(-x, m, true), pown_near(-x, m));
                 check_sign(&format!("pown({:e}, {})", -x, m), results, m % 2 != 0);
                 if m % 2 != 0 {
-                    odd_edge |= in_edge_arm(pow_t(x, f64::from(m)).0);
+                    odd_edge |= in_edge_arm(pow_t::<HAS_FMA>(x, f64::from(m)).0);
                     odd.add(counts);
                 } else {
                     even.add(counts);
@@ -209,14 +209,15 @@ fn exact_subnormal_pown() {
         let x = r as f64 * pow2(-a);
         let y = f64::from(n);
         let what = format!("pown({:e}, {})", x, n);
-        let th = pow_t(x, y).0;
+        let th = pow_t::<HAS_FMA>(x, y).0;
         assert!(in_edge_arm(th), "{what}: th = {th} is not in the edge arm");
         let p = r.pow(n as u32);
         let (lo, hi, near) = if a * i64::from(n) <= 1074 {
             // p < 2^53 and 2^(-a n) are `f64`s, and so is their product, x^n.
             let v = p as f64 * pow2(-a * i64::from(n));
             assert!(
-                fast_pow_dir(x, y, false).is_none() && fast_pow_dir(x, y, true).is_none(),
+                fast_pow_dir::<HAS_FMA>(x, y, false).is_none()
+                    && fast_pow_dir::<HAS_FMA>(x, y, true).is_none(),
                 "{what}: a directed test passed at the `f64` {v:e}"
             );
             (v, v, v)
@@ -226,7 +227,7 @@ fn exact_subnormal_pown() {
             let (lo, hi) = (q as f64 * pow2(-1074), (q + 1) as f64 * pow2(-1074));
             let near = if q % 2 == 0 { lo } else { hi };
             for (up, want) in [(false, lo), (true, hi)] {
-                let got = fast_pow_dir(x, y, up);
+                let got = fast_pow_dir::<HAS_FMA>(x, y, up);
                 assert!(
                     got.is_none() || bits(got) == bits(Some(want)),
                     "{what}: {got:?} toward {} at the midpoint, {want:e} expected",
@@ -234,12 +235,12 @@ fn exact_subnormal_pown() {
                 );
             }
             assert!(
-                fast_pow_near(x, y).is_none(),
+                fast_pow_near::<HAS_FMA>(x, y).is_none(),
                 "{what}: the test to nearest passed at the midpoint"
             );
             (lo, hi, near)
         };
-        let got = fast_pow_near(x, y);
+        let got = fast_pow_near::<HAS_FMA>(x, y);
         assert!(
             got.is_none() || bits(got) == bits(Some(near)),
             "{what}: {got:?} to nearest, {near:e} expected"

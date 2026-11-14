@@ -46,7 +46,7 @@ fn check_refs(y: f64, x: f64) {
     for y in [y, -y] {
         if y.abs() < x && x < TWO_996 {
             assert_eq!(
-                bits(exact_div(y, x)),
+                bits(exact_div::<HAS_FMA>(y, x)),
                 bits(exact_ref(y, x)),
                 "exact_div({:e}, {:e})",
                 y,
@@ -75,17 +75,22 @@ fn check_case(y: f64, x: f64, quotient: Option<f64>, midpoint: Option<f64>) {
         let args = format!("{:e}, {:e}", y, x);
         assert_eq!(bits(exact_ref(y, x)), bits(quotient), "exact_ref({})", args);
         if y.abs() < x && x < TWO_996 {
-            assert_eq!(bits(exact_div(y, x)), bits(quotient), "exact_div({})", args);
+            assert_eq!(
+                bits(exact_div::<HAS_FMA>(y, x)),
+                bits(quotient),
+                "exact_div({})",
+                args
+            );
         }
         let tiny = quotient.filter(|q| q.abs() < TINY_HYP);
         assert_eq!(
-            bits(tiny_quotient(y, x)),
+            bits(tiny_quotient::<HAS_FMA>(y, x)),
             bits(tiny),
             "tiny_quotient({})",
             args
         );
         assert_eq!(
-            bits(midpoint_quotient(y, x)),
+            bits(midpoint_quotient::<HAS_FMA>(y, x)),
             bits(midpoint),
             "midpoint_quotient({})",
             args
@@ -205,7 +210,7 @@ fn exact_div_false_positives() {
             args
         );
         assert_eq!(
-            bits(exact_div(2.0 * y, x)),
+            bits(exact_div::<HAS_FMA>(2.0 * y, x)),
             None,
             "exact_div(2y, x) at {}",
             args
@@ -320,7 +325,7 @@ fn exact_div_thresholds() {
                 if y1 != y {
                     check_refs(y1, x);
                 }
-                if tiny_quotient(y1, x).is_some() {
+                if tiny_quotient::<HAS_FMA>(y1, x).is_some() {
                     guards[usize::from(x >= TWO_996)] += 1;
                 }
             }
@@ -422,7 +427,7 @@ fn exact_div_midpoints() {
         for (y, zero) in [(y, 0.0_f64), (-y, -0.0)] {
             let args = format!("{:e}, {:e}", y, x);
             assert_eq!(
-                bits(midpoint_quotient(y, x)),
+                bits(midpoint_quotient::<HAS_FMA>(y, x)),
                 Some(zero.to_bits()),
                 "midpoint_quotient({})",
                 args

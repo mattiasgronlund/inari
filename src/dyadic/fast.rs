@@ -71,7 +71,7 @@
 //   last bit, ACM TOMS 17(3), 1991 (a fast approximation with an error bound, and a slower one
 //   where its rounding test fails).
 
-use crate::simd::{two_prod_err, HAS_FMA};
+use crate::simd::two_prod_err;
 
 // 2^-68: the bound on |y - (h + l)| that the rounding tests assume.
 const ERR: f64 = 1.0 / 295_147_905_179_352_825_856.0;
@@ -170,13 +170,14 @@ pub(crate) fn normalize(h: f64, l: f64) -> (f64, f64, i64) {
 /// The quotient (nh + nl) / (dh + dl) in double-double, as (qh, ql) with qh = RN(qh + ql) and
 /// |qh + ql - q| <= 2^-98 q for the quotient q, for 2^-80 <= nh <= 4, |nl| <= 2^-50 nh,
 /// 1/2 <= dh <= 4 and |dl| <= 2^-52 dh. [Dekker]
-pub(crate) fn dd_div(nh: f64, nl: f64, dh: f64, dl: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+pub(crate) fn dd_div<const FMA: bool>(nh: f64, nl: f64, dh: f64, dl: f64) -> (f64, f64) {
     let qh = nh / dh;
     // nh - qh dh exactly: p + pe = qh dh exactly, nh - p is exact by Sterbenz's lemma, and the
     // remainder nh - qh dh of a division rounded to nearest is an `f64` [Boldo-Daumas], so
     // (nh - p) - pe is exact too.
     let p = qh * dh;
-    let pe = two_prod_err::<HAS_FMA>(qh, dh, p);
+    let pe = two_prod_err::<FMA>(qh, dh, p);
     // (nh + nl) - qh (dh + dl), up to roundings below 2^-100 nh.
     let r = (((nh - p) - pe) + nl) - qh * dl;
     fast_two_sum(qh, r / dh)
@@ -520,13 +521,14 @@ pub(crate) fn round_near_signed(h: f64, l: f64, e: i64) -> Option<f64> {
 /// The square root of ah + al in double-double, as (sh, sl) with sh = RN(sh + sl) and
 /// |sh + sl - √(ah + al)| <= 2^-100 √(ah + al), for 2^-900 <= ah <= 2^900 and |al| <= 2^-52 ah:
 /// s = RN(√ah) and one correction step. [Dekker]
-pub(crate) fn dd_sqrt(ah: f64, al: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+pub(crate) fn dd_sqrt<const FMA: bool>(ah: f64, al: f64) -> (f64, f64) {
     let s = ah.sqrt();
     // ah - s^2 exactly: p + pe = s^2 exactly, ah - p is exact by Sterbenz's lemma, and the
     // remainder ah - s^2 of a square root rounded to nearest is an `f64`, so (ah - p) - pe is
     // exact too.
     let p = s * s;
-    let pe = two_prod_err::<HAS_FMA>(s, s, p);
+    let pe = two_prod_err::<FMA>(s, s, p);
     let c = (((ah - p) - pe) + al) / (2.0 * s);
     fast_two_sum(s, c)
 }

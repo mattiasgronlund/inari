@@ -120,9 +120,10 @@ use super::{
         dd_div, fast_two_sum, normalize, round_dir, round_dir_err, round_dir_wide, round_near,
         round_near_err, round_near_wide, two_sum,
     },
+    level::level_entry,
     ziv, ziv_near, Dyadic, Encl, Eval,
 };
-use crate::simd::{two_prod_err, HAS_FMA};
+use crate::simd::two_prod_err;
 use std::f64::consts::{LOG2_10, LOG2_E};
 use tables::{T1, T2};
 
@@ -482,7 +483,8 @@ const ERR68: f64 = f64::EPSILON / 65536.0;
 //
 // [CORE-MATH] P. Zimmermann et al., the CORE-MATH project, `src/binary64/exp/exp.c` (MIT
 // license); no constant or table is copied from it.
-pub(super) fn fast_exp(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+pub(super) fn fast_exp<const FMA: bool>(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
     if !(-707.0..=709.0).contains(&zh) {
         return None;
     }
@@ -512,10 +514,10 @@ pub(super) fn fast_exp(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
     let (a1h, a1l) = (f64::from_bits(a1h), f64::from_bits(a1l));
     let (a2h, a2l) = (f64::from_bits(a2h), f64::from_bits(a2l));
     let th = a1h * a2h;
-    let tl = two_prod_err::<HAS_FMA>(a1h, a2h, th) + (a1h * a2l + a1l * a2h);
+    let tl = two_prod_err::<FMA>(a1h, a2h, th) + (a1h * a2l + a1l * a2h);
     // (s + pl) (th + tl), with s th exact and pl tl, below 2^-70, left out.
     let ph = s * th;
-    let low = two_prod_err::<HAS_FMA>(s, th, ph) + (s * tl + pl * th);
+    let low = two_prod_err::<FMA>(s, th, ph) + (s * tl + pl * th);
     let (h, l) = fast_two_sum(ph, low);
     Some((h, l, k >> 12))
 }
@@ -523,11 +525,12 @@ pub(super) fn fast_exp(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
 // e^(x c) for c = ch + cl, given as the bits [ch, cl], from `fast_exp`: z = x ch + x cl, with
 // x ch in double-double. The product is exact for 2^-56 <= |x| <= 1075, which the rules of
 // `exp2` and `exp10` leave.
-fn fast_exp_by(x: f64, c: [u64; 2]) -> Option<(f64, f64, i64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_exp_by<const FMA: bool>(x: f64, c: [u64; 2]) -> Option<(f64, f64, i64)> {
     let (ch, cl) = (f64::from_bits(c[0]), f64::from_bits(c[1]));
     let zh = x * ch;
-    let zl = two_prod_err::<HAS_FMA>(x, ch, zh) + x * cl;
-    fast_exp(zh, zl)
+    let zl = two_prod_err::<FMA>(x, ch, zh) + x * cl;
+    fast_exp::<FMA>(zh, zl)
 }
 
 // e^z as `fast_exp` returns it, with e in [-1085, 1026], for the zh below -707 and above 709
@@ -541,86 +544,93 @@ fn fast_exp_by(x: f64, c: [u64; 2]) -> Option<(f64, f64, i64)> {
 // The fast path of x^y and x^n calls it too, for the th out of the range of `fast_exp` that its
 // rules on th leave (`src/dyadic/pow.rs`).
 #[inline(always)]
-pub(super) fn fast_exp_edge(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
+pub(super) fn fast_exp_edge<const FMA: bool>(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
     if zh < 0.0 {
-        let (h, l, e) = fast_exp(
+        let (h, l, e) = fast_exp::<FMA>(
             zh + f64::from_bits(LN2_64[0]),
             zl + f64::from_bits(LN2_64[1]),
         )?;
         Some((h, l, e - 64))
     } else {
-        let (h, l, e) = fast_exp(zh - f64::from_bits(LN2_4[0]), zl - f64::from_bits(LN2_4[1]))?;
+        let (h, l, e) =
+            fast_exp::<FMA>(zh - f64::from_bits(LN2_4[0]), zl - f64::from_bits(LN2_4[1]))?;
         Some((h, l, e + 4))
     }
 }
 
 // `fast_exp_by` with `fast_exp_edge` in place of `fast_exp`, always inlined as it is.
 #[inline(always)]
-fn fast_exp_by_edge(x: f64, c: [u64; 2]) -> Option<(f64, f64, i64)> {
+fn fast_exp_by_edge<const FMA: bool>(x: f64, c: [u64; 2]) -> Option<(f64, f64, i64)> {
     let (ch, cl) = (f64::from_bits(c[0]), f64::from_bits(c[1]));
     let zh = x * ch;
-    let zl = two_prod_err::<HAS_FMA>(x, ch, zh) + x * cl;
-    fast_exp_edge(zh, zl)
+    let zl = two_prod_err::<FMA>(x, ch, zh) + x * cl;
+    fast_exp_edge::<FMA>(zh, zl)
 }
 
 // e^x, 2^x and 10^x rounded toward +∞ if `up` and toward -∞ otherwise, and to nearest, by the
 // fast path, or `None` where its rounding test fails or x is out of its range; outside the
 // range of `fast_exp`, by `fast_exp_edge` with `round_dir_wide` and `round_near_wide`.
-fn fast_exp_dir(x: f64, up: bool) -> Option<f64> {
-    match fast_exp(x, 0.0) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_exp_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    match fast_exp::<FMA>(x, 0.0) {
         Some((h, l, e)) => round_dir(h, l, e, up),
         None => {
-            let (h, l, e) = fast_exp_edge(x, 0.0)?;
+            let (h, l, e) = fast_exp_edge::<FMA>(x, 0.0)?;
             round_dir_wide(h, l, e, up)
         }
     }
 }
 
-fn fast_exp2_dir(x: f64, up: bool) -> Option<f64> {
-    match fast_exp_by(x, LN2) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_exp2_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    match fast_exp_by::<FMA>(x, LN2) {
         Some((h, l, e)) => round_dir(h, l, e, up),
         None => {
-            let (h, l, e) = fast_exp_by_edge(x, LN2)?;
+            let (h, l, e) = fast_exp_by_edge::<FMA>(x, LN2)?;
             round_dir_wide(h, l, e, up)
         }
     }
 }
 
-fn fast_exp10_dir(x: f64, up: bool) -> Option<f64> {
-    match fast_exp_by(x, LN10) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_exp10_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    match fast_exp_by::<FMA>(x, LN10) {
         Some((h, l, e)) => round_dir(h, l, e, up),
         None => {
-            let (h, l, e) = fast_exp_by_edge(x, LN10)?;
+            let (h, l, e) = fast_exp_by_edge::<FMA>(x, LN10)?;
             round_dir_wide(h, l, e, up)
         }
     }
 }
 
-fn fast_exp_near(x: f64) -> Option<f64> {
-    match fast_exp(x, 0.0) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_exp_near<const FMA: bool>(x: f64) -> Option<f64> {
+    match fast_exp::<FMA>(x, 0.0) {
         Some((h, l, e)) => round_near(h, l, e),
         None => {
-            let (h, l, e) = fast_exp_edge(x, 0.0)?;
+            let (h, l, e) = fast_exp_edge::<FMA>(x, 0.0)?;
             round_near_wide(h, l, e)
         }
     }
 }
 
-fn fast_exp2_near(x: f64) -> Option<f64> {
-    match fast_exp_by(x, LN2) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_exp2_near<const FMA: bool>(x: f64) -> Option<f64> {
+    match fast_exp_by::<FMA>(x, LN2) {
         Some((h, l, e)) => round_near(h, l, e),
         None => {
-            let (h, l, e) = fast_exp_by_edge(x, LN2)?;
+            let (h, l, e) = fast_exp_by_edge::<FMA>(x, LN2)?;
             round_near_wide(h, l, e)
         }
     }
 }
 
-fn fast_exp10_near(x: f64) -> Option<f64> {
-    match fast_exp_by(x, LN10) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_exp10_near<const FMA: bool>(x: f64) -> Option<f64> {
+    match fast_exp_by::<FMA>(x, LN10) {
         Some((h, l, e)) => round_near(h, l, e),
         None => {
-            let (h, l, e) = fast_exp_by_edge(x, LN10)?;
+            let (h, l, e) = fast_exp_by_edge::<FMA>(x, LN10)?;
             round_near_wide(h, l, e)
         }
     }
@@ -637,9 +647,10 @@ pub(super) fn two_pow(e: i64) -> f64 {
 // of t ul and of its sum with the error of t uh, by `two_prod_err` [Dekker]; the tail after 1/6
 // is in plain `f64`, and 1/6 + u A in double-double, normalized by [Dekker]'s Fast2Sum as
 // 1/6 > u A.
-fn fast_sinh_poly(t: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_sinh_poly<const FMA: bool>(t: f64) -> (f64, f64) {
     let uh = t * t;
-    let ul = two_prod_err::<HAS_FMA>(t, t, uh);
+    let ul = two_prod_err::<FMA>(t, t, uh);
     let a = f64::from_bits(SH5)
         + uh * (f64::from_bits(SH7)
             + uh * (f64::from_bits(SH9)
@@ -648,10 +659,10 @@ fn fast_sinh_poly(t: f64) -> (f64, f64) {
     let (bh, b0) = fast_two_sum(f64::from_bits(SH3[0]), uh * a);
     let bl = b0 + f64::from_bits(SH3[1]);
     let t3h = t * uh;
-    let t3l = two_prod_err::<HAS_FMA>(t, uh, t3h) + t * ul;
+    let t3l = two_prod_err::<FMA>(t, uh, t3h) + t * ul;
     // t^3 (bh + bl), with the product of the low parts, below 2^-100 t, left out.
     let ch = t3h * bh;
-    let cl = two_prod_err::<HAS_FMA>(t3h, bh, ch) + (t3h * bl + t3l * bh);
+    let cl = two_prod_err::<FMA>(t3h, bh, ch) + (t3h * bl + t3l * bh);
     // ch is about sinh t - t < t^3 / 5 < t / 80, so t > ch and Fast2Sum applies, twice.
     let (sh, s0) = fast_two_sum(t, ch);
     fast_two_sum(sh, s0 + cl)
@@ -662,9 +673,10 @@ fn fast_sinh_poly(t: f64) -> (f64, f64) {
 // whose truncation is below 2^-78. u / 2 + u^2 A in double-double, then 1 + u / 2 + u^2 A, by
 // Fast2Sum [Dekker] as 1 > u / 2 > u^2 A. ch need not be RN(ch + cl): cl adds m0 + ul / 2 to
 // the error of 1 + mh, which can pass half an ulp of ch. `dd_div` needs only the bound on cl.
-fn fast_cosh_poly(t: f64) -> (f64, f64) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_cosh_poly<const FMA: bool>(t: f64) -> (f64, f64) {
     let uh = t * t;
-    let ul = two_prod_err::<HAS_FMA>(t, t, uh);
+    let ul = two_prod_err::<FMA>(t, t, uh);
     let a = f64::from_bits(CH4)
         + uh * (f64::from_bits(CH6)
             + uh * (f64::from_bits(CH8) + uh * (f64::from_bits(CH10) + uh * f64::from_bits(CH12))));
@@ -679,21 +691,22 @@ fn fast_cosh_poly(t: f64) -> (f64, f64) {
 // tests check 1/2 < h < 2. Below 1/4, the Taylor polynomial, scaled to [1, 2). From 1/4,
 // sinh t = (e^t - e^-t) / 2 with e^t = y 2^e from `fast_exp` and e^-t 2^-e = 2^-2e / y from
 // the quotient of `dd_div`; from 26 on, e^-t 2^-e < 2^-74 is left out.
-fn fast_sinh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_sinh_pos<const FMA: bool>(t: f64) -> Option<(f64, f64, i64, f64)> {
     if t < TINY_NEAR {
         return None;
     }
     if t < 0.25 {
-        let (sh, sl) = fast_sinh_poly(t);
+        let (sh, sl) = fast_sinh_poly::<FMA>(t);
         let (h, l, k) = normalize(sh, sl);
         return Some((h, l, k, ERR63));
     }
-    let (h, l, e) = match fast_exp(t, 0.0) {
+    let (h, l, e) = match fast_exp::<FMA>(t, 0.0) {
         Some(r) => r,
         None => {
             // t > 709: e^t from `fast_exp_edge`, with e^-t 2^-e left out as from 26 on, and
             // `None` where e - 1 would be above 1023.
-            let (h, l, e) = fast_exp_edge(t, 0.0)?;
+            let (h, l, e) = fast_exp_edge::<FMA>(t, 0.0)?;
             return if e > 1024 {
                 None
             } else {
@@ -704,7 +717,7 @@ fn fast_sinh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
     if t >= 26.0 {
         return Some((h, l, e - 1, ERR68));
     }
-    let (wh, wl) = dd_div(two_pow(-2 * e), 0.0, h, l);
+    let (wh, wl) = dd_div::<FMA>(two_pow(-2 * e), 0.0, h, l);
     // TwoSum [Knuth] for both sums: it needs no order of the terms, so the proof shows none.
     let (s, s0) = two_sum(h, -wh);
     let (h, l) = two_sum(s, (s0 + l) - wl);
@@ -713,12 +726,13 @@ fn fast_sinh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
 
 // cosh t for t >= 0 as `fast_sinh_pos` returns sinh t, from (e^t + e^-t) / 2 for every t, as
 // the sum does not cancel, halved where it is 2 or more.
-fn fast_cosh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
-    let (h, l, e) = match fast_exp(t, 0.0) {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_cosh_pos<const FMA: bool>(t: f64) -> Option<(f64, f64, i64, f64)> {
+    let (h, l, e) = match fast_exp::<FMA>(t, 0.0) {
         Some(r) => r,
         None => {
             // t > 709, as in `fast_sinh_pos`.
-            let (h, l, e) = fast_exp_edge(t, 0.0)?;
+            let (h, l, e) = fast_exp_edge::<FMA>(t, 0.0)?;
             return if e > 1024 {
                 None
             } else {
@@ -729,7 +743,7 @@ fn fast_cosh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
     if t >= 26.0 {
         return Some((h, l, e - 1, ERR68));
     }
-    let (wh, wl) = dd_div(two_pow(-2 * e), 0.0, h, l);
+    let (wh, wl) = dd_div::<FMA>(two_pow(-2 * e), 0.0, h, l);
     let (s, s0) = two_sum(h, wh);
     // s >= h > 1/2 and |(s0 + l) + wl| < 2^-50, so Fast2Sum applies.
     let (h, l) = fast_two_sum(s, (s0 + l) + wl);
@@ -745,24 +759,25 @@ fn fast_cosh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
 // where 1 + wh and 1 - wh are exact in double-double by Fast2Sum [Dekker], as wh < 1. Both
 // scale the quotient to [1, 2), and err is 2^-63 below 1/8 and, from 1/8 on, the 2^-67 that
 // bounds the error of the unscaled quotient, scaled with it.
-fn fast_tanh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_tanh_pos<const FMA: bool>(t: f64) -> Option<(f64, f64, i64, f64)> {
     if t < TINY_NEAR {
         return None;
     }
     if t < 0.125 {
-        let (sh, sl) = fast_sinh_poly(t);
-        let (ch, cl) = fast_cosh_poly(t);
-        let (qh, ql) = dd_div(sh, sl, ch, cl);
+        let (sh, sl) = fast_sinh_poly::<FMA>(t);
+        let (ch, cl) = fast_cosh_poly::<FMA>(t);
+        let (qh, ql) = dd_div::<FMA>(sh, sl, ch, cl);
         let (h, l, k) = normalize(qh, ql);
         return Some((h, l, k, ERR63));
     }
-    let (h, l, e) = fast_exp(-2.0 * t, 0.0)?;
+    let (h, l, e) = fast_exp::<FMA>(-2.0 * t, 0.0)?;
     // w = (h + l) 2^e: h 2^e is exact, and l 2^e rounds only where it is subnormal.
     let p = two_pow(e);
     let (wh, wl) = (h * p, l * p);
     let (dh, d0) = fast_two_sum(1.0, wh);
     let (nh, n0) = fast_two_sum(1.0, -wh);
-    let (qh, ql) = dd_div(nh, n0 - wl, dh, d0 + wl);
+    let (qh, ql) = dd_div::<FMA>(nh, n0 - wl, dh, d0 + wl);
     let (h, l, k) = normalize(qh, ql);
     Some((h, l, k, two_pow(-67 - k)))
 }
@@ -770,42 +785,55 @@ fn fast_tanh_pos(t: f64) -> Option<(f64, f64, i64, f64)> {
 // sinh x, cosh t for t = |x| and tanh x rounded toward +∞ if `up` and toward -∞ otherwise, and
 // to nearest, by the fast paths, or `None` where the rounding test fails or the argument is
 // out of their range. sinh and tanh are odd: for x < 0, f(x) rounded up is -f(-x) rounded down.
-fn fast_sinh_dir(x: f64, up: bool) -> Option<f64> {
-    let (h, l, e, err) = fast_sinh_pos(x.abs())?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_sinh_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    let (h, l, e, err) = fast_sinh_pos::<FMA>(x.abs())?;
     let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_cosh_dir(t: f64, up: bool) -> Option<f64> {
-    let (h, l, e, err) = fast_cosh_pos(t)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_cosh_dir<const FMA: bool>(t: f64, up: bool) -> Option<f64> {
+    let (h, l, e, err) = fast_cosh_pos::<FMA>(t)?;
     round_dir_err(h, l, e, err, up)
 }
 
-fn fast_tanh_dir(x: f64, up: bool) -> Option<f64> {
-    let (h, l, e, err) = fast_tanh_pos(x.abs())?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_tanh_dir<const FMA: bool>(x: f64, up: bool) -> Option<f64> {
+    let (h, l, e, err) = fast_tanh_pos::<FMA>(x.abs())?;
     let r = round_dir_err(h, l, e, err, up != (x < 0.0))?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_sinh_near(x: f64) -> Option<f64> {
-    let (h, l, e, err) = fast_sinh_pos(x.abs())?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_sinh_near<const FMA: bool>(x: f64) -> Option<f64> {
+    let (h, l, e, err) = fast_sinh_pos::<FMA>(x.abs())?;
     let r = round_near_err(h, l, e, err)?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-fn fast_cosh_near(t: f64) -> Option<f64> {
-    let (h, l, e, err) = fast_cosh_pos(t)?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_cosh_near<const FMA: bool>(t: f64) -> Option<f64> {
+    let (h, l, e, err) = fast_cosh_pos::<FMA>(t)?;
     round_near_err(h, l, e, err)
 }
 
-fn fast_tanh_near(x: f64) -> Option<f64> {
-    let (h, l, e, err) = fast_tanh_pos(x.abs())?;
+#[cfg_attr(inari_kernel_dispatch, inline(always))]
+fn fast_tanh_near<const FMA: bool>(x: f64) -> Option<f64> {
+    let (h, l, e, err) = fast_tanh_pos::<FMA>(x.abs())?;
     let r = round_near_err(h, l, e, err)?;
     Some(if x < 0.0 { -r } else { r })
 }
 
-/// e^x rounded toward +∞ if `up` and toward -∞ otherwise.
-pub(crate) fn exp(x: f64, up: bool) -> f64 {
+level_entry! {
+    /// e^x rounded toward +∞ if `up` and toward -∞ otherwise.
+    #[cfg_attr(inari_kernel_dispatch, inline(always))]
+    pub(crate) fn exp(x: f64, up: bool) -> f64 = exp_with;
+}
+
+// The body of `exp`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn exp_with<const FMA: bool>(x: f64, up: bool) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
         x
     } else if x == f64::NEG_INFINITY {
@@ -819,15 +847,21 @@ pub(crate) fn exp(x: f64, up: bool) -> f64 {
     } else if x.abs() < TINY_EXP {
         // 1 + x <= e^x <= 1 / (1 - x) for x < 1.
         near_one(x, up)
-    } else if let Some(r) = fast_exp_dir(x, up) {
+    } else if let Some(r) = fast_exp_dir::<FMA>(x, up) {
         r
     } else {
         ziv(&Exp(x), up, 1)
     }
 }
 
-/// e^x rounded to nearest, ties to even.
-pub(crate) fn exp_near(x: f64) -> f64 {
+level_entry! {
+    /// e^x rounded to nearest, ties to even.
+    pub(crate) fn exp_near(x: f64) -> f64 = exp_near_with;
+}
+
+// The body of `exp_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn exp_near_with<const FMA: bool>(x: f64) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
         x
     } else if x == f64::NEG_INFINITY {
@@ -840,15 +874,22 @@ pub(crate) fn exp_near(x: f64) -> f64 {
     } else if x.abs() < TINY_EXP {
         // 1 - 2^-54 < 1 + x <= e^x <= 1 / (1 - x) < 1 + 2^-53.
         1.0
-    } else if let Some(r) = fast_exp_near(x) {
+    } else if let Some(r) = fast_exp_near::<FMA>(x) {
         r
     } else {
         ziv_near(&Exp(x), 1)
     }
 }
 
-/// 2^x rounded toward +∞ if `up` and toward -∞ otherwise.
-pub(crate) fn exp2(x: f64, up: bool) -> f64 {
+level_entry! {
+    /// 2^x rounded toward +∞ if `up` and toward -∞ otherwise.
+    #[cfg_attr(inari_kernel_dispatch, inline(always))]
+    pub(crate) fn exp2(x: f64, up: bool) -> f64 = exp2_with;
+}
+
+// The body of `exp2`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn exp2_with<const FMA: bool>(x: f64, up: bool) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
         x
     } else if x == f64::NEG_INFINITY {
@@ -860,15 +901,21 @@ pub(crate) fn exp2(x: f64, up: bool) -> f64 {
     } else if x.abs() < TINY_EXP {
         // 2^x = e^(x ln 2), and |x ln 2| < |x|.
         near_one(x, up)
-    } else if let Some(r) = fast_exp2_dir(x, up) {
+    } else if let Some(r) = fast_exp2_dir::<FMA>(x, up) {
         r
     } else {
         ziv(&Exp2(x), up, 1)
     }
 }
 
-/// 2^x rounded to nearest, ties to even.
-pub(crate) fn exp2_near(x: f64) -> f64 {
+level_entry! {
+    /// 2^x rounded to nearest, ties to even.
+    pub(crate) fn exp2_near(x: f64) -> f64 = exp2_near_with;
+}
+
+// The body of `exp2_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn exp2_near_with<const FMA: bool>(x: f64) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
         x
     } else if x == f64::NEG_INFINITY {
@@ -881,15 +928,22 @@ pub(crate) fn exp2_near(x: f64) -> f64 {
     } else if x.abs() < TINY_EXP {
         // 2^x = e^(x ln 2), and |x ln 2| < |x|.
         1.0
-    } else if let Some(r) = fast_exp2_near(x) {
+    } else if let Some(r) = fast_exp2_near::<FMA>(x) {
         r
     } else {
         ziv_near(&Exp2(x), 1)
     }
 }
 
-/// 10^x rounded toward +∞ if `up` and toward -∞ otherwise.
-pub(crate) fn exp10(x: f64, up: bool) -> f64 {
+level_entry! {
+    /// 10^x rounded toward +∞ if `up` and toward -∞ otherwise.
+    #[cfg_attr(inari_kernel_dispatch, inline(always))]
+    pub(crate) fn exp10(x: f64, up: bool) -> f64 = exp10_with;
+}
+
+// The body of `exp10`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn exp10_with<const FMA: bool>(x: f64, up: bool) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
         x
     } else if x == f64::NEG_INFINITY {
@@ -905,15 +959,21 @@ pub(crate) fn exp10(x: f64, up: bool) -> f64 {
         near_one(x, up)
     } else if (1.0..=22.0).contains(&x) && x == x.floor() {
         POW10[x as usize]
-    } else if let Some(r) = fast_exp10_dir(x, up) {
+    } else if let Some(r) = fast_exp10_dir::<FMA>(x, up) {
         r
     } else {
         ziv(&Exp10(x), up, 1)
     }
 }
 
-/// 10^x rounded to nearest, ties to even.
-pub(crate) fn exp10_near(x: f64) -> f64 {
+level_entry! {
+    /// 10^x rounded to nearest, ties to even.
+    pub(crate) fn exp10_near(x: f64) -> f64 = exp10_near_with;
+}
+
+// The body of `exp10_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn exp10_near_with<const FMA: bool>(x: f64) -> f64 {
     if x.is_nan() || x == f64::INFINITY {
         x
     } else if x == f64::NEG_INFINITY {
@@ -933,7 +993,7 @@ pub(crate) fn exp10_near(x: f64) -> f64 {
         // adjacent `f64`s, which an enclosure settles only if it is one of its bounds. `1e23`
         // is its rounding, ties to even.
         1e23
-    } else if let Some(r) = fast_exp10_near(x) {
+    } else if let Some(r) = fast_exp10_near::<FMA>(x) {
         r
     } else {
         ziv_near(&Exp10(x), 1)
@@ -951,8 +1011,14 @@ pub(crate) fn sinh(x: f64, up: bool) -> f64 {
     }
 }
 
-// `sinh` toward +∞ if `UP` and toward -∞ otherwise.
-fn sinh_dir<const UP: bool>(x: f64) -> f64 {
+level_entry! {
+    // `sinh` toward +∞ if `UP` and toward -∞ otherwise.
+    fn sinh_dir<const UP: bool>(x: f64) -> f64 = sinh_dir_with;
+}
+
+// The body of `sinh_dir`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn sinh_dir_with<const FMA: bool, const UP: bool>(x: f64) -> f64 {
     if x.is_nan() || x.is_infinite() {
         x
     } else if x >= 711.0 {
@@ -963,15 +1029,21 @@ fn sinh_dir<const UP: bool>(x: f64) -> f64 {
     } else if x.abs() < TINY_HYP {
         // x <= sinh x <= x + x^3 / 3 for x in [0, 1], and sinh is odd.
         away(x, UP)
-    } else if let Some(r) = fast_sinh_dir(x, UP) {
+    } else if let Some(r) = fast_sinh_dir::<FMA>(x, UP) {
         r
     } else {
         ziv(&Sinh(x), UP, 1)
     }
 }
 
-/// sinh x rounded to nearest, ties to even.
-pub(crate) fn sinh_near(x: f64) -> f64 {
+level_entry! {
+    /// sinh x rounded to nearest, ties to even.
+    pub(crate) fn sinh_near(x: f64) -> f64 = sinh_near_with;
+}
+
+// The body of `sinh_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn sinh_near_with<const FMA: bool>(x: f64) -> f64 {
     if x.is_nan() || x.is_infinite() {
         x
     } else if x >= 711.0 {
@@ -981,15 +1053,22 @@ pub(crate) fn sinh_near(x: f64) -> f64 {
     } else if x.abs() < TINY_NEAR {
         // x <= sinh x <= x + x^3 / 3 for x in [0, 1], and sinh is odd.
         x
-    } else if let Some(r) = fast_sinh_near(x) {
+    } else if let Some(r) = fast_sinh_near::<FMA>(x) {
         r
     } else {
         ziv_near(&Sinh(x), 1)
     }
 }
 
-/// cosh x rounded toward +∞ if `up` and toward -∞ otherwise.
-pub(crate) fn cosh(x: f64, up: bool) -> f64 {
+level_entry! {
+    /// cosh x rounded toward +∞ if `up` and toward -∞ otherwise.
+    #[cfg_attr(inari_kernel_dispatch, inline(always))]
+    pub(crate) fn cosh(x: f64, up: bool) -> f64 = cosh_with;
+}
+
+// The body of `cosh`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn cosh_with<const FMA: bool>(x: f64, up: bool) -> f64 {
     let t = x.abs();
     if t.is_nan() || t == f64::INFINITY {
         t
@@ -999,15 +1078,21 @@ pub(crate) fn cosh(x: f64, up: bool) -> f64 {
     } else if t < TINY_HYP {
         // 1 <= cosh t <= 1 + t^2 for t in [0, 1].
         near_one(t, up)
-    } else if let Some(r) = fast_cosh_dir(t, up) {
+    } else if let Some(r) = fast_cosh_dir::<FMA>(t, up) {
         r
     } else {
         ziv(&Cosh(t), up, 1)
     }
 }
 
-/// cosh x rounded to nearest, ties to even.
-pub(crate) fn cosh_near(x: f64) -> f64 {
+level_entry! {
+    /// cosh x rounded to nearest, ties to even.
+    pub(crate) fn cosh_near(x: f64) -> f64 = cosh_near_with;
+}
+
+// The body of `cosh_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn cosh_near_with<const FMA: bool>(x: f64) -> f64 {
     let t = x.abs();
     if t.is_nan() || t == f64::INFINITY {
         t
@@ -1016,15 +1101,22 @@ pub(crate) fn cosh_near(x: f64) -> f64 {
     } else if t < TINY_NEAR {
         // 1 <= cosh t <= 1 + t^2 for t in [0, 1].
         1.0
-    } else if let Some(r) = fast_cosh_near(t) {
+    } else if let Some(r) = fast_cosh_near::<FMA>(t) {
         r
     } else {
         ziv_near(&Cosh(t), 1)
     }
 }
 
-/// tanh x rounded toward +∞ if `up` and toward -∞ otherwise.
-pub(crate) fn tanh(x: f64, up: bool) -> f64 {
+level_entry! {
+    /// tanh x rounded toward +∞ if `up` and toward -∞ otherwise.
+    #[cfg_attr(inari_kernel_dispatch, inline(always))]
+    pub(crate) fn tanh(x: f64, up: bool) -> f64 = tanh_with;
+}
+
+// The body of `tanh`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn tanh_with<const FMA: bool>(x: f64, up: bool) -> f64 {
     if x.is_nan() {
         x
     } else if x == f64::INFINITY {
@@ -1047,15 +1139,21 @@ pub(crate) fn tanh(x: f64, up: bool) -> f64 {
     } else if x.abs() < TINY_HYP {
         // x - x^3 / 3 <= tanh x <= x for x in [0, 1], and tanh is odd.
         toward_zero(x, up)
-    } else if let Some(r) = fast_tanh_dir(x, up) {
+    } else if let Some(r) = fast_tanh_dir::<FMA>(x, up) {
         r
     } else {
         ziv(&Tanh(x), up, 1)
     }
 }
 
-/// tanh x rounded to nearest, ties to even.
-pub(crate) fn tanh_near(x: f64) -> f64 {
+level_entry! {
+    /// tanh x rounded to nearest, ties to even.
+    pub(crate) fn tanh_near(x: f64) -> f64 = tanh_near_with;
+}
+
+// The body of `tanh_near`, with `FMA` for the products (`level_entry!`).
+#[inline(always)]
+fn tanh_near_with<const FMA: bool>(x: f64) -> f64 {
     if x.is_nan() {
         x
     } else if x >= 20.0 {
@@ -1067,7 +1165,7 @@ pub(crate) fn tanh_near(x: f64) -> f64 {
     } else if x.abs() < TINY_NEAR {
         // x - x^3 / 3 <= tanh x <= x for x in [0, 1], and tanh is odd.
         x
-    } else if let Some(r) = fast_tanh_near(x) {
+    } else if let Some(r) = fast_tanh_near::<FMA>(x) {
         r
     } else {
         ziv_near(&Tanh(x), 1)

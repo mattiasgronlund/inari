@@ -11,6 +11,7 @@ use crate::dyadic::{
     fast::{fast_counts, reset_fast_counts, set_fast_path},
     tests::Rng,
 };
+use crate::simd::HAS_FMA;
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI, SQRT_2};
 
 type Directed = fn(f64, bool) -> f64;
@@ -670,7 +671,7 @@ fn midpoint_quotients() {
             let (y, f) = (s * y, s * f);
             let args = format!("{:e}, {:e}", y, x);
             assert_eq!(
-                midpoint_quotient(y, x).map(f64::to_bits),
+                midpoint_quotient::<HAS_FMA>(y, x).map(f64::to_bits),
                 Some(f.to_bits()),
                 "midpoint_quotient({})",
                 args
@@ -684,7 +685,7 @@ fn midpoint_quotients() {
             for y1 in around(y, 1) {
                 if y1 != y {
                     assert_eq!(
-                        midpoint_quotient(y1, x),
+                        midpoint_quotient::<HAS_FMA>(y1, x),
                         None,
                         "midpoint_quotient({:e}, {:e})",
                         y1,
@@ -791,14 +792,14 @@ fn same_map(y: f64, x: f64) -> [bool; 4] {
         passes
     );
     assert_eq!(
-        tiny_quotient(y, x).map(f64::to_bits),
+        tiny_quotient::<HAS_FMA>(y, x).map(f64::to_bits),
         tiny_quotient_old(y, x).map(f64::to_bits),
         "tiny_quotient({:e}, {:e})",
         y,
         x
     );
     assert_eq!(
-        midpoint_quotient(y, x).map(f64::to_bits),
+        midpoint_quotient::<HAS_FMA>(y, x).map(f64::to_bits),
         midpoint_quotient_old(y, x).map(f64::to_bits),
         "midpoint_quotient({:e}, {:e})",
         y,
@@ -852,8 +853,8 @@ fn quotient_rules_same_map() {
         }
         windows[0] += usize::from(!passes[0] && passes[1]);
         windows[1] += usize::from(!passes[2] && passes[3]);
-        quotients[0] += usize::from(tiny_quotient(y, x).is_some());
-        quotients[1] += usize::from(midpoint_quotient(y, x).is_some());
+        quotients[0] += usize::from(tiny_quotient::<HAS_FMA>(y, x).is_some());
+        quotients[1] += usize::from(midpoint_quotient::<HAS_FMA>(y, x).is_some());
     }
     assert!(
         sides.iter().flatten().all(|&c| c > 0) && windows.iter().chain(&quotients).all(|&c| c > 0),
@@ -1212,33 +1213,55 @@ fn check2_stages(y: f64, x: f64) {
     check2_fast(y, x);
 }
 
+// The random argument `n` of the function `i` in `fast_path_agrees_with_kernel` and
+// `copies_agree`: for even `n`, of any exponent, and otherwise of a moderate magnitude.
+fn random_arg(rng: &mut Rng, i: usize, n: u32) -> f64 {
+    if n % 2 == 0 {
+        // Of any exponent, from the bits of a positive finite `f64`, in [0, 1) for asin and
+        // acos, with a random sign.
+        let bits = match i {
+            ATAN => rng.below(0x7ff0_0000_0000_0000),
+            _ => rng.below(0x3ff0_0000_0000_0000),
+        };
+        random_sign(rng) * f64::from_bits(bits)
+    } else {
+        // Uniform in [-10, 10) for atan and in [-1, 1) for asin and acos.
+        let u = rng.below(1 << 53) as f64 / (1u64 << 52) as f64 - 1.0;
+        if i == ATAN {
+            10.0 * u
+        } else {
+            u
+        }
+    }
+}
+
+// The random arguments `n` (y, x) of atan2 in `fast_path_agrees_with_kernel` and
+// `copies_agree`: for even `n`, both of any exponent with random signs, and otherwise at
+// y = q x, rounded, for a q of magnitude in [2^-60, 2^61), in a random quadrant.
+fn random_args2(rng: &mut Rng, n: u32) -> (f64, f64) {
+    if n % 2 == 0 {
+        (
+            random_sign(rng) * f64::from_bits(rng.below(0x7ff0_0000_0000_0000)),
+            random_sign(rng) * f64::from_bits(rng.below(0x7ff0_0000_0000_0000)),
+        )
+    } else {
+        let x = 1.0 + rng.below(1 << 52) as f64 / (1u64 << 52) as f64;
+        let q = (1.0 + rng.below(1 << 52) as f64 / (1u64 << 52) as f64)
+            * pow2(rng.below(121) as i32 - 60);
+        (random_sign(rng) * q * x, random_sign(rng) * x)
+    }
+}
+
 // atan, asin, acos and atan2 give the same `f64`s, in both directions and to nearest, with the
 // fast path as with it disabled, and agree with MPFR, on random arguments of any exponent and of
-// a moderate magnitude, and most of their rounding tests pass.
+// a moderate magnitude (`random_arg`, `random_args2`), and most of their rounding tests pass.
 #[test]
 fn fast_path_agrees_with_kernel() {
     let mut rng = Rng(91);
     for (i, (name, _)) in FUNCTIONS.iter().enumerate() {
         reset_fast_counts();
         for n in 0..3000 {
-            let x = if n % 2 == 0 {
-                // Of any exponent, from the bits of a positive finite `f64`, in [0, 1) for asin
-                // and acos, with a random sign.
-                let bits = match i {
-                    ATAN => rng.below(0x7ff0_0000_0000_0000),
-                    _ => rng.below(0x3ff0_0000_0000_0000),
-                };
-                random_sign(&mut rng) * f64::from_bits(bits)
-            } else {
-                // Uniform in [-10, 10) for atan and in [-1, 1) for asin and acos.
-                let u = rng.below(1 << 53) as f64 / (1u64 << 52) as f64 - 1.0;
-                if i == ATAN {
-                    10.0 * u
-                } else {
-                    u
-                }
-            };
-            check_fast(i, x);
+            check_fast(i, random_arg(&mut rng, i, n));
         }
         let (passed, failed) = fast_counts();
         assert!(
@@ -1246,21 +1269,9 @@ fn fast_path_agrees_with_kernel() {
             "{name}: {passed} passed, {failed} failed"
         );
     }
-    // atan2 with both arguments of any exponent and random signs, and at y = q x, rounded, for a
-    // q of magnitude in [2^-60, 2^61), in a random quadrant.
     reset_fast_counts();
     for n in 0..3000 {
-        let (y, x) = if n % 2 == 0 {
-            (
-                random_sign(&mut rng) * f64::from_bits(rng.below(0x7ff0_0000_0000_0000)),
-                random_sign(&mut rng) * f64::from_bits(rng.below(0x7ff0_0000_0000_0000)),
-            )
-        } else {
-            let x = 1.0 + rng.below(1 << 52) as f64 / (1u64 << 52) as f64;
-            let q = (1.0 + rng.below(1 << 52) as f64 / (1u64 << 52) as f64)
-                * pow2(rng.below(121) as i32 - 60);
-            (random_sign(&mut rng) * q * x, random_sign(&mut rng) * x)
-        };
+        let (y, x) = random_args2(&mut rng, n);
         check2_fast(y, x);
     }
     let (passed, failed) = fast_counts();
@@ -1284,6 +1295,186 @@ fn fast_stage2_agrees_with_kernel() {
         check_fast(ACOS, u);
         if n % 3 == 0 {
             check2_fast(10.0 * u, 10.0 * random_sign(&mut rng) * (u + 1.5));
+        }
+    }
+    set_atan_stage1(true);
+}
+
+// The function `i` of `FUNCTIONS` at x, toward -∞, toward +∞ and to nearest, by the bodies of
+// its entries with `FMA` for the products (`level_entry!`).
+fn bodies<const FMA: bool>(i: usize, x: f64) -> [f64; 3] {
+    match i {
+        ATAN => [
+            atan_dir_with::<FMA, false>(x),
+            atan_dir_with::<FMA, true>(x),
+            atan_near_with::<FMA>(x),
+        ],
+        ASIN => [
+            asin_dir_with::<FMA, false>(x),
+            asin_dir_with::<FMA, true>(x),
+            asin_near_with::<FMA>(x),
+        ],
+        ACOS => [
+            acos_dir_with::<FMA, false>(x),
+            acos_dir_with::<FMA, true>(x),
+            acos_near_with::<FMA>(x),
+        ],
+        _ => unreachable!(),
+    }
+}
+
+// The same for atan2 at (y, x).
+fn bodies2<const FMA: bool>(y: f64, x: f64) -> [f64; 3] {
+    [
+        atan2_dir_with::<FMA, false>(y, x),
+        atan2_dir_with::<FMA, true>(y, x),
+        atan2_near_with::<FMA>(y, x),
+    ]
+}
+
+// Checks that the three rows of `copies` are the same `f64`s.
+fn assert_copies_agree(what: &str, copies: [[f64; 3]; 3]) {
+    let bits = copies.map(|row| row.map(f64::to_bits));
+    assert!(
+        bits[0] == bits[1] && bits[1] == bits[2],
+        "{what}: {:?} without an FMA, {:?} with one, {:?} by the entries",
+        copies[0],
+        copies[1],
+        copies[2]
+    );
+}
+
+// Checks that the function `i` gives the same `f64`s at x, as `bodies` gives them, by the copy
+// of each entry without an FMA in its products, by the copy with one (`level_entry!`), and by
+// the functions of `FUNCTIONS` and `NEAR`, which call the entries.
+fn check_copies(i: usize, x: f64) {
+    assert_copies_agree(
+        &format!("{}({x:e})", FUNCTIONS[i].0),
+        [
+            bodies::<false>(i, x),
+            bodies::<true>(i, x),
+            [
+                FUNCTIONS[i].1(x, false),
+                FUNCTIONS[i].1(x, true),
+                NEAR[i](x),
+            ],
+        ],
+    );
+}
+
+// The same for atan2 at (y, x), with `bodies2`, `atan2` and `atan2_near`.
+fn check2_copies(y: f64, x: f64) {
+    assert_copies_agree(
+        &format!("atan2({y:e}, {x:e})"),
+        [
+            bodies2::<false>(y, x),
+            bodies2::<true>(y, x),
+            [atan2(y, x, false), atan2(y, x, true), atan2_near(y, x)],
+        ],
+    );
+}
+
+// The random arguments `n` (y, x) of atan2 in `copies_agree`, with |y / x| below 2^-1021 and
+// random signs, at which `tiny_quotient` and `midpoint_quotient` run their `f64` checks for
+// x > 0. For even `n`, y is an odd multiple of 2^-1074 below 2^-1022 and x is in [1, 2^60).
+// Otherwise, as in `midpoint_quotients`, y = X m 2^(k - 1075) and x = X 2^k for an odd X of b
+// bits, b in [1, 26], a random m in [1, 2^(53 - b)) and k in [1, 60], so that y / x = m 2^-1075
+// exactly: midway between two `f64`s for odd m, and an `f64` for even m. In a third of those, y
+// is replaced by the `f64` next to it, toward +∞ or toward -∞, as `midpoint_quotients` also
+// does.
+fn tiny_quotient_args(rng: &mut Rng, n: u32) -> (f64, f64) {
+    let (y, x) = if n % 2 == 0 {
+        let bits = uniform(rng, 1, 52) as u32;
+        // Below 2^-1022 the bits of an `f64` are the integer y / 2^-1074.
+        (f64::from_bits(odd(rng, bits)), log_uniform(rng, 0, 59))
+    } else {
+        let b = uniform(rng, 1, 26);
+        let xo = odd(rng, b as u32);
+        let m = 1 + rng.below((1 << (53 - b)) - 1);
+        let k = uniform(rng, 1, 60);
+        // X m < 2^53 and X are exact, and so are their products by 2^(k - 1075) >= 2^-1074 and
+        // 2^k.
+        let y = (xo * m) as f64 * pow2(k - 1075);
+        let y = match rng.below(6) {
+            0 => next_up(y),
+            1 => next_down(y),
+            _ => y,
+        };
+        (y, xo as f64 * pow2(k))
+    };
+    (random_sign(rng) * y, random_sign(rng) * x)
+}
+
+// The copies of atan, asin, acos and atan2 without an FMA and with one, and the entries, give the
+// same `f64`s, bit for bit, in both directions and to nearest (`check_copies`, `check2_copies`),
+// on random arguments drawn as in `fast_path_agrees_with_kernel` (`random_arg`, `random_args2`)
+// and as in `fast_range_random` (`BRANCHES` and `BRANCHES2`), on atan2 at quotients below
+// 2^-1021 (`tiny_quotient_args`), and on `SPECIAL` and its pairs, `HARD_CASES`, `HARD_CASES2`
+// and `regressions()`. It checks them all twice: with the first stages of the fast paths, and
+// without them (`set_atan_stage1`), where the second stages answer, the cold `fast_atan2_dir2`
+// among them. `rocq/theories/FastAtan.v` and `rocq/theories/FastAsin.v` prove it of the fast
+// paths as `Model.v` transcribes them (`fast_atan_dir_fma`, `fast_asin_dir_fma` and the others),
+// on the arguments that their hypotheses allow; this test checks the code as compiled, where the
+// entries call the copy built with the target feature `fma` in a build with the dispatch, on a
+// CPU that has it.
+#[test]
+fn copies_agree() {
+    for stage1 in [true, false] {
+        set_atan_stage1(stage1);
+        // The same arguments in both passes.
+        let mut rng = Rng(920);
+        for i in [ATAN, ASIN, ACOS] {
+            for n in 0..2000 {
+                check_copies(i, random_arg(&mut rng, i, n));
+            }
+        }
+        for n in 0..2000 {
+            let (y, x) = random_args2(&mut rng, n);
+            check2_copies(y, x);
+        }
+        for (i, a, b) in BRANCHES {
+            for n in 0..250 {
+                let t = in_range(&mut rng, a, b, n % 2 == 1);
+                check_copies(i, random_sign(&mut rng) * t);
+            }
+        }
+        for branch in BRANCHES2 {
+            for n in 0..250 {
+                let (y, x) = in_branch2(&mut rng, branch, n % 2 == 1);
+                check2_copies(y, x);
+            }
+        }
+        for n in 0..2000 {
+            let (y, x) = tiny_quotient_args(&mut rng, n);
+            check2_copies(y, x);
+        }
+        // Both signs of each special value, and every pair of them for atan2.
+        for x in SPECIAL.into_iter().flat_map(|x| [x, -x]) {
+            for i in [ATAN, ASIN, ACOS] {
+                check_copies(i, x);
+            }
+            for y in SPECIAL {
+                check2_copies(y, x);
+                check2_copies(-y, x);
+            }
+        }
+        // As in `hard_cases`.
+        for (i, x) in HARD_CASES {
+            check_copies(i, x);
+            check_copies(i, -x);
+        }
+        for (y, x) in HARD_CASES2 {
+            check2_copies(y, x);
+            check2_copies(-y, x);
+        }
+        for (name, args) in regressions() {
+            if name == "atan2" {
+                let (y, x) = args.split_once(", ").unwrap();
+                check2_copies(y.parse().unwrap(), x.parse().unwrap());
+            } else {
+                let i = FUNCTIONS.iter().position(|(n, _)| *n == name).unwrap();
+                check_copies(i, args.parse().unwrap());
+            }
         }
     }
     set_atan_stage1(true);
@@ -1428,32 +1619,32 @@ fn first_stage_random() {
 // rules leave: atan and asin take |x|, and give the sign of x to the rounding.
 fn fast_parts(i: usize, x: f64) -> Option<(f64, f64, i64, f64)> {
     match i {
-        ATAN => fast_atan_pos(x.abs()),
-        ASIN => fast_asin_pos(x.abs()),
-        ACOS => fast_acos_val(x),
+        ATAN => fast_atan_pos::<HAS_FMA>(x.abs()),
+        ASIN => fast_asin_pos::<HAS_FMA>(x.abs()),
+        ACOS => fast_acos_val::<HAS_FMA>(x),
         _ => unreachable!(),
     }
 }
 
 // The same for atan2 at (y, x), which takes |y| and |x| and gives the sign of y to the rounding.
 fn fast_parts2(y: f64, x: f64) -> Option<(f64, f64, i64, f64)> {
-    fast_atan2_pos(y.abs(), x.abs(), x < 0.0)
+    fast_atan2_pos::<HAS_FMA>(y.abs(), x.abs(), x < 0.0)
 }
 
 // The parts of the first stage of the fast path of the function `i` at x, as `fast_parts` gives
 // those of the second stage: `None` is the second stage's turn.
 fn fast_parts1(i: usize, x: f64) -> Option<(f64, f64, i64, f64)> {
     match i {
-        ATAN => fast_atan_pos1(x.abs()),
-        ASIN => fast_asin_pos1(x.abs()),
-        ACOS => fast_acos_val1(x),
+        ATAN => fast_atan_pos1::<HAS_FMA>(x.abs()),
+        ASIN => fast_asin_pos1::<HAS_FMA>(x.abs()),
+        ACOS => fast_acos_val1::<HAS_FMA>(x),
         _ => unreachable!(),
     }
 }
 
 // The same for atan2 at (y, x), where `Some(None)` sends the result, below 2^-1021, to the kernel.
 fn fast_parts1_2(y: f64, x: f64) -> Option<Option<(f64, f64, i64, f64)>> {
-    fast_atan2_pos1(y.abs(), x.abs(), x < 0.0)
+    fast_atan2_pos1::<HAS_FMA>(y.abs(), x.abs(), x < 0.0)
 }
 
 // atan, asin, acos and atan2 next to the edges of the table, of its index, of the reductions and
