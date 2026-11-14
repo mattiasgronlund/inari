@@ -619,9 +619,10 @@ fn fast_atan_poly(uh: f64, ul: f64) -> (f64, f64) {
 // without an FMA (`fast_atan_core_correct` and `fast_atan_core_fma`).
 fn fast_atan_core(th: f64, tl: f64) -> Option<(f64, f64)> {
     // 64 th < 2^51, so adding and subtracting `SHIFTER` rounds it to an integer, within 1/2, and
-    // i is in [0, 64].
-    let kf = (th * 64.0 + SHIFTER) - SHIFTER;
-    let i = kf as i64;
+    // i is in [0, 64]. ks is the integer SHIFTER + i, so its low 32 bits are i.
+    let ks = th * 64.0 + SHIFTER;
+    let kf = ks - SHIFTER;
+    let i = ks.to_bits() as i32 as i64;
     if i == 0 {
         return Some(fast_atan_poly(th, tl));
     }
@@ -669,8 +670,10 @@ fn fast_atan_core(th: f64, tl: f64) -> Option<(f64, f64)> {
 // `rocq/theories/FastAtan1.v` proves the bound, and that the result is the same with and
 // without an FMA (`fast_atan1_correct` and `fast_atan1_fma`).
 fn fast_atan1(th: f64, tl: f64) -> Option<(f64, f64)> {
-    let kf = (th * 64.0 + SHIFTER) - SHIFTER;
-    let i = kf as i64;
+    // ks is the integer SHIFTER + i, so its low 32 bits are i.
+    let ks = th * 64.0 + SHIFTER;
+    let kf = ks - SHIFTER;
+    let i = ks.to_bits() as i32 as i64;
     if i == 0 {
         // th <= 2^-7, and th^3 B < 2^-15 th, so that Fast2Sum applies.
         let v = th * th;

@@ -130,35 +130,28 @@ Qed.
 
 (** ** The index *)
 
-(** [kf] is the integer [i] nearest [64 th], with [0 <= i <= 64] (the tie
-    at [th = 129/128] goes to the even [SHIFTER + 64]), and [c = i/64]
-    exactly. *)
-Lemma core_index :
+(** The float [kf] is the integer [i] nearest [64 th], with [0 <= i <=
+    64] (the tie at [th = 129/128] goes to the even [SHIFTER + 64]). *)
+Lemma core_kf :
   forall th, is_finite th = true -> bpow radix2 (-61) <= B2R th <= 129 / 128 ->
   let kf := sub (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter)
     DyadicExp.shifter in
   let i := DyadicExp.to_i64 kf in
-  (0 <= i <= 64)%Z /\ Rabs (64 * B2R th - IZR i) <= / 2 /\
-  is_finite (mul kf (from_bits 0x3f90000000000000)) = true /\
-  B2R (mul kf (from_bits 0x3f90000000000000)) = IZR i / 64 /\
-  (i = 0%Z -> B2R th <= bpow radix2 (-7)).
+  is_finite kf = true /\ B2R kf = IZR i /\ (0 <= i <= 64)%Z /\
+  Rabs (64 * B2R th - IZR i) <= / 2.
 Proof.
 intros th Fth Hth. cbv zeta.
 assert (F64 : is_finite (from_bits 0x4050000000000000) = true) by reflexivity.
 assert (FS : is_finite DyadicExp.shifter = true) by reflexivity.
-assert (F6 : is_finite (from_bits 0x3f90000000000000) = true) by reflexivity.
 lit (from_bits 0x4050000000000000) H64.
 lit DyadicExp.shifter HS.
-lit (from_bits 0x3f90000000000000) H6.
 set (W := from_bits 0x4050000000000000) in *.
 set (S := DyadicExp.shifter) in *.
-set (V := from_bits 0x3f90000000000000) in *.
 assert (B : bpow radix2 52 = 4503599627370496 /\ bpow radix2 53 = 9007199254740992 /\
-            bpow radix2 (-7) = / 128 /\ bpow radix2 (-61) = / 2305843009213693952 /\
-            bpow radix2 (-6) = / 64 /\ bpow radix2 6 = 64)
+            bpow radix2 (-61) = / 2305843009213693952 /\ bpow radix2 6 = 64)
   by (repeat split; reflexivity).
-destruct B as (B52 & B53 & B7 & B61 & B6 & B6p).
-rewrite B61 in Hth. rewrite B7.
+destruct B as (B52 & B53 & B61 & B6p).
+rewrite B61 in Hth.
 (* [64 th] is exact. *)
 destruct (mul_below_max th W Fth F64) as (FM & HM & _).
 { apply FastExpReduce.le_MAX, Rabs_le. rewrite H64. lra. }
@@ -213,6 +206,34 @@ set (kf := sub U S) in *.
 assert (Ek : DyadicExp.to_i64 kf = n)
   by (apply FastExpReduce.to_i64_int; [exact Fkf | exact Ekf | lia]).
 rewrite Ek.
+split; [exact Fkf|]. split; [exact Ekf|]. split; [lia | exact Hnr].
+Qed.
+
+(** [kf] is the integer [i] nearest [64 th], with [0 <= i <= 64] (the tie
+    at [th = 129/128] goes to the even [SHIFTER + 64]), and [c = i/64]
+    exactly. *)
+Lemma core_index :
+  forall th, is_finite th = true -> bpow radix2 (-61) <= B2R th <= 129 / 128 ->
+  let kf := sub (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter)
+    DyadicExp.shifter in
+  let i := DyadicExp.to_i64 kf in
+  (0 <= i <= 64)%Z /\ Rabs (64 * B2R th - IZR i) <= / 2 /\
+  is_finite (mul kf (from_bits 0x3f90000000000000)) = true /\
+  B2R (mul kf (from_bits 0x3f90000000000000)) = IZR i / 64 /\
+  (i = 0%Z -> B2R th <= bpow radix2 (-7)).
+Proof.
+intros th Fth Hth.
+pose proof (core_kf th Fth Hth) as K. cbv zeta in K |- *.
+set (kf := sub (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter)
+  DyadicExp.shifter) in *.
+set (n := DyadicExp.to_i64 kf) in *.
+destruct K as (Fkf & Ekf & Hn & Hnr).
+assert (F6 : is_finite (from_bits 0x3f90000000000000) = true) by reflexivity.
+lit (from_bits 0x3f90000000000000) H6.
+set (V := from_bits 0x3f90000000000000) in *.
+assert (B6 : bpow radix2 (-6) = / 64) by reflexivity.
+assert (B7 : bpow radix2 (-7) = / 128) by reflexivity.
+rewrite B7.
 (* [c = n/64] exactly. *)
 assert (Hnb : 0 <= IZR n <= 64) by (split; apply IZR_le; lia).
 destruct (FastExpErr.mul_e kf V Fkf F6) as (Fc & Hc & _).
@@ -228,6 +249,19 @@ assert (Ec : B2R (mul kf V) = IZR n / 64).
   apply Z.abs_lt; split; [lia|]. apply Z.le_lt_trans with 64%Z; [lia | reflexivity]. }
 split; [lia|]. split; [exact Hnr|]. split; [exact Fc|]. split; [exact Ec|].
 intros N0. rewrite N0 in Hnr. apply Rabs_le_inv in Hnr. lra.
+Qed.
+
+(** [ks.to_bits() as i32 as i64] of [fast_atan_core] and [fast_atan1] is
+    the [i] of [core_index] ([FastExpReduce.shifter_bits]). *)
+Lemma core_bits :
+  forall th, is_finite th = true -> bpow radix2 (-61) <= B2R th <= 129 / 128 ->
+  DyadicExp.low_i32 (to_bits (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter)) =
+  DyadicExp.to_i64
+    (sub (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter) DyadicExp.shifter).
+Proof.
+intros th Fth Hth.
+pose proof (core_kf th Fth Hth) as K. cbv zeta in K. destruct K as (Fkf & Ekf & Hi & _).
+apply (FastExpReduce.shifter_bits _ _ Fkf Ekf). lia.
 Qed.
 
 (** ** The steps *)
@@ -833,6 +867,7 @@ Proof.
 intros fma th tl ah al Fth Ftl Hth Htl H.
 pose proof (core_index th Fth Hth) as HI. cbv zeta in HI.
 cbv beta zeta delta [DyadicAtan.fast_atan_core] in H.
+rewrite (core_bits th Fth Hth) in H.
 set (kf := sub (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter)
   DyadicExp.shifter) in H, HI.
 set (i := DyadicExp.to_i64 kf) in H, HI.
@@ -977,6 +1012,7 @@ Proof.
 intros th tl Fth Ftl Hth Htl.
 pose proof (core_index th Fth Hth) as HI. cbv zeta in HI.
 cbv beta zeta delta [DyadicAtan.fast_atan_core].
+rewrite (core_bits th Fth Hth).
 set (kf := sub (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter)
   DyadicExp.shifter) in HI |- *.
 set (i := DyadicExp.to_i64 kf) in HI |- *.

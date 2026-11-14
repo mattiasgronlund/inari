@@ -150,6 +150,10 @@ destruct (fc_range zh G) as [_ Hzh].
 pose proof (fast_exp_r zh zl Fzh Fzl Hzl Hzh) as Hr. cbv zeta in Hr.
 unfold DyadicExp.fast_exp in H. rewrite G in H.
 cbv beta iota zeta delta [negb Fast.fast_two_sum] in H.
+(* The bits of [ks] give [kf as i64] ([shifter_bits]). *)
+pose proof (fast_exp_reduce zh zl Fzh Fzl Hzl Hzh) as K. cbv zeta in K.
+destruct K as (Fkf & Ekf & Hkb & _).
+rewrite (shifter_bits _ _ Fkf Ekf) in H by lia.
 set (kf := sub (add (mul zh (from_bits DyadicExp.INV)) DyadicExp.shifter) DyadicExp.shifter) in *.
 set (k := DyadicExp.to_i64 kf) in *.
 set (rh := sub zh (mul kf (from_bits DyadicExp.C1))) in *.
@@ -246,6 +250,9 @@ assert (Hz0 : Rabs (B2R zero) <= bpow radix2 (-40))
 pose proof (fast_exp_r zh zero Fzh eq_refl Hz0 Hzh) as Hr. cbv zeta in Hr.
 unfold DyadicExp.fast_exp. rewrite G.
 cbv beta iota zeta delta [negb Fast.fast_two_sum].
+pose proof (fast_exp_reduce zh zero Fzh eq_refl Hz0 Hzh) as K. cbv zeta in K.
+destruct K as (Fkf & Ekf & Hkb & _).
+rewrite (shifter_bits _ _ Fkf Ekf) by lia.
 set (kf := sub (add (mul zh (from_bits DyadicExp.INV)) DyadicExp.shifter) DyadicExp.shifter) in *.
 set (k := DyadicExp.to_i64 kf) in *.
 set (rh := sub zh (mul kf (from_bits DyadicExp.C1))) in *.

@@ -18,7 +18,7 @@
     magnitude. *)
 
 From Stdlib Require Import ZArith Reals Lra Lia QArith Qreals.
-From Flocq Require Import Core.Core IEEE754.BinarySingleNaN.
+From Flocq Require Import Core.Core IEEE754.BinarySingleNaN Sterbenz.
 From Inari Require Import Model Elementary Encoding TwoSum TwoProduct FastExpTables.
 From Inari Require ConstTight.
 
@@ -108,6 +108,88 @@ assert (T : Btrunc c = z).
 assert (M : DyadicExp.to_i64 c = Z.max (- 2 ^ 63) (Z.min (2 ^ 63 - 1) (Btrunc c)))
   by (destruct c; try discriminate Fc; reflexivity).
 rewrite M, T. lia.
+Qed.
+
+(** [ks.to_bits() as i32 as i64] is the integer [ks - SHIFTER] where
+    that difference rounds to an integer below 2^31 in magnitude. *)
+Lemma shifter_bits :
+  forall ks z, is_finite (sub ks DyadicExp.shifter) = true ->
+  B2R (sub ks DyadicExp.shifter) = IZR z -> (Z.abs z < 2 ^ 31)%Z ->
+  DyadicExp.low_i32 (to_bits ks) = z.
+Proof.
+intros ks z F Hz Hb.
+(* A NaN or an infinite [ks] gives a NaN or an infinite difference. *)
+assert (Fk : is_finite ks = true).
+{ destruct ks as [s|s| |s m e H]; try reflexivity; exfalso;
+    vm_compute in F; discriminate F. }
+assert (FS : is_finite DyadicExp.shifter = true) by reflexivity.
+lit DyadicExp.shifter HS.
+set (S := DyadicExp.shifter) in *.
+(* The difference is finite, so it did not overflow, and is [RN(ks - S)]. *)
+assert (HR : B2R (sub ks S) = RN (B2R ks - B2R S)).
+{ generalize (@Bminus_correct 53 1024 _ _ mode_NE ks S Fk FS).
+  destruct (Rlt_bool _ _).
+  - intros (HR & _). exact HR.
+  - intros (HO & _). exfalso.
+    revert F HO. unfold sub.
+    destruct (Bminus mode_NE ks S); intros F HO; discriminate. }
+rewrite HR in Hz.
+assert (Hzb : IZR (-2147483648) < IZR z < IZR 2147483648)
+  by (split; apply IZR_lt; lia).
+(* [S / 2 <= ks <= 2 S]: otherwise [RN(ks - S)] is at least [S] or at most
+   [-S / 2], as rounding is monotone and both bounds are floats. *)
+assert (Hlo : B2R S / 2 <= B2R ks).
+{ apply Rnot_lt_le. intros Hlt.
+  assert (RN (B2R ks - B2R S) <= IZR (-3377699720527872)).
+  { apply round_le_generic; [typeclasses eauto .. | apply format_int; lia |]. lra. }
+  lra. }
+assert (Hhi : B2R ks <= 2 * B2R S).
+{ apply Rnot_lt_le. intros Hlt.
+  assert (IZR 6755399441055744 <= RN (B2R ks - B2R S)).
+  { apply round_ge_generic; [typeclasses eauto .. | apply format_int; lia |]. lra. }
+  lra. }
+(* So [ks - S] is exact (Sterbenz's lemma), and [ks = S + z] is an integer
+   in [[2^52, 2^53)]. *)
+assert (Ex : RN (B2R ks - B2R S) = B2R ks - B2R S).
+{ apply round_generic; [typeclasses eauto|].
+  apply sterbenz; [typeclasses eauto .. | apply generic_format_B2R | apply generic_format_B2R |].
+  lra. }
+rewrite Ex in Hz.
+assert (Hks : B2R ks = IZR (6755399441055744 + z)) by (rewrite plus_IZR; lra).
+(* The bits of [ks] are [c = E 2^52 + M] with the sign bit clear, where the
+   biased exponent [E] is 1075, so that the value is [M + 2^52]. *)
+destruct (to_bits_finite ks Fk) as (c & Hc & Hbits).
+destruct (from_bits_finite (Bsign ks) c Hc) as (_ & _ & Hv).
+rewrite <- Hbits, from_to_bits in Hv.
+destruct (magnitude_bounds c (proj1 Hc)) as ((Hm0 & Hmlt) & Hmge).
+assert (Hs : Bsign ks = false).
+{ destruct (Bsign ks); [|reflexivity]. exfalso.
+  assert (0 < B2R ks) by (rewrite Hks, plus_IZR; lra).
+  lra. }
+rewrite Hs in Hv, Hbits. cbv beta iota in Hv.
+assert (B52 : bpow radix2 52 = 4503599627370496) by reflexivity.
+assert (B53 : bpow radix2 53 = 9007199254740992) by reflexivity.
+assert (HE : (c / 2 ^ 52 = 1075)%Z).
+{ assert (H1 : (52 < c / 2 ^ 52 - 1022)%Z).
+  { apply (lt_bpow radix2). apply Rle_lt_trans with (2 := Hmlt).
+    rewrite B52, <- Hv, Hks, plus_IZR. lra. }
+  assert (HE0 : (c / 2 ^ 52 <> 0)%Z) by lia.
+  assert (H2 : (c / 2 ^ 52 - 1023 < 53)%Z).
+  { apply (lt_bpow radix2). apply Rle_lt_trans with (1 := Hmge HE0).
+    rewrite B53, <- Hv, Hks, plus_IZR. lra. }
+  lia. }
+destruct (split_52 c (proj1 Hc)) as (Hcs & _ & HM).
+set (M := (c mod 2 ^ 52)%Z) in *.
+rewrite Hcs, HE, magnitude_split in Hv by lia.
+change (1075 =? 0)%Z with false in Hv. change (Z.max 1075 1 - 1075)%Z with 0%Z in Hv.
+cbv iota in Hv. unfold F2R in Hv. cbn [Fnum Fexp] in Hv.
+change (bpow radix2 0) with 1 in Hv. rewrite Rmult_1_r, Hks in Hv.
+apply eq_IZR in Hv.
+(* [to_bits ks = 1075 2^52 + 2^51 + z], which is [z] modulo 2^32. *)
+assert (Hc2 : (to_bits ks = z + (1075 * 2 ^ 20 + 2 ^ 19) * 2 ^ 32)%Z).
+{ rewrite Hbits. unfold sign_bit. cbv iota. lia. }
+rewrite Hc2. unfold DyadicExp.low_i32. rewrite Z.mod_add by lia.
+destruct (Z.ltb_spec (z mod 2 ^ 32) (2 ^ 31)); Z.div_mod_to_equations; lia.
 Qed.
 
 (** The operations below never come near [MAX]. *)

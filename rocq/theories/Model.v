@@ -1976,6 +1976,11 @@ Definition to_i64 (c : f64) : Z :=
   | _ => Z.max (- 2 ^ 63) (Z.min (2 ^ 63 - 1) (Btrunc c))
   end.
 
+(** [v as i32] of a [u64] [v], which keeps its low 32 bits, read in
+    two's complement. *)
+Definition low_i32 (v : Z) : Z :=
+  let w := v mod 2 ^ 32 in if w <? 2 ^ 31 then w else w - 2 ^ 32.
+
 (** [fn params<N>() -> (i64, u64)]: (j, K) *)
 Definition params (n : nat) : Z * Z :=
   if Nat.eqb n 1 then (4, 11) else
@@ -2336,19 +2341,20 @@ Definition tbl (t : list (Z * Z)) (i : Z) : f64 * f64 :=
   let '(h, l) := nth (Z.to_nat i) t (0, 0) in (from_bits h, from_bits l).
 
 (** [pub(super) fn fast_exp(zh: f64, zl: f64) -> Option<(f64, f64, i64)>], where
-    [(-707.0..=709.0).contains(&zh)] is [-707.0 <= zh && zh <= 709.0], [kf
-    as i64] is [to_i64 kf], [k & 63] and [(k >> 6) & 63] are [Z.land] and
-    [Z.shiftr] of the integer [k], [k >> 12] is [Z.shiftr k 12], and [fma]
-    is [HAS_FMA] (see the section [Driver]). It never panics, so its
-    [option] is Rust's [Option]. [FastExpReduce.v] and [FastExpCore.v]
-    prove it. *)
+    [(-707.0..=709.0).contains(&zh)] is [-707.0 <= zh && zh <= 709.0],
+    [ks.to_bits() as i32 as i64] is [low_i32 (to_bits ks)], [k & 63] and
+    [(k >> 6) & 63] are [Z.land] and [Z.shiftr] of the integer [k], [k >>
+    12] is [Z.shiftr k 12], and [fma] is [HAS_FMA] (see the section
+    [Driver]). It never panics, so its [option] is Rust's [Option].
+    [FastExpReduce.v] and [FastExpCore.v] prove it. *)
 Definition fast_exp (fma : bool) (zh zl : f64) : option (f64 * f64 * Z) :=
   if negb (le (from_bits 0xc086180000000000) (* -707.0 *) zh
            && le zh (from_bits 0x4086280000000000) (* 709.0 *)) then None
   else
     let '(c1, c2) := (from_bits C1, from_bits C2) in
-    let kf := sub (add (mul zh (from_bits INV)) shifter) shifter in
-    let k := to_i64 kf in
+    let ks := add (mul zh (from_bits INV)) shifter in
+    let kf := sub ks shifter in
+    let k := low_i32 (to_bits ks) in
     let rh := sub zh (mul kf c1) in
     let rl := sub zl (mul kf c2) in
     let rr := add rh rl in
@@ -4141,12 +4147,12 @@ Definition fast_atan_poly (fma : bool) (uh ul : f64) : f64 * f64 :=
 (** [fn fast_atan_core(th: f64, tl: f64) -> Option<(f64, f64)>], where
     the literals [64.0] and [1.0 / 64.0], which Rust folds to 2^-6, are
     [from_bits 0x4050000000000000] and [from_bits 0x3f90000000000000],
-    [kf as i64] is [DyadicExp.to_i64 kf], and the early [return]s are the
-    [if]s. [FastAtanCore.v] proves it. *)
+    [ks.to_bits() as i32 as i64] is [DyadicExp.low_i32 (to_bits ks)], and
+    the early [return]s are the [if]s. [FastAtanCore.v] proves it. *)
 Definition fast_atan_core (fma : bool) (th tl : f64) : option (f64 * f64) :=
-  let kf :=
-    sub (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter) DyadicExp.shifter in
-  let i := DyadicExp.to_i64 kf in
+  let ks := add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter in
+  let kf := sub ks DyadicExp.shifter in
+  let i := DyadicExp.low_i32 (to_bits ks) in
   if Z.eqb i 0 then Some (fast_atan_poly fma th tl) else
   let '(gh, gl) := atbl i in
   let c := mul kf (from_bits 0x3f90000000000000) in
@@ -4168,12 +4174,12 @@ Definition fast_atan_core (fma : bool) (th tl : f64) : option (f64 * f64) :=
 Definition err62 : f64 := from_bits 0x3c10000000000000.
 
 (** [fn fast_atan1(th: f64, tl: f64) -> Option<(f64, f64)>], with the
-    literals and [kf as i64] of [fast_atan_core], and the early [return]s
-    as the [if]s. [FastAtan1.v] proves it. *)
+    literals and [ks.to_bits() as i32 as i64] of [fast_atan_core], and the
+    early [return]s as the [if]s. [FastAtan1.v] proves it. *)
 Definition fast_atan1 (fma : bool) (th tl : f64) : option (f64 * f64) :=
-  let kf :=
-    sub (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter) DyadicExp.shifter in
-  let i := DyadicExp.to_i64 kf in
+  let ks := add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter in
+  let kf := sub ks DyadicExp.shifter in
+  let i := DyadicExp.low_i32 (to_bits ks) in
   if Z.eqb i 0 then
     let v := mul th th in
     let b := sub (from_bits (fst A3))
@@ -5026,16 +5032,17 @@ Definition sc (t : list (Z * Z * Z * Z)) (i : Z) : f64 * f64 * f64 * f64 :=
   (from_bits a, from_bits b, from_bits c, from_bits d).
 
 (** [fn fast_reduce(x: f64) -> Option<(i64, f64, f64, f64)>], where
-    [x.abs()] is [fabs x] and [kf as i64] is [DyadicExp.to_i64 kf].
-    [FastTrigReduce.v] proves it. *)
+    [x.abs()] is [fabs x] and [ks.to_bits() as i32 as i64] is
+    [DyadicExp.low_i32 (to_bits ks)]. [FastTrigReduce.v] proves it. *)
 Definition fast_reduce (x : f64) : option (Z * f64 * f64 * f64) :=
   if is_nan x || ge (fabs x) limit then None
   else
-    let kf := sub (add (mul x (from_bits INV)) shifter) shifter in
+    let ks := add (mul x (from_bits INV)) shifter in
+    let kf := sub ks shifter in
     let '(u1, u2) := (from_bits U1, from_bits U2) in
     let rh := sub (sub x (mul kf u1)) (mul kf u2) in
     let rl := opp (mul kf (from_bits U3)) in
-    Some (DyadicExp.to_i64 kf, rh, rl, add rh rl).
+    Some (DyadicExp.low_i32 (to_bits ks), rh, rl, add rh rl).
 
 (** [fn fast_mul(ah: f64, al: f64, bh: f64, bl: f64) -> (f64, f64)], where
     [fma] is [HAS_FMA] (see the section [Driver]). *)

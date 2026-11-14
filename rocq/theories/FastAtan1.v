@@ -203,6 +203,7 @@ Proof.
 intros fma th tl ah al Fth Ftl Hth Htl H.
 pose proof (core_index th Fth Hth) as HI. cbv zeta in HI.
 cbv beta zeta delta [DyadicAtan.fast_atan1] in H.
+rewrite (core_bits th Fth Hth) in H.
 set (kf := sub (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter)
   DyadicExp.shifter) in H, HI.
 set (i := DyadicExp.to_i64 kf) in H, HI.
@@ -382,6 +383,7 @@ Proof.
 intros th tl Fth Ftl Hth Htl.
 pose proof (core_index th Fth Hth) as HI. cbv zeta in HI.
 cbv beta zeta delta [DyadicAtan.fast_atan1].
+rewrite (core_bits th Fth Hth).
 set (kf := sub (add (mul th (from_bits 0x4050000000000000)) DyadicExp.shifter)
   DyadicExp.shifter) in HI |- *.
 set (i := DyadicExp.to_i64 kf) in HI |- *.

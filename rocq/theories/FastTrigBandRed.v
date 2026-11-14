@@ -154,6 +154,7 @@ destruct (is_nan x || ge (fabs x) DyadicTrig.limit); [discriminate H|].
 cbv beta iota zeta in H.
 injection H as En Erh Erl Err. subst n rh rl rr.
 pose proof (reduce_k x Fx Hx) as K. cbv zeta in K. destruct K as (Fkf & Ekf & Hn & Hb).
+rewrite (FastExpReduce.shifter_bits _ _ Fkf Ekf) by lia.
 pose proof (reduce_rh x _ _ Fx Hx Fkf Ekf Hn Hb) as R. cbv zeta in R.
 destruct R as (_ & Erh & _).
 eexists. split; [exact Fkf|]. split; [exact Ekf|]. split; [exact Hn|].

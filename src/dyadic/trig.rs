@@ -488,7 +488,8 @@ fn fast_reduce(x: f64) -> Option<(i64, f64, f64, f64)> {
     // n is x / u rounded to an integer up to the roundings of `INV` and of the product, and
     // |n| < 2^27: |x INV| < 2^51, so adding and subtracting `SHIFTER` rounds RN(x INV) to an
     // integer, within 1/2 of it.
-    let kf = (x * f64::from_bits(INV) + SHIFTER) - SHIFTER;
+    let ks = x * f64::from_bits(INV) + SHIFTER;
+    let kf = ks - SHIFTER;
     // rh = x - n U1 - n U2 exactly: both products are exact, and so are both differences. At
     // n = 0 they subtract 0. Elsewhere |x| > 2^-12, so that x, n U1 and n U2 are multiples of
     // 2^g, the smaller of the quantum of x and 2^-60, and both differences are below 2^-7 and
@@ -497,7 +498,8 @@ fn fast_reduce(x: f64) -> Option<(i64, f64, f64, f64)> {
     let (u1, u2) = (f64::from_bits(U1), f64::from_bits(U2));
     let rh = (x - kf * u1) - kf * u2;
     let rl = -(kf * f64::from_bits(U3));
-    Some((kf as i64, rh, rl, rh + rl))
+    // ks is the integer SHIFTER + n, so its low 32 bits are n.
+    Some((ks.to_bits() as i32 as i64, rh, rl, rh + rl))
 }
 
 // (ah + al) (bh + bl) as p + e, with p = RN(ah bh), from the exact error of that product

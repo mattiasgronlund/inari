@@ -490,8 +490,10 @@ pub(super) fn fast_exp(zh: f64, zl: f64) -> Option<(f64, f64, i64)> {
     // k is zh / c rounded to an integer up to the roundings of `INV` and of the product, and
     // |k| < 2^22: |zh INV| < 2^51, so adding and subtracting `SHIFTER` rounds RN(zh INV) to an
     // integer, within 1/2 of it.
-    let kf = (zh * f64::from_bits(INV) + SHIFTER) - SHIFTER;
-    let k = kf as i64;
+    let ks = zh * f64::from_bits(INV) + SHIFTER;
+    let kf = ks - SHIFTER;
+    // ks is the integer SHIFTER + k, so its low 32 bits are k.
+    let k = ks.to_bits() as i32 as i64;
     // r = z - k c = rh + rl up to the rounding of rl and |k| |c - C1 - C2|. kf C1 is exact, and
     // so is rh: zh and kf C1 are multiples of 2^-66 where k != 0, and |rh| < 2^-13.
     let rh = zh - kf * c1;

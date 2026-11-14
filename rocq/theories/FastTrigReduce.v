@@ -329,6 +329,8 @@ assert (Hx : Rabs (B2R x) < 65536).
 cbv beta iota zeta in H.
 injection H as En Erh Erl Err. subst n rh rl rr.
 pose proof (reduce_k x Fx Hx) as K. cbv zeta in K. destruct K as (Fkf & Ekf & Hn & Hb).
+(* The bits of [ks] give [kf as i64] ([shifter_bits]). *)
+rewrite (shifter_bits _ _ Fkf Ekf) by lia.
 set (kf := sub (add (mul x (from_bits DyadicTrig.INV)) DyadicTrig.shifter)
               DyadicTrig.shifter) in *.
 set (n := DyadicExp.to_i64 kf) in *.
