@@ -514,6 +514,8 @@ fn fast_mul(ah: f64, al: f64, bh: f64, bl: f64) -> (f64, f64) {
 // x, NaN included, where n mod 2048 = 0, which `fast_reduce_band_big` reduces, and where
 // |rh| < 2^-65.
 // `rocq/theories/FastTrigBig.v` proves these bounds (`fast_reduce_big_correct`).
+// Always inlined, into `fast_reduce_any`, whose comment gives the count of the two attributes.
+#[inline(always)]
 fn fast_reduce_big(x: f64) -> Option<(i64, f64, f64, f64)> {
     // |x| = m 2^e, with m in [2^52, 2^53) and e = be - 1075 for the biased exponent be, which
     // is in [1039, 2046] for a finite |x| >= 2^16.
@@ -575,8 +577,23 @@ fn fast_reduce_big(x: f64) -> Option<(i64, f64, f64, f64)> {
 // As `fast_reduce_big` never gives an n with n mod 2048 = 0, n = 0 comes only from
 // `fast_reduce`, where |x| <= u/2 (1 + 2^-24), as `fast_sin`, `fast_cos` and `fast_tan` take it.
 // `rocq/theories/FastTrigBig.v` proves it (`fast_reduce_any_correct`).
+// Always inlined, as is `fast_reduce_big`. This was `fast_reduce(x).or_else(||
+// fast_reduce_big(x))` with neither attribute, which LLVM kept out of line with the two inlined
+// into it. With the `match` and both attributes, `sin`, `cos` and `tan` take 13 to 25, 18 to 38
+// and 19 to 24 fewer instructions per call, in each rounding, over 4,096 calls on each of five
+// sets of arguments: uniform in [0.1, 10) and [-10, 10), of either sign with a magnitude
+// log-uniform in [2^-30, 2^1024) and in [2^60, 2^1024), and the function's hard cases in
+// `src/cr/tests/mpfr/hard_cases.wc`, taken in turn, in a crate that links `cr` (cachegrind,
+// row 121). With
+// `or_else` and both attributes, `Option::or_else` stayed out of line, and in the release build
+// of the tests the three took 24 to 31 more instructions per call on the first two sets than
+// with neither attribute.
+#[inline(always)]
 fn fast_reduce_any(x: f64) -> Option<(i64, f64, f64, f64)> {
-    fast_reduce(x).or_else(|| fast_reduce_big(x))
+    match fast_reduce(x) {
+        Some(r) => Some(r),
+        None => fast_reduce_big(x),
+    }
 }
 
 // (n, rh, rl, rr) for a finite x with |x| >= `LIMIT` and n mod 2048 = 0, where

@@ -5108,8 +5108,8 @@ Definition fast_reduce_big (fma : bool) (x : f64) : option (Z * f64 * f64 * f64)
   if lt (fabs rh) (from_bits 0x3be0000000000000) then None
   else Some (n, rh, rl, add rh rl).
 
-(** [fn fast_reduce_any(x: f64) -> Option<(i64, f64, f64, f64)>], where
-    [or_else] is a [match]. [FastTrigBig.v] proves it. *)
+(** [fn fast_reduce_any(x: f64) -> Option<(i64, f64, f64, f64)>].
+    [FastTrigBig.v] proves it. *)
 Definition fast_reduce_any (fma : bool) (x : f64) : option (Z * f64 * f64 * f64) :=
   match fast_reduce x with
   | Some r => Some r
